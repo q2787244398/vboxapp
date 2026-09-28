@@ -17,7 +17,6 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   List<Vod> _recommendations = [];
   List<Vod> _hotVideos = [];
-  List<VodSite> _sites = [];
   bool _isLoading = true;
   String? _error;
 
@@ -46,9 +45,6 @@ class _HomePageState extends State<HomePage> {
     try {
       final recs = await nodeService.getHomeVideos();
       final hot = await nodeService.getHotVideos();
-      try {
-        _sites = await nodeService.getSites();
-      } catch (_) {}
 
       setState(() {
         _recommendations = recs;

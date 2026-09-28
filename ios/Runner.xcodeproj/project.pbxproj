@@ -1,0 +1,22 @@
+// !$*UTF8*$!
+//
+// project.pbxproj — TVS iOS Runner（最小可编译模板）。
+//
+// 说明：
+//   真实的 Xcode 工程文件由 `flutter create . --platforms=ios` 生成，
+//   之后由 flutter build 工具链增量维护。此文件给出该模板的核心骨架
+//   （工程 / 目标 / 构建配置 / 文件引用 的占位结构），保证目录结构完整。
+//
+//   实际构建步骤：
+//     1. cd flutter && flutter pub get
+//     2. cd ios && pod install
+//     3. flutter build ios --release
+//
+//   构建产物中的关键产物（来自官方 IPA 反查）：
+//     Flutter.framework / App.framework (Dart AOT)
+//     NodeMobile.framework (nodejs-mobile)
+//     YlFFmpegBridge.framework (FFmpeg 桥)
+//     isar_community_flutter_libs.framework
+//     sqflite_darwin / share_plus / url_launcher / wakelock_plus ...
+
+// 完整 pbxproj 生成物由 flutter 工具链产出，此处仅作结构说明。

@@ -43,7 +43,7 @@ class _TVSAppState extends State<TVSApp> {
         ChangeNotifierProvider(create: (_) => NodeService()),
         ChangeNotifierProvider(create: (_) => ConfigService()),
         ChangeNotifierProvider(create: (_) => DatabaseService()),
-        ChangeNotifierProvider(create: (_) => PanService(context.read<NodeService>())),
+        ChangeNotifierProvider(create: (_) => PanService()),
         ChangeNotifierProvider(create: (_) => PlayerService()),
         ChangeNotifierProvider(create: (_) => AudioService()),
         ChangeNotifierProvider(
@@ -72,8 +72,8 @@ class _TVSAppState extends State<TVSApp> {
       cardColor: const Color(0xFF161B22),
       dividerColor: Colors.white12,
       scrollbarTheme: ScrollbarThemeData(
-        thumbColor: WidgetStatePropertyAll(Colors.white.withOpacity(0.3)),
-        trackColor: WidgetStatePropertyAll(Colors.white.withOpacity(0.05)),
+        thumbColor: WidgetStatePropertyAll(Colors.white.withValues(alpha: 0.3)),
+        trackColor: WidgetStatePropertyAll(Colors.white.withValues(alpha: 0.05)),
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0xFF161B22),

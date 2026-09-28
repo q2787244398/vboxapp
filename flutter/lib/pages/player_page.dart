@@ -18,7 +18,6 @@ class PlayerPage extends StatefulWidget {
 }
 
 class _PlayerPageState extends State<PlayerPage> {
-  bool _ready = false;
   String? _playError;
 
   @override
@@ -37,24 +36,21 @@ class _PlayerPageState extends State<PlayerPage> {
         vod: vod,
         playSources: vod.playSources,
       );
-      if (mounted) setState(() => _ready = true);
     } else {
       // Resolve via spider engine when only the vod id is known.
       final node = context.read<NodeService>();
       if (vod?.siteKey != null && vod?.id != null) {
         final url = await node.getPlayUrl(
           vod!.siteKey!,
-          vod.id!,
+          vod.id,
           playFrom: vod.playFrom,
         );
         if (url != null && url.isNotEmpty) {
           await player.play(url, vod: vod, playSources: vod.playSources);
-          if (mounted) setState(() => _ready = true);
         } else {
           if (mounted) {
             setState(() {
               _playError = '未能解析播放链接';
-              _ready = true;
             });
           }
         }
@@ -139,7 +135,7 @@ class _PlayerPageState extends State<PlayerPage> {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.black.withOpacity(0.65), Colors.transparent],
+          colors: [Colors.black.withValues(alpha: 0.65), Colors.transparent],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
@@ -182,7 +178,7 @@ class _PlayerPageState extends State<PlayerPage> {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.transparent, Colors.black.withOpacity(0.65)],
+          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.65)],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),

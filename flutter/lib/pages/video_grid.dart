@@ -90,7 +90,7 @@ class VideoCard extends StatelessWidget {
                                 const ColorFilter.mode(Colors.black26, BlendMode.darken),
                           )
                         : null,
-                    color: vod.pic == null ? Colors.white.withOpacity(0.06) : null,
+                    color: vod.pic == null ? Colors.white.withValues(alpha: 0.06) : null,
                   ),
                   child: vod.pic == null
                       ? const Icon(Icons.video_library, color: Colors.white30)

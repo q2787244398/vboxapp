@@ -40,7 +40,7 @@ class _AudioPlayerPageState extends State<AudioPlayerPage> {
                   width: 200,
                   height: 200,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
+                    color: Colors.white.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(16),
                     image: audio.currentArtwork != null
                         ? DecorationImage(

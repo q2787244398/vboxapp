@@ -1,0 +1,31 @@
+#include <windows.h>
+#include <tchar.h>
+#include <shellapi.h>
+
+// TVS Windows 应用图标与版本信息。
+VS_VERSION_INFO_VERSION 1
+FILEVERSION 1,2,1,0
+PRODUCTVERSION 1,2,1,0
+FILEFLAGMASK 0x3F
+FILEOS 0x40004
+FILETYPE VFT_APP
+FILESUBTYPE 0
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      KEY "FileDescription", "TVS"
+      KEY "FileVersion", "1.2.1"
+      KEY "InternalName", "TVS"
+      KEY "LegalCopyright", "Copyright (C) 2026 TVS"
+      KEY "OriginalFilename", "tvs.exe"
+      KEY "ProductName", "TVS"
+      KEY "ProductVersion", "1.2.1"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 1200
+  END
+END

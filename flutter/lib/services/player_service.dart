@@ -12,8 +12,6 @@ enum PlayerStateType { idle, loading, playing, paused, ended, error }
 /// AVPlayer + VideoToolbox backends). State changes flow back through the
 /// Pigeon callbacks and are reflected here so the UI can react.
 class PlayerService with ChangeNotifier {
-  static const MethodChannel _channel =
-      MethodChannel('dev.flutter.pigeon.yl_player_android');
 
   PlayerStateType _state = PlayerStateType.idle;
   String? _currentUrl;

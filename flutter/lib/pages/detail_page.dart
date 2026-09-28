@@ -30,7 +30,6 @@ class _DetailPageState extends State<DetailPage> {
   int _selectedSourceIndex = 0;
   int _selectedEpisodeIndex = 0;
   bool _isLoading = true;
-  String? _error;
 
   @override
   void initState() {
@@ -42,7 +41,6 @@ class _DetailPageState extends State<DetailPage> {
     final nodeService = context.read<NodeService>();
     setState(() {
       _isLoading = true;
-      _error = null;
       _vod = widget.initialVod;
     });
 
@@ -63,7 +61,7 @@ class _DetailPageState extends State<DetailPage> {
       if (!mounted) return;
 
       final vod = Vod.fromJson({
-        ...?widget.initialVod?.toJson(),
+        ...widget.initialVod?.toJson(),
         ...?detail,
       });
 
@@ -85,7 +83,6 @@ class _DetailPageState extends State<DetailPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
         _isLoading = false;
       });
     }
@@ -140,10 +137,10 @@ class _DetailPageState extends State<DetailPage> {
                       vod!.pic!,
                       fit: BoxFit.cover,
                       errorBuilder: (context, e, stack) => Container(
-                            color: Colors.white.withOpacity(0.05),
+                            color: Colors.white.withValues(alpha: 0.05),
                           ),
                     )
-                  : Container(color: Colors.white.withOpacity(0.05)),
+                  : Container(color: Colors.white.withValues(alpha: 0.05)),
             ),
           ),
           SliverToBoxAdapter(
@@ -268,7 +265,7 @@ class _DetailPageState extends State<DetailPage> {
       label: Text(label, style: const TextStyle(fontSize: 12)),
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       visualDensity: const VisualDensity(horizontal: -2, vertical: -4),
-      side: BorderSide(color: Colors.white.withOpacity(0.15)),
+      side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
     );
   }
 }

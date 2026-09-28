@@ -17,7 +17,6 @@ class NodeService with ChangeNotifier {
       MethodChannel('com.example.tvs/node_bridge');
 
   static const int _defaultPort = 9775;
-  static const int _startupTimeoutMs = 45000;
 
   bool _isRunning = false;
   int _port = 0;

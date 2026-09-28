@@ -3,13 +3,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
-import 'node_service.dart';
-
 /// 14 个网盘 Provider 的 API 客户端。
 /// 端点与鉴权方式来自逆向还原包 `pan-apis.md`。
 class PanService with ChangeNotifier {
-  final NodeService _node;
-  PanService(this._node);
 
   // ── 115 云盘 ──────────────────────────────────────────────
   static const _y115Base = 'https://webapi.115.com';
