@@ -49,7 +49,10 @@ flutter:
     - assets/js/config-center-dpad.js
     - assets/js/node-intl-polyfill.js
     - assets/images/logo.png
-  fonts:
-    - family: MaterialIcons
-      fonts:
-        - asset: assets/fonts/MaterialIcons-Regular.otf
+
+# 说明：此前这里用 assets/fonts/MaterialIcons-Regular.otf（仅 99 个字形的
+# 子集字体）覆盖了 MaterialIcons 字体族，导致 release 构建的图标
+# tree-shaking 因缺少 Icons.search_outlined(0xF34B) 等码位而失败
+# （IconTreeShakerException: Font subsetting failed）。
+# 标准 Flutter 工程无需显式声明该字体，uses-material-design: true 已让
+# Flutter 注入 SDK 中完整的 MaterialIcons 字体，字形齐全且可正常子集化。
