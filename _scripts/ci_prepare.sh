@@ -41,6 +41,33 @@ if [ -n "${VERSION}" ]; then
   python3 "${HERE}/bump_version.py" --set "${VERSION}"
 fi
 
+# iOS: CI 上没有 Apple 开发者证书。即使 flutter build 传了 --no-codesign，
+# xcodebuild 仍会因为没有 Development Team 而失败
+# （"Building a deployable iOS app requires a selected Development Team..."）。
+# 因此必须直接在 Xcode 工程里关掉代码签名。
+if [ "${PLATFORM}" = "ios" ]; then
+  echo "==> 关闭 iOS 代码签名（CI 无证书）"
+  if ! ruby -e 'require "xcodeproj"' >/dev/null 2>&1; then
+    echo "    安装 xcodeproj gem..."
+    gem install --no-document xcodeproj >/dev/null 2>&1 || true
+  fi
+  ruby - <<'RUBY'
+require 'xcodeproj'
+project = Xcodeproj::Project.open('ios/Runner.xcodeproj')
+project.targets.each do |target|
+  target.build_configurations.each do |config|
+    config.build_settings['CODE_SIGNING_ALLOWED']   = 'NO'
+    config.build_settings['CODE_SIGNING_REQUIRED']  = 'NO'
+    config.build_settings['CODE_SIGN_IDENTITY']     = ''
+    config.build_settings['CODE_SIGN_ENTITLEMENTS'] = ''
+    config.build_settings['DEVELOPMENT_TEAM']       = ''
+  end
+end
+project.save
+puts "    已关闭签名: #{project.targets.map(&:name).join(', ')}"
+RUBY
+fi
+
 # iOS / macOS: 自定义 Swift 桥接文件不会被 flutter create 自动加入 Xcode 工程。
 # 当前阶段它们不参与编译（不影响四端构建）；接入见仓库 README。
 if [ "${PLATFORM}" = "ios" ] || [ "${PLATFORM}" = "macos" ]; then

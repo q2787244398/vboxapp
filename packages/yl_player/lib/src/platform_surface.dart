@@ -10,7 +10,7 @@ class YlPlayerView extends StatelessWidget {
   final int surfaceId;
   final BoxConstraints? constraints;
 
-  const YlPlayerView({super.key, this.surfaceId, this.constraints});
+  const YlPlayerView({super.key, this.surfaceId = 0, this.constraints});
 
   @override
   Widget build(BuildContext context) {

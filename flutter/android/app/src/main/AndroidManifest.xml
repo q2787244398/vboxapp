@@ -92,6 +92,13 @@
                 android:resource="@xml/provider_paths" />
         </provider>
 
+        <!-- Flutter 以此判定 v2 embedding。缺失会被判为已删除的 v1 embedding
+             而直接构建失败（见 flutter_tools/lib/src/project.dart computeEmbeddingVersion）。
+             flutter create 生成的模板含此项，但本项目 manifest 已存在会被跳过，故必须显式声明。 -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
         <meta-data
             android:name="io.flutter.embedding.default_environment"
             android:value="release" />

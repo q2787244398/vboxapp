@@ -69,6 +69,14 @@ jobs:
         working-directory: flutter
         run: flutter analyze --no-fatal-infos
 
+      # 插件包是独立 package，flutter analyze 不会覆盖它。
+      # 之前 macOS 构建就因这里的 const 默认值错误失败，故单独分析。
+      - name: flutter analyze (yl_player plugin)
+        working-directory: packages/yl_player
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos
+
   # ---------- 3. 四端并行编译 ----------
   build:
     needs: [version, analyze]
