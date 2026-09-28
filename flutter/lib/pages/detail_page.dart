@@ -61,8 +61,8 @@ class _DetailPageState extends State<DetailPage> {
       if (!mounted) return;
 
       final vod = Vod.fromJson({
-        ...widget.initialVod?.toJson(),
-        ...?detail,
+        ...?widget.initialVod?.toJson(),
+        ...detail,
       });
 
       final sources = (detail['list'] as List<dynamic>?)
