@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <application
+        android:name=".TVSApplication"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="TVS"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.TVS"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|layoutDirection|fontScale|keyboardHidden|keyboard|navigation|touchscreen"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="fullUser"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ConfigCenterActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|layoutDirection|fontScale|keyboardHidden|keyboard|navigation|touchscreen"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="fullUser"
+            android:theme="@style/Theme.TVS.ConfigCenter"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name="io.flutter.plugins.urllauncher.WebViewActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|layoutDirection|fontScale|keyboardHidden|keyboard|navigation|touchscreen"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="fullUser"
+            android:windowSoftInputMode="adjustResize" />
+
+        <service
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="dev.fluttercommunity.plus.share.SharePlusPendingIntent"
+            android:exported="false" />
+
+        <receiver
+            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+            android:exported="false"
+            android:permission="com.example.tvs.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION">
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+            </intent-filter>
+        </receiver>
+
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="com.example.tvs.update.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_paths" />
+        </provider>
+
+        <meta-data
+            android:name="io.flutter.embedding.default_environment"
+            android:value="release" />
+
+        <meta-data
+            android:name="com.example.tvs.config_center_launcher"
+            android:value="true" />
+
+    </application>
+</manifest>

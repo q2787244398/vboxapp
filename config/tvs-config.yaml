@@ -1,0 +1,79 @@
+# TVS Spider Configuration
+
+# Node.js engine settings
+node:
+  port: 9775
+  dart_port: 9776
+  timeout: 45000
+
+# Spider settings
+spider:
+  bundle: "spider.js"
+  auto_reload: true
+  max_retries: 3
+
+# API settings
+api:
+  host: "https://api.example.com"
+  timeout: 10000
+
+# Player settings
+player:
+  engine: "yl_player"
+  hw_decoder: true
+  buffer_ms: 2000
+  auto_play: true
+
+# Network settings
+network:
+  enable_proxy: false
+  proxy_url: ""
+  max_concurrent: 3
+
+# Cloud storage
+pans:
+  ali:
+    token: ""
+  baidu:
+    cookie: ""
+  quark:
+    cookie: ""
+  uc:
+    cookie: ""
+    token: ""
+    ut: ""
+  xunlei:
+    username: ""
+    password: ""
+  y115:
+    cookie: ""
+  tianyi:
+    username: ""
+    password: ""
+  pikpak:
+    username: ""
+    email: ""
+    password: ""
+    refresh_token: ""
+    device_id: ""
+    user_id: ""
+  pan123:
+    username: ""
+    password: ""
+
+# UI settings
+ui:
+  theme: "system"
+  display_mode: "grid"
+  show_cover: true
+  default_site: ""
+  default_play_from: ""
+
+# History
+history:
+  play_history_limit: 100
+
+# Features
+features:
+  enable_danmu: false
+  enable_debug: false

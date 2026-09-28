@@ -1,0 +1,50 @@
+# ---- Dart / Flutter ----
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+**/*.iml
+.idea/
+.vscode/
+
+# Flutter 生成的临时文件（每次构建由 flutter 工具链重新生成）
+flutter/ios/Flutter/Generated.xcconfig
+flutter/ios/Flutter/flutter_export_environment.sh
+flutter/ios/Flutter/ephemeral/
+flutter/macos/Flutter/ephemeral/
+flutter/windows/flutter/ephemeral/
+flutter/linux/flutter/ephemeral/
+**/GeneratedPluginRegistrant.*
+**/generated_plugin_registrant.*
+**/generated_plugins.cmake
+**/generated_plugins.h
+
+# CocoaPods
+**/Pods/
+**/.symlinks/
+flutter/ios/Runner.xcworkspace/xcshareddata/swiftpm/
+Pods/
+
+# ---- Node.js ----
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ---- 构建产物 ----
+*.apk
+*.aab
+*.ipa
+*.app/
+*.dmg
+Release/
+Debug/
+
+# ---- 系统文件 ----
+.DS_Store
+Thumbs.db
+*.swp
+
+# ---- 运行时数据（含设备指纹/凭据，不入库）----
+node/db.json
+node/*.local.json

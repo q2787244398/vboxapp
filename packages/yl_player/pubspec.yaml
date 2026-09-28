@@ -1,0 +1,22 @@
+name: yl_player
+description: Cross-platform video player plugin (MediaCodec / AVPlayer+VideoToolbox / FFmpeg).
+version: 2.0.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.ylplayer.yl_player_android
+        pluginClass: YlPlayerPlugin
+      ios:
+        pluginClass: YlPlayerPlugin
+      macos:
+        pluginClass: YlPlayerPlugin

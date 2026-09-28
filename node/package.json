@@ -1,0 +1,20 @@
+{
+  "name": "tvs-spider",
+  "version": "1.2.1",
+  "description": "TVS CatVod Spider Engine",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "fastify": "^4.26.0",
+    "node-intl-polyfill": "file:./assets/js/node-intl-polyfill.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "TVS",
+  "license": "MIT"
+}

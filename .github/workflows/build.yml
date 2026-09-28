@@ -1,0 +1,148 @@
+name: Build
+
+# 每次 main 分支代码变动 -> 自动递增版本号 -> 四端并行编译 -> 打 tag 发 Release
+# 版本号规则: pubspec.yaml 的 `version: X.Y.Z+N`，每次构建 +1
+#   Flutter 会把该版本自动注入 Android / iOS / macOS；
+#   Windows 的 Runner.rc 由 _scripts/bump_version.py 单独对齐。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tvs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------- 1. 计算本次构建的版本号 ----------
+  version:
+    if: ${{ !contains(github.event.head_commit.message || '', '[skip ci]') }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      build: ${{ steps.next.outputs.build }}
+      full: ${{ steps.next.outputs.full }}
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute next version
+        id: next
+        run: |
+          out="$(python3 _scripts/bump_version.py --dry-run)"
+          echo "$out"
+          version="$(printf '%s\n' "$out" | sed -n 's/^version=//p')"
+          build="$(printf '%s\n' "$out" | sed -n 's/^build=//p')"
+          tag="$(printf '%s\n' "$out" | sed -n 's/^tag=//p')"
+          {
+            echo "version=$version"
+            echo "build=$build"
+            echo "full=$version+$build"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+  # ---------- 2. 四端并行编译 ----------
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: android
+            artifact_name: tvs-android
+            build_cmd: flutter build apk --release
+            artifact_path: build/app/outputs/flutter-apk/
+          - os: macos-latest
+            platform: ios
+            artifact_name: tvs-ios
+            build_cmd: flutter build ios --release --no-codesign
+            artifact_path: build/ios/iphoneos/
+          - os: macos-latest
+            platform: macos
+            artifact_name: tvs-macos
+            build_cmd: flutter build macos --release
+            artifact_path: build/macos/Build/Products/Release/
+          - os: windows-latest
+            platform: windows
+            artifact_name: tvs-windows
+            build_cmd: flutter build windows --release
+            artifact_path: build/windows/x64/runner/Release/
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Prepare platform scaffolding
+        run: bash _scripts/ci_prepare.sh ${{ matrix.platform }} ${{ needs.version.outputs.full }}
+
+      - name: Build (${{ matrix.platform }})
+        working-directory: flutter
+        run: ${{ matrix.build_cmd }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}-${{ needs.version.outputs.full }}
+          path: flutter/${{ matrix.artifact_path }}
+          if-no-files-found: error
+          retention-days: 30
+
+  # ---------- 3. 版本号回写 + 打 tag 发 Release ----------
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Pack artifacts
+        run: |
+          cd dist
+          for d in */; do
+            name="${d%/}"
+            zip -qr "${name}.zip" "$d"
+          done
+          ls -lh
+
+      - name: Commit version bump back to main
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python3 _scripts/bump_version.py --set "${{ needs.version.outputs.full }}"
+          git add -u
+          if git diff --cached --quiet; then
+            echo "版本号无变化，跳过提交"
+          else
+            git commit -m "chore(release): v${{ needs.version.outputs.version }} [skip ci]"
+            git push
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ needs.version.outputs.tag }}" \
+            dist/*.zip \
+            --title "TVS v${{ needs.version.outputs.version }}" \
+            --notes "自动构建发布 — 版本 ${{ needs.version.outputs.version }} (build ${{ needs.version.outputs.build }})" \
+            || gh release upload "${{ needs.version.outputs.tag }}" dist/*.zip --clobber
