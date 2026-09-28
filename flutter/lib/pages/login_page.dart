@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -80,8 +81,8 @@ class _LoginPageState extends State<LoginPage> {
       if (status == 'ok' || status == 'success') {
         _pollTimer?.cancel();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackbar(
-            const Snackbar(content: Text('登录成功')),
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('登录成功')),
           );
           Navigator.pop(context);
         }

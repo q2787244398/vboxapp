@@ -64,6 +64,23 @@ class PlayerService with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Internal helper: switch to another url while keeping the current vod
+  /// and source list. Mirrors [play] without resetting the selection indices.
+  Future<void> _playUrl(
+    String url, {
+    Vod? vod,
+    List<PlaySource>? playSources,
+  }) async {
+    _currentUrl = url;
+    if (vod != null) _currentVod = vod;
+    if (playSources != null) _playSources = playSources;
+    _state = PlayerStateType.loading;
+    _error = null;
+    _positionMs = 0;
+    _durationMs = 0;
+    notifyListeners();
+  }
+
   void pause() {
     if (_state == PlayerStateType.playing) {
       _state = PlayerStateType.paused;
@@ -121,9 +138,7 @@ class PlayerService with ChangeNotifier {
     _selectedSourceIndex = index;
     _selectedEpisodeIndex = 0;
     final source = _playSources[index];
-    if (source.list.isNotEmpty) {
-      _play(source.list[0].url, vod: _currentVod, playSources: _playSources);
-    }
+    _playUrl(source.list[0].url, vod: _currentVod, playSources: _playSources);
   }
 
   void selectEpisode(int index) {
@@ -133,7 +148,7 @@ class PlayerService with ChangeNotifier {
     }
     _selectedEpisodeIndex = index;
     final source = _playSources[_selectedSourceIndex];
-    _play(source.list[index].url, vod: _currentVod, playSources: _playSources);
+    _playUrl(source.list[index].url, vod: _currentVod, playSources: _playSources);
   }
 
   // ----- platform callbacks (from Pigeon) -----

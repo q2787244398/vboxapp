@@ -1,11 +1,13 @@
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'node_service.dart';
 
 /// 14 个网盘 Provider 的 API 客户端。
 /// 端点与鉴权方式来自逆向还原包 `pan-apis.md`。
-class PanService {
+class PanService with ChangeNotifier {
   final NodeService _node;
   PanService(this._node);
 
@@ -218,7 +220,7 @@ class PanService {
   // ── Emby ──────────────────────────────────────────────────
   Future<Map<String, dynamic>> embyTest(String serverUrl, String username,
       String password) async {
-    final r = await http.get(
+    final r = await http.post(
       Uri.parse('$serverUrl/Users/authenticate'),
       headers: {
         'Content-Type': 'application/json',

@@ -215,9 +215,24 @@ class _DetailPageState extends State<DetailPage> {
                           .map((entry) {
                         final index = entry.key;
                         final episode = entry.value;
+                        final isSelected = index == _selectedEpisodeIndex;
                         return ActionChip(
-                          label: Text(episode.name),
-                          selected: index == _selectedEpisodeIndex,
+                          label: Text(
+                            episode.name,
+                            style: TextStyle(
+                              color: isSelected
+                                  ? const Color(0xFF58A6FF)
+                                  : Colors.white70,
+                            ),
+                          ),
+                          backgroundColor: isSelected
+                              ? const Color(0xFF1F6FEB).withValues(alpha: 0.25)
+                              : null,
+                          side: BorderSide(
+                            color: isSelected
+                                ? const Color(0xFF58A6FF)
+                                : Colors.white24,
+                          ),
                           onPressed: () =>
                               setState(() => _selectedEpisodeIndex = index),
                         );

@@ -33,7 +33,7 @@ class _SettingsDetailPageState extends State<SettingsDetailPage> {
               _section('外观', [
                 ListTile(
                   title: const Text('主题模式'),
-                  trailing: _themeLabel(app.themeMode),
+                  trailing: Text(_themeLabel(app.themeMode)),
                   onTap: () => _pickTheme(context, app, config),
                 ),
                 SwitchListTile(

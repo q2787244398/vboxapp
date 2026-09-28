@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'models.dart';
+
 /// Global app state: theme, display mode, initialization flags.
 class AppState extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;

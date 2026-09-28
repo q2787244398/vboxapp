@@ -129,9 +129,10 @@ class NodeService with ChangeNotifier {
         Uri.parse('http://127.0.0.1:${_port == 0 ? _defaultPort : _port}$path')
             .replace(queryParameters: params ?? {});
 
-    final client = HttpClient()..timeout(Duration(milliseconds: timeoutMs));
+    final client = HttpClient()..connectionTimeout = Duration(milliseconds: timeoutMs);
     try {
-      final request = await client.openUrl(method, target);
+      final request =
+          await client.openUrl(method, target).timeout(Duration(milliseconds: timeoutMs));
       request.headers.contentType = ContentType.json;
       if (body != null) {
         request.write(utf8.encode(jsonEncode(body)));

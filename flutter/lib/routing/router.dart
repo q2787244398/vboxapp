@@ -137,7 +137,7 @@ class MainShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final location = GoRouter.of(context).location;
+    final location = GoRouterState.of(context).uri.toString();
     final index = _indexFor(context, location);
     final router = GoRouter.of(context);
 

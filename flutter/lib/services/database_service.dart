@@ -75,7 +75,7 @@ class DatabaseService with ChangeNotifier {
       return SearchHistory(
         id: row['id'] as int,
         keyword: keyword,
-        count: row['count'] as int + 1,
+        count: (row['count'] as int) + 1,
         timestamp: now,
       );
     }

@@ -221,11 +221,10 @@ class _NodeDebugPageState extends State<NodeDebugPage> {
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               ConstrainedBox(
-                constraints: BoxConstraints(
-                    loose: MediaQuery.sizeOf(context).copyWith(width: 480)),
+                constraints: const BoxConstraints(maxWidth: 480),
                 child: SingleChildScrollView(
                   child: SelectableText(
-                    const JsonEncoder.withIndent().convert(result),
+                    const JsonEncoder.withIndent('  ').convert(result),
                     style:
                         const TextStyle(fontSize: 11, fontFamily: 'monospace'),
                   ),

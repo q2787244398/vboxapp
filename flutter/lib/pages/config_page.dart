@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 
 import '../models/models.dart';
 import '../services/config_service.dart';
-import '../services/database_service.dart';
 import '../services/node_service.dart';
 
 /// Configuration center page: engine status, spider settings, pan (cloud
@@ -27,7 +26,7 @@ class _ConfigPageState extends State<ConfigPage> {
         .read<NodeService>()
         .getSites()
         .then((sites) => sites)
-        .catchError((_) => <VodSite>[const VodSite(key: '', name: '', api: '')]);
+        .catchError((_) => <VodSite>[VodSite(key: '', name: '', api: '')]);
   }
 
   Future<void> _restartEngine() async {

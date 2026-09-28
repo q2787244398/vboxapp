@@ -82,7 +82,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 top: 0, left: 0, right: 0,
                 child: _buildTopBar(player, vod),
               ),
-              if (!_playError case final e when e != null)
+              if (_playError != null)
                 Positioned(
                   bottom: 0, left: 0, right: 0,
                   child: _buildBottomControls(player),
@@ -306,7 +306,10 @@ class _PlayerPageState extends State<PlayerPage> {
             for (final speed in speeds)
               ActionChip(
                 label: Text('${speed}×'),
-                selected: (speed - player.playbackSpeed).abs() < 0.01,
+                backgroundColor:
+                    (speed - player.playbackSpeed).abs() < 0.01
+                        ? Theme.of(context).colorScheme.primaryContainer
+                        : null,
                 onPressed: () {
                   player.setPlaybackSpeed(speed);
                   Navigator.pop(context);

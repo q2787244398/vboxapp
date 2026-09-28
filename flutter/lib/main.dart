@@ -43,10 +43,11 @@ class _TVSAppState extends State<TVSApp> {
         ChangeNotifierProvider(create: (_) => NodeService()),
         ChangeNotifierProvider(create: (_) => ConfigService()),
         ChangeNotifierProvider(create: (_) => DatabaseService()),
-        ChangeNotifierProvider(create: (_) => PanService()),
+        ChangeNotifierProvider(create: (_) => PanService(context.read<NodeService>())),
         ChangeNotifierProvider(create: (_) => PlayerService()),
         ChangeNotifierProvider(create: (_) => AudioService()),
-        ChangeNotifierProvider(create: (_) => WebsiteApiService()),
+        ChangeNotifierProvider(
+            create: (_) => WebsiteApiService(context.read<NodeService>())),
       ],
       child: Consumer<AppState>(
         builder: (context, appState, child) {
@@ -71,8 +72,8 @@ class _TVSAppState extends State<TVSApp> {
       cardColor: const Color(0xFF161B22),
       dividerColor: Colors.white12,
       scrollbarTheme: ScrollbarThemeData(
-        thumbColor: Colors.white.withOpacity(0.3),
-        trackColor: Colors.white.withOpacity(0.05),
+        thumbColor: WidgetStatePropertyAll(Colors.white.withOpacity(0.3)),
+        trackColor: WidgetStatePropertyAll(Colors.white.withOpacity(0.05)),
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0xFF161B22),
@@ -82,7 +83,7 @@ class _TVSAppState extends State<TVSApp> {
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: Color(0xFF1C2128),
       ),
-      dialogTheme: const DialogTheme(
+      dialogTheme: const DialogThemeData(
         backgroundColor: Color(0xFF1C2128),
         titleTextStyle: TextStyle(color: Colors.white, fontSize: 18),
         contentTextStyle: TextStyle(color: Colors.white70, fontSize: 14),

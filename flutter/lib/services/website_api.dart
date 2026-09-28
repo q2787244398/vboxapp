@@ -1,11 +1,13 @@
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'node_service.dart';
 
 /// Website 设置中心 API 客户端。
 /// 对应 bundle 中的 `/website/*` 路由族。
-class WebsiteApiService {
+class WebsiteApiService with ChangeNotifier {
   final NodeService _node;
   WebsiteApiService(this._node);
 
