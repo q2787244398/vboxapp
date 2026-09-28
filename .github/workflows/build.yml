@@ -1,8 +1,13 @@
 name: Build
 
-# 每次 main 分支代码变动 -> 自动递增版本号 -> 四端并行编译 -> 打 tag 发 Release
-# 版本号规则: pubspec.yaml 的 `version: X.Y.Z+N`，每次构建 +1
-#   Flutter 会把该版本自动注入 Android / iOS / macOS；
+# 每次 main 分支代码变动：
+#   1. 计算下一个版本号（pubspec.yaml 的 X.Y.Z+N 每次 +1）
+#   2. 快速静态分析（ubuntu，约 1-2 分钟）—— 失败则不再消耗 macOS/Windows 额度
+#   3. Android / iOS / macOS / Windows 四端并行编译
+#   4. 版本号回写 main + 打 tag + 发 Release
+#
+# 版本号传播：Flutter 以 pubspec.yaml 为唯一版本源，自动注入
+#   Android(versionName/versionCode) / iOS 与 macOS(CFBundleShortVersionString/CFBundleVersion)，
 #   Windows 的 Runner.rc 由 _scripts/bump_version.py 单独对齐。
 
 on:
@@ -44,9 +49,29 @@ jobs:
             echo "tag=$tag"
           } >> "$GITHUB_OUTPUT"
 
-  # ---------- 2. 四端并行编译 ----------
-  build:
+  # ---------- 2. 快速静态分析门禁 ----------
+  analyze:
     needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: flutter pub get
+        working-directory: flutter
+        run: flutter pub get
+      - name: Show resolved dependency versions
+        working-directory: flutter
+        run: flutter pub deps --style=compact || true
+      - name: flutter analyze
+        working-directory: flutter
+        run: flutter analyze --no-fatal-infos
+
+  # ---------- 3. 四端并行编译 ----------
+  build:
+    needs: [version, analyze]
     strategy:
       fail-fast: false
       matrix:
@@ -103,7 +128,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # ---------- 3. 版本号回写 + 打 tag 发 Release ----------
+  # ---------- 4. 版本号回写 + 打 tag 发 Release ----------
   release:
     needs: [version, build]
     runs-on: ubuntu-latest
@@ -119,8 +144,7 @@ jobs:
         run: |
           cd dist
           for d in */; do
-            name="${d%/}"
-            zip -qr "${name}.zip" "$d"
+            zip -qr "${d%/}.zip" "$d"
           done
           ls -lh
 
