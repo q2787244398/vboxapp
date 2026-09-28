@@ -13,13 +13,18 @@ environment:
 #
 #   audio_service, audio_session, share_plus, wakelock_plus, webview_flutter,
 #   flutter_secure_storage, connectivity_plus, device_info_plus,
-#   package_info_plus, permission_handler, url_launcher, screen_brightness,
-#   cupertino_icons
+#   package_info_plus, permission_handler, url_launcher, screen_brightness
 #
 # 版本号已全部核对 pub.dev API，确保真实存在且与当前 Flutter stable 兼容。
 dependencies:
   flutter:
     sdk: flutter
+
+  # CupertinoIcons 字体由本包提供。虽然源码里没有直接 import，
+  # 但 material_ui / cupertino_ui 等依赖会引用
+  # 'packages/cupertino_icons/CupertinoIcons' 字体族，缺少它会导致
+  # release 构建的图标 tree-shaking 失败（IconTreeShakerException）。
+  cupertino_icons: ^1.0.8
 
   go_router: ^18.0.2
   provider: ^6.1.5
