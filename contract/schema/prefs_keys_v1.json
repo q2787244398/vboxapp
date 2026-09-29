@@ -1,0 +1,125 @@
+{
+  "$comment": "vbox 契约层 v1.0 · SharedPreferences / UserDefaults 键名契约。来源：iOS 端逆向提取。冻结后两端必须完全一致。",
+  "schemaVersion": "1.0",
+  "frozenAt": "2026-09-29",
+  "note": "iOS 使用 UserDefaults.standard，Flutter 使用 SharedPreferences。键名与类型必须 1:1 对应，否则数据无法互通。",
+
+  "keys": {
+    "_group_subscription": {
+      "subscribed_config_urls":  { "type": "stringArray", "default": [],     "desc": "订阅源 URL 列表", "migrated": "同时写入 subscription 表" },
+      "active_subscription_index":{ "type": "int",        "default": 0,      "desc": "当前激活订阅源索引" },
+      "cached_subscribe_config": { "type": "string",     "default": null,   "desc": "订阅 JSON 缓存（建议不迁移）", "skip": true }
+    },
+
+    "_group_spider": {
+      "fallback_enabled":        { "type": "bool", "default": true,  "desc": "兜底源开关" },
+      "enable_dual_mode":        { "type": "bool", "default": true,  "desc": "双模式（type=3 HTTP API 走原生链路）" },
+      "custom_fallback_sites":   { "type": "string", "default": "[]", "desc": "自定义兜底源（JSON 数组字符串）" },
+      "user_parsers":            { "type": "string", "default": "[]", "desc": "用户自定义解析器（JSON）" }
+    },
+
+    "_group_remote_source": {
+      "remote_default_source_enabled":    { "type": "bool",   "default": true, "desc": "启用远程默认源" },
+      "bundle_sources_enabled":           { "type": "bool",   "default": false,"desc": "启用内置源（兼容模式）" },
+      "remote_default_manifest_url":      { "type": "string", "default": "https://vbox-ai.github.io/api/sources/manifest.json", "desc": "manifest 地址" },
+      "remote_default_last_config_version":{ "type": "string","default": "",   "desc": "上次同步的 configVersion" },
+      "remote_default_last_sync_time":    { "type": "long",   "default": null, "desc": "上次同步时间戳" },
+      "remote_default_last_sync_error":   { "type": "string", "default": null, "desc": "上次同步错误" },
+      "remote_default_last_sync_app_version": { "type": "string", "default": null, "desc": "上次同步时的 App 版本" },
+      "remote_node_bundle_url":           { "type": "string", "default": null, "desc": "Node bundle 远程地址" },
+      "remote_node_bundle_ver":           { "type": "string", "default": null, "desc": "Node bundle 版本" }
+    },
+
+    "_group_player": {
+      "player_auto_play_next":     { "type": "bool", "default": true,  "desc": "自动播放下一集" },
+      "player_background_play":    { "type": "bool", "default": false, "desc": "后台播放" },
+      "player_long_press_speed":   { "type": "float","default": 2.0,   "desc": "长按倍速" },
+      "player_pip_enabled":        { "type": "bool", "default": true,  "desc": "画中画开关" },
+      "positionTimerIntervalMs":   { "type": "int",  "default": 500,   "desc": "进度轮询间隔(ms)" },
+      "networkTimeout":            { "type": "int",  "default": 15000, "desc": "网络超时(ms)" },
+      "reconnect":                 { "type": "int",  "default": 3,     "desc": "重连次数" }
+    },
+
+    "_group_buffer": {
+      "bufferedPosition":     { "type": "long", "default": 0,      "desc": "缓冲位置" },
+      "maxBufferDuration":    { "type": "int",  "default": 60000,  "desc": "最大缓冲时长(ms)" },
+      "highBufferDuration":   { "type": "int",  "default": 30000,  "desc": "高水位缓冲(ms)" },
+      "startBufferDuration":  { "type": "int",  "default": 3000,   "desc": "起始缓冲(ms)" },
+      "maxDelayTime":         { "type": "int",  "default": 5000,   "desc": "最大延迟(ms)" },
+      "timeout":              { "type": "int",  "default": 15000,  "desc": "超时(ms)" }
+    },
+
+    "_group_tmdb": {
+      "app_tmdb_proxy_url":   { "type": "string", "default": "",   "desc": "TMDB 代理地址" },
+      "app_tmdb_proxy_token": { "type": "string", "default": "",   "desc": "TMDB 代理 token", "sensitive": true },
+      "app_tmdb_use_token":   { "type": "bool",   "default": false,"desc": "TMDB 使用 token" }
+    },
+
+    "_group_danmaku": {
+      "custom_danmaku_source_enabled": { "type": "bool",   "default": false, "desc": "自定义弹幕源" },
+      "custom_danmaku_source_url":     { "type": "string", "default": "",    "desc": "弹幕源地址" },
+      "danmaku_scroll":                { "type": "bool",   "default": true,  "desc": "弹幕滚动" }
+    },
+
+    "_group_live_tv": {
+      "live_tv_local_channels": { "type": "string", "default": "[]", "desc": "本地直播频道（JSON）" },
+      "mdtv_home_tabs":         { "type": "string", "default": "[]", "desc": "MDTV 首页 Tab" },
+      "mdtv_iv_idx":            { "type": "int",    "default": 0,    "desc": "MDTV IV 索引" },
+      "mdtv_key_idx":           { "type": "int",    "default": 0,    "desc": "MDTV Key 索引" },
+      "mdtv_key_verified":      { "type": "bool",   "default": false,"desc": "MDTV Key 已校验" },
+      "mdtv_mode_idx":          { "type": "int",    "default": 0,    "desc": "MDTV 模式索引" }
+    },
+
+    "_group_one_platform": {
+      "one_platform_iv_idx":  { "type": "int",    "default": 0,  "desc": "One 平台 IV 索引" },
+      "one_platform_key_idx": { "type": "int",    "default": 0,  "desc": "One 平台 Key 索引" },
+      "one_platform_token":   { "type": "string", "default": "", "desc": "One 平台 token", "sensitive": true },
+      "one_platform_userkey": { "type": "string", "default": "", "desc": "One 平台 userkey", "sensitive": true },
+      "one_platform_uuid":    { "type": "string", "default": "", "desc": "One 平台 UUID", "sensitive": true }
+    },
+
+    "_group_quark_pg": {
+      "pg_ali_auto_cleanup":  { "type": "bool",   "default": false, "desc": "自动清理" },
+      "pg_ali_cleanup_delay": { "type": "int",    "default": 60,    "desc": "清理延迟(s)" },
+      "pg_ali_enabled":       { "type": "bool",   "default": false, "desc": "启用 PG" },
+      "pg_ali_is_vip":        { "type": "bool",   "default": false, "desc": "VIP 状态" },
+      "pg_ali_proxy_port":    { "type": "int",    "default": 58090, "desc": "代理端口" },
+      "pg_ali_thread_limit":  { "type": "int",    "default": 3,     "desc": "线程上限" },
+      "pg_ali_thread_night":  { "type": "int",    "default": 5,     "desc": "夜间线程" },
+      "pg_ali_transfer_dir":  { "type": "string", "default": "",    "desc": "转存目录" },
+      "pg_ali_vod_flags":     { "type": "string", "default": "",    "desc": "VOD 标志" },
+      "quark_device_id":      { "type": "string", "default": "",    "desc": "夸克设备 ID", "sensitive": true }
+    },
+
+    "_group_welfare": {
+      "welfare_platform_order":        { "type": "string", "default": "[]", "desc": "福利平台排序（JSON）" },
+      "fuli_remote_platform_order_v2": { "type": "string", "default": "[]", "desc": "福利远程平台排序 v2" }
+    },
+
+    "_group_debug": {
+      "show_debug_overlay": { "type": "bool", "default": false, "desc": "调试浮层" },
+      "show_search_debug":  { "type": "bool", "default": false, "desc": "搜索调试" },
+      "searchHistory":      { "type": "string","default": "[]",  "desc": "搜索历史（JSON）" },
+      "dns_cache_clear":    { "type": "bool", "default": false, "desc": "DNS 缓存清理" }
+    },
+
+    "_group_legacy_migration": {
+      "vbox_sqlite_migration_done": { "type": "bool", "default": false, "desc": "UserDefaults→SQLite 迁移标记。Flutter 首次启动必须识别，避免重复迁移" }
+    }
+  },
+
+  "sensitiveKeys": [
+    "app_tmdb_proxy_token",
+    "one_platform_token",
+    "one_platform_userkey",
+    "one_platform_uuid",
+    "quark_device_id"
+  ],
+
+  "notes": [
+    "sensitiveKeys 中的项在 Flutter 端建议迁移到 flutter_secure_storage，但读取时需兼容 iOS 写入的 UserDefaults 值",
+    "cached_subscribe_config 标记 skip=true，属于纯缓存，不迁移",
+    "vbox_sqlite_migration_done 必须迁移，否则 Flutter 端会重复执行 UserDefaults→SQLite 迁移导致数据重复",
+    "类型映射：stringArray→List<String>，long→int，float→double，其余一一对应"
+  ]
+}
