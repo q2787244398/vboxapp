@@ -20,8 +20,8 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-RS = ROOT / "lib/domain/remote_source"
-PL = ROOT / "lib/domain/player"
+RS = ROOT / "lib/domain/entities/remote_source"
+PL = ROOT / "lib/domain/entities/player"
 
 
 def main() -> int:

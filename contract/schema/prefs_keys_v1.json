@@ -1,6 +1,6 @@
 {
   "$comment": "vbox 契约层 v1.0 · SharedPreferences / UserDefaults 键名契约。来源：iOS 端逆向提取。冻结后两端必须完全一致。",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "frozenAt": "2026-09-29",
   "note": "iOS 使用 UserDefaults.standard，Flutter 使用 SharedPreferences。键名与类型必须 1:1 对应，否则数据无法互通。 | v1.1 修订：移除 10 个误抓的非 prefs 键（播放器 KVC 属性 / CA 动画 key）",
   "keys": {
@@ -299,6 +299,294 @@
         "default": false,
         "desc": "UserDefaults→SQLite 迁移标记。Flutter 首次启动必须识别，避免重复迁移"
       }
+    },
+    "_group_log": {
+      "app_skin_mode": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "AppSettings.swift:156",
+        "desc": "AppSettings.swift:156"
+      },
+      "app_skin_follows_system": {
+        "type": "bool",
+        "storage": "userdefaults",
+        "evidence": "AppSettings.swift:158",
+        "desc": "AppSettings.swift:158"
+      },
+      "app_dev_log_enabled": {
+        "type": "bool",
+        "storage": "userdefaults",
+        "evidence": "AppSettings.swift:166",
+        "desc": "AppSettings.swift:166"
+      },
+      "app_dev_log_level": {
+        "type": "int",
+        "storage": "userdefaults",
+        "evidence": "AppSettings.swift:167",
+        "desc": "AppSettings.swift:167"
+      },
+      "app_last_launch_version": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "AppSettings.swift:175",
+        "desc": "AppSettings.swift:175"
+      },
+      "app_log_enabled": {
+        "type": "bool",
+        "storage": "userdefaults",
+        "evidence": "AppLogStore.swift:254",
+        "desc": "AppLogStore.swift:254"
+      },
+      "app_log_min_level": {
+        "type": "int",
+        "storage": "userdefaults",
+        "evidence": "AppLogStore.swift:255",
+        "desc": "AppLogStore.swift:255"
+      },
+      "app_log_crash_marker": {
+        "type": "bool",
+        "storage": "userdefaults",
+        "evidence": "AppLogStore.swift:259",
+        "desc": "AppLogStore.swift:259"
+      }
+    },
+    "_group_app_settings": {
+      "app_enable_tmdb": {
+        "type": "bool",
+        "storage": "userdefaults",
+        "evidence": "AppSettings.swift:159",
+        "desc": "AppSettings.swift:159"
+      },
+      "app_welfare_unlocked": {
+        "type": "bool",
+        "storage": "userdefaults",
+        "evidence": "AppSettings.swift:163",
+        "desc": "AppSettings.swift:163"
+      },
+      "app_welfare_password": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "AppSettings.swift:164",
+        "desc": "AppSettings.swift:164"
+      },
+      "app_welfare_enabled": {
+        "type": "bool",
+        "storage": "userdefaults",
+        "evidence": "AppSettings.swift:165",
+        "desc": "AppSettings.swift:165"
+      }
+    },
+    "_group_welfare_ext": {
+      "fuli_remote_source_enabled": {
+        "type": "bool",
+        "storage": "userdefaults",
+        "evidence": "WelfarePlatformConfigStore.swift:47",
+        "desc": "WelfarePlatformConfigStore.swift:47"
+      },
+      "fuli_remote_source_last_success_time": {
+        "type": "long",
+        "storage": "userdefaults",
+        "evidence": "WelfarePlatformConfigStore.swift:49",
+        "desc": "WelfarePlatformConfigStore.swift:49"
+      },
+      "fuli_remote_source_last_config_version": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "WelfarePlatformConfigStore.swift:51",
+        "desc": "WelfarePlatformConfigStore.swift:51"
+      },
+      "welfare_custom_domains_v2": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "WelfareDomainStore.swift",
+        "desc": "WelfareDomainStore.swift"
+      },
+      "welfare_proxy_enabled_platforms_v1": {
+        "type": "stringArray",
+        "storage": "userdefaults",
+        "evidence": "WelfareProxyStore.swift",
+        "desc": "WelfareProxyStore.swift"
+      },
+      "welfare_proxy_url_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "WelfareProxyStore.swift",
+        "desc": "WelfareProxyStore.swift"
+      }
+    },
+    "_group_live_ext": {
+      "live_tv_current_source": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "LiveTVService.swift",
+        "desc": "LiveTVService.swift"
+      },
+      "live_tv_custom_sources": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "LiveTVService.swift",
+        "desc": "LiveTVService.swift"
+      }
+    },
+    "_group_music": {
+      "music_queue_index": {
+        "type": "int",
+        "storage": "userdefaults",
+        "evidence": "AudioPlayerManager.swift",
+        "desc": "AudioPlayerManager.swift"
+      },
+      "music_queue_items": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "AudioPlayerManager.swift",
+        "desc": "AudioPlayerManager.swift"
+      }
+    },
+    "_group_tg": {
+      "tg_search_channels_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "TGSearchConfigStore.swift",
+        "desc": "TGSearchConfigStore.swift"
+      },
+      "tg_search_channel_mode_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "TGSearchConfigStore.swift",
+        "desc": "TGSearchConfigStore.swift"
+      },
+      "tg_search_proxy_url_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "TGSearchConfigStore.swift",
+        "desc": "TGSearchConfigStore.swift"
+      }
+    },
+    "_group_push": {
+      "push_play_items_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "PushPlayStore.swift",
+        "desc": "PushPlayStore.swift"
+      }
+    },
+    "_group_pg_extra": {
+      "pg_source": {
+        "type": "string",
+        "storage": "credential_extra",
+        "evidence": "AliyunPgConfig.swift:176（非 prefs）",
+        "desc": "AliyunPgConfig.swift:176（非 prefs）"
+      },
+      "qr_scan": {
+        "type": "string",
+        "storage": "credential_extra",
+        "evidence": "AliyunPgConfig.swift:178（非 prefs）",
+        "desc": "AliyunPgConfig.swift:178（非 prefs）"
+      }
+    },
+    "_group_cloud": {
+      "cloud_drive_credentials_v1": {
+        "type": "string",
+        "storage": "keychain",
+        "evidence": "SecureCredentialStore.swift:6（Keychain account）",
+        "desc": "SecureCredentialStore.swift:6（Keychain account）"
+      },
+      "saved_drive_tokens_v1": {
+        "type": "string",
+        "storage": "keychain",
+        "evidence": "SecureCredentialStore.swift:8（Keychain account）",
+        "desc": "SecureCredentialStore.swift:8（Keychain account）"
+      },
+      "cloud_drive_sort_order_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveSortManager.swift",
+        "desc": "CloudDriveSortManager.swift"
+      },
+      "cloud_drive_cleanup_queue_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift",
+        "desc": "CloudDriveManager.swift"
+      },
+      "baidu_local_pcs_device_id": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift:5665",
+        "desc": "CloudDriveManager.swift:5665"
+      },
+      "baidu_file_list_cache_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift:128",
+        "desc": "CloudDriveManager.swift:128"
+      },
+      "baidu_ibox_play_item_cache_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift:127",
+        "desc": "CloudDriveManager.swift:127"
+      },
+      "baidu_play_item_cache_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift:126",
+        "desc": "CloudDriveManager.swift:126"
+      },
+      "baidu_play_result_cache_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift:125",
+        "desc": "CloudDriveManager.swift:125"
+      },
+      "baidu_route_diagnostics_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift:132",
+        "desc": "CloudDriveManager.swift:132"
+      },
+      "baidu_share_context_cache_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift:129",
+        "desc": "CloudDriveManager.swift:129"
+      },
+      "baidu_verify_cooldown_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift:130",
+        "desc": "CloudDriveManager.swift:130"
+      },
+      "baidu_verify_cooldowns_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveAuthManager.swift:79",
+        "desc": "CloudDriveAuthManager.swift:79"
+      },
+      "quark_saved_fid_cache_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift",
+        "desc": "CloudDriveManager.swift"
+      },
+      "quark_vbox_folder_cache_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift",
+        "desc": "CloudDriveManager.swift"
+      },
+      "cloud_play_item_cache_v1": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift",
+        "desc": "CloudDriveManager.swift"
+      },
+      "saved_drive_tokens": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "CloudDriveManager.swift:124  tokenKey",
+        "desc": "网盘 token 存储键（UserDefaults，区别于 Keychain 的 saved_drive_tokens_v1）"
+      }
     }
   },
   "sensitiveKeys": [
@@ -313,6 +601,8 @@
     "cached_subscribe_config 标记 skip=true，属于纯缓存，不迁移",
     "vbox_sqlite_migration_done 必须迁移，否则 Flutter 端会重复执行 UserDefaults→SQLite 迁移导致数据重复",
     "类型映射：stringArray→List<String>，long→int，float→double，其余一一对应",
-    "v1.1：经逐键源码核验，移除 _group_buffer 整组及 networkTimeout/positionTimerIntervalMs/reconnect/danmaku_scroll —— 它们是 AliPlayer/IJKPlayer 的 KVC 属性名与 CoreAnimation 动画 key，并非 UserDefaults 偏好键。见 contract/docs/prefs_keys_revision_v1.1.md。"
+    "v1.1：经逐键源码核验，移除 _group_buffer 整组及 networkTimeout/positionTimerIntervalMs/reconnect/danmaku_scroll —— 它们是 AliPlayer/IJKPlayer 的 KVC 属性名与 CoreAnimation 动画 key，并非 UserDefaults 偏好键。见 contract/docs/prefs_keys_revision_v1.1.md。",
+    "v1.2：补齐 46 个遗漏键（云盘/福利/直播/音乐/TG/日志/推送）。其中 cloud_drive_credentials_v1 / saved_drive_tokens_v1 为 Keychain account，pg_source / qr_scan 为 credential.extra 字典键，均**非 UserDefaults**，已用 storage 字段标注（userdefaults|keychain|credential_extra）。",
+    "v1.2 补记：saved_drive_tokens（CloudDriveManager.swift:124）为 UserDefaults 键，与 Keychain account saved_drive_tokens_v1 是两个不同对象。"
   ]
 }

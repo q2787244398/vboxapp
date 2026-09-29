@@ -24,7 +24,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOC = ROOT / "contract/docs/backup_v1.md"
-DART = ROOT / "lib/data/backup_manager.dart"
+DART = ROOT / "lib/data/datasources/local/backup_manager.dart"
 
 # 契约要求的参数
 EXPECT = {

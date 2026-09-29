@@ -45,7 +45,7 @@ def cols_of(con: sqlite3.Connection) -> dict[str, set[str]]:
 
 
 def main() -> int:
-    dart = (ROOT / "lib/contract/schema.dart").read_text()
+    dart = (ROOT / "lib/contract/schema/schema.dart").read_text()
     v = {
         1: extract(dart, "_v1CreateTables"),
         2: extract(dart, "_v2Migrate"),

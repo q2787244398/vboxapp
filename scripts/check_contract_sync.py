@@ -32,7 +32,7 @@ def main() -> int:
     json_path = ROOT / "contract" / "schema" / "prefs_keys_v1.json"
     dart_path = ROOT / "lib" / "contract" / "prefs_keys.dart"
     sql_path = ROOT / "contract" / "schema" / "schema_v1.sql"
-    schema_dart = ROOT / "lib" / "contract" / "schema.dart"
+    schema_dart = ROOT / "lib" / "contract" / "schema" / "schema.dart"
 
     contract = json.loads(json_path.read_text(encoding="utf-8"))
     json_keys: set[str] = set()
@@ -48,6 +48,11 @@ def main() -> int:
                          re.findall(r"name:\s*'([^']+)'[^)]*sensitive:\s*true", dart_text))
     # 更稳的敏感键提取：逐行 PrefsKey(... sensitive: true ...)
     dart_sensitive = set()
+    # v1.2：敏感键以 const Set kSensitiveKeys 形式声明
+    m_set = re.search(r"kSensitiveKeys = <String>\{(.*?)\}", dart_text, re.S)
+    if m_set:
+        dart_sensitive |= set(re.findall(r"'([^']+)'", m_set.group(1)))
+    # 兼容旧版：PrefsKey(... sensitive: true ...)
     for m in re.finditer(r"PrefsKey\(([^)]*)\)", dart_text, re.S):
         body = m.group(1)
         if "sensitive: true" in body:

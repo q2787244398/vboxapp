@@ -18,7 +18,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SP = ROOT / "lib/domain/spider"
+SP = ROOT / "lib/domain/entities/spider"
 
 
 def main() -> int:

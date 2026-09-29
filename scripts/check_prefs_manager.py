@@ -22,7 +22,7 @@ def main() -> int:
         contract_keys |= set(items.keys())
     sensitive = set(c["sensitiveKeys"])
 
-    pm = (ROOT / "lib/data/prefs_manager.dart").read_text()
+    pm = (ROOT / "lib/data/datasources/local/prefs_manager.dart").read_text()
     errors = 0
 
     print("== 1. 键名字面量必须在契约内 ==")
