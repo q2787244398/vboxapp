@@ -52,11 +52,11 @@ public class NodeBridgePlugin: NSObject, FlutterPlugin {
         case "getDartPort": result(Self.dartPort)
         case "stopNode":
             stopNode(); result(true)
-        case "getVersion": result("1.2.1 (6)")
+        case "getVersion": result("1.2.2 (7)")
         case "getPackageInfo":
             result(["packageName": "com.example.tvs",
-                   "versionName": "1.2.1",
-                   "versionCode": 6,
+                   "versionName": "1.2.2",
+                   "versionCode": 7,
                    "platform": "macos"])
         default: result(FlutterMethodNotImplemented)
         }

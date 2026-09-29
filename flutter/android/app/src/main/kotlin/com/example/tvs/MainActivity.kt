@@ -70,7 +70,7 @@ class MainActivity : FlutterActivity() {
             val packageInfo: PackageInfo = packageManager.getPackageInfo(packageName, 0)
             mapOf(
                 "packageName" to packageInfo.packageName,
-                "versionName" to (packageInfo.versionName ?: "1.2.1"),
+                "versionName" to (packageInfo.versionName ?: "1.2.2"),
                 "versionCode" to packageInfo.versionCode,
                 "firstInstallTime" to packageInfo.firstInstallTime,
                 "lastUpdateTime" to packageInfo.lastUpdateTime
@@ -78,7 +78,7 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             mapOf(
                 "packageName" to "com.example.tvs",
-                "versionName" to "1.2.1",
+                "versionName" to "1.2.2",
                 "versionCode" to 4006
             )
         }
