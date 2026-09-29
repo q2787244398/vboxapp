@@ -497,7 +497,7 @@ vbox_flutter/
 │   │   ├── constants/  errors/  network/  storage/  utils/
 │   ├── contract/                    # ⭐ 契约层镜像（从 vbox-contract 同步）
 │   │   ├── schema/                  # SQL DDL 常量
-│   │   ├── prefs_keys.dart          # 57 键名常量
+│   │   ├── prefs_keys.dart          # 57 键名常量（初版估计值，见 P.6）
 │   │   └── abi/                     # Spider ABI 定义
 │   ├── data/
 │   │   ├── datasources/local/       # SQLite 数据源
@@ -631,7 +631,7 @@ abstract class UiModeResolver {
 
 1. **SQLite**：严格遵循 `schema_v1.sql`，复刻 v1→v4 迁移链（含 v2 重建表）
 2. **JSON**：freezed 模型字段名与 SQL 列名 1:1
-3. **Prefs**：遵循 `prefs_keys_v1.json`，57 键名 + 类型完全一致
+3. **Prefs**：遵循 `prefs_keys_v1.json`，57 键名 + 类型完全一致（初版估计值，见 P.6）
 4. **备份**：格式与加密参数不变，须通过跨端互通测试
 5. **迁移标记**：`vbox_sqlite_migration_done` 必须识别，避免重复迁移
 6. **敏感键**：5 个敏感键建议迁 secure storage，但需兼容读取 UserDefaults
@@ -1122,7 +1122,7 @@ enum class PlayerBackend { MEDIA3, LIBVLC }
 /var/minis/workspace/vbox-contract/
 ├── schema/
 │   ├── schema_v1.sql          ✅ SQLite DDL（9 表 + v1→v4 迁移链）
-│   └── prefs_keys_v1.json     ✅ Prefs 键名契约（57 键 + 敏感项标记）
+│   └── prefs_keys_v1.json     ✅ Prefs 键名契约（57 键 + 敏感项标记；初版估计值，见 P.6）
 ├── conformance/fixtures/      ⏳ 待填充（SQLite 样本 / 备份样本 / Spider IO）
 └── docs/                      ⏳ 待填充（Spider ABI / 备份格式规范）
 ```
@@ -2905,7 +2905,7 @@ AliyunPlayer + IJK   ~30 MB
 | 阶段 | 目标 | 进度 | 状态 |
 |------|------|------|------|
 | 第 0 阶段 | 契约冻结 | 100% | ✅ 已过 D13 门禁 |
-| 第 1 轮 | 核心骨架 | **约 55%** | 🔄 进行中 |
+| 第 1 轮 | 核心骨架 | **约 56%** | 🔄 进行中 |
 | 第 2 轮 | 功能补全 | 0% | ⬜ |
 | 第 3 轮 | 兼容性与稳定性 | 0% | ⬜ |
 | 第 4 轮 | 数据互通与边界 | 0% | ⬜ |
@@ -2941,12 +2941,12 @@ AliyunPlayer + IJK   ~30 MB
 |---------|------|
 | `presentation/{phone,tv,desktop,shared,theme}` 布局 | 空目录 |
 | `platform/{player,spider,runtime,system}` 插件层 | 空目录 |
-| Android/macOS/Windows 平台壳 | 未创建 |
+| 平台壳 | ⚠️ `pubspec.yaml` ✅ 已交付（依赖对齐契约）；`android/`/`macos/`/`windows/` 目录 ⬜ 未创建 |
 | **单元测试**（目标 >70%） | **0 个测试文件** |
-| conformance runner | 未实现 |
+| conformance runner | ✅ 已交付（45/45，见 P.8b） |
 | `lib/domain/{repositories,usecases}` | 空目录 |
 
-### P.4 自动化校验体系（**8 脚本 + 1 runner，全部通过**）
+### P.4 自动化校验体系（**9 脚本 + 1 runner，全部通过**）
 
 | 脚本 | 验证内容 | 结果 |
 |------|---------|------|
@@ -2958,7 +2958,10 @@ AliyunPlayer + IJK   ~30 MB
 | `check_backup_contract.py` | PBKDF2实测/AES-GCM往返/错口令/静态检查 | ✅ |
 | `check_spider_domain.py` | 引擎rawValue/15模式用例/容错解码/回填/错误检测 | ✅ |
 | `check_domain_remote_player.py` | 代理链/同步判定/后端降级链/封装回退 | ✅ |
+| `check_docs_consistency.py` | **文档漂移检测**：陈旧键数/组数、失效路径（本轮新增） | ✅ |
 | **`conformance/runner/run_conformance.py`** | **fixture 消费：Spider ABI 20 + SQLite 6 + 备份 19 = 45 项** | ✅ **45/45** |
+
+> 另有 `check_mpv_installed_dependencies.py`（iOS CI 依赖检查，不属契约校验套件）。
 
 ### P.5 核查发现的问题与修复状态
 
@@ -3041,7 +3044,7 @@ lib/
 2. 用 GitHub Actions（已有 macos-15-arm64 runner）跑 Dart 构建与测试
 3. 购买/挂载 arm64 Linux 环境
 
-### P.8 E.10b 六类扫描门禁核查结果（**未通过：12 项不达标**）
+### P.8 E.10b 六类扫描门禁核查结果（**未通过：9 项不达标**）
 
 > 按 D13 强制门禁，逐项执行六类扫描。以下为**实测结果**。
 
@@ -3212,7 +3215,42 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | 4 | ~~conformance runner~~ | ✅ **已交付**（45/45 + 否定测试通过） |
 | 5 | **Flutter 编译环境** | ⏳ **未解决**（P.7）—— 阻塞 3 项门禁，且阻碍剩余 7 项 |
 | 6 | **第 1 轮可否标记完成** | ❌ **不可**（E.10b 未通过：9 项不达标） |
-| 7 | **下一步优先级** | **P.7 编译环境** > core/usecases（可静态验证）> UI（需先解决 P.7） |
+| 7 | ~~文档漂移~~ | ✅ **已修复**（16 处 → 0），新增 `check_docs_consistency.py` 守护（见 P.11） |
+| 8 | **下一步优先级** | **P.7 编译环境** > core/usecases（可静态验证）> UI（需先解决 P.7） |
+
+---
+
+### P.11 文档一致性核查（本轮新发现）
+
+除代码核查外，本轮对**全部 12 个文档**做了交叉核对，发现 3 类文档漂移 + 1 项事实遗漏：
+
+| # | 问题 | 具体表现 | 处置 |
+|---|------|---------|------|
+| 1 | `docs/PROGRESS.md` 严重过期 | ① 仍写「53 键 / 12 组」（现行 98 / 21）② 仍列 6 个校验脚本（现行 9+runner）③ 引用**重构后已删除的路径**（`lib/contract/schema.dart`、`lib/domain/spider/`、`lib/domain/remote_source/`）④ 进度 50% 未经门禁校验 | **整篇重写**为对齐真相源的状态快照 |
+| 2 | `docs/PROJECT_LAYOUT.md` 与 D18 冲突 | 描述的是中途生成的简化结构，与方案 §2.4 五层架构（D18 定案）不一致 | **重写**为 §2.4 落地快照，并标注空目录现状 |
+| 3 | `contract/docs/prefs_keys_revision_v1.1.md` 缺历史范围声明 | 文中「53 键 / 12 组」未声明是 v1.1 时期状态，易被误读为现行值 | 加**历史范围声明**（指向现行 98 键与 P.6） |
+| 4 | 进度文档遗漏 `pubspec.yaml` | 此前 P.3 记「平台壳未创建」，但 `pubspec.yaml` **已被 git 跟踪**且依赖已对齐契约 | 更正为「工程清单 ✅ 已交付；`android/`/`macos/`/`windows/` 目录 ⬜ 未创建」 |
+
+#### 根因与防再犯
+
+**根因**：文档与代码各自演进，**没有自动校对**——与「契约漏 44 键」同类：
+校验只覆盖「实现↔契约」，未覆盖「文档↔事实」。
+
+**处置**：新增 `scripts/check_docs_consistency.py`（第 9 个校验脚本），把文档漂移转为可检测：
+
+| 规则 | 说明 |
+|------|------|
+| 键数 | 出现已知陈旧口径（44/53/57/63 键）即失败 |
+| 组数 | 陈旧口径（12/13 组）即失败（须与「键/分组」共现，避免误伤） |
+| 失效路径 | 引用重构后已删路径即失败 |
+| 关键文档 | `PROGRESS.md` / `KNOWN_GAPS.md` / 本方案 必须存在 |
+| 脚本数 | 口径多义，仅告警；历史记录类文档整体豁免 |
+
+**上线效果**：首次运行抓出 **16 处漂移**；修正后 **0 处**。
+期间还修掉检测器自身 3 处误报（白名单「14 键」、iOS 依赖脚本计数、`sources/js` 的「30 脚本文件」）。
+
+> **教训**：文档漂移与契约遗漏是同一类问题——**只靠人工核对必然复发**，
+> 必须把「事实基准」写成可执行断言。
 
 ---
 
