@@ -4,9 +4,12 @@
 ///
 /// 设计要点：
 /// - **普通键** → `SharedPreferences`（对应 iOS `UserDefaults.standard`）
-/// - **安全键** → `flutter_secure_storage`，判定见 [_isSecure]：
+/// - **安全键** → 核心层 [SecureStore] 抽象（默认实现见 [FlutterSecureStoreAdapter]），
+///   判定见 [_isSecure]：
 ///   ① 契约敏感键（[kSensitiveKeys]，5 个，JSON `sensitive: true`）
 ///   ② 契约 `storage = keychain` 的键（云盘凭据）
+/// - 读取安全键时若安全存储为空，**回退读 SharedPreferences 并迁移**（A1：
+///   iOS 侧敏感键曾写 UserDefaults，见方案 P.16 第 1 项），迁移后清除明文
 /// - 读取时按契约 `type` 分派正确的 getter
 /// - 23 个 string 键中，`custom_fallback_sites`/`user_parsers`/`live_tv_local_channels`/
 ///   `mdtv_home_tabs`/`welfare_platform_order`/`fuli_remote_platform_order_v2`/`searchHistory`
@@ -16,10 +19,11 @@ library;
 
 import 'dart:convert';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../contract/prefs_keys.dart';
+import '../../../core/storage/secure_store.dart';
+import 'secure_store_adapter.dart';
 
 class PrefsManager {
   PrefsManager._();
@@ -27,7 +31,7 @@ class PrefsManager {
   static final PrefsManager instance = PrefsManager._();
 
   SharedPreferences? _prefs;
-  FlutterSecureStorage? _secure;
+  SecureStore? _secure;
 
   /// 需要按 JSON 数组字符串读写的不敏感键（契约 type=string 但语义为列表）。
   static const Set<String> jsonListKeys = <String>{
@@ -41,12 +45,12 @@ class PrefsManager {
   };
 
   /// 初始化（App 启动时调用一次）。
-  Future<void> init({AndroidOptions? androidOptions}) async {
+  ///
+  /// [secureStore] 可注入自定义实现（单测/替代后端）；缺省用
+  /// [FlutterSecureStoreAdapter]（`flutter_secure_storage`）。
+  Future<void> init({SecureStore? secureStore}) async {
     _prefs ??= await SharedPreferences.getInstance();
-    _secure ??= FlutterSecureStorage(
-      aOptions: androidOptions ??
-          const AndroidOptions(encryptedSharedPreferences: true),
-    );
+    _secure ??= secureStore ?? FlutterSecureStoreAdapter();
   }
 
   SharedPreferences get _p {
@@ -57,15 +61,15 @@ class PrefsManager {
     return p;
   }
 
-  FlutterSecureStorage get _s {
-    final FlutterSecureStorage? s = _secure;
+  SecureStore get _s {
+    final SecureStore? s = _secure;
     if (s == null) {
       throw StateError('PrefsManager 未初始化：请先 await PrefsManager.instance.init()');
     }
     return s;
   }
 
-  /// 该键是否走安全存储（`flutter_secure_storage`）。
+  /// 该键是否走安全存储（核心层 [SecureStore]）。
   ///
   /// 依据契约 `notes`：`sensitiveKeys` 在 Flutter 端建议迁移到安全存储
   /// （iOS 曾写入 UserDefaults，读取需兼容）；`storage = keychain` 的云盘凭据同理。
@@ -76,15 +80,24 @@ class PrefsManager {
   // 通用读取（按契约 type 分派；无值时回退契约默认值）
   // ─────────────────────────────────────────────────────────
 
-  /// 按键名读取任意类型值（敏感键走 secure storage）。
+  /// 按键名读取任意类型值（敏感键走安全存储）。
   Future<Object?> get(String name) async {
     final PrefsKey? meta = findPrefsKey(name);
     if (meta == null) {
       throw ArgumentError('契约外键名: $name（见 prefs_keys_v1.json）');
     }
     if (_isSecure(meta)) {
-      final String? v = await _s.read(key: name);
-      return v ?? meta.defaultValue;
+      final String? v = await _s.read(name);
+      if (v != null) return v;
+      // A1：iOS 侧敏感键曾写 UserDefaults（Flutter 端对应 SharedPreferences）。
+      // 首读回退到明文存储，命中则**迁移**进安全存储并清除明文，避免迁移丢值。
+      final String? legacy = _p.getString(name);
+      if (legacy != null) {
+        await _s.write(name, legacy);
+        await _p.remove(name);
+        return legacy;
+      }
+      return meta.defaultValue;
     }
     return switch (meta.type) {
       PrefsType.bool => _p.getBool(name) ?? meta.defaultValue,
@@ -105,9 +118,9 @@ class PrefsManager {
     }
     if (_isSecure(meta)) {
       if (value == null) {
-        await _s.delete(key: name);
+        await _s.delete(name);
       } else {
-        await _s.write(key: name, value: value.toString());
+        await _s.write(name, value.toString());
       }
       return;
     }
@@ -131,7 +144,7 @@ class PrefsManager {
     final PrefsKey? meta = findPrefsKey(name);
     if (meta == null) return;
     if (_isSecure(meta)) {
-      await _s.delete(key: name);
+      await _s.delete(name);
     } else {
       await _p.remove(name);
     }
@@ -212,7 +225,7 @@ class PrefsManager {
     final Map<String, Object?> out = <String, Object?>{};
     for (final PrefsKey k in kAllPrefsKeys) {
       if (_isSecure(k) && maskSensitive) {
-        out[k.name] = (await _s.read(key: k.name)) == null ? null : '***';
+        out[k.name] = (await _s.read(k.name)) == null ? null : '***';
       } else {
         out[k.name] = await get(k.name);
       }

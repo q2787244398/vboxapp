@@ -77,7 +77,7 @@ abstract final class JsonUtils {
 
   /// 转 `List<Map<String, Object?>>`（自动丢弃非对象元素）。
   static List<Map<String, Object?>> asMapList(Object? v) =>
-      asList(v).where((Object? e) => e is Map).map(asMap).toList(growable: false);
+      asList(v).whereType<Map>().map(asMap).toList(growable: false);
 
   /// 解析 JSON 对象文本（失败返回 null）。
   static Map<String, Object?>? tryDecodeMap(String text) {

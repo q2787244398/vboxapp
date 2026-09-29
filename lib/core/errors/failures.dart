@@ -80,10 +80,10 @@ final class NetworkFailure extends Failure {
 
   /// 超时构造（便于判别重试策略）。
   const NetworkFailure.timeout(
-    String message, {
-    Object? cause,
+    super.message, {
+    super.cause,
     this.source,
-  }) : super(message, code: ErrorCode.networkTimeout, cause: cause);
+  }) : super(code: ErrorCode.networkTimeout);
 
   /// 原始异常（可空）。
   final VBoxException? source;
@@ -125,10 +125,10 @@ final class DatabaseFailure extends Failure {
 /// 存储失败。
 final class StorageFailure extends Failure {
   const StorageFailure(
-    String message, {
-    Object? cause,
+    super.message, {
+    super.cause,
     this.source,
-  }) : super(message, code: ErrorCode.storageIo, cause: cause);
+  }) : super(code: ErrorCode.storageIo);
 
   final VBoxException? source;
 
@@ -139,10 +139,10 @@ final class StorageFailure extends Failure {
 /// 加密失败。
 final class CryptoFailure extends Failure {
   const CryptoFailure(
-    String message, {
-    Object? cause,
+    super.message, {
+    super.cause,
     this.source,
-  }) : super(message, code: ErrorCode.crypto, cause: cause);
+  }) : super(code: ErrorCode.crypto);
 
   final VBoxException? source;
 
@@ -153,10 +153,10 @@ final class CryptoFailure extends Failure {
 /// 平台不支持。
 final class UnsupportedFailure extends Failure {
   const UnsupportedFailure(
-    String message, {
-    Object? cause,
+    super.message, {
+    super.cause,
     this.source,
-  }) : super(message, code: ErrorCode.unsupportedPlatform, cause: cause);
+  }) : super(code: ErrorCode.unsupportedPlatform);
 
   final VBoxException? source;
 
@@ -181,10 +181,10 @@ final class SpiderFailure extends Failure {
 /// 入参非法（用例层校验失败，不可重试）。
 final class ValidationFailure extends Failure {
   const ValidationFailure(
-    String message, {
-    Object? cause,
+    super.message, {
+    super.cause,
     this.source,
-  }) : super(message, code: ErrorCode.invalidArgument, cause: cause);
+  }) : super(code: ErrorCode.invalidArgument);
 
   final VBoxException? source;
 

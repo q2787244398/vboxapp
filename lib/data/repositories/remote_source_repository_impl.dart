@@ -53,8 +53,8 @@ class RemoteSourceRepositoryImpl implements RemoteSourceRepository {
     try {
       final String url = (await _p.remoteManifestUrl()).trim();
       if (url.isEmpty) {
-        return Err<RemoteManifest>(
-          const ValidationFailure('未配置 manifest 地址（remote_default_manifest_url）'),
+        return const Err<RemoteManifest>(
+          ValidationFailure('未配置 manifest 地址（remote_default_manifest_url）'),
         );
       }
       return await _datasource.fetch(url, forceRefresh: forceRefresh);
@@ -68,7 +68,7 @@ class RemoteSourceRepositoryImpl implements RemoteSourceRepository {
     try {
       final Map<String, Object?>? box = await FileStore.readJsonMap(_cachePath);
       final Object? raw = box?[manifestKey];
-      if (raw is! Map) return Success<RemoteManifest?>(null);
+      if (raw is! Map) return const Success<RemoteManifest?>(null);
       return Success<RemoteManifest?>(
         RemoteManifest.fromJson(raw.cast<String, Object?>()),
       );
@@ -87,7 +87,7 @@ class RemoteSourceRepositoryImpl implements RemoteSourceRepository {
       });
       await _p.set('remote_default_last_config_version', manifest.configVersion);
       await _p.set('remote_default_last_sync_time', now);
-      return Success<bool>(true);
+      return const Success<bool>(true);
     } catch (e) {
       return Err<bool>(Failure.from(e));
     }
@@ -101,7 +101,7 @@ class RemoteSourceRepositoryImpl implements RemoteSourceRepository {
 
     final int cachedAt = atResult.valueOrNull ?? 0;
     // 无缓存：恒需要刷新
-    if (cachedAt <= 0) return Success<bool>(true);
+    if (cachedAt <= 0) return const Success<bool>(true);
 
     final Result<RemoteManifest?> cachedResult = await cachedManifest();
     final Failure? cacheFailure = cachedResult.failureOrNull;

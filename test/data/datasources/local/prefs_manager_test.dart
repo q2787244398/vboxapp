@@ -55,7 +55,7 @@ void main() {
             reason: '$name 被写入明文 SharedPreferences！');
       }
       // 全部可经 secure 读回
-      final FlutterSecureStorage s = FlutterSecureStorage();
+      const FlutterSecureStorage s = FlutterSecureStorage();
       for (final String name in _secureKeys) {
         expect(await s.read(key: name), 'SECRET_$name', reason: name);
         expect(await pm.get(name), 'SECRET_$name', reason: name);
@@ -67,7 +67,7 @@ void main() {
       await pm.set(name, 'https://cdn/x.json');
       final SharedPreferences sp = await SharedPreferences.getInstance();
       expect(sp.getString(name), 'https://cdn/x.json');
-      final FlutterSecureStorage s = FlutterSecureStorage();
+      const FlutterSecureStorage s = FlutterSecureStorage();
       expect(await s.read(key: name), isNull);
     });
 
@@ -76,7 +76,7 @@ void main() {
       await pm.set(name, 'dev-1');
       expect(await pm.get(name), 'dev-1');
       await pm.set(name, null);
-      final FlutterSecureStorage s = FlutterSecureStorage();
+      const FlutterSecureStorage s = FlutterSecureStorage();
       expect(await s.read(key: name), isNull);
     });
 
@@ -87,8 +87,37 @@ void main() {
       await pm.remove('remote_default_manifest_url');
       final SharedPreferences sp = await SharedPreferences.getInstance();
       expect(sp.containsKey('remote_default_manifest_url'), isFalse);
-      expect(await FlutterSecureStorage().read(key: 'cloud_drive_credentials_v1'),
+      expect(await const FlutterSecureStorage().read(key: 'cloud_drive_credentials_v1'),
           isNull);
+    });
+  });
+
+  group('A1：安全键回退读 UserDefaults（iOS 迁移兼容）', () {
+    test('安全存储为空时回退读明文，并迁移进安全存储 + 清除明文', () async {
+      final SharedPreferences sp = await SharedPreferences.getInstance();
+      // 模拟 iOS 遗留：敏感键写在 UserDefaults（Flutter 端 = SharedPreferences）
+      await sp.setString('one_platform_token', 'legacy-tok');
+      expect(await const FlutterSecureStorage().read(key: 'one_platform_token'),
+          isNull);
+
+      expect(await pm.get('one_platform_token'), 'legacy-tok');
+
+      // 迁移完成：明文已清除、安全存储已写入
+      expect(sp.containsKey('one_platform_token'), isFalse);
+      expect(await const FlutterSecureStorage().read(key: 'one_platform_token'),
+          'legacy-tok');
+    });
+
+    test('安全存储已有值时以安全存储为准（不触发回退）', () async {
+      final SharedPreferences sp = await SharedPreferences.getInstance();
+      await sp.setString('quark_device_id', 'legacy-dev');
+      await pm.set('quark_device_id', 'secure-dev');
+      expect(await pm.get('quark_device_id'), 'secure-dev');
+      await sp.remove('quark_device_id');
+    });
+
+    test('两处皆空 → 回退契约默认值', () async {
+      expect(await pm.get('one_platform_uuid'), isNull);
     });
   });
 

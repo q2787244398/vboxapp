@@ -27,7 +27,7 @@ class FavoriteUseCases {
   /// 是否已收藏（按详情地址判定）。
   Future<Result<bool>> isFavorite(String detailurl) async {
     if (StringUtils.isBlank(detailurl)) {
-      return Err<bool>(const ValidationFailure('详情地址为空'));
+      return const Err<bool>(ValidationFailure('详情地址为空'));
     }
     final Result<FavoriteItem?> found = await _repo.findByDetailUrl(detailurl);
     final Failure? failure = found.failureOrNull;
@@ -52,17 +52,17 @@ class FavoriteUseCases {
       final Result<int> added = await _repo.add(item);
       final Failure? addFailure = added.failureOrNull;
       if (addFailure != null) return Err<bool>(addFailure);
-      return Success<bool>(true);
+      return const Success<bool>(true);
     }
 
     final int? id = existing.id;
     if (id == null) {
-      return Err<bool>(const ValidationFailure('收藏项缺少主键，无法取消收藏'));
+      return const Err<bool>(ValidationFailure('收藏项缺少主键，无法取消收藏'));
     }
     final Result<bool> removed = await _repo.remove(id);
     final Failure? removeFailure = removed.failureOrNull;
     if (removeFailure != null) return Err<bool>(removeFailure);
-    return Success<bool>(false);
+    return const Success<bool>(false);
   }
 
   /// 按主键移除。

@@ -9,10 +9,13 @@
 /// - 时间字段为 Unix 秒；布尔存 0/1
 library;
 
-import 'package:path/path.dart' as p;
+import 'dart:io';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../../../contract/schema/schema.dart';
+import '../../../core/constants/app_constants.dart';
+import '../../../core/storage/storage_paths.dart';
 import '../../models/models.dart';
 
 class DatabaseManager {
@@ -22,8 +25,8 @@ class DatabaseManager {
 
   static Database? _db;
 
-  /// 数据库文件名（与 iOS 端一致）。
-  static const String dbFileName = 'vbox.sqlite3';
+  /// 数据库文件名（与 iOS 端一致；唯一真相源为 [DbConstants.fileName]）。
+  static const String dbFileName = DbConstants.fileName;
 
   /// 迁移链名称（与 iOS `registerMigration` 一致，供审计用）。
   static const List<String> migrationNames = <String>[
@@ -36,8 +39,10 @@ class DatabaseManager {
   Future<Database> get database async => _db ??= await _open();
 
   Future<Database> _open() async {
-    final String dir = await getDatabasesPath();
-    final String path = p.join(dir, dbFileName);
+    // 单一真相源：数据库路径统一由核心层 [StoragePaths] 提供，
+    // 不再使用 sqflite `getDatabasesPath()`，消除桌面 FFI 下的双真相源分叉。
+    final String path = StoragePaths.databaseFile;
+    await Directory(StoragePaths.dbDir).create(recursive: true);
     return openDatabase(
       path,
       version: kSchemaVersion,

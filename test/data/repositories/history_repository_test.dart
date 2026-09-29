@@ -7,8 +7,8 @@ library;
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:vbox/core/storage/storage_paths.dart';
 import 'package:vbox/data/datasources/local/database_manager.dart';
 import 'package:vbox/data/repositories/repositories.dart';
 import 'package:vbox/domain/entities/library/library.dart';
@@ -37,7 +37,10 @@ void main() {
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
-    dbPath = p.join(await getDatabasesPath(), DatabaseManager.dbFileName);
+    final Directory tmp = await Directory.systemTemp.createTemp('vbox_repo_test');
+    StoragePaths.configure(tmp.path);
+    await StoragePaths.ensureLayout();
+    dbPath = StoragePaths.databaseFile;
   });
 
   setUp(() async {
@@ -100,7 +103,7 @@ void main() {
   });
 
   test('progress 往返（REAL 列）', () async {
-    await repo.upsert(HistoryItem(
+    await repo.upsert(const HistoryItem(
       name: '片名',
       detailurl: 'u/1',
       progress: 0.42,

@@ -39,8 +39,8 @@ class CmsV10Datasource {
         .map((Map<String, Object?> j) => CmsV10Category.fromJson(j))
         .toList(growable: false);
     if (items.isEmpty) {
-      return Err<List<CmsV10Category>>(
-        const ParseFailure('分类为空（检查站点地址或该站是否支持 at=json）'),
+      return const Err<List<CmsV10Category>>(
+        ParseFailure('分类为空（检查站点地址或该站是否支持 at=json）'),
       );
     }
     return Success<List<CmsV10Category>>(items);
@@ -54,7 +54,7 @@ class CmsV10Datasource {
     String? keyword,
   }) async {
     if (page < 1) {
-      return Err<List<CmsV10Video>>(const ValidationFailure('页码必须 ≥ 1'));
+      return const Err<List<CmsV10Video>>(ValidationFailure('页码必须 ≥ 1'));
     }
     final Map<String, String> params = <String, String>{
       'ac': 'videolist',
@@ -83,7 +83,7 @@ class CmsV10Datasource {
   /// 详情（`?ac=detail&ids=<vod_id>`）。
   Future<Result<CmsV10Detail>> fetchDetail(String baseUrl, String vodId) async {
     if (vodId.trim().isEmpty) {
-      return Err<CmsV10Detail>(const ValidationFailure('影片 ID 为空'));
+      return const Err<CmsV10Detail>(ValidationFailure('影片 ID 为空'));
     }
     final Result<Map<String, Object?>> body = await _getJson(
       baseUrl,
@@ -126,8 +126,8 @@ class CmsV10Datasource {
   ) async {
     final Uri? uri = buildUri(baseUrl, params);
     if (uri == null) {
-      return Err<Map<String, Object?>>(
-        const ValidationFailure('站点地址非法（需 http/https 绝对地址）'),
+      return const Err<Map<String, Object?>>(
+        ValidationFailure('站点地址非法（需 http/https 绝对地址）'),
       );
     }
     try {
@@ -145,8 +145,8 @@ class CmsV10Datasource {
       }
       final Map<String, Object?>? json = JsonUtils.tryDecodeMap(res.text);
       if (json == null) {
-        return Err<Map<String, Object?>>(
-          const ParseFailure('响应不是 JSON 对象（该站可能不支持 at=json）'),
+        return const Err<Map<String, Object?>>(
+          ParseFailure('响应不是 JSON 对象（该站可能不支持 at=json）'),
         );
       }
       return Success<Map<String, Object?>>(json);

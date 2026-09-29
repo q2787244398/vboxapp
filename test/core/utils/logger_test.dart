@@ -28,7 +28,7 @@ void main() {
   });
 
   test('环形缓冲按容量淘汰最旧', () {
-    final int cap = LogConstants.ringBufferSize;
+    const int cap = LogConstants.ringBufferSize;
     for (int i = 0; i < cap + 5; i++) {
       AppLog.debug('T', 'line$i');
     }

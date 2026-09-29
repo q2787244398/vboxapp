@@ -121,30 +121,30 @@ void main() {
   group('列名 ↔ DDL 逐表完全一致', () {
     test('9 个模型 toMap 的键集合 == DDL 列集合', () {
       final Map<String, Set<String>> modelCols = <String, Set<String>>{
-        Zhanyuan.table: Zhanyuan(
+        Zhanyuan.table: const Zhanyuan(
           id: 1,
           name: 'n',
           searchUrl: 'u',
           updatedAt: 1,
         ).toMap().keys.toSet(),
         Apiyuan.table:
-            Apiyuan(id: 1, name: 'n', searchurl: 'u').toMap().keys.toSet(),
-        Subscription.table: Subscription(
+            const Apiyuan(id: 1, name: 'n', searchurl: 'u').toMap().keys.toSet(),
+        Subscription.table: const Subscription(
           id: 1,
           dyname: 'n',
           dyurl: 'u',
           lastSyncAt: 1,
         ).toMap().keys.toSet(),
         Favorite.table:
-            Favorite(id: 1, name: 'n', addedAt: 1).toMap().keys.toSet(),
+            const Favorite(id: 1, name: 'n', addedAt: 1).toMap().keys.toSet(),
         History.table:
-            History(id: 1, name: 'n', lastPlayedAt: 1).toMap().keys.toSet(),
+            const History(id: 1, name: 'n', lastPlayedAt: 1).toMap().keys.toSet(),
         Download.table:
-            Download(id: 1, name: 'n', addedAt: 1).toMap().keys.toSet(),
-        Setting.table: Setting(key: 'k', updatedAt: 1).toMap().keys.toSet(),
-        Jiexisetting.table: Jiexisetting(bianma: 'b').toMap().keys.toSet(),
+            const Download(id: 1, name: 'n', addedAt: 1).toMap().keys.toSet(),
+        Setting.table: const Setting(key: 'k', updatedAt: 1).toMap().keys.toSet(),
+        Jiexisetting.table: const Jiexisetting(bianma: 'b').toMap().keys.toSet(),
         SearchHistory.table:
-            SearchHistory(id: 1, keyword: 'k', searchedAt: 1).toMap().keys.toSet(),
+            const SearchHistory(id: 1, keyword: 'k', searchedAt: 1).toMap().keys.toSet(),
       };
       expect(modelCols.keys.toSet(), kAllTables.toSet());
       for (final MapEntry<String, Set<String>> e in modelCols.entries) {
@@ -155,25 +155,25 @@ void main() {
     });
 
     test('id 为 null 时 toMap 省略 id（交给 AUTOINCREMENT）', () {
-      expect(Zhanyuan(name: 'n', searchUrl: 'u', updatedAt: 1)
+      expect(const Zhanyuan(name: 'n', searchUrl: 'u', updatedAt: 1)
           .toMap()
           .containsKey('id'), isFalse);
-      expect(Apiyuan(name: 'n', searchurl: 'u').toMap().containsKey('id'), isFalse);
-      expect(Favorite(name: 'n', addedAt: 1).toMap().containsKey('id'), isFalse);
-      expect(History(name: 'n', lastPlayedAt: 1).toMap().containsKey('id'), isFalse);
-      expect(Download(name: 'n', addedAt: 1).toMap().containsKey('id'), isFalse);
-      expect(SearchHistory(keyword: 'k', searchedAt: 1)
+      expect(const Apiyuan(name: 'n', searchurl: 'u').toMap().containsKey('id'), isFalse);
+      expect(const Favorite(name: 'n', addedAt: 1).toMap().containsKey('id'), isFalse);
+      expect(const History(name: 'n', lastPlayedAt: 1).toMap().containsKey('id'), isFalse);
+      expect(const Download(name: 'n', addedAt: 1).toMap().containsKey('id'), isFalse);
+      expect(const SearchHistory(keyword: 'k', searchedAt: 1)
           .toMap()
           .containsKey('id'), isFalse);
       // 无 id 列的表（TEXT 主键）
-      expect(Setting(key: 'k', updatedAt: 1).toMap().containsKey('id'), isFalse);
-      expect(Jiexisetting(bianma: 'b').toMap().containsKey('id'), isFalse);
+      expect(const Setting(key: 'k', updatedAt: 1).toMap().containsKey('id'), isFalse);
+      expect(const Jiexisetting(bianma: 'b').toMap().containsKey('id'), isFalse);
     });
   });
 
   group('toMap/fromMap 往返稳定', () {
     test('zhanyuan：bool → 0/1，且往返不丢字段', () {
-      final Zhanyuan z = Zhanyuan(
+      const Zhanyuan z = Zhanyuan(
         id: 3,
         name: '源A',
         searchUrl: 'http://a/s',
@@ -199,7 +199,7 @@ void main() {
     });
 
     test('apiyuan：bool 往返', () {
-      final Apiyuan a = Apiyuan(
+      const Apiyuan a = Apiyuan(
         id: 1,
         name: 'n',
         searchurl: 'u',
@@ -215,14 +215,14 @@ void main() {
     });
 
     test('subscription 往返', () {
-      final Subscription s =
+      const Subscription s =
           Subscription(id: 2, dyname: 'n', dyurl: 'u', dyzz: 'z', lastSyncAt: 9);
       final Map<String, Object?> m = s.toMap();
       expect(Subscription.fromMap(m).toMap(), m);
     });
 
     test('favorite 往返', () {
-      final Favorite f = Favorite(
+      const Favorite f = Favorite(
           id: 4,
           name: 'n',
           laiyuan: 'l',
@@ -237,7 +237,7 @@ void main() {
     });
 
     test('history：progress 为 REAL，num 输入亦转 double', () {
-      final History h = History(
+      const History h = History(
           id: 5, name: 'n', progress: 0.75, lastPlayedAt: 11);
       final Map<String, Object?> m = h.toMap();
       expect(History.fromMap(m).toMap(), m);
@@ -249,7 +249,7 @@ void main() {
     });
 
     test('download：全字段往返（含 v4 列有值）', () {
-      final Download d = Download(
+      const Download d = Download(
         id: 7,
         name: 'n',
         laiyuan: 'l',
@@ -274,13 +274,13 @@ void main() {
     });
 
     test('settings / jiexisetting / search_history 往返', () {
-      final Setting st = Setting(key: 'k', value: 'v', updatedAt: 1);
+      const Setting st = Setting(key: 'k', value: 'v', updatedAt: 1);
       expect(Setting.fromMap(st.toMap()).toMap(), st.toMap());
 
-      final Jiexisetting j = Jiexisetting(bianma: 'b', zhuurl: 'z', beiurl: 'be');
+      const Jiexisetting j = Jiexisetting(bianma: 'b', zhuurl: 'z', beiurl: 'be');
       expect(Jiexisetting.fromMap(j.toMap()).toMap(), j.toMap());
 
-      final SearchHistory sh = SearchHistory(id: 8, keyword: 'kw', searchedAt: 5);
+      const SearchHistory sh = SearchHistory(id: 8, keyword: 'kw', searchedAt: 5);
       expect(SearchHistory.fromMap(sh.toMap()).toMap(), sh.toMap());
     });
 

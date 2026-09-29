@@ -29,7 +29,7 @@
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名随修订版本递增（**D25**）：`VBOX_PLAN_v5.md` → `VBOX_PLAN_v6.md`（v6 系列首版，现已废弃）
-> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → **`VBOX_PLAN_v6.12.md`**（当前版）。
+> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → **`VBOX_PLAN_v6.13.md`**（当前版）。
 >
 > **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
@@ -125,7 +125,7 @@
 > ④ 新增 **D27**（平台壳与包名基线）与 **P.22 十轮复核**；文档更名 `VBOX_PLAN_v6.10.md` → **`VBOX_PLAN_v6.11.md`**（D25）；
 > ⑤ 本版**未改动 `lib/` / 契约 / 测试**，各项事实计数不变（74 lib 文件 / 28 测试文件 / 365 用例）。
 >
-> **v6.12 变更（本版）**：**CI 首跑验证（门禁 ③/⑤ 由「待确认」转「✅ 已通过」）** ——
+> **v6.12 变更**：**CI 首跑验证（门禁 ③/⑤ 由「待确认」转「✅ 已通过」）** ——
 > ① 平台壳批次推送后触发 **Flutter Check**（run `36600564607`，commit `f59d04e`），**5 个 job 全部 success**：
 > `contract-checks` · `flutter-analyze`（含覆盖率门槛）· `build-android` · `build-macos` · `build-windows`；
 > ② E.10b 门禁 **③/⑤「三端编译通过」由「已具备编译通道（待 CI 首跑确认）」升级为「✅ 已通过」**，
@@ -133,6 +133,23 @@
 > ③ 顺带修正 **P.14** 遗留的一处状态漂移（`pubspec.lock` 记为「⬜ 待办」，实为 v6.6 已入库）；
 > ④ **无代码 / 契约 / 平台壳改动**，各项事实计数不变（74 lib / 28 测试 / 365 用例 / 11 脚本 / 66 平台壳文件）；
 > 文档更名 `VBOX_PLAN_v6.11.md` → **`VBOX_PLAN_v6.12.md`**（D25）。
+>
+> **v6.13 变更（本版）**：**P0 清障批次（闭环 P.13 §4 #4 / #5 / #6 与 P.16 #1）** ——
+> ① **启用 `analysis_options.yaml`**（`include: package:flutter_lints/flutter.yaml`，排除平台壳与 `build/`），
+> `flutter_lints` 由「已声明但零生效」转为**真正门禁**；`dart fix --apply` 清掉 **79 条** lint
+> （73 `prefer_const_constructors` / 5 `use_super_parameters` / 1 `prefer_const_declarations` /
+> 1 `prefer_iterable_wheretype`），并手改 **1 条** `unrelated_type_equality_checks` → `flutter analyze` **0 issues**；
+> ② **消除 DB 路径双真相源**（P.13 §4 #4）：`database_manager.dart` 不再用 sqflite `getDatabasesPath()`，
+> 统一取核心层 `StoragePaths.databaseFile`；`DatabaseManager.dbFileName` 改为引用 `DbConstants.fileName`（去第二真相源）；
+> ③ **`prefs_manager` 接入核心层抽象**（P.13 §4 #5）：新增数据层适配器
+> `lib/data/datasources/local/secure_store_adapter.dart`（`SecureStore` 接口的 `flutter_secure_storage` 实现），
+> `PrefsManager` 改依赖 `SecureStore` 抽象、**不再直接导入插件**；`check_prefs_manager.py` 规则 3 同步升级为
+> 「须经 `SecureStore` 抽象且不得 `import package:flutter_secure_storage`」；
+> ④ **敏感键回退读取**（P.16 #1，唯一 🔴）：`PrefsManager.get` 安全分支在安全存储为空时**回退读 SharedPreferences**，
+> 命中即**迁移**进安全存储并清除明文 —— 修复 iOS 迁移后 5 个敏感键首读丢值；
+> ⑤ 计数变化：lib **74 → 75**（+adapter）、测试文件 **28 → 29**（+3 adapter 直测）、单测 **365 → 371**、
+> 触达口径 **86.4% → 86.5%**，全 lib 整体 **71.1%（不变，达标）**、零触达仍 **24/75**；新增 **P.23 清障批次复核**；
+> 文档更名 `VBOX_PLAN_v6.12.md` → **`VBOX_PLAN_v6.13.md`**（D25）。
 
 ## 版本历史
 
@@ -156,7 +173,8 @@
 | **v6.9** | 2026-09-29：**文档文件名版本化 + 守卫加固** —— 新增 **D25**：文件名须携带修订版本号（`VBOX_PLAN_v6.9.md`）且与「（现行）」行 / 「本版变更」块三处一致；**重命名主方案文档**并同步全部引用（README / Dart 注释 / CI / 守卫），旧文件名入 `DEAD_DOCS`；`check_docs_consistency.py` 新增**规则 6 / 规则 7**（版本三处一致 + D 编号唯一性与引用无悬空）；修正「唯一现行文档（D17–D20）」误引（实为 v5 文档合并结论）；**无代码 / 契约改动** |
 | **v6.10** | 2026-09-29：**清账批次** —— ① 修复 `docs-guard:history` 块**缺闭合**致 L104–L3158 数值 / 路径规则静默失效的结构性漏洞（闭合后再抓 2 处陈旧键数 + 1 处旧文件名并修正）；② 守卫新增**规则 8**（`pubspec` ↔ `AppInfo` 版本一致）/ **规则 9**（禁不可验证的目录声明），并从历史标记移除过泛的「遗漏 / 冗余」、补「NN 个」写法检测；③ `AppInfo` 版本对齐 `pubspec`（`3.1621.0+1621`）、`pubspec.yaml` 移除零引用依赖 `dio` / `collection`；④ 修正 `data/repositories` / `platform/*` / `presentation/*` / `android-compat.md` / `vbox_flutter/` / `flutter/` / `app.dart` 行号等目录路径漂移；⑤ 新增 **D26**、**P.21**；旧文件名入 `DEAD_DOCS` |
 | **v6.11** | 2026-09-29：**平台壳批次（三端编译门禁解锁）** —— ① 交付 `android/` `macos/` `windows/` 三端平台壳（`flutter create` 官方模板，**66 文件**，非侵入落地）；② 标识统一 **`com.vbox.player`**（Android namespace/applicationId + macOS bundle id + `MainActivity.kt` 迁移）、`minSdk` 锁 **24**；③ `flutter-check.yml` 新增 **build-android / build-macos / build-windows** 三个 build job，门禁 E.10b ③/⑤「三端编译」转为**已具备编译通道（待 CI 首跑确认）**；④ 新增 **D27**、**P.22**；文档更名 `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` |
-| **v6.12（现行）** | 2026-09-29：**CI 首跑验证** —— Flutter Check（run `36600564607`，`f59d04e`）**5 job 全绿**（`contract-checks` / `flutter-analyze` / `build-android` / `build-macos` / `build-windows`）；门禁 **③/⑤「三端编译通过」由「待首跑确认」转为「✅ 已通过」**；修正 P.14 `pubspec.lock` 状态漂移；**无代码 / 契约 / 平台壳改动**，计数不变；文档更名 `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` |
+| **v6.12** | 2026-09-29：**CI 首跑验证** —— Flutter Check（run `36600564607`，`f59d04e`）**5 job 全绿**（`contract-checks` / `flutter-analyze` / `build-android` / `build-macos` / `build-windows`）；门禁 **③/⑤「三端编译通过」由「待首跑确认」转为「✅ 已通过」**；修正 P.14 `pubspec.lock` 状态漂移；**无代码 / 契约 / 平台壳改动**，计数不变；文档更名 `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` |
+| **v6.13（现行）** | 2026-09-29：**P0 清障批次**（闭环 P.13 §4 #4 / #5 / #6 与 P.16 #1）—— ① 启用 `analysis_options.yaml`（`flutter_lints`）并 `dart fix --apply`（80 条告警 → `flutter analyze` 0 issues）；② 消除 DB 路径双真相源（`database_manager` 统一取 `StoragePaths.databaseFile`）；③ `prefs_manager` 接入核心层 `SecureStore` 抽象（新增 `secure_store_adapter.dart`，不再直连插件）；④ 敏感键回退读取 + 迁移（修复 iOS 迁移后 5 键首读丢值）；lib **74 → 75**、测试文件 **28 → 29**、单测 **365 → 371**、全 lib 整体 **71.1%（达标）**；新增 **P.23**；文档更名 `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` |
 
 <!-- /docs-guard:history -->
 
@@ -194,7 +212,7 @@
 | **D22** | **Flutter 版本基线** | 以 CI 实测 **3.47.5** 为准，**修订 §2.3 的「3.24.x 锁版」**；与 D12（API 24，依据 3.47 支持矩阵）保持一致 | **已确认**（2026-09-29） |
 | **D23** | **本地持久化与模型** | Flutter 侧采用 **`sqflite` 直连 + 手写模型**，**不引入 drift / freezed 代码生成**；契约正确性由 Python 侧 `check_*` 断言，不依赖 Dart 代码生成 | **已确认**（2026-09-29） |
 | **D24** | **文档版本号递增** | **每次修改本方案文档必须先递增修订版本号**（v6.x → v6.x+1）**再交付 / 推送**；递增须同步：① 顶部「本版变更」块（旧版去掉「（本版）」标记）、② 版本历史表「（现行）」行、③ 受影响的计数与口径引用 | **已确认**（2026-09-29） |
-| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.12.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
+| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.13.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
 | **D26** | **守卫结构性漏洞须闭环** | 文档守卫的**块级豁免标记必须成对闭合**；凡「静默豁免 / 静默跳过」类设计必须自带**自检**（如块标记成对性、豁免行数上限告警）。发现「规则静默失效」类结构性漏洞时，须**先补漏洞、再用其复查全量**，并把新规则纳入 CI（本轮即由未闭合的 `docs-guard:history` 块暴露 L104–L3158 长期失守） | **已确认**（2026-09-29） |
 | **D27** | **平台壳与包名基线** | Flutter 平台壳**一律以 `flutter create` 官方模板生成**（不手写），且**非侵入落地**（临时目录生成后仅拷贝平台目录 + `.metadata`，不改 `lib/` / `test/` / `pubspec.yaml`）；Android `namespace`/`applicationId` 与 macOS `PRODUCT_BUNDLE_IDENTIFIER` 统一为 **`com.vbox.player`**（iOS 保持 `com.vbox.iosplayer`）；`minSdk` **显式写死 24**（D12），不依赖 `flutter.minSdkVersion` 隐式默认 | **已确认**（2026-09-29） |
 
@@ -2306,7 +2324,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.12.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.13.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -3103,9 +3121,9 @@ AliyunPlayer + IJK   ~30 MB
 ## 二之补八：实际开发进度追踪（2026-09-29 更新）
 
 > **本章由开发过程实时核验生成。**
-> 仓库：https://github.com/q2787244398/vboxapp · **553 文件**（v6.7 复核计数，`git ls-files --cached --others --exclude-standard`）
+> 仓库：https://github.com/q2787244398/vboxapp · **623 文件**（v6.13 复核计数，`git ls-files --cached --others --exclude-standard`）
 > **⚠️ 本机（aarch64）无 Flutter SDK**（见 P.7）；Dart 代码的编译 / 静态 / 单测验证
-> 已由 GitHub Actions `flutter-check.yml` 承接（`analyze` 0 issues · 365 用例 + 覆盖率门槛，v6.7）。
+> 已由 GitHub Actions `flutter-check.yml` 承接（`analyze` 0 issues · 371 用例 + 覆盖率门槛，v6.13）。
 
 ### P.1 总体进度
 
@@ -3132,7 +3150,7 @@ AliyunPlayer + IJK   ~30 MB
 
 ### P.3 第 1 轮交付核验
 
-**✅ 已完成（74 个 Dart 文件 + 28 个测试文件 / 365 用例，v6.7）**
+**✅ 已完成（75 个 Dart 文件 + 29 个测试文件 / 371 用例，v6.13）**
 
 | 模块 | 产物 |
 |------|------|
@@ -3152,7 +3170,7 @@ AliyunPlayer + IJK   ~30 MB
 | `presentation/{phone,tv,desktop,shared,theme}` 布局 | ⬜ 未创建（仅 `ui_mode/` 已交付） |
 | `platform/{player,spider,runtime,system}` 插件层 | ⬜ 未创建 |
 | 平台壳 | ✅ **v6.11 已交付**：`android/` / `macos/` / `windows/`（`flutter create` 官方模板，66 文件，包名 `com.vbox.player`）；CI 三端 build job **v6.12 首跑全绿**（Flutter Check `f59d04e`，见 P.22） |
-| **单元测试**（目标 >70%） | ✅ **28 文件 / 365 用例通过**（本机 + CI 双复现）；覆盖率**已测量**：触达口径 **86.4%**，全 lib 整体口径 **71.1%**（保守下界，**达标**），零触达文件 **24/74**（见 P.18 / P.19） |
+| **单元测试**（目标 >70%） | ✅ **29 文件 / 371 用例通过**（本机 + CI 双复现）；覆盖率**已测量**：触达口径 **86.5%**，全 lib 整体口径 **71.1%**（保守下界，**达标**），零触达文件 **24/75**（见 P.18 / P.19 / P.23） |
 | conformance runner | ✅ 已交付（45/45，见 P.8b） |
 | `lib/domain/{repositories,usecases}` · `lib/data/{datasources/remote,repositories}` | ✅ 已交付（接口 + **四个仓储实现**，v6.7） |
 
@@ -3420,7 +3438,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | 6 | ~~`lib/domain/usecases` 用例层~~ | 中 | ✅ **已补齐**（4 契约 + 4 用例组，见 P.13） |
 | 7 | UI 三形态（phone/tv/desktop） | 高 | ⚠️ 未开始；**现已可编译验证**（CI 通道已通，不再是阻碍） |
 | 8 | 平台插件层（Android/桌面） | 高 | ❌ 需原生工具链 |
-| 9 | 单元测试 | 高 | ✅ **28 文件 / 365 用例通过**（v6.7 补数据层仓储，本机复现）；覆盖率已测量：触达 86.4%、全 lib 整体 **71.1%**（保守下界，达标），零触达 **24/74**（P.18 / P.19） |
+| 9 | 单元测试 | 高 | ✅ **29 文件 / 371 用例通过**（v6.13 补安全存储适配器直测，本机复现）；覆盖率已测量：触达 86.5%、全 lib 整体 **71.1%**（保守下界，达标），零触达 **24/75**（P.18 / P.19 / P.23） |
 | 10 | 5 个 Spider 引擎实现 | 高 | ❌ 需 QuickJS/Node/Python 运行时 |
 
 > **风险提示（v6 更新）**：编译验证通道已通（`flutter-check.yml`），
@@ -3599,16 +3617,16 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 1 | 🔴 高 | ~~`lib/data/repositories/` 为空 —— 用例层无实现、**lib 内 0 处引用**~~ | ✅ **v6.7 已闭环**：四个仓储实现 + `app.dart` 组装注入（见 P.19）；门禁 ④ 待 UI / 平台层补齐后整体复核 |
 | 2 | 🔴 高 | ~~平台壳 `android/` `macos/` `windows/` 全缺，CI 无 build job~~ | ✅ **v6.11 已闭环**：三端平台壳交付（`com.vbox.player`）+ CI `build-android`/`build-macos`/`build-windows` job；门禁 ③/⑤ 由「无能力」转为「已具备编译通道」（v6.12 CI 首跑全绿 → **已通过**，见 P.22） |
 | 3 | 🔴 高 | CI 未测量覆盖率（无 `flutter test --coverage`） | 344 用例通过 ≠ 覆盖率 ≥70%；✅ **v6.6 已闭环**：CI 增 `flutter test --coverage` + `check_coverage.py`（全 lib 口径 70% 硬门槛），本机整体 **71.1%**（见 P.18 / P.19） |
-| 4 | 🟡 中 | DB 路径双真相源：`StoragePaths.databaseFile`（核心层）vs `database_manager.dart` 用 sqflite `getDatabasesPath()` | 桌面 FFI 下易分叉 |
-| 5 | 🟡 中 | `prefs_manager.dart` 直连 `flutter_secure_storage`，未走核心层 `SecureStore` 抽象 | 架构双轨，抽象形同未接入 |
-| 6 | 🟡 中 | `analysis_options.yaml` 缺失 | dev 依赖 `flutter_lints` 实际未生效，lint 规则为零 |
+| 4 | 🟡 中 | ~~DB 路径双真相源：`StoragePaths.databaseFile`（核心层）vs `database_manager.dart` 用 sqflite `getDatabasesPath()`~~ | ✅ **v6.13 已闭环**：`database_manager` 统一取 `StoragePaths.databaseFile`（见 P.23） |
+| 5 | 🟡 中 | ~~`prefs_manager.dart` 直连 `flutter_secure_storage`，未走核心层 `SecureStore` 抽象~~ | ✅ **v6.13 已闭环**：新增 `secure_store_adapter.dart`，`PrefsManager` 依赖 `SecureStore` 抽象（见 P.23） |
+| 6 | 🟡 中 | ~~`analysis_options.yaml` 缺失~~ | ✅ **v6.13 已闭环**：启用 `flutter_lints`，`flutter analyze` 0 issues（见 P.23） |
 | 7 | 🟡 中 | `修复说明.md`（74 行 iOS 旧修复记录）仍在根目录 | 与 **v5 文档合并结论**「全项目仅一份文档」冲突（附录 B 布局已加注）；✅ **v6.1 已归档至 `docs/archive/`** |
 | 8 | 🟡 中 | P.8 ⑥「应产出文件齐全」仍列 `PROGRESS.md` / `PROJECT_LAYOUT.md` / `KNOWN_GAPS.md` | 三者已在 v5 并入本方案并删除 → 引用失效 |
 | 9 | 🟢 低 | 根目录 6 个 `.o` 编译产物（`cutils.o` `quickjs.o` `quickjs-libc.o` `libbf.o` `libregexp.o` `libunicode.o`） | 无任何引用（`build-quickjs.yml` 用的是 `.obj/` 路径）→ 构建垃圾；✅ **v6.1 已删除** |
 | 10 | 🟢 低 | `.gitignore` 未忽略 `*.o` / `build/` | 与第 9 项同源；✅ **v6.1 已补 `*.o` / `build/` / `.dart_tool/`** |
 | 11 | 🟢 低 | `pre-commit.sh` 引用的 `check_braces.py` 仓库中不存在 | 钩子实际失效；✅ **v6.1 已删除**（游离脚本一并归入 `scripts/legacy/`） |
 | 12 | 🟢 低 | `lib/contract/abi/` 为空 | Spider ABI 在 Dart 侧无镜像（仅 Python runner 校验） |
-| 13 | 🟢 低 | `core.dart` / `network_info.dart` / `secure_store.dart` / `file_store.dart` / `logger.dart` / `storage_paths.dart` 在 `lib` 内 **0 引用** | 预置能力待接线，存在「写了没用」的漂移风险 |
+| 13 | 🟢 低 | `core.dart` / `network_info.dart` / `file_store.dart` / `logger.dart` 在 `lib` 内 **0 引用**（`secure_store.dart` / `storage_paths.dart` **v6.13 已接线**，移出本行） | 预置能力待接线，存在「写了没用」的漂移风险 |
 | 14 | 🟢 低 | `LICENSE` 缺失 | 自用项目，影响低 |
 | 15 | 🟢 低 | `assets/.gitkeep` 会被打进包 | 无害 |
 
@@ -3619,7 +3637,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 1 | ~~补 `lib/data/repositories/` 四个实现（绑定 database / prefs manager）+ 在 `main.dart`/`app.dart` 注入~~ ✅ **v6.7 已完成** | 让已交付用例真正可用；推进门禁 ④ |
 | 2 | ~~CI 增 `flutter test --coverage` + 覆盖率门槛（≥70%，**按全 lib 行数口径**）~~ ✅ **v6.6 已完成**（`check_coverage.py` + CI 步骤） | 门禁 ⑤ 已**可验证**且**达标**（本机整体 71.1%） |
 | 3 | ~~创建平台壳（`flutter create --platforms=android,macos,windows .`）+ CI build job（`flutter build apk --debug` 等）~~ ✅ **v6.11 已完成**（D27：官方模板 + 非侵入落地 + `com.vbox.player` + minSdk 24） | 解锁门禁 ③/⑤「三端编译」 |
-| 4 | 加 `analysis_options.yaml`；DB 路径统一到 `StoragePaths` | 消除问题 4 / 6（双真相源 + lint 空白） |
+| 4 | ~~加 `analysis_options.yaml`；DB 路径统一到 `StoragePaths`~~ ✅ **v6.13 已完成**（另含 `SecureStore` 抽象接入 + 敏感键回退读取） | 消除问题 4 / 5 / 6（双真相源 + 抽象未接入 + lint 空白） |
 | 5 | ~~根级清理：`.o` ×6、`修复说明.md` 归档、`.gitignore` 补 `*.o`、修 `pre-commit.sh`~~ ✅ **v6.1 已完成** | 仓库卫生（问题 7–11） |
 | 6 | 补 `lib/contract/abi/` Dart 镜像 | ABI 校验可在 Dart 侧自证（问题 12） |
 
@@ -3628,7 +3646,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 门禁项 | 状态 | 依据 |
 |--------|------|------|
 | ⑤ 静态分析无 error | ✅ **已可判通过** | `flutter analyze` 0 issues，每次推送执行 |
-| ⑤ 单测覆盖率 ≥70% | ✅ **达标** | v6.7 本机实测：触达 86.4%，全 lib 整体 **71.1%**（保守下界），零触达仍有 **24/74**（P.18 / P.19） |
+| ⑤ 单测覆盖率 ≥70% | ✅ **达标** | v6.13 本机实测：触达 86.5%，全 lib 整体 **71.1%**（保守下界），零触达仍有 **24/75**（P.18 / P.19 / P.23） |
 | ③/⑤ 三端编译通过 | ✅ **已通过** | v6.11 交付三端平台壳 + 三个 build job（D27）；v6.12 Flutter Check（`f59d04e`）`build-android`/`build-macos`/`build-windows` 首跑全绿 |
 | ④ 本阶段承诺功能交付 | ⚠️ **部分解除** | 用例层已有实现（v6.7），仍缺 UI 三形态 / 平台插件层 |
 
@@ -3764,6 +3782,9 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 六轮复核（v6.6） | P.18 收口批次（Spider 单测 + 覆盖率门禁），新增 **3 项**（🟡 ×2 / 🟢 ×1），见下节 | ⬜ 登记跟踪（#3 无需处理） |
 | 七轮复核（v6.7） | P.19 仓储实现批次 + 契约漂移修复，新增 **3 项**（🟡 ×2 / 🟢 ×1），见下节 | ⬜ 登记跟踪（#1 / #3 已修） |
 | 八轮复核（v6.9） | P.20 文档文件名版本化 + 守卫加固，新增 **2 项**（🟡 ×2），见下节 | ✅ 本轮 2 项**全部已修** |
+| 九轮复核（v6.10） | P.21 清账批次（文档漂移归零 + 守卫加固 + 代码小修），新增 **5 项**（2 🔴 / 2 🟡 / 1 🟢），见下节 | ✅ 本轮 5 项**全部已修** |
+| 十轮复核（v6.11） | P.22 平台壳批次（三端编译门禁解锁），新增 **3 项**（🟡 ×1 / 🟢 ×2），见下节 | ✅ CI 首跑验证（v6.12） |
+| 十一轮复核（v6.13） | P.23 P0 清障批次（静态分析 + DB 路径 + 安全存储抽象 + 敏感键回退），新增 **2 项**（🟡 ×2），见下节 | ✅ 本轮 2 项**全部已闭环** |
 
 > **结论**：v6.1 的「守卫 0 漂移」并不成立 —— §C.3 以格式化写法长期逃逸。
 > v6.2 已堵住该向量并修正全部可离线处置项；**第 1 轮仍不得标记完成**（门禁项未变）。
@@ -4069,7 +4090,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 |---|----|------|
 | 1 | 🟢 CI 首跑已验证 | ✅ **v6.12 闭环**：Flutter Check（`f59d04e`）5 job 全绿，`build-android` / `build-macos` / `build-windows` 均 success → 门禁 ③/⑤ 判定「三端编译通过」 |
 | 2 | 🟡 模板版本较新 | 模板生成 AGP **9.1.0** / Kotlin **2.4.0** / Gradle **9.3.1**（Flutter 3.47.5 默认）；若与 runner JDK 不匹配，需在 CI 侧调整 |
-| 3 | 🟢 `analysis_options.yaml` 仍缺 | `flutter_lints` 未生效（P.13 §4 #6），属独立工程项，未纳入本批次 |
+| 3 | 🟢 ~~`analysis_options.yaml` 仍缺~~ | ✅ **v6.13 已闭环**：`flutter_lints` 生效，`analyze` 0 issues（P.13 §4 #6） |
 
 #### 4. 收尾核对（文件名版本化 + 一致性复检）
 
@@ -4081,6 +4102,61 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 4 | CI 注释脚本数 | 头注「10 个 Python 校验脚本」易被读作套件总数（实为 11）→ 澄清为「10 个纯 Python（不含需 lcov 的 `check_coverage`）」 |
 
 > 注：以上均为文档一致性修正，**不改动 `lib/` / 契约 / 测试**，各项事实计数不变（74 lib 文件 / 28 测试文件 / 365 用例 / 11 脚本）。
+
+---
+
+### P.23 十一轮复核：P0 清障批次（静态分析 + DB 路径 + 安全存储抽象）（v6.13 新增）
+
+> **触发**：v6.12 CI 首跑验证后，执行 P.13 §5 第 4 项（清障批次）。**本机实测**（Flutter 3.47.5）：
+> `flutter pub get` · `flutter analyze` **0 issues** · `flutter test` **371 用例全通过** ·
+> 守卫 **11 脚本** + conformance **45/45** 全绿 · `check_coverage.py` 整体 **71.1%**（≥70%）。
+
+#### 1. 交付内容
+
+| 项 | 内容 |
+|----|------|
+| 静态分析 | 新增 `analysis_options.yaml`（`include: package:flutter_lints/flutter.yaml`，排除平台壳与 `build/`）；`dart fix --apply` 清 **79 条** + 手工 **1 条** `unrelated_type_equality_checks` → `flutter analyze` **0 issues** |
+| DB 路径单一真相源 | `database_manager.dart` 移除 sqflite `getDatabasesPath()`，统一取核心层 `StoragePaths.databaseFile`；`DatabaseManager.dbFileName` 改为引用 `DbConstants.fileName`（去第二真相源） |
+| 安全存储抽象 | 新增 `lib/data/datasources/local/secure_store_adapter.dart`（核心层 `SecureStore` 的 `flutter_secure_storage` 实现）；`PrefsManager` 依赖 `SecureStore` 抽象、**不再直连插件** |
+| 敏感键回退读取 | `PrefsManager.get` 安全分支为空时**回退读 SharedPreferences**，命中即迁移入安全存储并清明文（修复 iOS 迁移后 5 敏感键首读丢值） |
+| 守卫升级 | `check_prefs_manager.py` 规则 3 → 「须经 `SecureStore` 抽象且不得 `import package:flutter_secure_storage`」 |
+
+#### 2. 事实计数（v6.13）
+
+| 指标 | v6.12 | v6.13 |
+|------|-------|-------|
+| lib 文件 | 74 | **75**（+`secure_store_adapter.dart`） |
+| 测试文件 | 28 | **29**（+`secure_store_adapter_test.dart`） |
+| 单测用例 | 365 | **371** |
+| 触达口径 | 86.4% | **86.5%** |
+| 全 lib 整体覆盖 | 71.1% | **71.1%**（达标） |
+| 零触达文件 | 24/74 | **24/75** |
+
+#### 3. 门禁影响（E.10b）
+
+| 门禁项 | 变更 |
+|--------|------|
+| ⑤ 静态分析无 error | ✅ 由「已可判通过」→ **`analysis_options.yaml` 落地，`flutter_lints` 真正生效**（0 issues） |
+
+> 余项不变（覆盖率 v6.6 达标 / 三端编译 v6.11–v6.12 通过）；**第 1 轮仍不得标记完成**（D20）。
+
+#### 4. 遗留 / 下批待办
+
+| # | severity | 项 | 说明 |
+|---|----------|----|------|
+| 1 | 🟡 中 | `dev_dependencies.test` 零引用未移除 | `flutter test` 由 SDK 提供，显式 dev 依赖 `test` 冗余；留待后续批次（对照 v6.10 移除 `dio` / `collection`） |
+| 2 | 🟡 中 | 三端 product name 未统一 | Android `android:label` / macOS `PRODUCT_NAME` / Windows 应用名未统一为 **`VBox`** |
+| 3 | 🟢 低 | `scripts/api_push.py` 与 `api_push2.py` 功能重复 | 与「合并重复脚本」批次一并归并 |
+
+#### 5. 收尾核对（文件名版本化 + 引用同步）
+
+| # | 项 | 处置 |
+|---|----|------|
+| 1 | 文档文件名版本化 | `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md`（D25），同步 README / 4 处 Dart 注释 / CI 头注 / 守卫 `DEAD_DOCS`（v6.12 入防回流） |
+| 2 | 版本历史与变更块 | 补 v6.13「（现行）」行，撤销 v6.12 的「（现行）」标记；版本三处一致由 `check_docs_consistency.py` 规则 6 强制 |
+| 3 | 计数口径全文同步 | 现行状态处 lib / 测试 / 用例 / 覆盖率口径统一为 75 / 29 / 371 / 86.5% / 24-75 |
+
+> 注：以上收尾为文档一致性修正，事实以本机实测为准。
 
 ---
 
@@ -4108,7 +4184,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 ✅ 契约层镜像 · ✅ 数据层 · ✅ 领域层实体 · ✅ 入口与形态判定 · ✅ conformance runner
 · ✅ 核心层（`lib/core/` 21 文件，计划外，见 P.12）
 · ✅ 用例层 + 远程数据源（计划外，见 P.13）
-· ✅ 单元测试（28 文件 / 365 用例通过，本机实测；覆盖率触达 86.4%，全 lib 整体 **71.1%**（保守下界，达标），零触达 24/74，见 P.18 / P.19）；
+· ✅ 单元测试（29 文件 / 371 用例通过，本机实测；覆盖率触达 86.5%，全 lib 整体 **71.1%**（保守下界，达标），零触达 24/75，见 P.18 / P.19 / P.23）；
 ⬜ UI 三形态 · ⬜ 平台插件层 · ⬜ Spider 引擎实现。
 
 > 口径说明：5/9 块 + 2 项计划外交付 + 1 项部分达成 ≈ 70%（若按块数硬算为 56%，
@@ -4136,7 +4212,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | `scripts/*.sh` 缺执行位 | ✅ 已修复（100644 → 100755） |
 | 最新构建 | ✅ run `36540984193` = success（IPA 链路跑通） |
 | 版本自动 bump | ✅ 已到 `3.1614`（本地旧值曾回退为 3.1614，已加 `CI_MANAGED` 排除防复发） |
-| **Flutter 校验通道** | ✅ `flutter-check.yml` 双 job 全绿：`analyze` 0 issues + **365 单测** + **11 脚本** + conformance 45/45（v6.6 增覆盖率门槛步骤） |
+| **Flutter 校验通道** | ✅ `flutter-check.yml` 双 job 全绿：`analyze` 0 issues + **371 单测** + **11 脚本** + conformance 45/45（v6.6 增覆盖率门槛步骤） |
 
 ## A.4 环境约束摘要
 
@@ -4146,7 +4222,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | `github.com:443` 不可达 | `git push/fetch` 失败 | 推送走 `scripts/api_push2.py`（API 通道，自动 diff） |
 | 本地 git 历史与远程不一致 | 无法直接比对 | 网络恢复后 `git fetch && git reset --hard origin/main` |
 
-> ⚠️ Dart 代码现已由 `flutter-check.yml` 做**编译 + 静态 + 单测 + 覆盖率门槛**四重验证（analyze 0 issues / 365 用例 / 整体 71.1%）；
+> ⚠️ Dart 代码现已由 `flutter-check.yml` 做**编译 + 静态 + 单测 + 覆盖率门槛**四重验证（analyze 0 issues / 371 用例 / 整体 71.1%）；
 > 但**功能层（UI 三形态 / 平台插件 / Spider 引擎）尚未落地**，仍是当前最大风险。
 
 ---
@@ -4248,7 +4324,7 @@ lib/
 | 表现层 | `presentation/{phone,tv,desktop,providers,shared,theme}` | ⬜ 未创建（仅 `ui_mode` 已交付） |
 | 平台层 | `platform/*` | ⬜ 未创建 |
 | 平台壳 | `android/` `macos/` `windows/` | ✅ 已交付（v6.11，`flutter create` 官方模板，包名 `com.vbox.player`；CI 三端 build job v6.12 首跑全绿） |
-| 测试 | `test/` | ✅ 28 文件 / **365 用例**（本机实测）；覆盖率触达 86.4%，全 lib 整体 **71.1%**（保守下界，达标），零触达 24/74（见 P.18 / P.19） |
+| 测试 | `test/` | ✅ 29 文件 / **371 用例**（本机实测）；覆盖率触达 86.5%，全 lib 整体 **71.1%**（保守下界，达标），零触达 24/75（见 P.18 / P.19 / P.23） |
 
 > `presentation/` 的子目录与 `platform/` 尚未创建（`git` 不跟踪无文件的目录，故远端亦不可见）；已交付部分以上表为准。
 
@@ -4333,8 +4409,8 @@ lib/
 
 | 项 | 内容 |
 |----|------|
-| 现状 | ✅ 28 文件 **365 用例全部通过**（本机 Flutter 3.47.5 独立复现）；覆盖率**已测量**（触达口径 86.4%，全 lib 整体 71.1%） |
-| 影响 | E.10b ⑤「单测覆盖率 ≥ 70%」**达标**（整体口径 71.1%，零触达仍有 24/74，见 P.18 / P.19） |
+| 现状 | ✅ 29 文件 **371 用例全部通过**（本机 Flutter 3.47.5 独立复现）；覆盖率**已测量**（触达口径 86.5%，全 lib 整体 71.1%） |
+| 影响 | E.10b ⑤「单测覆盖率 ≥ 70%」**达标**（整体口径 71.1%，零触达仍有 24/75，见 P.18 / P.19 / P.23） |
 | 阻塞原因 | ~~需 `flutter test`~~ → 通道已通（G-07 解除） |
 | 解除条件 | 功能层（Spider 实体层等零触达文件）补测，**整体**覆盖率 ≥ 70% |
 
@@ -4385,7 +4461,7 @@ lib/
 | 类别 | 数量 | 编号 |
 |------|------|------|
 | ✅ 已解决 | 3 | G-04（conformance runner）, G-07（编译环境）, G-08（静态分析） |
-| 部分解除 | 1 | G-05（365 用例已过，本机复现；覆盖率已测量，全 lib 整体 71.1% 达标） |
+| 部分解除 | 1 | G-05（371 用例已过，本机复现；覆盖率已测量，全 lib 整体 71.1% 达标） |
 | 功能未实现 | 4 | G-01, G-02, G-03, G-09 |
 | 需真机验证 | 2 | G-09, G-10 |
 | 已满足 | 1 | G-06 |

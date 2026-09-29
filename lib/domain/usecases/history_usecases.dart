@@ -26,10 +26,10 @@ class HistoryUseCases {
   /// 记录/更新播放进度。
   Future<Result<int>> record(HistoryItem item) async {
     if (StringUtils.isBlank(item.name)) {
-      return Err<int>(const ValidationFailure('历史项缺少名称'));
+      return const Err<int>(ValidationFailure('历史项缺少名称'));
     }
     if (StringUtils.isBlank(item.detailurl)) {
-      return Err<int>(const ValidationFailure('历史项缺少详情地址'));
+      return const Err<int>(ValidationFailure('历史项缺少详情地址'));
     }
     final HistoryItem normalized = item.copyWith(
       progress: item.clampedProgress,
@@ -43,7 +43,7 @@ class HistoryUseCases {
   /// 最近播放（按最后播放时间倒序）。
   Future<Result<List<HistoryItem>>> recent({int limit = defaultLimit}) async {
     if (limit <= 0) {
-      return Err<List<HistoryItem>>(const ValidationFailure('limit 必须为正'));
+      return const Err<List<HistoryItem>>(ValidationFailure('limit 必须为正'));
     }
     final Result<List<HistoryItem>> result = await _repo.list(limit: limit);
     final Failure? failure = result.failureOrNull;
@@ -59,7 +59,7 @@ class HistoryUseCases {
     int limit = defaultLimit,
   }) async {
     if (limit <= 0) {
-      return Err<List<HistoryItem>>(const ValidationFailure('limit 必须为正'));
+      return const Err<List<HistoryItem>>(ValidationFailure('limit 必须为正'));
     }
     final Result<List<HistoryItem>> result = await _repo.list();
     final Failure? failure = result.failureOrNull;

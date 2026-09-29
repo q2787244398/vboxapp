@@ -282,7 +282,7 @@ class InMemoryRemoteSourceRepository implements RemoteSourceRepository {
     if (f != null) return Err<RemoteManifest>(f);
     final RemoteManifest? m = fetchResult;
     if (m == null) {
-      return Err<RemoteManifest>(const UnknownFailure('fake 未设置 fetchResult'));
+      return const Err<RemoteManifest>(UnknownFailure('fake 未设置 fetchResult'));
     }
     return Success<RemoteManifest>(m);
   }

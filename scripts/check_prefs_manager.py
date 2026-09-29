@@ -49,11 +49,18 @@ def main() -> int:
     has_helper = "_isSecure" in pm
     covers_sensitive = "meta.sensitive" in pm
     covers_keychain = "PrefsStorage.keychain" in pm
-    if has_helper and covers_sensitive and covers_keychain and "FlutterSecureStorage" in pm:
-        print("  ✅ 存在 _isSecure 分派：敏感键 ∪ storage=keychain")
+    # v6.13：安全后端已抽象为核心层 SecureStore（实现见数据层适配器）；
+    # prefs_manager 必须经该抽象读写，且**不得**直接依赖 flutter_secure_storage 插件。
+    uses_secure_abstraction = (
+        "SecureStore" in pm
+        and "package:flutter_secure_storage" not in pm
+    )
+    if has_helper and covers_sensitive and covers_keychain and uses_secure_abstraction:
+        print("  ✅ 存在 _isSecure 分派：敏感键 ∪ storage=keychain，经核心层 SecureStore 抽象")
     else:
         print(f"  ❌ 分派不完整 helper={has_helper} "
-              f"sensitive={covers_sensitive} keychain={covers_keychain}")
+              f"sensitive={covers_sensitive} keychain={covers_keychain} "
+              f"abstract={uses_secure_abstraction}")
         errors += 1
 
     print("== 4. 契约键总数核对 ==")

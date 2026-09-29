@@ -34,8 +34,8 @@ class RemoteManifestDatasource {
     if (uri == null ||
         (uri.scheme != 'http' && uri.scheme != 'https') ||
         uri.host.isEmpty) {
-      return Err<RemoteManifest>(
-        const ValidationFailure('清单地址非法（需 http/https 绝对地址）'),
+      return const Err<RemoteManifest>(
+        ValidationFailure('清单地址非法（需 http/https 绝对地址）'),
       );
     }
 
@@ -58,12 +58,12 @@ class RemoteManifestDatasource {
 
       final Map<String, Object?>? json = JsonUtils.tryDecodeMap(res.text);
       if (json == null) {
-        return Err<RemoteManifest>(const ParseFailure('清单不是 JSON 对象'));
+        return const Err<RemoteManifest>(ParseFailure('清单不是 JSON 对象'));
       }
 
       final RemoteManifest manifest = RemoteManifest.fromJson(json);
       if (!manifest.hasRequiredFiles) {
-        return Err<RemoteManifest>(
+        return const Err<RemoteManifest>(
           ParseFailure(
             '清单缺少必需文件条目 ${RemoteManifest.keyAllSources}',
           ),

@@ -42,16 +42,16 @@ class SubscriptionUseCases {
   /// 新增订阅（地址重复则拒绝，与 DDL 唯一约束一致）。
   Future<Result<int>> add(SubscriptionItem item) async {
     if (StringUtils.isBlank(item.dyname)) {
-      return Err<int>(const ValidationFailure('订阅缺少名称'));
+      return const Err<int>(ValidationFailure('订阅缺少名称'));
     }
     if (StringUtils.isBlank(item.dyurl)) {
-      return Err<int>(const ValidationFailure('订阅缺少地址'));
+      return const Err<int>(ValidationFailure('订阅缺少地址'));
     }
     final Result<SubscriptionItem?> existing = await _repo.findByUrl(item.dyurl);
     final Failure? failure = existing.failureOrNull;
     if (failure != null) return Err<int>(failure);
     if (existing.valueOrNull != null) {
-      return Err<int>(const ValidationFailure('订阅已存在（地址重复）'));
+      return const Err<int>(ValidationFailure('订阅已存在（地址重复）'));
     }
     return _repo.add(item);
   }

@@ -81,7 +81,9 @@ void main() {
       expect(a == b, isTrue);
       expect(a.hashCode, b.hashCode);
       expect(a == c, isFalse);
-      expect(a == 'not-a-category', isFalse);
+      // 跨类型比较应恒为 false（以上转型为 Object 规避 unrelated_type_equality_checks）
+      const Object other = 'not-a-category';
+      expect(a == other, isFalse);
     });
   });
 

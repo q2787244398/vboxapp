@@ -9,9 +9,9 @@ library;
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:vbox/contract/schema/schema.dart';
+import 'package:vbox/core/storage/storage_paths.dart';
 import 'package:vbox/data/datasources/local/database_manager.dart';
 import 'package:vbox/data/models/models.dart';
 
@@ -42,7 +42,11 @@ void main() {
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
-    dbPath = p.join(await getDatabasesPath(), DatabaseManager.dbFileName);
+    // 路径单一真相源：由核心层 StoragePaths 提供（与生产代码同源）
+    final Directory tmp = await Directory.systemTemp.createTemp('vbox_db_test');
+    StoragePaths.configure(tmp.path);
+    await StoragePaths.ensureLayout();
+    dbPath = StoragePaths.databaseFile;
   });
 
   setUp(() async {
@@ -158,9 +162,9 @@ void main() {
 
   group('通用 CRUD', () {
     test('收藏：insert + allFavorites（addedAt DESC）', () async {
-      await dbm.insertFavorite(Favorite(name: 'A', addedAt: 100));
-      await dbm.insertFavorite(Favorite(name: 'B', addedAt: 300));
-      await dbm.insertFavorite(Favorite(name: 'C', addedAt: 200));
+      await dbm.insertFavorite(const Favorite(name: 'A', addedAt: 100));
+      await dbm.insertFavorite(const Favorite(name: 'B', addedAt: 300));
+      await dbm.insertFavorite(const Favorite(name: 'C', addedAt: 200));
       final List<Favorite> all = await dbm.allFavorites();
       expect(all.map((Favorite f) => f.name).toList(), <String>['B', 'C', 'A']);
       expect(all.first.id, isNotNull);
@@ -175,7 +179,7 @@ void main() {
     });
 
     test('下载：insertDownload 的 v4 可空列读回 NULL', () async {
-      await dbm.insertDownload(Download(name: 'd1', addedAt: 5));
+      await dbm.insertDownload(const Download(name: 'd1', addedAt: 5));
       final Download d = (await dbm.allDownloads()).single;
       expect(d.sourceType, isNull);
       expect(d.engineKey, isNull);
@@ -192,14 +196,14 @@ void main() {
     });
 
     test('count 支持 where 过滤', () async {
-      await dbm.insertFavorite(Favorite(name: 'A', xianlu: 1, addedAt: 1));
-      await dbm.insertFavorite(Favorite(name: 'B', xianlu: 2, addedAt: 2));
+      await dbm.insertFavorite(const Favorite(name: 'A', xianlu: 1, addedAt: 1));
+      await dbm.insertFavorite(const Favorite(name: 'B', xianlu: 2, addedAt: 2));
       expect(await dbm.count('favorite'), 2);
       expect(await dbm.count('favorite', where: 'xianlu = ?', whereArgs: <Object?>[1]), 1);
     });
 
     test('update / delete 生效', () async {
-      final int id = await dbm.insertFavorite(Favorite(name: 'A', addedAt: 1));
+      final int id = await dbm.insertFavorite(const Favorite(name: 'A', addedAt: 1));
       final int n = await dbm.update(
         'favorite',
         <String, Object?>{'name': 'A2'},

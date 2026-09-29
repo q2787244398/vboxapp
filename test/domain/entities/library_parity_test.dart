@@ -13,8 +13,8 @@ import 'package:vbox/domain/entities/library/library.dart';
 void main() {
   group('列名集合一致（实体 toRow ↔ 数据模型 toMap）', () {
     test('favorite', () {
-      final FavoriteItem entity = FavoriteItem(name: 'n', addedAt: 1);
-      final Favorite model = Favorite(name: 'n', addedAt: 1);
+      const FavoriteItem entity = FavoriteItem(name: 'n', addedAt: 1);
+      const Favorite model = Favorite(name: 'n', addedAt: 1);
       expect(
         entity.toRow().keys.toSet(),
         model.toMap().keys.toSet(),
@@ -23,8 +23,8 @@ void main() {
     });
 
     test('history', () {
-      final HistoryItem entity = HistoryItem(name: 'n', lastPlayedAt: 1);
-      final History model = History(name: 'n', lastPlayedAt: 1);
+      const HistoryItem entity = HistoryItem(name: 'n', lastPlayedAt: 1);
+      const History model = History(name: 'n', lastPlayedAt: 1);
       expect(
         entity.toRow().keys.toSet(),
         model.toMap().keys.toSet(),
@@ -33,9 +33,9 @@ void main() {
     });
 
     test('subscription', () {
-      final SubscriptionItem entity =
+      const SubscriptionItem entity =
           SubscriptionItem(dyname: 'n', dyurl: 'u', lastSyncAt: 1);
-      final Subscription model =
+      const Subscription model =
           Subscription(dyname: 'n', dyurl: 'u', lastSyncAt: 1);
       expect(
         entity.toRow().keys.toSet(),
@@ -45,8 +45,8 @@ void main() {
     });
 
     test('主键存在时不引入额外列', () {
-      final FavoriteItem entity = FavoriteItem(id: 7, name: 'n', addedAt: 1);
-      final Favorite model = Favorite(id: 7, name: 'n', addedAt: 1);
+      const FavoriteItem entity = FavoriteItem(id: 7, name: 'n', addedAt: 1);
+      const Favorite model = Favorite(id: 7, name: 'n', addedAt: 1);
       expect(entity.toRow().keys.toSet(), model.toMap().keys.toSet());
     });
 

@@ -58,7 +58,7 @@ class RemoteSourceUseCases {
 
     final RemoteManifest? manifest = fetched.valueOrNull;
     if (manifest == null) {
-      return Err<RemoteManifest>(const UnknownFailure('清单为空'));
+      return const Err<RemoteManifest>(UnknownFailure('清单为空'));
     }
     // 缓存落盘失败不影响本次结果（下次仍可重试），故忽略其返回值
     await _repo.saveManifest(manifest);
@@ -71,7 +71,7 @@ class RemoteSourceUseCases {
     final RemoteManifest? cached = cachedResult.valueOrNull;
     if (cached == null) return const RemoteLoadStatus.idle();
     if (!cached.hasRequiredFiles) {
-      return RemoteLoadStatus.failed('缓存清单缺少必需文件条目');
+      return const RemoteLoadStatus.failed('缓存清单缺少必需文件条目');
     }
     return RemoteLoadStatus.loadedCache(cached.configVersion);
   }
