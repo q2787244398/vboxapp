@@ -92,12 +92,19 @@ class DatabaseManager {
     String table, {
     String? orderBy,
     int? limit,
+    int? offset,
     String? where,
     List<Object?>? whereArgs,
   }) async {
     final Database db = await database;
-    return db.query(table,
-        orderBy: orderBy, limit: limit, where: where, whereArgs: whereArgs);
+    return db.query(
+      table,
+      orderBy: orderBy,
+      limit: limit,
+      offset: offset,
+      where: where,
+      whereArgs: whereArgs,
+    );
   }
 
   Future<int> update(String table, Map<String, Object?> values,

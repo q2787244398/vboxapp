@@ -205,7 +205,7 @@ void main() {
       usecases = SubscriptionUseCases(repo);
     });
 
-    test('add：缺字段拒绝、重复（同名同址）拒绝', () async {
+    test('add：缺字段拒绝、重复（同址）拒绝', () async {
       expect(
         (await usecases.add(const SubscriptionItem(
           dyname: '', dyurl: 'u', lastSyncAt: 0,
@@ -233,7 +233,7 @@ void main() {
       expect((dup.failureOrNull?.message ?? '').contains('已存在'), isTrue);
     });
 
-    test('同名不同址允许（契约唯一键为 名称+地址）', () async {
+    test('同名不同址允许、同址不同名拒绝（唯一键为 dyurl）', () async {
       await usecases.add(const SubscriptionItem(
         dyname: '源A', dyurl: 'https://a.com/1', lastSyncAt: 0,
       ));
@@ -241,6 +241,12 @@ void main() {
         dyname: '源A', dyurl: 'https://a.com/2', lastSyncAt: 0,
       ));
       expect(r.isSuccess, isTrue);
+
+      // 同址不同名：DDL 唯一约束为 dyurl，必须前置拒绝（而非直撞 DB 约束）
+      final Result<int> sameUrl = await usecases.add(const SubscriptionItem(
+        dyname: '源B', dyurl: 'https://a.com/1', lastSyncAt: 0,
+      ));
+      expect(sameUrl.failureOrNull, isA<ValidationFailure>());
     });
 
     test('list 按名称排序', () async {

@@ -1,6 +1,6 @@
 /// 领域层：收藏仓储契约。
 ///
-/// 实现位于数据层（`lib/data/repositories/`，第 2 轮落地）；
+/// 实现位于数据层（`lib/data/repositories/favorite_repository_impl.dart`）；
 /// 契约：`contract/schema/schema_v1.sql` 的 `favorite` 表。
 library;
 

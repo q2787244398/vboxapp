@@ -1,7 +1,7 @@
 /// 领域层：订阅仓储契约。
 ///
 /// 契约：`contract/schema/schema_v1.sql` 的 `subscription` 表
-/// （唯一约束为 `UNIQUE(dyname, dyurl)`，故按「名称 + 地址」判重）。
+/// （唯一约束为 **`dyurl UNIQUE`**，即地址全局唯一，故按「地址」判重）。
 library;
 
 import '../../core/utils/result.dart';
@@ -12,8 +12,8 @@ abstract interface class SubscriptionRepository {
   /// 列表（按名称排序）。
   Future<Result<List<SubscriptionItem>>> list();
 
-  /// 按唯一键查（`dyname` + `dyurl`）。
-  Future<Result<SubscriptionItem?>> findByNameAndUrl(String dyname, String dyurl);
+  /// 按唯一键查（`dyurl`，地址全局唯一）。
+  Future<Result<SubscriptionItem?>> findByUrl(String dyurl);
 
   /// 按主键查。
   Future<Result<SubscriptionItem?>> findById(int id);

@@ -1,7 +1,7 @@
 /// 领域层：订阅用例。
 ///
 /// 业务规则：
-/// - 唯一键为 `(dyname, dyurl)`（契约 `UNIQUE(dyname, dyurl)`），重复订阅直接拒绝；
+/// - 唯一键为 `dyurl`（契约 `subscription.dyurl UNIQUE`，地址全局唯一），重复订阅直接拒绝；
 /// - 「到期同步」由调用方传入当前 Unix 秒（便于单测与时钟注入）。
 library;
 
@@ -39,7 +39,7 @@ class SubscriptionUseCases {
     return Success<List<SubscriptionItem>>(items);
   }
 
-  /// 新增订阅（同名同址重复则拒绝）。
+  /// 新增订阅（地址重复则拒绝，与 DDL 唯一约束一致）。
   Future<Result<int>> add(SubscriptionItem item) async {
     if (StringUtils.isBlank(item.dyname)) {
       return Err<int>(const ValidationFailure('订阅缺少名称'));
@@ -47,12 +47,11 @@ class SubscriptionUseCases {
     if (StringUtils.isBlank(item.dyurl)) {
       return Err<int>(const ValidationFailure('订阅缺少地址'));
     }
-    final Result<SubscriptionItem?> existing =
-        await _repo.findByNameAndUrl(item.dyname, item.dyurl);
+    final Result<SubscriptionItem?> existing = await _repo.findByUrl(item.dyurl);
     final Failure? failure = existing.failureOrNull;
     if (failure != null) return Err<int>(failure);
     if (existing.valueOrNull != null) {
-      return Err<int>(const ValidationFailure('订阅已存在（同名同址）'));
+      return Err<int>(const ValidationFailure('订阅已存在（地址重复）'));
     }
     return _repo.add(item);
   }

@@ -201,14 +201,11 @@ class InMemorySubscriptionRepository implements SubscriptionRepository {
   }
 
   @override
-  Future<Result<SubscriptionItem?>> findByNameAndUrl(
-    String dyname,
-    String dyurl,
-  ) async {
+  Future<Result<SubscriptionItem?>> findByUrl(String dyurl) async {
     final Failure? f = failWith;
     if (f != null) return Err<SubscriptionItem?>(f);
     for (final SubscriptionItem item in _items) {
-      if (item.dyname == dyname && item.dyurl == dyurl) {
+      if (item.dyurl == dyurl) {
         return Success<SubscriptionItem?>(item);
       }
     }

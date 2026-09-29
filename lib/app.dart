@@ -1,18 +1,27 @@
 /// 应用根组件。
 ///
 /// 职责：
-/// - 初始化依赖（PrefsManager / DatabaseManager）
+/// - 初始化依赖（StoragePaths / PrefsManager / DatabaseManager）
+/// - 组装数据层仓储实现 → 注入领域层用例
 /// - 形态判定（手机 / TV / 桌面）→ 选择对应 UI 布局
 /// - 全局 Provider 注入
 ///
 /// 唯一真相源：方案 §2.4（目录结构落地快照见附录 B）
 library;
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
+import 'core/network/http_client.dart';
+import 'core/storage/storage_paths.dart';
 import 'data/datasources/local/database_manager.dart';
 import 'data/datasources/local/prefs_manager.dart';
+import 'data/datasources/remote/remote_manifest_datasource.dart';
+import 'data/repositories/repositories.dart';
+import 'domain/usecases/usecases.dart';
 import 'presentation/ui_mode/ui_mode_resolver.dart';
 
 class VBoxApp extends StatefulWidget {
@@ -26,6 +35,12 @@ class _VBoxAppState extends State<VBoxApp> {
   bool _initialized = false;
   Object? _initError;
 
+  // 用例层实例（数据层仓储在此完成组装）
+  late final FavoriteUseCases _favoriteUseCases;
+  late final HistoryUseCases _historyUseCases;
+  late final SubscriptionUseCases _subscriptionUseCases;
+  late final RemoteSourceUseCases _remoteSourceUseCases;
+
   @override
   void initState() {
     super.initState();
@@ -35,8 +50,25 @@ class _VBoxAppState extends State<VBoxApp> {
   /// 初始化依赖。
   Future<void> _bootstrap() async {
     try {
+      // ① 目录布局（核心层纯 Dart，根目录由平台层注入）
+      final Directory root = await getApplicationSupportDirectory();
+      StoragePaths.configure(root.path);
+      await StoragePaths.ensureLayout();
+
+      // ② 存储层
       await PrefsManager.instance.init();
       await DatabaseManager.instance.database; // 触发建库/迁移
+
+      // ③ 数据层仓储 → 领域层用例
+      _favoriteUseCases = FavoriteUseCases(FavoriteRepositoryImpl());
+      _historyUseCases = HistoryUseCases(HistoryRepositoryImpl());
+      _subscriptionUseCases = SubscriptionUseCases(SubscriptionRepositoryImpl());
+      _remoteSourceUseCases = RemoteSourceUseCases(
+        RemoteSourceRepositoryImpl(
+          datasource: RemoteManifestDatasource(client: HttpClient()),
+        ),
+      );
+
       if (mounted) {
         setState(() => _initialized = true);
       }
@@ -67,8 +99,16 @@ class _VBoxAppState extends State<VBoxApp> {
       );
     }
 
-    return ChangeNotifierProvider<UiModeController>(
-      create: (_) => UiModeController()..resolve(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<UiModeController>(
+          create: (_) => UiModeController()..resolve(),
+        ),
+        Provider<FavoriteUseCases>.value(value: _favoriteUseCases),
+        Provider<HistoryUseCases>.value(value: _historyUseCases),
+        Provider<SubscriptionUseCases>.value(value: _subscriptionUseCases),
+        Provider<RemoteSourceUseCases>.value(value: _remoteSourceUseCases),
+      ],
       child: const _RootRouter(),
     );
   }

@@ -70,6 +70,16 @@
 > + 覆盖率门槛步骤（P.17 #4：CI 从此可判）；⑥ `pubspec.lock` 入库（P.17 #6）。
 > 新增 **P.18 六轮（收口）复核**。**注意**：整体口径为启发式**保守下界**（零触达文件按非空非注释行估行），
 > 真实值更高；且 23 个零触达文件仍在，**收口不等于第 1 轮完成**。
+>
+> **v6.7 变更（本版）**：**仓储实现批次（闭环 P.13 §4-1 / §5-1，即 P.18 结论所指「第 1 轮最后功能缺口」）** ——
+> ① 新增 `lib/data/repositories/` **四个仓储实现 + barrel**（favorite / history / subscription / remote_source），
+> 绑定 `DatabaseManager` / `PrefsManager`，统一返回 `Result`；② `lib/app.dart` 完成组装并注入用例层（`MultiProvider`）；
+> ③ 新增 `test/data/repositories/` **4 文件**：单测 **344 → 365**、测试文件 **24 → 28**、lib 文件 **69 → 74**；
+> 覆盖率触达 **85.6% → 86.4%**、全 lib 整体 **≈70.6% → 71.1%（门槛达标）**，零触达 **23 → 24**
+> （新增 barrel `repositories.dart` 未被触达）；④ **实测揪出并修复契约漂移**（P.19 #1）——`subscription` 的
+> 友好判重键原写成 `(dyname, dyurl)`，与 DDL `dyurl UNIQUE` 不符，同址异名会绕过前置判重直撞 DB 约束；
+> 已统一为 `findByUrl` 并补回归用例；⑤ 新增 **P.19 七轮复核**（3 项：2 🟡 / 1 🟢，其中 2 项本轮已修）。
+> `flutter analyze` 0 issues · 11 守卫脚本 + conformance 45/45 全绿。
 
 ## 版本历史
 
@@ -85,7 +95,8 @@
 | **v6.3** | 2026-09-29：**契约 D19 闭环**（P.15 #11）—— `prefs_keys_v1.json` 键对象去异构：前 12 组 **53 键**补齐 `storage: userdefaults`，现 **98/98** 键显式标注（userdefaults / keychain / credential_extra）；`check_contract_sync.py` 新增规则 **3d**（storage 完整性 + Dart↔JSON 逐键比对）并经负向测试验证；修正该脚本陈旧 docstring（63 → 98 键） |
 | **v6.4** | 2026-09-29：**高风险层单测补齐**（P.15 #10 闭环）—— 新增 `test/contract`（2）、`test/data/models`（1）、`test/data/datasources/local`（3）、`test/presentation/ui_mode`（1）共 **7 个测试文件 / 103 用例**；单测 **143 → 246**、`flutter analyze` 0 issues、10 脚本 + conformance 45/45 全绿；新增 **P.16 深度遗漏复核（7 项，1 🔴）** |
 | **v6.5** | 2026-09-29：**本机实测复核 + 覆盖率首次测量** —— 本机 Flutter 3.47.5 独立复现 v6.4 声明（analyze 0 issues / 246 用例 / 10 脚本 / 45/45）；首次 `flutter test --coverage`：触达口径 **83.4%**，但 **28/69 文件零触达**（含 `lib/domain/entities/spider/` 789 行）→ 整体未达 70%，门禁 ⑤ 转为**明确不达标**；新增 **P.17（8 项：2 🔴 / 5 🟡 / 1 🟢）**；`.gitignore` 补 `coverage/` |
-| **v6.6（现行）** | 2026-09-29：**收口批次 + 覆盖率门禁做实** —— ① Spider 实体层单测 **5 文件 / 98 用例**补齐（P.17 #2 闭环，该层 0% → 5/5 触达）；② 单测 **246 → 344**（测试文件 **19 → 24**），`flutter analyze` 0 issues；③ 覆盖率复测：触达 **85.6%**、零触达 **28 → 23**、**全 lib 整体口径 ≈ 70.6%（保守下界）→ 门禁 ⑤ 转为「达标（临界）」**；④ 新增**第 11 个校验脚本** `check_coverage.py`（全 lib 口径 + 70% 硬门槛，堵 P.17 #1 口径陷阱）；⑤ CI 增 `flutter test --coverage` + 覆盖率门槛步骤（P.17 #4）；⑥ `pubspec.lock` 入库；新增 **P.18 六轮收口复核** |
+| **v6.6** | 2026-09-29：**收口批次 + 覆盖率门禁做实** —— ① Spider 实体层单测 **5 文件 / 98 用例**补齐（P.17 #2 闭环，该层 0% → 5/5 触达）；② 单测 **246 → 344**（测试文件 **19 → 24**），`flutter analyze` 0 issues；③ 覆盖率复测：触达 **85.6%**、零触达 **28 → 23**、**全 lib 整体口径 ≈ 70.6%（保守下界）→ 门禁 ⑤ 转为「达标（临界）」**；④ 新增**第 11 个校验脚本** `check_coverage.py`（全 lib 口径 + 70% 硬门槛，堵 P.17 #1 口径陷阱）；⑤ CI 增 `flutter test --coverage` + 覆盖率门槛步骤（P.17 #4）；⑥ `pubspec.lock` 入库；新增 **P.18 六轮收口复核** |
+| **v6.7（现行）** | 2026-09-29：**仓储实现批次**（闭环 P.13 §4-1 / §5-1）—— ① `lib/data/repositories/` **四个实现 + barrel**（favorite / history / subscription / remote_source），绑定 `DatabaseManager` / `PrefsManager` 统一返回 `Result`；② `app.dart` 组装并注入用例层（`MultiProvider`）；③ 新增 `test/data/repositories/` **4 文件**：单测 **344 → 365**（测试文件 **24 → 28**、lib **69 → 74**）；覆盖率触达 **86.4%**、全 lib 整体 **71.1%（达标）**、零触达 **24/74**；④ **修复契约漂移**（P.19 #1）：`subscription` 判重键由 `(dyname, dyurl)` 统一为 `findByUrl`（对齐 DDL `dyurl UNIQUE`）；新增 **P.19 七轮复核（3 项）** |
 
 >
 > **D12 已定稿（经联网查证）**：TV 最低版本定为 **Android 7.0 (API 24)**。
@@ -3027,9 +3038,9 @@ AliyunPlayer + IJK   ~30 MB
 ## 二之补八：实际开发进度追踪（2026-09-29 更新）
 
 > **本章由开发过程实时核验生成。**
-> 仓库：https://github.com/q2787244398/vboxapp · **530 文件**（v6.2 复核计数，`git ls-files`）
+> 仓库：https://github.com/q2787244398/vboxapp · **553 文件**（v6.7 复核计数，`git ls-files --cached --others --exclude-standard`）
 > **⚠️ 本机（aarch64）无 Flutter SDK**（见 P.7）；Dart 代码的编译 / 静态 / 单测验证
-> 已由 GitHub Actions `flutter-check.yml` 承接（`analyze` 0 issues · 344 用例 + 覆盖率门槛，v6.6）。
+> 已由 GitHub Actions `flutter-check.yml` 承接（`analyze` 0 issues · 365 用例 + 覆盖率门槛，v6.7）。
 
 ### P.1 总体进度
 
@@ -3056,7 +3067,7 @@ AliyunPlayer + IJK   ~30 MB
 
 ### P.3 第 1 轮交付核验
 
-**✅ 已完成（69 个 Dart 文件 + 24 个测试文件 / 344 用例，v6.6）**
+**✅ 已完成（74 个 Dart 文件 + 28 个测试文件 / 365 用例，v6.7）**
 
 | 模块 | 产物 |
 |------|------|
@@ -3067,6 +3078,7 @@ AliyunPlayer + IJK   ~30 MB
 | 入口 | `main.dart` · `app.dart` |
 | **核心层**（P.12） | `core/{constants,errors,network,storage,utils}`（21 文件） |
 | **用例层与远程数据源**（P.13） | `domain/entities/library` + `domain/{repositories,usecases}` · `data/datasources/remote`（CMS V10 + 清单） |
+| **数据层仓储实现**（v6.7） | `data/repositories/`——`favorite` / `history` / `subscription` / `remote_source` **四个实现 + barrel**，经 `app.dart` 组装并注入用例层（P.19） |
 
 **❌ 未完成**
 
@@ -3075,9 +3087,9 @@ AliyunPlayer + IJK   ~30 MB
 | `presentation/{phone,tv,desktop,shared,theme}` 布局 | 空目录 |
 | `platform/{player,spider,runtime,system}` 插件层 | 空目录 |
 | 平台壳 | ⚠️ `pubspec.yaml` ✅ 已交付（依赖对齐契约）；`android/`/`macos/`/`windows/` 目录 ⬜ 未创建 |
-| **单元测试**（目标 >70%） | ✅ **24 文件 / 344 用例通过**（本机 + CI 双复现）；覆盖率**已测量**：触达口径 **85.6%**，全 lib 整体口径 **≈70.6%**（保守下界，**达标临界**），零触达文件 **23/69**（见 P.18） |
+| **单元测试**（目标 >70%） | ✅ **28 文件 / 365 用例通过**（本机 + CI 双复现）；覆盖率**已测量**：触达口径 **86.4%**，全 lib 整体口径 **71.1%**（保守下界，**达标**），零触达文件 **24/74**（见 P.18 / P.19） |
 | conformance runner | ✅ 已交付（45/45，见 P.8b） |
-| `lib/domain/{repositories,usecases}` · `lib/data/datasources/remote` | 空目录 |
+| `lib/domain/{repositories,usecases}` · `lib/data/{datasources/remote,repositories}` | ✅ 已交付（接口 + **四个仓储实现**，v6.7） |
 
 ### P.4 自动化校验体系（**11 脚本 + 1 runner，全部通过**）
 
@@ -3343,7 +3355,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | 6 | ~~`lib/domain/usecases` 用例层~~ | 中 | ✅ **已补齐**（4 契约 + 4 用例组，见 P.13） |
 | 7 | UI 三形态（phone/tv/desktop） | 高 | ⚠️ 未开始；**现已可编译验证**（CI 通道已通，不再是阻碍） |
 | 8 | 平台插件层（Android/桌面） | 高 | ❌ 需原生工具链 |
-| 9 | 单元测试 | 高 | ✅ **24 文件 / 344 用例通过**（v6.6 补 Spider 实体层，本机复现）；覆盖率已测量：触达 85.6%、全 lib 整体 **≈70.6%**（保守下界，达标临界），零触达 **23/69**（P.18） |
+| 9 | 单元测试 | 高 | ✅ **28 文件 / 365 用例通过**（v6.7 补数据层仓储，本机复现）；覆盖率已测量：触达 86.4%、全 lib 整体 **71.1%**（保守下界，达标），零触达 **24/74**（P.18 / P.19） |
 | 10 | 5 个 Spider 引擎实现 | 高 | ❌ 需 QuickJS/Node/Python 运行时 |
 
 > **风险提示（v6 更新）**：编译验证通道已通（`flutter-check.yml`），
@@ -3519,9 +3531,9 @@ conformance **45/45** · iOS IPA 构建链路成功。
 
 | # | severity | 问题 | 影响 / 证据 |
 |---|----------|------|------------|
-| 1 | 🔴 高 | `lib/data/repositories/` 为空 —— 用例层无实现、**lib 内 0 处引用** | 用例「可测但不可用」，门禁 E.10b ④ 仍不达标 |
+| 1 | 🔴 高 | ~~`lib/data/repositories/` 为空 —— 用例层无实现、**lib 内 0 处引用**~~ | ✅ **v6.7 已闭环**：四个仓储实现 + `app.dart` 组装注入（见 P.19）；门禁 ④ 待 UI / 平台层补齐后整体复核 |
 | 2 | 🔴 高 | 平台壳 `android/` `macos/` `windows/` 全缺，CI 无 build job | 无法编译三端，门禁 E.10b ③/⑤ 持续阻塞 |
-| 3 | 🔴 高 | CI 未测量覆盖率（无 `flutter test --coverage`） | 344 用例通过 ≠ 覆盖率 ≥70%；✅ **v6.6 已闭环**：CI 增 `flutter test --coverage` + `check_coverage.py`（全 lib 口径 70% 硬门槛），本机整体 **≈70.6%**（见 P.18） |
+| 3 | 🔴 高 | CI 未测量覆盖率（无 `flutter test --coverage`） | 344 用例通过 ≠ 覆盖率 ≥70%；✅ **v6.6 已闭环**：CI 增 `flutter test --coverage` + `check_coverage.py`（全 lib 口径 70% 硬门槛），本机整体 **71.1%**（见 P.18 / P.19） |
 | 4 | 🟡 中 | DB 路径双真相源：`StoragePaths.databaseFile`（核心层）vs `database_manager.dart` 用 sqflite `getDatabasesPath()` | 桌面 FFI 下易分叉 |
 | 5 | 🟡 中 | `prefs_manager.dart` 直连 `flutter_secure_storage`，未走核心层 `SecureStore` 抽象 | 架构双轨，抽象形同未接入 |
 | 6 | 🟡 中 | `analysis_options.yaml` 缺失 | dev 依赖 `flutter_lints` 实际未生效，lint 规则为零 |
@@ -3539,8 +3551,8 @@ conformance **45/45** · iOS IPA 构建链路成功。
 
 | 序 | 任务 | 直接收益 |
 |----|------|---------|
-| 1 | 补 `lib/data/repositories/` 四个实现（绑定 database / prefs manager）+ 在 `main.dart`/`app.dart` 注入 | 让已交付用例真正可用；推进门禁 ④ |
-| 2 | ~~CI 增 `flutter test --coverage` + 覆盖率门槛（≥70%，**按全 lib 行数口径**）~~ ✅ **v6.6 已完成**（`check_coverage.py` + CI 步骤） | 门禁 ⑤ 已**可验证**（本机整体 ≈70.6%） |
+| 1 | ~~补 `lib/data/repositories/` 四个实现（绑定 database / prefs manager）+ 在 `main.dart`/`app.dart` 注入~~ ✅ **v6.7 已完成** | 让已交付用例真正可用；推进门禁 ④ |
+| 2 | ~~CI 增 `flutter test --coverage` + 覆盖率门槛（≥70%，**按全 lib 行数口径**）~~ ✅ **v6.6 已完成**（`check_coverage.py` + CI 步骤） | 门禁 ⑤ 已**可验证**且**达标**（本机整体 71.1%） |
 | 3 | 创建平台壳（`flutter create --platforms=android,macos,windows .`）+ CI build job（`flutter build apk --debug` 等） | 解锁门禁 ③/⑤「三端编译」 |
 | 4 | 加 `analysis_options.yaml`；DB 路径统一到 `StoragePaths` | 消除问题 4 / 6（双真相源 + lint 空白） |
 | 5 | ~~根级清理：`.o` ×6、`修复说明.md` 归档、`.gitignore` 补 `*.o`、修 `pre-commit.sh`~~ ✅ **v6.1 已完成** | 仓库卫生（问题 7–11） |
@@ -3551,9 +3563,9 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 门禁项 | 状态 | 依据 |
 |--------|------|------|
 | ⑤ 静态分析无 error | ✅ **已可判通过** | `flutter analyze` 0 issues，每次推送执行 |
-| ⑤ 单测覆盖率 ≥70% | ✅ **达标（临界）** | v6.6 本机实测：触达 85.6%，全 lib 整体 **≈70.6%**（保守下界，达标临界），零触达仍有 **23/69**（P.18） |
+| ⑤ 单测覆盖率 ≥70% | ✅ **达标** | v6.7 本机实测：触达 86.4%，全 lib 整体 **71.1%**（保守下界），零触达仍有 **24/74**（P.18 / P.19） |
 | ③/⑤ 三端编译通过 | ❌ **仍阻塞** | 无平台壳（问题 2） |
-| ④ 本阶段承诺功能交付 | ❌ 不达标 | 用例层无实现（问题 1） |
+| ④ 本阶段承诺功能交付 | ⚠️ **部分解除** | 用例层已有实现（v6.7），仍缺 UI 三形态 / 平台插件层 |
 
 > **结论**：E.10b 原 9 项不达标 → **静态分析 1 项已解除，余 8 项**；
 > **第 1 轮仍不得标记完成**，需在完成 §5 第 1–3 项后重跑门禁。
@@ -3684,6 +3696,8 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 待办闭环（v6.3） | 契约 storage 异构（#11）→ 98/98 键标注 `storage` + `check_contract_sync` 规则 3d + 负向测试 | ✅ |
 | 深度复核（v6.4） | P.16 新增 **7 项**遗漏（1 🔴 / 4 🟡 / 2 🟢），见下节 | ⬜ 登记跟踪 |
 | 五轮复核（v6.5） | P.17 本机实测复现 v6.4 声明 + 覆盖率**首测**，新增 **8 项**（2 🔴 / 5 🟡 / 1 🟢），见下节 | ⬜ 登记跟踪（#5 已修） |
+| 六轮复核（v6.6） | P.18 收口批次（Spider 单测 + 覆盖率门禁），新增 **3 项**（🟡 ×2 / 🟢 ×1），见下节 | ⬜ 登记跟踪（#3 无需处理） |
+| 七轮复核（v6.7） | P.19 仓储实现批次 + 契约漂移修复，新增 **3 项**（🟡 ×2 / 🟢 ×1），见下节 | ⬜ 登记跟踪（#1 / #3 已修） |
 
 > **结论**：v6.1 的「守卫 0 漂移」并不成立 —— §C.3 以格式化写法长期逃逸。
 > v6.2 已堵住该向量并修正全部可离线处置项；**第 1 轮仍不得标记完成**（门禁项未变）。
@@ -3823,6 +3837,64 @@ conformance **45/45** · iOS IPA 构建链路成功。
 > 收口批次把 v6.5 的**唯一 🔴 风险项（Spider 零单测）**闭环，并把门禁 ⑤ 从
 > **「明确不达标」**推进为**「达标（临界）」**——但 23 个零触达文件仍在，**收口 ≠ 第 1 轮完成**。
 > 第 1 轮真正剩余的功能缺口是 **`lib/data/repositories/` 四个实现 + 接线**（P.13 §5-1）。
+>
+> **后续（v6.7）**：该缺口已在**仓储实现批次**闭环（详见 P.19）。
+
+---
+
+### P.19 七轮复核：仓储实现批次 + 契约漂移修复（v6.7 新增）
+
+> **触发**：P.13 §4-1 / §5-1 指认 `lib/data/repositories/` 为空是第 1 轮最后的功能缺口；P.18 收口后执行
+> **仓储实现批次**：交付四个仓储实现 + 接线，并对其做独立复核。全部为本机（Flutter 3.47.5）实测。
+
+#### 1. 实测复核（本机）
+
+| 项 | 结果 | 结论 |
+|---|---|---|
+| `flutter analyze` | `No issues found!` | ✅ |
+| `flutter test` | `+365: All tests passed!` | ✅ 344 → **365** |
+| 新增仓储单测 | `test/data/repositories/` 4 文件（favorite / history / subscription / remote_source） | ✅ 全通过 |
+| `check_coverage.py` | 整体 **71.1%** ≥ 70% | ✅ 门槛通过 |
+| 11 守卫脚本 + conformance | 全绿（`check_mpv_installed_dependencies.py` 不属契约套件） | ✅ |
+
+#### 2. 交付清单
+
+| 层 | 文件 | 说明 |
+|---|---|---|
+| 数据层 | `data/repositories/{favorite,history,subscription,remote_source}_repository_impl.dart` | 实现 `domain/repositories/*` 四契约，绑定 `DatabaseManager` / `PrefsManager`，内层异常经 `Failure.from` 归一为 `Result` |
+| 数据层 | `data/repositories/repositories.dart` | barrel（纯 re-export，无逻辑 → 零触达） |
+| 入口 | `app.dart` | 组装仓储 → 注入用例层（`MultiProvider`）；`DatabaseManager.instance.database` 触发建库 / 迁移 |
+| 测试 | `test/data/repositories/*_test.dart` ×4 | 真库（`sqflite_common_ffi`）CRUD + DDL 约束 + 缓存 / TTL（`MockClient`） |
+
+#### 3. 覆盖率复测
+
+| 指标 | v6.6 | v6.7 | 变化 |
+|---|---|---|---|
+| 触达文件口径 | 85.6%（1479/1727） | **86.4%**（1618/1873） | +0.8pp |
+| **全 lib 整体口径** | ≈70.6% | **71.1%**（1618/2277） | +0.5pp（P.18 #1「门槛无缓冲」略有缓解，仍偏紧） |
+| lib 文件 | 69 | **74** | +5（4 实现 + 1 barrel） |
+| **零触达文件** | 23 | **24** | +1（新增 barrel `repositories.dart` 未被触达） |
+
+#### 4. 本轮新发现（3 项）
+
+| # | severity | 问题 | 证据 | 处置 |
+|---|----------|------|------|------|
+| 1 | 🟡 中 | **契约漂移（功能缺陷）**：订阅「友好判重键」被写成 `(dyname, dyurl)`，而 DDL 唯一约束为 **`dyurl UNIQUE`**（地址全局唯一）→ **同址异名**会绕过前置判重、直接撞 DB 唯一约束，向 UI 暴露底层 SQLite 错误而非「已存在」提示；且 `subscription_repository.dart` / `subscription_usecases.dart` docstring 与 DDL 冲突 | `schema_v1.sql:48`；`usecases_test.dart`（原「唯一键为 名称+地址」）与 `subscription_repository_test.dart`（同址异名第二次插入失败）**自相矛盾** | ✅ **已修**：接口 / 实现 / 用例 / 测试 fake 统一为 `findByUrl(dyurl)`；docstring 更正为 `dyurl UNIQUE`；用例层补「同址不同名拒绝」回归用例 |
+| 2 | 🟡 中 | **`app.dart` 仍零触达**：DI 组装（仓储 ↔ 用例）无单测；新增 barrel 使零触达 23 → 24 | `check_coverage.py` 清单 | ⬜ 登记（与 G-01「UI 三形态」同源，随 presentation 装配覆盖） |
+| 3 | 🟢 低 | `favorite_repository.dart` docstring 称实现「第 2 轮落地」，与实际（v6.7 第 1 轮）不符 | 契约注释 | ✅ **已修**：改为指向具体实现文件 |
+
+#### 5. 结论与门禁
+
+> 仓储实现批次把 **P.13 §4-1（🔴）与 §5-1 第 1 项**闭环——用例层从「可测但不可用」变为**已接线可用**；
+> 门禁 ④ 转**部分解除**（仍缺 UI 三形态 / 平台插件层），门禁 ⑤ 覆盖率**达标（71.1%）**。
+> 但零触达 24/74（含 `app.dart`）仍在，**第 1 轮仍不得标记完成**。
+>
+> **教训（七次）**：写实现最容易漏掉的不是 CRUD，而是**「唯一键语义」**——DDL 与业务判重口径不一致时，
+> 单测会**各自为真**（仓储测 DDL 唯一约束、用例测业务口径），**只有交叉核对契约**才能发现漂移。
+> 本轮 11 个守卫脚本全绿，唯独**领域层注释与用例判重口径未被守卫覆盖**。
+>
+> **新增建议（登记）**：为「仓储契约唯一键」加一条守卫——比对 `domain/repositories/*` 声明的判重键
+> 与 `contract/schema/schema_v1.sql` 的 `UNIQUE` 事实，防止同类漂移复发。
 
 ---
 
@@ -3850,7 +3922,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 ✅ 契约层镜像 · ✅ 数据层 · ✅ 领域层实体 · ✅ 入口与形态判定 · ✅ conformance runner
 · ✅ 核心层（`lib/core/` 21 文件，计划外，见 P.12）
 · ✅ 用例层 + 远程数据源（计划外，见 P.13）
-· ✅ 单元测试（24 文件 / 344 用例通过，本机实测；覆盖率触达 85.6%，全 lib 整体 **≈70.6%**（保守下界，达标临界），零触达 23/69，见 P.18）；
+· ✅ 单元测试（28 文件 / 365 用例通过，本机实测；覆盖率触达 86.4%，全 lib 整体 **71.1%**（保守下界，达标），零触达 24/74，见 P.18 / P.19）；
 ⬜ UI 三形态 · ⬜ 平台插件层 · ⬜ Spider 引擎实现。
 
 > 口径说明：5/9 块 + 2 项计划外交付 + 1 项部分达成 ≈ 70%（若按块数硬算为 56%，
@@ -3878,7 +3950,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | `scripts/*.sh` 缺执行位 | ✅ 已修复（100644 → 100755） |
 | 最新构建 | ✅ run `36540984193` = success（IPA 链路跑通） |
 | 版本自动 bump | ✅ 已到 `3.1614`（本地旧值曾回退为 3.1614，已加 `CI_MANAGED` 排除防复发） |
-| **Flutter 校验通道** | ✅ `flutter-check.yml` 双 job 全绿：`analyze` 0 issues + **344 单测** + **11 脚本** + conformance 45/45（v6.6 增覆盖率门槛步骤） |
+| **Flutter 校验通道** | ✅ `flutter-check.yml` 双 job 全绿：`analyze` 0 issues + **365 单测** + **11 脚本** + conformance 45/45（v6.6 增覆盖率门槛步骤） |
 
 ## A.4 环境约束摘要
 
@@ -3888,7 +3960,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | `github.com:443` 不可达 | `git push/fetch` 失败 | 推送走 `scripts/api_push2.py`（API 通道，自动 diff） |
 | 本地 git 历史与远程不一致 | 无法直接比对 | 网络恢复后 `git fetch && git reset --hard origin/main` |
 
-> ⚠️ Dart 代码现已由 `flutter-check.yml` 做**编译 + 静态 + 单测 + 覆盖率门槛**四重验证（analyze 0 issues / 344 用例 / 整体 ≈70.6%）；
+> ⚠️ Dart 代码现已由 `flutter-check.yml` 做**编译 + 静态 + 单测 + 覆盖率门槛**四重验证（analyze 0 issues / 365 用例 / 整体 71.1%）；
 > 但**功能层（UI 三形态 / 平台插件 / Spider 引擎）尚未落地**，仍是当前最大风险。
 
 ---
@@ -3988,7 +4060,7 @@ lib/
 | 表现层 | `presentation/ui_mode` | ✅ 已交付 |
 | 表现层 | `presentation/{phone,tv,desktop,providers,shared,theme}` | ⬜ 空目录 |
 | 平台层 | `platform/*` | ⬜ **空目录**（4 个子目录已建） |
-| 测试 | `test/` | ✅ 24 文件 / **344 用例**（本机实测）；覆盖率触达 85.6%，全 lib 整体 **≈70.6%**（保守下界，达标临界），零触达 23/69（见 P.18） |
+| 测试 | `test/` | ✅ 28 文件 / **365 用例**（本机实测）；覆盖率触达 86.4%，全 lib 整体 **71.1%**（保守下界，达标），零触达 24/74（见 P.18 / P.19） |
 
 > 空目录已按目标结构预建，便于后续填充；`git` 不跟踪空目录，故远端不可见。
 
@@ -4072,8 +4144,8 @@ lib/
 
 | 项 | 内容 |
 |----|------|
-| 现状 | ✅ 24 文件 **344 用例全部通过**（本机 Flutter 3.47.5 独立复现）；覆盖率**已测量**（触达口径 85.6%，全 lib 整体 ≈70.6%） |
-| 影响 | E.10b ⑤「单测覆盖率 ≥ 70%」**达标（临界）**（整体口径 ≈70.6%，零触达仍有 23/69，见 P.18） |
+| 现状 | ✅ 28 文件 **365 用例全部通过**（本机 Flutter 3.47.5 独立复现）；覆盖率**已测量**（触达口径 86.4%，全 lib 整体 71.1%） |
+| 影响 | E.10b ⑤「单测覆盖率 ≥ 70%」**达标**（整体口径 71.1%，零触达仍有 24/74，见 P.18 / P.19） |
 | 阻塞原因 | ~~需 `flutter test`~~ → 通道已通（G-07 解除） |
 | 解除条件 | 功能层（Spider 实体层等零触达文件）补测，**整体**覆盖率 ≥ 70% |
 
@@ -4124,7 +4196,7 @@ lib/
 | 类别 | 数量 | 编号 |
 |------|------|------|
 | ✅ 已解决 | 3 | G-04（conformance runner）, G-07（编译环境）, G-08（静态分析） |
-| 部分解除 | 1 | G-05（344 用例已过，本机复现；覆盖率已测量，全 lib 整体 ≈70.6% 达标临界） |
+| 部分解除 | 1 | G-05（365 用例已过，本机复现；覆盖率已测量，全 lib 整体 71.1% 达标） |
 | 功能未实现 | 4 | G-01, G-02, G-03, G-09 |
 | 需真机验证 | 2 | G-09, G-10 |
 | 已满足 | 1 | G-06 |

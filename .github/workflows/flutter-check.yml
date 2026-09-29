@@ -66,7 +66,7 @@ jobs:
       - name: Run conformance runner (45 checks)
         run: python3 conformance/runner/run_conformance.py
 
-  # ── Flutter 编译验证（对全部 Dart 文件（当前 69 个）做编译器级静态检查）─────
+  # ── Flutter 编译验证（对全部 Dart 文件（当前 74 个）做编译器级静态检查）─────
   flutter-analyze:
     runs-on: macos-15
     timeout-minutes: 45
@@ -88,7 +88,7 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
-      # 单测 + 覆盖率：当前 24 文件 / 344 用例（v6.6）
+      # 单测 + 覆盖率：当前 28 文件 / 365 用例（v6.7）
       # 覆盖率门槛由 check_coverage.py 按「全 lib 行数」口径硬校验 70%（堵 lcov 只算触达文件的口径陷阱，见 P.18）
       - name: Test with coverage (when present)
         run: |
