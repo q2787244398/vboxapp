@@ -30,7 +30,8 @@
 |------|---------|
 | v3 | 确认 iOS 方案 A4（契约共享，零改造）；TV 同一 APK 双形态；新增第 0 阶段契约层 |
 | v4 | **全部代码由 AI 编写，人力只做测试**（D8）；验收改为自动化 + conformance 自证（D10）；新增第 E 章执行计划、第 V 章 TV 调研、第 S 章侧载方案 |
-| **v5（现行）** | **三份附属文档并入（附录 A/B/C），全项目仅一份文档**；补 P.1–P.11 实际进度与核查；conformance runner 交付；文档漂移治理（16→0） |
+| v5 | **三份附属文档并入（附录 A/B/C），全项目仅一份文档**；补 P.1–P.11 实际进度与核查；conformance runner 交付；文档漂移治理（16→0） |
+| **v5 增补（现行）** | 2026-09-29 增补：**Flutter CI 验证通道落地**（`.github/workflows/flutter-check.yml`，解除 G-07/G-08）；**P.12 核心层交付**（`lib/core/` 5 模块 20 文件 + 7 文件 78 单测，补齐 P.9 第 4 项）；`http_bridge` 编码探测链上移核心层去重 |
 
 >
 > **D12 已定稿（经联网查证）**：TV 最低版本定为 **Android 7.0 (API 24)**。
@@ -2950,7 +2951,7 @@ AliyunPlayer + IJK   ~30 MB
 
 ### P.3 第 1 轮交付核验
 
-**✅ 已完成（30 个 Dart 文件）**
+**✅ 已完成（51 个 Dart 文件 + 7 个测试文件）**
 
 | 模块 | 产物 |
 |------|------|
@@ -2959,6 +2960,7 @@ AliyunPlayer + IJK   ~30 MB
 | 领域层 | `domain/entities/spider/`（6 文件）· `remote_source/`（3）· `player/`（1） |
 | 表现层 | `presentation/ui_mode/ui_mode_resolver.dart`（⭐ 三重判定） |
 | 入口 | `main.dart` · `app.dart` |
+| **核心层**（P.12 新增） | `core/{constants,errors,network,storage,utils}`（20 文件）· `test/core/`（7 文件 78 用例） |
 
 **❌ 未完成**
 
@@ -2967,9 +2969,9 @@ AliyunPlayer + IJK   ~30 MB
 | `presentation/{phone,tv,desktop,shared,theme}` 布局 | 空目录 |
 | `platform/{player,spider,runtime,system}` 插件层 | 空目录 |
 | 平台壳 | ⚠️ `pubspec.yaml` ✅ 已交付（依赖对齐契约）；`android/`/`macos/`/`windows/` 目录 ⬜ 未创建 |
-| **单元测试**（目标 >70%） | **0 个测试文件** |
+| **单元测试**（目标 >70%） | ⚠️ 已起步：core 层 7 文件 / **78 用例通过**；功能层未覆盖 |
 | conformance runner | ✅ 已交付（45/45，见 P.8b） |
-| `lib/domain/{repositories,usecases}` | 空目录 |
+| `lib/domain/{repositories,usecases}` · `lib/data/datasources/remote` | 空目录 |
 
 ### P.4 自动化校验体系（**9 脚本 + 1 runner，全部通过**）
 
@@ -3214,16 +3216,16 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | 2 | TODO 登记 | ✅ `附录 C` G-01 |
 | 3 | 决策记录 D17+ | ✅ D17–D20 |
 
-**⏳ 仍未补齐（7 项）**
+**⏳ 仍未补齐（7 项，其中第 4 项已于 2026-09-29 补齐，见 P.12）**
 
 | # | 缺失项 | 严重度 | 可否在当前环境完成 |
 |---|--------|--------|------------------|
-| 4 | `lib/core/*` 实现（constants/errors/network/utils） | 中 | ✅ 可（纯 Dart，静态可写） |
+| 4 | ~~`lib/core/*` 实现~~ | 中 | ✅ **已补齐**（5 模块 20 文件，见 P.12） |
 | 5 | `lib/data/datasources/remote` HTTP 数据源 | 中 | ✅ 可（纯 Dart） |
 | 6 | `lib/domain/usecases` 用例层 | 中 | ✅ 可（纯 Dart） |
 | 7 | UI 三形态（phone/tv/desktop） | 高 | ⚠️ 可写但**不可编译验证** |
 | 8 | 平台插件层（Android/桌面） | 高 | ❌ 需原生工具链 |
-| 9 | 单元测试 | 高 | ❌ 需 Flutter SDK（见 P.7） |
+| 9 | 单元测试 | 高 | ⚠️ **部分**：core 层 78 用例已通过；功能层待随代码补齐 |
 | 10 | 5 个 Spider 引擎实现 | 高 | ❌ 需 QuickJS/Node/Python 运行时 |
 
 > **风险提示**：第 7 项虽「可写」，但在无法编译验证的前提下持续产码，
@@ -3238,10 +3240,10 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | 2 | ~~目录结构~~ | ✅ 已定：方案 §2.4 五层 |
 | 3 | ~~键数口径~~ | ✅ 已定：以 iOS 源码 98 键为准 |
 | 4 | ~~conformance runner~~ | ✅ **已交付**（45/45 + 否定测试通过） |
-| 5 | **Flutter 编译环境** | ⏳ **未解决**（P.7）—— 阻塞 3 项门禁，且阻碍剩余 7 项 |
-| 6 | **第 1 轮可否标记完成** | ❌ **不可**（E.10b 未通过：9 项不达标） |
+| 5 | ~~Flutter 编译环境~~ | ✅ **已解决**（`flutter-check.yml`，见 P.12）—— 解除 G-07/G-08，解锁 G-05 |
+| 6 | **第 1 轮可否标记完成** | ❌ **不可**（E.10b 原 9 项不达标；G-07/G-08 已解除，**需重跑门禁后再下结论**） |
 | 7 | ~~文档漂移~~ | ✅ **已修复**（16 处 → 0），新增 `check_docs_consistency.py` 守护（见 P.11） |
-| 8 | **下一步优先级** | **P.7 编译环境** > core/usecases（可静态验证）> UI（需先解决 P.7） |
+| 8 | **下一步优先级** | ~~P.7 编译环境~~ ✅ → **P.9 #5/#6（remote 数据源、usecases）** > UI 三形态 > 平台插件层 > Spider 引擎 |
 
 ---
 
@@ -3279,6 +3281,73 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 
 ---
 
+### P.12 核心层交付与 CI 验证通道（2026-09-29 增补）
+
+**增补 commit**：`fc9e8bcc`（核心层 + 单测）· `ef06b193`（指令顺序修复）
+
+#### 1. Flutter CI 验证通道（解除 G-07 / G-08）
+
+| job | runner | 内容 | 结果 |
+|-----|--------|------|------|
+| `contract-checks` | ubuntu-latest | 9 个契约校验脚本 + conformance runner（45 项） | ✅ |
+| `flutter-analyze` | macos-15 | Flutter 3.47.5 → `pub get` → `flutter analyze` → `flutter test` | ✅ |
+
+- **首跑即抓到 28 errors + 8 warnings**（相对路径写错、record 返回类型不符、`kIsWeb` 未导入、未使用导入、`assets/` 缺目录），全部修复后 **analyze 0 issues**——证明此前「未编译验证」的代码确实藏有缺陷。
+- `flutter test` 由空跑转为真实执行：**78 用例全部通过**（G-05 起步）。
+- 意义：本机 aarch64 无法运行 Flutter（G-07）→ 由 GitHub Actions macOS runner 绕过，**编译 / 静态 / 单测验证闭环成立**，后续所有纯 Dart 工作可直接交付验证。
+
+#### 2. 核心层 `lib/core/`（P.9 第 4 项，20 文件）
+
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| `constants/` | `app_constants.dart` | 应用 / DB / 网络 / 目录 / 日志常量（对齐契约与 iOS） |
+| `errors/` | `exceptions.dart` `failures.dart` | 11 类错误码异常体系 + `sealed Failure`（8 类，含可重试判定）+ 归一映射 |
+| `network/` | `http_body_decoder.dart` `http_client.dart` `network_info.dart` | 契约 §4.2 探测链**权威实现**；HTTP 客户端（UA / 超时 / 指数退避重试 / 解码 / 异常归一）；可达性抽象 |
+| `storage/` | `storage_paths.dart` `file_store.dart` `secure_store.dart` | 目录布局（根目录注入）· 原子写文件 · 敏感键存储抽象 |
+| `utils/` | `charset.dart` `json_utils.dart` `logger.dart` `result.dart` `string_utils.dart` `time_utils.dart` | 字符集原语 + 码表注册 · JSON 宽容取值 · 环形缓冲日志 · `Result<T>` · 字符串 / 时间工具 |
+
+**分层约束落实**：核心层**零插件依赖**（纯 Dart、可单测）；插件能力（路径 / 安全存储 / 连通性）以接口形式下沉 `platform/`。
+
+#### 3. 消重：契约逻辑双份漂移
+
+`domain/entities/spider/http_bridge.dart` 原本自带一份编码探测链 → 上移核心层后该文件 **204 行 → 75 行**，仅 **re-export**；
+`scripts/check_spider_domain.py` 同步改为「校验核心层实现 + 校验委托关系」，防止回退成双份。
+
+#### 4. 单测（G-05 起步，7 文件 78 用例）
+
+| 文件 | 覆盖 |
+|------|------|
+| `charset_test.dart` | 归一映射（GBK 8 变体）· meta 探测 · 非法 utf-8 → null · 未注册码表不产乱码 |
+| `json_utils_test.dart` | 宽容转换（`"12"`/`12.9`/`true`）· 空容器兜底 · 编解码往返 |
+| `string_time_test.dart` | SHA-256 / MD5 标准向量 · HTML 清洗 · URL 解析 · Unix 秒往返 · 相对时间分级 |
+| `result_failure_test.dart` | `fold` / `map` · 8 类异常 → Failure 归一 · 可重试判定 |
+| `logger_test.dart` | 环形淘汰（容量 500）· 级别过滤 · 广播流订阅 |
+| `network_test.dart` | 探测链 ①②③④ + 兜底链顺序 · MockClient 覆盖 5xx 重试 / 4xx 不重试 / 网络异常归一 / POST 编码 |
+| `storage_test.dart` | 未配置抛错 · 目录布局 · 幂等建目录 · 原子写 / JSON / 删除 / 列举 · 内存安全存储 |
+
+#### 5. 本轮暴露并修复的实现缺陷
+
+| 缺陷 | 根因 | 修复 |
+|------|------|------|
+| 21 个 `Favorite` undefined | `database_manager.dart` 相对路径写成 `models/models.dart` | 改为 `../../models/models.dart` |
+| 6 个返回类型错误 | `decodeResponseBody` 声明 `(List<String>,bool)` 实为 `(String,bool)` | 修正声明 |
+| `kIsWeb` 未定义 | Flutter 3.47 的 `material.dart` 不再透传 foundation | 显式导入 `foundation.dart` |
+| 2 个 directive 顺序错误 | `export` 写在类声明之后 | 前移至 import 之后 |
+| 7 个未使用导入 + `assets/` 缺失 | 模型文件冗余导入；`pubspec.yaml` 声明目录不存在 | 清理 + 建 `assets/.gitkeep` |
+
+#### 6. 待确认（契约语义）
+
+契约 §4.2 ④ 末位 `ISO-8859-1` 属**全域映射**（任意字节均可解码成功），
+故 ⑤「全部失败 → base64」在纯 Dart 语义下**不可达**。
+已在 `http_body_decoder.dart` 标注并保留防御性分支，待契约方明确「④ 失败」的判定标准（如乱码率阈值）。
+
+#### 7. 顺带修复：CI 管理文件被回退
+
+`api_push2.py` 曾把本地旧版本推回远程，回退 CI 自动 bump 的版本号（3.1615 → 3.1614）。
+已新增 `CI_MANAGED` 排除集（`vbox/Info.plist` / `vbox.xcodeproj/project.pbxproj` / `CHANGELOG.md`），**永不参与推送与删除**。
+
+---
+
 # 附录部分
 
 ---
@@ -3292,16 +3361,17 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 
 ```
 第 0 阶段  契约冻结        ████████████████████ 100%  ✅ 已过 D13 门禁
-第 1 轮    核心骨架        ███████████░░░░░░░░░  56%  🔄 进行中（E.10b 未通过）
+第 1 轮    核心骨架        █████████████░░░░░░░  65%  🔄 进行中（E.10b 未通过）
 第 2 轮    功能补全        ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 3 轮    兼容性与稳定性   ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 4 轮    数据互通与边界   ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 5 轮    发布准备        ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 ```
 
-**第 1 轮 56% 的依据**：9 个交付块完成 5 个——
-✅ 契约层镜像 · ✅ 数据层 · ✅ 领域层实体 · ✅ 入口与形态判定 · ✅ conformance runner；
-⬜ UI 三形态 · ⬜ 平台插件层 · ⬜ 单元测试 · ⬜ Spider 引擎实现。
+**第 1 轮 65% 的依据**：9 个交付块完成 6 个 + 1 个部分（2026-09-29 增补后）——
+✅ 契约层镜像 · ✅ 数据层 · ✅ 领域层实体 · ✅ 入口与形态判定 · ✅ conformance runner
+· ✅ 核心层（`lib/core/` 5 模块，见 P.12）· ⚠️ 单元测试（core 层 78 用例已通过，功能层未覆盖）；
+⬜ UI 三形态 · ⬜ 平台插件层 · ⬜ Spider 引擎实现。
 
 ## A.2 第 0 阶段交付产物（15 文件）
 
@@ -3324,17 +3394,19 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | MPVKit 依赖资产缺失 | ✅ 已修复（资产迁入 vboxapp release `mpvkit-deps-0.0.1`，sha256 校验通过） |
 | `scripts/*.sh` 缺执行位 | ✅ 已修复（100644 → 100755） |
 | 最新构建 | ✅ run `36540984193` = success（IPA 链路跑通） |
-| 版本自动 bump | ✅ 已到 `3.1614` |
+| 版本自动 bump | ✅ 已到 `3.1614`（本地旧值曾回退为 3.1614，已加 `CI_MANAGED` 排除防复发） |
+| **Flutter 校验通道** | ✅ `flutter-check.yml` 双 job 全绿：`analyze` 0 issues + **78 单测** + 9 脚本 + conformance 45/45 |
 
 ## A.4 环境约束摘要
 
 | 问题 | 影响 | 应对 |
 |------|------|------|
-| 无可用 Flutter SDK | **无法编译 / 静态分析 / 单测** | 官方 Linux 包仅 x86-64，本机 aarch64（详见 P.7） |
+| 本机无可用 Flutter SDK | 本机无法编译 / 静态分析 / 单测 | 官方 Linux 包仅 x86-64，本机 aarch64；**已由 GitHub Actions macOS runner 绕过（见 P.12）** |
 | `github.com:443` 不可达 | `git push/fetch` 失败 | 推送走 `scripts/api_push2.py`（API 通道，自动 diff） |
 | 本地 git 历史与远程不一致 | 无法直接比对 | 网络恢复后 `git fetch && git reset --hard origin/main` |
 
-> ⚠️ **所有 Dart 代码仅通过静态检查，未经编译验证**——当前最大技术风险。
+> ⚠️ Dart 代码现已由 `flutter-check.yml` 做**编译 + 静态 + 单测**三重验证（analyze 0 issues / 78 用例）；
+> 但**功能层（UI 三形态 / 平台插件 / Spider 引擎）尚未落地**，仍是当前最大风险。
 
 ---
 
@@ -3424,15 +3496,15 @@ lib/
 |------|------|------|
 | 入口 | `main.dart` `app.dart` | ✅ 已交付（未编译验证） |
 | 契约层 | `contract/` | ✅ 已交付并校验 |
-| 核心层 | `core/*` | ⬜ **空目录**（5 个子目录已建） |
+| 核心层 | `core/*` | ✅ 已交付（5 子目录 20 文件，见 P.12） |
 | 数据层 | `data/{models,datasources/local}` | ✅ 已交付 |
-| 数据层 | `data/{datasources/remote,repositories}` | ⬜ 空目录 |
+| 数据层 | `data/{datasources/remote,repositories}` | ⬜ 空目录（下一步） |
 | 领域层 | `domain/entities/*` | ✅ 已交付 |
 | 领域层 | `domain/{repositories,usecases}` | ⬜ 空目录 |
 | 表现层 | `presentation/ui_mode` | ✅ 已交付 |
 | 表现层 | `presentation/{phone,tv,desktop,providers,shared,theme}` | ⬜ 空目录 |
 | 平台层 | `platform/*` | ⬜ **空目录**（4 个子目录已建） |
-| 测试 | `test/` | ⬜ **不存在** |
+| 测试 | `test/` | ✅ core 层 7 文件 / 78 用例（功能层待补） |
 
 > 空目录已按目标结构预建，便于后续填充；`git` 不跟踪空目录，故远端不可见。
 
@@ -3512,14 +3584,14 @@ lib/
 > **教训**：查索引结构不能依赖 `sqlite_master.sql`（内联约束无 DDL 文本）；
 > 契约 DDL 可能分散在 `CREATE TABLE` 与 `ALTER TABLE` 两处，须合并解析。
 
-## G-05 单元测试为 0 ⛔ 高
+## G-05 单元测试（⚠️ 中，已部分解除）
 
 | 项 | 内容 |
 |----|------|
-| 现状 | `test/` 目录不存在，0 个测试文件 |
-| 影响 | E.10b ⑤「单测覆盖率 ≥ 70%」不达标 |
-| 阻塞原因 | 需 `flutter test`（见 G-07） |
-| 解除条件 | 单测交付，覆盖率 ≥ 70% |
+| 现状 | ✅ core 层 7 文件 **78 用例全部通过**（P.12）；功能层尚未覆盖 |
+| 影响 | E.10b ⑤「单测覆盖率 ≥ 70%」仍不达标（整体口径） |
+| 阻塞原因 | ~~需 `flutter test`~~ → 通道已通（G-07 解除） |
+| 解除条件 | 功能层代码落地时同步补测，整体覆盖率 ≥ 70% |
 
 ## G-06 iOS 参照实现完整性
 
@@ -3528,23 +3600,22 @@ lib/
 | 现状 | ✅ `vbox/` 目录 481 文件完好，未被破坏 |
 | 说明 | 零改造原则（D1）已遵守 |
 
-## G-07 Flutter SDK 无法在本环境运行 ⛔ 高（根因）
+## G-07 Flutter SDK 无法在本机运行 ✅ 已解决（2026-09-29）
 
 | 项 | 内容 |
 |----|------|
 | 现象 | `Exec format error` |
 | 原因 | Flutter 官方 Linux 发行版**仅 x86-64**；本机为 **aarch64**（iSH/Alpine） |
-| 已查证 | `dart_sdk_arch: x64`（releases_linux.json）；arm64 归档 URL 返回 404 |
-| 影响 | **阻塞 G-01/G-05/G-08 及所有编译验证** |
-| 出路 | ① GitHub Actions（macos-15-arm64 runner）② x86-64 机器 ③ arm64 Linux 环境 |
+| 处置 | ✅ 采用出路①：新增 `.github/workflows/flutter-check.yml`（macos-15 runner，Flutter 3.47.5） |
+| 结果 | 编译 / 静态 / 单测三重验证闭环成立（见 P.12），G-08 同步解除、G-05 解锁 |
 
-## G-08 静态分析未执行
+## G-08 静态分析 ✅ 已解决（2026-09-29）
 
 | 项 | 内容 |
 |----|------|
-| 现状 | `flutter analyze` 无法运行 |
-| 原因 | 同 G-07 |
-| 影响 | E.10b ⑤「静态分析无 error」无法验证 |
+| 现状 | ✅ `flutter analyze` 随 CI 每次推送执行，当前 **0 issues** |
+| 首跑价值 | 抓到 28 errors + 8 warnings（全部修复，见 P.12 §5） |
+| 影响 | E.10b ⑤「静态分析无 error」现已可验证 |
 
 ## G-09 侧载链路未验证
 
@@ -3568,8 +3639,8 @@ lib/
 
 | 类别 | 数量 | 编号 |
 |------|------|------|
-| ✅ 已解决 | 1 | G-04（conformance runner） |
-| 环境阻塞 | 3 | G-05, G-07, G-08 |
+| ✅ 已解决 | 3 | G-04（conformance runner）, G-07（编译环境）, G-08（静态分析） |
+| 部分解除 | 1 | G-05（core 层 78 用例已过，整体覆盖率待补） |
 | 功能未实现 | 4 | G-01, G-02, G-03, G-09 |
 | 需真机验证 | 2 | G-09, G-10 |
 | 已满足 | 1 | G-06 |

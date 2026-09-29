@@ -17,7 +17,8 @@ on:
       - 'pubspec.yaml'
       - 'contract/**'
       - 'conformance/**'
-      - 'scripts/check_*.py'
+      - 'scripts/**'
+      - 'docs/**'
       - '.github/workflows/flutter-check.yml'
   pull_request:
     paths:
@@ -26,7 +27,8 @@ on:
       - 'pubspec.yaml'
       - 'contract/**'
       - 'conformance/**'
-      - 'scripts/check_*.py'
+      - 'scripts/**'
+      - 'docs/**'
       - '.github/workflows/flutter-check.yml'
 
 jobs:
