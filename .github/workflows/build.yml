@@ -105,6 +105,7 @@ jobs:
             build_cmd: flutter build windows --release
             artifact_path: build/windows/x64/runner/Release/
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -121,12 +122,25 @@ jobs:
           channel: stable
           cache: true
 
+      # Windows 上首次调用 flutter 会自举工具链（"Building flutter tool..."），
+      # 若外层是 pwsh 再套 bash，stdout 管道会被提前关闭，导致
+      # "writeFrom failed ... The pipe is being closed (errno 232)" 并死循环重试。
+      # 显式指定 bash，让 runner 直接用 Git Bash 执行（与 action 自身 setup.sh 一致）。
+      - name: Bootstrap Flutter tool
+        shell: bash
+        run: flutter --version
+        timeout-minutes: 15
+
       - name: Prepare platform scaffolding
+        shell: bash
         run: bash _scripts/ci_prepare.sh ${{ matrix.platform }} ${{ needs.version.outputs.full }}
+        timeout-minutes: 25
 
       - name: Build (${{ matrix.platform }})
         working-directory: flutter
+        shell: bash
         run: ${{ matrix.build_cmd }}
+        timeout-minutes: 60
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
