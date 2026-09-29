@@ -15,6 +15,20 @@ library;
 
 import 'dart:typed_data';
 
+// ─────────────────────────────────────────────────────────
+// 实现迁至核心层（消除契约逻辑双份漂移）
+//
+// 契约 §4.2 的编码探测链唯一实现位于：
+//   lib/core/utils/charset.dart              —— 字符集原语 + 码表注册
+//   lib/core/network/http_body_decoder.dart  —— 探测链与 base64 兜底
+// 此处 re-export，保持 `spider.dart` barrel 对外符号（normalizeCharset /
+// charsetFromContentType / sniffMetaCharset / registerCharsetTables /
+// decodeResponseBody）不变。
+// ─────────────────────────────────────────────────────────
+
+export '../../../core/network/http_body_decoder.dart';
+export '../../../core/utils/charset.dart';
+
 /// HTTP 请求参数（对齐契约 §4.1）。
 class SpiderHttpRequest {
   const SpiderHttpRequest({
@@ -59,17 +73,3 @@ class SpiderHttpResponse {
   /// 原始字节（供 `getBytes` 类调用）。
   final Uint8List? rawBytes;
 }
-
-// ─────────────────────────────────────────────────────────
-// 实现迁至核心层（消除契约逻辑双份漂移）
-//
-// 契约 §4.2 的编码探测链唯一实现位于：
-//   lib/core/utils/charset.dart              —— 字符集原语 + 码表注册
-//   lib/core/network/http_body_decoder.dart  —— 探测链与 base64 兜底
-// 此处 re-export，保持 `spider.dart` barrel 对外符号（normalizeCharset /
-// charsetFromContentType / sniffMetaCharset / registerCharsetTables /
-// decodeResponseBody）不变。
-// ─────────────────────────────────────────────────────────
-
-export '../../../core/network/http_body_decoder.dart';
-export '../../../core/utils/charset.dart';
