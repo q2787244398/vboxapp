@@ -1,0 +1,544 @@
+import SwiftUI
+
+// MARK: - 推送播放主视图
+struct PushPlayView: View {
+    @EnvironmentObject private var settings: AppSettings
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var store = PushPlayStore.shared
+    
+    @State private var showAddSheet = false
+    @State private var selectedVideo: VodItem? = nil
+    @State private var isEditMode: Bool = false
+    @State private var selectedItems: Set<String> = []
+    @State private var showClearConfirm: Bool = false
+    
+    var accentColor: Color {
+        if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
+        if settings.usesFrostedSkin { return Color(hex: "7C3AED") }
+        return Color(hex: "E11D48")
+    }
+    
+    var textColor: Color {
+        if settings.usesVisualSkin { return .white }
+        return Color(uiColor: .label)
+    }
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                if store.items.isEmpty {
+                    emptyStateView
+                } else {
+                    listView
+                }
+            }
+            .navigationTitle("推送播放")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if isEditMode {
+                        Button("全选") {
+                            toggleSelectAll()
+                        }
+                        .foregroundColor(accentColor)
+                    } else {
+                        Button("关闭") {
+                            dismiss()
+                        }
+                        .foregroundColor(accentColor)
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack(spacing: 12) {
+                        if !store.items.isEmpty {
+                            if isEditMode {
+                                Button("完成") {
+                                    isEditMode = false
+                                    selectedItems.removeAll()
+                                }
+                                .foregroundColor(accentColor)
+                            } else {
+                                Menu {
+                                    Button(action: {
+                                        isEditMode = true
+                                    }) {
+                                        Label("批量删除", systemImage: "checkmark.circle")
+                                    }
+                                    Button(role: .destructive, action: {
+                                        showClearConfirm = true
+                                    }) {
+                                        Label("清空全部", systemImage: "trash")
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis.circle")
+                                        .font(.system(size: 18))
+                                        .foregroundColor(accentColor)
+                                }
+                            }
+                        }
+                        
+                        if !isEditMode {
+                            Button(action: {
+                                showAddSheet = true
+                            }) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(accentColor)
+                            }
+                        }
+                    }
+                }
+                
+                // 编辑模式底部工具栏
+                if isEditMode {
+                    ToolbarItem(placement: .bottomBar) {
+                        HStack {
+                            Button(role: .destructive, action: {
+                                deleteSelected()
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "trash")
+                                    Text("删除选中 (\(selectedItems.count))")
+                                }
+                                .foregroundColor(selectedItems.isEmpty ? .gray : .red)
+                            }
+                            .disabled(selectedItems.isEmpty)
+                            
+                            Spacer()
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: $showAddSheet) {
+                AddPushPlayLinkView(accentColor: accentColor)
+                    .environmentObject(store)
+            }
+            .fullScreenCover(item: $selectedVideo) { video in
+                VideoDetailView(video: video)
+            }
+            .alert("确认清空", isPresented: $showClearConfirm) {
+                Button("取消", role: .cancel) { }
+                Button("清空", role: .destructive) {
+                    store.removeAll()
+                }
+            } message: {
+                Text("确定要清空所有 \(store.items.count) 条推送链接吗？此操作不可撤销。")
+            }
+        }
+    }
+    
+    // MARK: - 空状态
+    
+    private var emptyStateView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "play.rectangle.on.rectangle")
+                .font(.system(size: 60))
+                .foregroundColor(.gray.opacity(0.5))
+            
+            Text("暂无推送链接")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(textColor)
+            
+            Text("点击右上角 + 添加网盘或播放链接")
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+            
+            Button(action: {
+                showAddSheet = true
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus.circle.fill")
+                    Text("添加链接")
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .background(accentColor)
+                .cornerRadius(12)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    // MARK: - 列表视图
+    
+    private var listView: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                ForEach(store.items) { item in
+                    if isEditMode {
+                        editItemCard(for: item)
+                    } else {
+                        itemCard(for: item)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+    }
+    
+    // MARK: - 普通卡片
+    
+    private func itemCard(for item: PushPlayItem) -> some View {
+        HStack(spacing: 12) {
+            // 类型图标
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(accentColor.opacity(0.15))
+                    .frame(width: 50, height: 50)
+                
+                Image(systemName: item.type.iconName)
+                    .font(.system(size: 22))
+                    .foregroundColor(accentColor)
+            }
+            
+            // 信息区
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(textColor)
+                    .lineLimit(1)
+                
+                Text(item.url)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                
+                HStack(spacing: 6) {
+                    Text(item.type.displayName)
+                        .font(.system(size: 11))
+                        .foregroundColor(accentColor)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(accentColor.opacity(0.15))
+                        .cornerRadius(4)
+                    
+                    if let episodes = item.episodes, !episodes.isEmpty {
+                        Text("\(episodes.count) 集")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            
+            Spacer()
+            
+            // 播放按钮
+            Button(action: {
+                playItem(item)
+            }) {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 32))
+                    .foregroundColor(accentColor)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .cornerRadius(12)
+        .contextMenu {
+            Button(role: .destructive, action: {
+                store.removeItem(item)
+            }) {
+                Label("删除", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                store.removeItem(item)
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
+        }
+    }
+    
+    // MARK: - 编辑模式卡片
+    
+    private func editItemCard(for item: PushPlayItem) -> some View {
+        HStack(spacing: 12) {
+            // 选择框
+            Image(systemName: selectedItems.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 22))
+                .foregroundColor(selectedItems.contains(item.id) ? accentColor : .gray)
+            
+            // 类型图标
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(accentColor.opacity(0.15))
+                    .frame(width: 44, height: 44)
+                
+                Image(systemName: item.type.iconName)
+                    .font(.system(size: 18))
+                    .foregroundColor(accentColor)
+            }
+            
+            // 信息区
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(textColor)
+                    .lineLimit(1)
+                
+                Text(item.type.displayName)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+        }
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .cornerRadius(12)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            toggleSelection(for: item)
+        }
+    }
+    
+    // MARK: - 编辑操作
+    
+    private func toggleSelection(for item: PushPlayItem) {
+        if selectedItems.contains(item.id) {
+            selectedItems.remove(item.id)
+        } else {
+            selectedItems.insert(item.id)
+        }
+    }
+    
+    private func toggleSelectAll() {
+        if selectedItems.count == store.items.count {
+            selectedItems.removeAll()
+        } else {
+            selectedItems = Set(store.items.map { $0.id })
+        }
+    }
+    
+    private func deleteSelected() {
+        for item in store.items {
+            if selectedItems.contains(item.id) {
+                store.removeItem(item)
+            }
+        }
+        selectedItems.removeAll()
+        if store.items.isEmpty {
+            isEditMode = false
+        }
+    }
+    
+    // MARK: - 播放逻辑
+    
+    private func playItem(_ item: PushPlayItem) {
+        let vodItem = makeVodItem(from: item)
+        selectedVideo = vodItem
+    }
+    
+    private func makeVodItem(from item: PushPlayItem) -> VodItem {
+        let remarks: String
+        switch item.type {
+        case .cloudDrive:
+            remarks = "☁️网盘 - \(item.title)"
+        case .directPlay:
+            remarks = "🎬 直链播放"
+        case .webParse:
+            remarks = "🌐 网页解析"
+        }
+        
+        // 如果有解析好的剧集，构造包含剧集信息的 playUrl
+        var playUrl: String? = nil
+        if let episodes = item.episodes, !episodes.isEmpty {
+            let episodeStr = episodes.map { "\($0.name)$\($0.url)" }.joined(separator: "#")
+            playUrl = episodeStr
+        }
+        
+        return VodItem(
+            vodId: item.url,
+            vodName: item.title,
+            vodPic: "",
+            vodRemarks: remarks,
+            vodPlayFrom: item.type.displayName,
+            vodPlayUrl: playUrl
+        )
+    }
+}
+
+// MARK: - 添加链接弹窗
+
+struct AddPushPlayLinkView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var store: PushPlayStore
+    
+    let accentColor: Color
+    
+    @State private var titleInput: String = ""
+    @State private var urlInput: String = ""
+    @State private var selectedType: PushPlayLinkType = .cloudDrive
+    @State private var showError = false
+    @State private var errorMessage = ""
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // 头部提示
+                    HStack(spacing: 8) {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundColor(accentColor)
+                        Text("支持网盘链接、直链播放地址、网页视频地址")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 8)
+                    
+                    // 链接类型选择
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("链接类型")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.primary)
+                        
+                        HStack(spacing: 8) {
+                            ForEach(PushPlayLinkType.allCases, id: \.self) { type in
+                                Button(action: {
+                                    selectedType = type
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: type.iconName)
+                                            .font(.system(size: 12))
+                                        Text(type.displayName)
+                                            .font(.system(size: 13))
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(selectedType == type ? accentColor.opacity(0.2) : Color.gray.opacity(0.1))
+                                    )
+                                    .foregroundColor(selectedType == type ? accentColor : .primary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    
+                    // 标题输入
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("标题（可选）")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.primary)
+                        
+                        TextField("自动识别，可自定义", text: $titleInput)
+                            .font(.system(size: 15))
+                            .padding()
+                            .background(Color(uiColor: .secondarySystemBackground))
+                            .cornerRadius(10)
+                    }
+                    
+                    // URL输入
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("链接地址")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.primary)
+                        
+                        TextEditor(text: $urlInput)
+                            .font(.system(size: 14))
+                            .frame(minHeight: 100)
+                            .padding(12)
+                            .background(Color(uiColor: .secondarySystemBackground))
+                            .cornerRadius(10)
+                        
+                        if showError {
+                            Text(errorMessage)
+                                .font(.system(size: 12))
+                                .foregroundColor(.red)
+                                .transition(.opacity)
+                        }
+                        
+                        // 自动识别按钮
+                        Button(action: {
+                            autoDetectType()
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "wand.and.stars")
+                                Text("自动识别类型")
+                            }
+                            .font(.system(size: 13))
+                            .foregroundColor(accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        
+                        // 快捷示例
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("支持格式示例：")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                            
+                            Text("• 网盘：阿里云盘、夸克、百度网盘、115等分享链接")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                            Text("• 直链：.m3u8 / .mp4 / .flv 等视频地址")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                            Text("• 网页：视频详情页URL（将自动解析）")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .navigationTitle("添加推送链接")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                    .foregroundColor(.secondary)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        saveAndDismiss()
+                    }) {
+                        Text("添加")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(accentColor)
+                    }
+                }
+            }
+        }
+    }
+    
+    private func autoDetectType() {
+        let url = urlInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else { return }
+        selectedType = PushPlayStore.detectType(for: url)
+    }
+    
+    private func saveAndDismiss() {
+        let url = urlInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = titleInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !url.isEmpty else {
+            errorMessage = "请输入链接地址"
+            showError = true
+            return
+        }
+        
+        guard URL(string: url) != nil else {
+            errorMessage = "链接格式不正确"
+            showError = true
+            return
+        }
+        
+        store.addItem(title: title, url: url, type: selectedType)
+        dismiss()
+    }
+}

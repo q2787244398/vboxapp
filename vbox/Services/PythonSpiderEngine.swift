@@ -1,0 +1,678 @@
+//
+//  PythonSpiderEngine.swift
+//  vbox
+//
+//  Python Spider 引擎 — 实现 SpiderEngineProtocol，通过 PythonSpiderBridge 调用 CPython 解释器
+//  可同时用于首页/搜索的普通蜘蛛和福利专区的远程蜘蛛。
+//
+//  修复记录 (2026-08-10):
+//  1. 新增异步方法 (callHomeContentAsync / callCategoryContentAsync 等)
+//     Python 调用在后台线程执行, 不阻塞主线程 (SpiderManager 是 @MainActor)
+//     之前同步方法直接在主线程调用 PythonBridge.callSpider(), 导致 UI 冻结
+//  2. 同步方法保留以遵循 SpiderEngineProtocol, 内部调用异步版本
+//     (注意: 同步方法仍会阻塞调用线程, 建议优先使用异步方法)
+//
+//  修复记录 (2026-08-11):
+//  3. 后台异步初始化 — 构造器不再阻塞主线程
+//     之前: init 中同步调 initializePythonIfNeeded + registerSpiderInternal → 卡 2-3 秒
+//     现在: init 只记录路径, 初始化在后台线程执行, 完成后自动标记 _isSpiderReady
+//     效果: App 启动拉取远程源不再卡顿, 用户无感知
+//
+
+import Foundation
+
+// MARK: - 引擎错误
+
+enum PythonSpiderError: LocalizedError {
+    case execFailed(String)
+    case invalidJSON(String)
+    case notInitialized
+    case timeout(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .execFailed(let fn): return "Python Spider 方法 \(fn) 执行失败"
+        case .invalidJSON(let fn): return "Python Spider 方法 \(fn) 返回非法 JSON"
+        case .notInitialized: return "Python Spider 引擎未初始化"
+        case .timeout(let op): return "Python Spider \(op) 执行超时"
+        }
+    }
+}
+
+// MARK: - Python Spider 引擎
+
+final class PythonSpiderEngine: SpiderEngineProtocol {
+
+    var onLog: ((String) -> Void)?
+
+    private let scriptPath: String
+    private let scriptName: String
+    private let scriptKey: String
+    private var _isSpiderReady = false
+
+    /// 注入到脚本 globals 字典的上下文（域名、代理等）。
+    /// 默认为 nil，此时行为与原有完全一致。
+    /// 设置后，每次 Python 调用都会把这些键值注入脚本的 globals，
+    /// base.spider.Spider 在 __init__ 时读取并应用。
+    var injectDict: [String: Any]? = nil
+
+    /// Python 调用专用串行队列
+    /// CPython 有 GIL, 多线程并发执行 Python 代码没有意义
+    /// 使用串行队列保证 Python 调用顺序执行, 避免 GIL 竞争
+    private let pythonQueue = DispatchQueue(label: "com.vbox.python.spider", qos: .userInitiated)
+
+    var isSpiderReady: Bool { _isSpiderReady }
+
+    // MARK: - Init
+
+    /// 创建 Python Spider 引擎
+    /// - Parameters:
+    ///   - scriptPath: 本地 .py 脚本绝对路径
+    ///   - key: Spider 唯一标识（用于日志）
+    ///
+    /// 修复 (2026-08-11): 后台异步初始化, 不阻塞主线程
+    /// 之前: init 中同步调 initializePythonIfNeeded + registerSpiderInternal → 卡 2-3 秒
+    /// 现在: init 只记录路径, 初始化在后台线程执行, 完成后自动标记 _isSpiderReady
+    init(scriptPath: String, key: String) {
+        self.scriptPath = scriptPath
+        self.scriptName = URL(fileURLWithPath: scriptPath).lastPathComponent
+        self.scriptKey = key
+
+        onLog?("🐍 [\(scriptKey)] 创建 Python Spider 引擎 (后台初始化)")
+
+        // 后台异步初始化 — 不阻塞主线程
+        // Python 解释器初始化 (加载 15MB 标准库) + 脚本 init() 在后台执行
+        // 完成后自动标记 _isSpiderReady = true
+        pythonQueue.async { [weak self] in
+            guard let self = self else { return }
+
+            // 初始化 Python 解释器（全局只执行一次）
+            PythonSpiderBridge.initializePythonIfNeeded()
+
+            // 注册 Spider（调 init()）
+            self.registerSpiderInternal()
+        }
+    }
+
+    private func registerSpiderInternal() {
+        let start = Date()
+        let json = PythonSpiderBridge.callSpider(scriptPath,
+                                                 injectDict: injectDict,
+                                                 function: "init",
+                                                 args: "{}")
+        let elapsed = Int(Date().timeIntervalSince(start) * 1000)
+
+        if json != nil {
+            _isSpiderReady = true
+            onLog?("✅ [\(scriptKey)] Python Spider 初始化完成 (\(elapsed)ms)")
+            // ★ 通知短剧等页面: Python 引擎已就绪, 可以重新扫描蜘蛛源
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .pythonSpiderDidBecomeReady, object: nil)
+            }
+        } else {
+            onLog?("❌ [\(scriptKey)] Python Spider 初始化失败 (\(elapsed)ms)")
+        }
+    }
+
+    // MARK: - SpiderEngineProtocol
+
+    func loadScript(_ script: String) throws {
+        // Python 脚本不需要额外加载（已在 init 中执行）
+    }
+
+    func loadLibrary(_ script: String) throws {
+        // Python 库不需要预注入（通过 sys.path + import 加载）
+    }
+
+    func loadScriptFromURL(_ urlString: String) async throws {
+        guard let url = URL(string: urlString) else {
+            throw PythonSpiderError.execFailed("loadScriptFromURL: 无效 URL")
+        }
+        let (data, _) = try await URLSession.shared.data(from: url)
+        try data.write(to: URL(fileURLWithPath: scriptPath), options: .atomic)
+
+        // 重新注册
+        _isSpiderReady = false
+        try await registerSpiderAsync()
+    }
+
+    func registerSpider() throws {
+        guard _isSpiderReady else {
+            throw PythonSpiderError.notInitialized
+        }
+    }
+
+    // MARK: - Spider Methods (同步, 协议要求)
+
+    func callHomeContent() throws -> HomeContentResult {
+        guard let json = call("homeContent", args: "{}"),
+              let data = json.data(using: .utf8) else {
+            throw PythonSpiderError.execFailed("homeContent")
+        }
+        return try decodeOrFallbackHome(from: data)
+    }
+
+    func callCategoryContent(tid: String, pg: Int, extend: String) throws -> CategoryContentResult {
+        let args = #"{"tid":"\#(tid)","pg":"\#(pg)","extend":"\#(extend)"}"#
+        guard let json = call("categoryContent", args: args),
+              let data = json.data(using: .utf8) else {
+            throw PythonSpiderError.execFailed("categoryContent")
+        }
+        // ★ 先尝试标准解码
+        do {
+            let result = try JSONDecoder().decode(CategoryContentResult.self, from: data)
+            // ★ 记录空列表情况, 便于排查
+            if result.list?.isEmpty != false {
+                onLog?("⚠️ [\(scriptKey)] categoryContent 返回空列表! tid=\(tid), pg=\(pg), 原始: \(json.prefix(200))")
+            } else {
+                onLog?("✅ [\(scriptKey)] categoryContent 成功: tid=\(tid), \(result.list?.count ?? 0)条")
+            }
+            return result
+        } catch {
+            onLog?("⚠️ [\(scriptKey)] categoryContent 标准解码失败, 尝试容错解析: \(error.localizedDescription)")
+            // ★ 容错解析: 用 JSONSerialization 手动提取, 兼容整数 vod_id 等
+            return try decodeOrFallbackCategory(from: data)
+        }
+    }
+
+    func callDetailContent(ids: String) throws -> DetailContentResult {
+        let idsJSON = #"["\#(ids)"]"#
+        guard let json = call("detailContent", args: idsJSON),
+              let data = json.data(using: .utf8) else {
+            throw PythonSpiderError.execFailed("detailContent")
+        }
+        do {
+            return try JSONDecoder().decode(DetailContentResult.self, from: data)
+        } catch {
+            onLog?("⚠️ [\(scriptKey)] detailContent 标准解码失败, 尝试容错解析: \(error.localizedDescription)")
+            return try decodeOrFallbackDetail(from: data)
+        }
+    }
+
+    func callSearchContent(keyword: String, pg: Int) throws -> SearchContentResult {
+        let args = #"{"key":"\#(keyword)","quick":false,"pg":"\#(pg)"}"#
+        guard let json = call("searchContent", args: args),
+              let data = json.data(using: .utf8) else {
+            throw PythonSpiderError.execFailed("searchContent")
+        }
+        do {
+            return try JSONDecoder().decode(SearchContentResult.self, from: data)
+        } catch {
+            onLog?("⚠️ [\(scriptKey)] searchContent 标准解码失败, 尝试容错解析: \(error.localizedDescription)")
+            return try decodeOrFallbackSearch(from: data)
+        }
+    }
+
+    /// 调用首页视频内容（福利专区可选方法，非 SpiderEngineProtocol 要求）
+    func callHomeVideoContent() throws -> HomeContentResult {
+        guard let json = call("homeVideoContent", args: ""),
+              let data = json.data(using: .utf8) else {
+            throw PythonSpiderError.execFailed("homeVideoContent")
+        }
+        do {
+            return try JSONDecoder().decode(HomeContentResult.self, from: data)
+        } catch {
+            onLog?("⚠️ [\(scriptKey)] homeVideoContent 标准解码失败, 尝试容错解析: \(error.localizedDescription)")
+            return try decodeOrFallbackHome(from: data)
+        }
+    }
+
+    func callPlayerContent(vodId: String, flag: String, url: String) throws -> PlayerContentResult {
+        let args = #"{"flag":"\#(flag)","id":"\#(url)"}"#
+        guard let json = call("playerContent", args: args),
+              let data = json.data(using: .utf8) else {
+            throw PythonSpiderError.execFailed("playerContent")
+        }
+        do {
+            return try JSONDecoder().decode(PlayerContentResult.self, from: data)
+        } catch {
+            // ★ 容错解码: Python 脚本返回的 header 可能是字符串（""、json.dumps()、
+            // "User-Agent=xxx&Referer=xxx"）而非 [String: String] 字典，
+            // 导致标准 Codable 解码失败。此容错路径与 detailContent 等方法保持一致。
+            onLog?("⚠️ [\(scriptKey)] playerContent 标准解码失败, 尝试容错解析: \(error.localizedDescription)")
+            return try decodeOrFallbackPlayerContent(from: data)
+        }
+    }
+
+    // MARK: - Spider Methods (异步, 推荐使用)
+    // 在后台线程执行 Python 调用, 不阻塞主线程
+    // 因为 SpiderManager 是 @MainActor, 同步调用会阻塞 UI
+
+    /// 异步注册 Spider
+    func registerSpiderAsync() async throws {
+        try await withPythonTimeout("registerSpider", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                self.registerSpiderInternal()
+                if self._isSpiderReady {
+                    done(.success(()))
+                } else {
+                    done(.failure(PythonSpiderError.notInitialized))
+                }
+            }
+        }
+    }
+
+    /// 带超时的 Python 调用容器: 串行在 pythonQueue 执行, 超过 timeout 强制返回超时错误
+    /// 解决: 脚本网络请求慢/挂起时, 分类/搜索 View 无限卡住的问题
+    private func withPythonTimeout<T>(
+        _ operation: String,
+        timeout: TimeInterval = 20.0,
+        _ body: @escaping (@escaping (Result<T, Error>) -> Void) -> Void
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let lock = NSLock()
+            var isDone = false
+
+            func finish(_ result: Result<T, Error>) {
+                lock.lock()
+                if !isDone {
+                    isDone = true
+                    lock.unlock()
+                    continuation.resume(with: result)
+                } else {
+                    lock.unlock()
+                }
+            }
+
+            // 超时保护
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                DispatchQueue.main.async {
+                    finish(.failure(PythonSpiderError.timeout(operation)))
+                }
+            }
+
+            // 实际执行
+            body { result in
+                DispatchQueue.main.async {
+                    finish(result)
+                }
+            }
+        }
+    }
+
+    /// 异步调用首页
+    /// 在串行队列内部设置 injectDict，确保并发调用时注入值不错位
+    func callHomeContentAsync(injectDict: [String: Any]? = nil) async throws -> HomeContentResult {
+        try await withPythonTimeout("homeContent", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
+                do {
+                    let result = try self.callHomeContent()
+                    done(.success(result))
+                } catch {
+                    done(.failure(error))
+                }
+            }
+        }
+    }
+
+    /// 异步调用分类
+    func callCategoryContentAsync(tid: String, pg: Int, extend: String, injectDict: [String: Any]? = nil) async throws -> CategoryContentResult {
+        try await withPythonTimeout("categoryContent", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
+                do {
+                    let result = try self.callCategoryContent(tid: tid, pg: pg, extend: extend)
+                    done(.success(result))
+                } catch {
+                    done(.failure(error))
+                }
+            }
+        }
+    }
+
+    /// 异步调用详情
+    func callDetailContentAsync(ids: String, injectDict: [String: Any]? = nil) async throws -> DetailContentResult {
+        try await withPythonTimeout("detailContent", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
+                do {
+                    let result = try self.callDetailContent(ids: ids)
+                    done(.success(result))
+                } catch {
+                    done(.failure(error))
+                }
+            }
+        }
+    }
+
+    /// 异步调用搜索
+    /// ★ 超时 8 秒 (搜索场景要求快速响应，慢脚本直接跳过)
+    func callSearchContentAsync(keyword: String, pg: Int, injectDict: [String: Any]? = nil) async throws -> SearchContentResult {
+        try await withPythonTimeout("searchContent", timeout: 8) { done in
+            self.pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
+                do {
+                    let result = try self.callSearchContent(keyword: keyword, pg: pg)
+                    done(.success(result))
+                } catch {
+                    done(.failure(error))
+                }
+            }
+        }
+    }
+
+    /// 异步调用播放解析
+    func callPlayerContentAsync(vodId: String, flag: String, url: String, injectDict: [String: Any]? = nil) async throws -> PlayerContentResult {
+        try await withPythonTimeout("playerContent", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
+                do {
+                    let result = try self.callPlayerContent(vodId: vodId, flag: flag, url: url)
+                    done(.success(result))
+                } catch {
+                    done(.failure(error))
+                }
+            }
+        }
+    }
+
+    /// 异步调用首页视频（可选方法，福利专区专用）
+    func callHomeVideoContentAsync(injectDict: [String: Any]? = nil) async throws -> HomeContentResult {
+        try await withPythonTimeout("homeVideoContent", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
+                do {
+                    let result = try self.callHomeVideoContent()
+                    done(.success(result))
+                } catch {
+                    done(.failure(error))
+                }
+            }
+        }
+    }
+
+    // MARK: - Local Proxy（二进制返回）
+
+    /// 调用 Spider 的 localProxy 方法，返回 (statusCode, contentType, data)
+    /// 用于封面图解密、m3u8 解压等需要返回二进制数据的场景
+    func callLocalProxy(args: String) -> (status: Int, contentType: String, data: Data)? {
+        let start = Date()
+        let result = PythonSpiderBridge.callLocalProxy(scriptPath,
+                                                        injectDict: injectDict,
+                                                        args: args)
+        let elapsed = Int(Date().timeIntervalSince(start) * 1000)
+
+        guard let result = result else {
+            onLog?("❌ [\(scriptKey)] localProxy 执行失败 (\(elapsed)ms)")
+            return nil
+        }
+
+        let status = result["status"] as? Int ?? 200
+        let contentType = result["contentType"] as? String ?? "application/octet-stream"
+        let data = result["data"] as? Data ?? Data()
+
+        onLog?("📞 [\(scriptKey)] localProxy → \(elapsed)ms, status=\(status), \(data.count)字节, \(contentType)")
+        return (status, contentType, data)
+    }
+
+    // MARK: - Private（内部调用）
+
+    /// 内部调用 Python 函数
+    func call(_ function: String, args: String) -> String? {
+        let start = Date()
+        let result = PythonSpiderBridge.callSpider(scriptPath,
+                                                    injectDict: injectDict,
+                                                    function: function,
+                                                    args: args)
+        let elapsed = Int(Date().timeIntervalSince(start) * 1000)
+        if let result = result {
+            // ★ 记录返回的原始 JSON (截断前 200 字符, 方便调试)
+            let preview = result.count > 200 ? String(result.prefix(200)) + "..." : result
+            onLog?("📞 [\(scriptKey)] \(function) → \(elapsed)ms, \(result.count)字符")
+            onLog?("📄 [\(scriptKey)] \(function) 原始返回: \(preview)")
+        } else {
+            onLog?("❌ [\(scriptKey)] \(function) 执行失败 (\(elapsed)ms)")
+        }
+        return result
+    }
+
+    // MARK: - 容错解码工具
+
+    /// 从 Any 值提取 String, 兼容 Int/Double/Bool 等类型
+    private func anyToString(_ value: Any?) -> String? {
+        guard let value = value else { return nil }
+        if let s = value as? String { return s }
+        if let i = value as? Int { return String(i) }
+        if let d = value as? Double { return String(Int(d)) }
+        if let b = value as? Bool { return String(b) }
+        if let n = value as? NSNumber { return n.stringValue }
+        return String(describing: value)
+    }
+
+    /// 从 dict 中按优先级提取字段值并转为 String
+    private func extractString(_ dict: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let val = anyToString(dict[key]) {
+                return val
+            }
+        }
+        return nil
+    }
+
+    /// 通用: 从 [[String: Any]] 数组解析 VodItem 列表
+    private func parseVodItems(from list: [[String: Any]]) -> [VodItem] {
+        return list.compactMap { item -> VodItem? in
+            // vod_id 兼容整数和字符串, 也尝试 "id" 字段
+            guard let vodId = extractString(item, keys: ["vod_id", "id", "vodId"]),
+                  let vodName = extractString(item, keys: ["vod_name", "title", "name"]) else {
+                onLog?("⚠️ [\(scriptKey)] 跳过无法解析的视频项: \(item)")
+                return nil
+            }
+            return VodItem(
+                vodId: vodId,
+                vodName: vodName,
+                vodPic: extractString(item, keys: ["vod_pic", "pic", "cover"]) ?? "",
+                vodRemarks: extractString(item, keys: ["vod_remarks", "remarks", "note"]),
+                vodYear: extractString(item, keys: ["vod_year", "year"]),
+                vodArea: extractString(item, keys: ["vod_area", "area"]),
+                vodDirector: extractString(item, keys: ["vod_director", "director"]),
+                vodActor: extractString(item, keys: ["vod_actor", "actor"]),
+                vodContent: extractString(item, keys: ["vod_content", "content", "desc"]),
+                vodPlayFrom: extractString(item, keys: ["vod_play_from", "play_from"]),
+                vodPlayUrl: extractString(item, keys: ["vod_play_url", "play_url"])
+            )
+        }
+    }
+
+    /// 通用: 从 [[String: Any]] 数组解析 VodCategory 列表
+    private func parseCategories(from list: [[String: Any]]) -> [VodCategory] {
+        return list.compactMap { item -> VodCategory? in
+            guard let typeId = extractString(item, keys: ["type_id", "id"]),
+                  let typeName = extractString(item, keys: ["type_name", "name"]) else {
+                return nil
+            }
+            return VodCategory(typeId: typeId, typeName: typeName)
+        }
+    }
+
+    /// 容错解码: homeContent
+    private func decodeOrFallbackHome(from data: Data) throws -> HomeContentResult {
+        do {
+            return try JSONDecoder().decode(HomeContentResult.self, from: data)
+        } catch {
+            onLog?("⚠️ [\(scriptKey)] homeContent 标准解码失败, 尝试容错解析: \(error.localizedDescription)")
+            guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                // 最终回退: 记录原始数据
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                onLog?("❌ [\(scriptKey)] homeContent JSON 解析完全失败, 原始: \(raw.prefix(300))")
+                throw PythonSpiderError.invalidJSON("homeContent")
+            }
+
+            // 解析分类 (兼容 class / classes)
+            let classItems: [VodCategory]
+            if let cls = dict["class"] as? [[String: Any]] {
+                classItems = parseCategories(from: cls)
+            } else if let cls = dict["classes"] as? [[String: Any]] {
+                classItems = parseCategories(from: cls)
+            } else {
+                classItems = []
+            }
+
+            // 解析列表
+            let listItems: [VodItem]
+            if let list = dict["list"] as? [[String: Any]] {
+                listItems = parseVodItems(from: list)
+            } else {
+                listItems = []
+            }
+
+            onLog?("📋 [\(scriptKey)] homeContent 容错解析: \(classItems.count)分类, \(listItems.count)视频")
+            return HomeContentResult(class: classItems, list: listItems)
+        }
+    }
+
+    /// 容错解码: categoryContent
+    private func decodeOrFallbackCategory(from data: Data) throws -> CategoryContentResult {
+        guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            onLog?("❌ [\(scriptKey)] categoryContent JSON 解析完全失败, 原始: \(raw.prefix(300))")
+            throw PythonSpiderError.invalidJSON("categoryContent")
+        }
+
+        let listItems: [VodItem]
+        if let list = dict["list"] as? [[String: Any]] {
+            listItems = parseVodItems(from: list)
+        } else {
+            listItems = []
+        }
+
+        let page = anyToString(dict["page"]).flatMap { Int($0) }
+        let pagecount = anyToString(dict["pagecount"]).flatMap { Int($0) }
+        let limit = anyToString(dict["limit"]).flatMap { Int($0) }
+        let total = anyToString(dict["total"]).flatMap { Int($0) }
+
+        onLog?("📋 [\(scriptKey)] categoryContent 容错解析: \(listItems.count)视频, page=\(page ?? 0)/\(pagecount ?? 0)")
+        return CategoryContentResult(page: page, pagecount: pagecount, limit: limit, total: total, list: listItems)
+    }
+
+    /// 容错解码: detailContent
+    private func decodeOrFallbackDetail(from data: Data) throws -> DetailContentResult {
+        guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            onLog?("❌ [\(scriptKey)] detailContent JSON 解析完全失败, 原始: \(raw.prefix(300))")
+            throw PythonSpiderError.invalidJSON("detailContent")
+        }
+
+        let listItems: [VodItem]
+        if let list = dict["list"] as? [[String: Any]] {
+            listItems = parseVodItems(from: list)
+        } else {
+            listItems = []
+        }
+
+        onLog?("📋 [\(scriptKey)] detailContent 容错解析: \(listItems.count)项")
+        return DetailContentResult(list: listItems)
+    }
+
+    /// 容错解码: searchContent
+    private func decodeOrFallbackSearch(from data: Data) throws -> SearchContentResult {
+        guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            onLog?("❌ [\(scriptKey)] searchContent JSON 解析完全失败, 原始: \(raw.prefix(300))")
+            throw PythonSpiderError.invalidJSON("searchContent")
+        }
+
+        let listItems: [VodItem]
+        if let list = dict["list"] as? [[String: Any]] {
+            listItems = parseVodItems(from: list)
+        } else {
+            listItems = []
+        }
+
+        let page = anyToString(dict["page"]).flatMap { Int($0) }
+        let pagecount = anyToString(dict["pagecount"]).flatMap { Int($0) }
+
+        onLog?("📋 [\(scriptKey)] searchContent 容错解析: \(listItems.count)结果")
+        return SearchContentResult(page: page, pagecount: pagecount, list: listItems)
+    }
+
+    /// 容错解码: playerContent
+    /// 兼容以下 Python 脚本非标准返回格式:
+    /// 1. header 为字符串: "" / json.dumps({...}) / "User-Agent=xxx&Referer=xxx"
+    /// 2. jx 字段替代 parse 字段 (部分脚本只返回 jx 不返回 parse)
+    /// 3. playUrl 字段缺失 (部分脚本只返回 url)
+    /// 4. header 为字典但值类型非 String (如 Int)
+    private func decodeOrFallbackPlayerContent(from data: Data) throws -> PlayerContentResult {
+        guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            onLog?("❌ [\(scriptKey)] playerContent JSON 解析完全失败, 原始: \(raw.prefix(300))")
+            throw PythonSpiderError.invalidJSON("playerContent")
+        }
+
+        // parse 字段: 优先 parse, 其次 jx, 默认 0
+        let parse: Int
+        if let p = dict["parse"] as? Int {
+            parse = p
+        } else if let p = dict["parse"] as? String, let pi = Int(p) {
+            parse = pi
+        } else if let j = dict["jx"] as? Int {
+            parse = j
+        } else if let j = dict["jx"] as? String, let ji = Int(j) {
+            parse = ji
+        } else {
+            parse = 0
+        }
+
+        // playUrl / url 字段
+        let playUrl = extractString(dict, keys: ["playUrl", "play_url"])
+        let url = extractString(dict, keys: ["url"])
+
+        // header 字段: 兼容字典 / JSON 字符串 / 空字符串 / URL编码字符串
+        var header: [String: String]? = nil
+        if let h = dict["header"] as? [String: String] {
+            header = h
+        } else if let hDict = dict["header"] as? [String: Any] {
+            // 字典但值类型不一定是 String (如 Int)
+            var converted: [String: String] = [:]
+            for (k, v) in hDict {
+                if let s = v as? String {
+                    converted[k] = s
+                } else {
+                    converted[k] = String(describing: v)
+                }
+            }
+            header = converted.isEmpty ? nil : converted
+        } else if let hStr = dict["header"] as? String {
+            if !hStr.isEmpty {
+                // 尝试 JSON 解析 (json.dumps 格式)
+                if let hData = hStr.data(using: .utf8),
+                   let hDict = try? JSONSerialization.jsonObject(with: hData) as? [String: Any] {
+                    var converted: [String: String] = [:]
+                    for (k, v) in hDict {
+                        if let s = v as? String {
+                            converted[k] = s
+                        } else {
+                            converted[k] = String(describing: v)
+                        }
+                    }
+                    header = converted.isEmpty ? nil : converted
+                } else {
+                    // 尝试 URL 编码格式: "User-Agent=xxx&Referer=yyy"
+                    var converted: [String: String] = [:]
+                    for pair in hStr.split(separator: "&") {
+                        let kv = pair.split(separator: "=", maxSplits: 1)
+                        if kv.count == 2 {
+                            converted[String(kv[0])] = String(kv[1])
+                        }
+                    }
+                    header = converted.isEmpty ? nil : converted
+                }
+            }
+        }
+
+        let result = PlayerContentResult(parse: parse, playUrl: playUrl, url: url, header: header)
+        onLog?("📋 [\(scriptKey)] playerContent 容错解析: parse=\(parse), url=\(url?.prefix(60) ?? "nil"), header=\(header != nil ? "\(header!.count)键" : "nil")")
+        return result
+    }
+}
+
+// 注: 不扩展 SpiderEngineType —— vbox 原 enum 已有 javaScriptCore/quickJS 及 displayName.
+// Python 引擎通过 PythonSpiderEngine 类区分，无需为 SpiderEngineType 增加 case。

@@ -1,56 +1,19 @@
-# ---- Dart / Flutter ----
-.dart_tool/
-.packages
-build/
-.flutter-plugins
-.flutter-plugins-dependencies
-**/*.iml
-.idea/
-.vscode/
-
-# Flutter 生成的临时文件（每次构建由 flutter 工具链重新生成）
-flutter/ios/Flutter/Generated.xcconfig
-flutter/ios/Flutter/flutter_export_environment.sh
-flutter/ios/Flutter/ephemeral/
-flutter/macos/Flutter/ephemeral/
-flutter/windows/flutter/ephemeral/
-flutter/linux/flutter/ephemeral/
-**/GeneratedPluginRegistrant.*
-**/generated_plugin_registrant.*
-**/generated_plugins.cmake
-**/generated_plugins.h
-
-# CocoaPods
-**/Pods/
-**/.symlinks/
-flutter/ios/Runner.xcworkspace/xcshareddata/swiftpm/
-Pods/
-
-# ---- Node.js ----
-node_modules/
-npm-debug.log*
-yarn-error.log*
-
-# ---- 构建产物 ----
-*.apk
-*.aab
-*.ipa
-*.app/
-*.dmg
-Release/
-Debug/
-
-# ---- 系统文件 ----
+Build/
 .DS_Store
-Thumbs.db
-*.swp
+*.xcuserdata
+*.ipa
+*.zip
+.mpv-cache/
+vbox/Libraries/MPV/MPVKitDependencies/*.xcframework/
+vbox/Libraries/MPV/Freedom/*.xcframework/
+vbox/Libraries/NodeMobile/NodeMobile.xcframework/
+__pycache__/
 
-# ---- 运行时数据（含设备指纹/凭据，不入库）----
-node/db.json
-node/*.local.json
+# 阶段3+阶段4 临时备份目录（不推送）
+dead-code-review-step4/
+dead-code-review-step6/
 
-# ---- nodejs-mobile 运行时 ----
-# 由 _scripts/fetch_node_runtime.sh 在构建前下载：
-#   Android 三个 ABI 的 libnode.so 约 186MB；iOS NodeMobile.xcframework 约 167MB
-packages/node_bridge/android/libnode/
-packages/node_bridge/ios/Frameworks/
+# Node 运行时握手/状态文件（运行产物，不入库）
+vbox/Resources/noderuntime/.startup.ack
+vbox/Resources/noderuntime/.relisten
+vbox/Resources/noderuntime/.relisten.ack

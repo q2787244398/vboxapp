@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <color name="tvs_primary">#1A5276</color>
-    <color name="tvs_primary_dark">#123B55</color>
-    <color name="tvs_accent">#4FC3F7</color>
-    <color name="tvs_background">#101820</color>
-    <color name="launch_background">#1A5276</color>
-</resources>
