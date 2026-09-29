@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""基于远程真实 HEAD，用 API 只提交「本地相对远程的变更文件」。
+"""当 github.com:443 不可达时，用 GitHub REST API（api.github.com）推送。
 
-与 api_push.py 的区别：不重建整棵树，只上传变更文件并用
-Git Trees API 的 base_tree 叠加，因此不会丢远程内容，
-且 parent 直接指向远程真实 SHA → 保证 fast-forward。
+优化：只上传「本地 HEAD 相对远程 HEAD 有差异」的文件（diff 模式），
+     用 base_tree 叠加，parent = 远程真实 SHA → 保证 fast-forward。
+
+用法：
+  python3 scripts/api_push2.py            # 自动 diff 推送
+  python3 scripts/api_push2.py --dry-run  # 只显示差异，不推送
 """
 from __future__ import annotations
 
@@ -20,6 +23,20 @@ TOKEN = os.environ["GITHUB_TOKEN"]
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 API = "https://api.github.com"
 
+# 不纳入版本控制的路径前缀（本地临时日志等）
+SKIP_PREFIXES = (".uploads/", ".git/")
+
+COMMIT_MSG = """feat(stage-1): backup_manager — AES-256-GCM + PBKDF2 字节级兼容
+
+- lib/data/backup_manager.dart
+  · PBKDF2-HMAC-SHA256 / 100000 迭代 / key 32B / salt 16B / iv 12B / tag 16B / 无 AAD
+  · cipher='AES-256-GCM'、kdf='PBKDF2-HMAC-SHA256' 字面值精确匹配
+  · 口令 UTF-8；标准 Base64；不压缩
+  · BackupEnvelope/BackupMeta/BackupCategory(9) + 5 种错误类型
+- scripts/check_backup_contract.py  备份契约验证（5 组，含 AES-GCM 往返）
+
+第 1 轮进度：契约镜像 ✅ 模型 ✅ database_manager ✅ prefs_manager ✅ backup_manager ✅"""
+
 
 def req(method: str, url: str, payload=None):
     data = json.dumps(payload).encode() if payload is not None else None
@@ -29,97 +46,72 @@ def req(method: str, url: str, payload=None):
     r.add_header("User-Agent", "vbox-ci")
     if data:
         r.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(r, timeout=60) as resp:
+    with urllib.request.urlopen(r, timeout=90) as resp:
         return json.loads(resp.read() or "null")
 
 
-# 需要提交的文件（相对远程 b37ca01 的新增/修改）
-FILES = [
-    "contract/docs/prefs_keys_revision_v1.1.md",
-    "contract/schema/prefs_keys_v1.json",
-    "lib/contract/prefs_keys.dart",
-    "lib/contract/schema.dart",
-    "lib/data/models/apiyuan.dart",
-    "lib/data/models/db_model.dart",
-    "lib/data/models/download.dart",
-    "lib/data/models/favorite.dart",
-    "lib/data/models/history.dart",
-    "lib/data/models/jiexisetting.dart",
-    "lib/data/models/models.dart",
-    "lib/data/models/search_history.dart",
-    "lib/data/models/setting.dart",
-    "lib/data/models/subscription.dart",
-    "lib/data/models/zhanyuan.dart",
-    "lib/data/database_manager.dart",
-    "pubspec.yaml",
-    "docs/PROJECT_LAYOUT.md",
-    "scripts/check_contract_sync.py",
-    "scripts/check_migration_chain.py",
-    "scripts/check_models_roundtrip.py",
-    "scripts/check_prefs_manager.py",
-    "scripts/revise_prefs_keys.py",
-    "scripts/api_push2.py",
-    "lib/data/prefs_manager.dart",
-    "scripts/fetch_mpv_dependencies.sh",
-    "scripts/install_mpv_dependencies.sh",
-    "scripts/build_lxml_ios.sh",
-    "scripts/pack_python_artifacts.sh",
-    "scripts/version_bump.sh",
-    "scripts/add_to_xcode.sh",
-    "contract/docs/stage_check_report_stage0.yaml",
-]
+def local_files() -> dict[str, str]:
+    """本地 HEAD 的 path→blob-sha。"""
+    out = subprocess.run(
+        ["git", "ls-tree", "-r", "HEAD"], cwd=ROOT, capture_output=True, check=True
+    ).stdout.decode(errors="surrogateescape")
+    res = {}
+    for line in out.splitlines():
+        meta, path = line.split("\t", 1)
+        mode, typ, sha = meta.split()
+        res[path] = sha
+    return res
 
 
 def main() -> int:
-    # 动态获取远程真实 HEAD
+    dry = "--dry-run" in sys.argv
     ref = req("GET", f"{API}/repos/{REPO}/git/ref/heads/main")
-    BASE_SHA = ref["object"]["sha"]
-    print("远程 HEAD:", BASE_SHA[:8])
+    base_sha = ref["object"]["sha"]
+    base_tree = req("GET", f"{API}/repos/{REPO}/git/commits/{base_sha}")["tree"]["sha"]
+    print("远程 HEAD:", base_sha[:8])
 
-    # 用 base_tree = 远程 tree，只叠加变更文件
-    base_tree = req("GET", f"{API}/repos/{REPO}/git/commits/{BASE_SHA}")["tree"]["sha"]
+    tree = req("GET", f"{API}/repos/{REPO}/git/trees/{base_tree}?recursive=1")
+    remote = {e["path"]: e["sha"] for e in tree["tree"] if e["type"] == "blob"}
+
+    local = local_files()
+    changed = [
+        p for p, sha in local.items()
+        if not p.startswith(SKIP_PREFIXES) and remote.get(p) != sha
+    ]
+    print(f"需上传: {len(changed)} 个文件")
+    for p in changed:
+        print("   ", "~" if p in remote else "+", p)
+    if dry:
+        return 0
+    if not changed:
+        print("无差异，无需推送")
+        return 0
+
     items = []
-    for path in FILES:
+    for path in changed:
         p = ROOT / path
         if not p.exists():
-            print("  跳过(不存在):", path)
             continue
         blob = p.read_bytes()
         try:
-            content = blob.decode("utf-8")
-            enc = "utf-8"
+            content, enc = blob.decode("utf-8"), "utf-8"
         except UnicodeDecodeError:
-            content = base64.b64encode(blob).decode()
-            enc = "base64"
+            content, enc = base64.b64encode(blob).decode(), "base64"
         mode = "100755" if path.endswith(".sh") else "100644"
         res = req("POST", f"{API}/repos/{REPO}/git/blobs",
                   {"content": content, "encoding": enc})
         items.append({"path": path, "mode": mode, "type": "blob", "sha": res["sha"]})
-        print("  ✅ blob:", path)
 
-    tree = req("POST", f"{API}/repos/{REPO}/git/trees",
-               {"base_tree": base_tree, "tree": items})
-    print("tree:", tree["sha"][:8])
-
-    msg = (
-        "feat(stage-1): prefs_manager.dart — 53 键偏好读写 + 5 敏感键 secure storage\n\n"
-        "- lib/data/prefs_manager.dart\n"
-        "  · 通用 get/set 走 findPrefsKey 按契约 type 分派（覆盖全部 53 键）\n"
-        "  · 5 敏感键走 flutter_secure_storage\n"
-        "  · 7 个 JSON 列表键便捷读写（getJsonList/setJsonList）\n"
-        "  · 契约语义方法：needSqliteMigration/markSqliteMigrationDone 等\n"
-        "- scripts/check_prefs_manager.py  契约一致性校验（4 项）\n"
-        "- scripts/api_push2.py            github.com:443 不可达时的 API 推送工具\n\n"
-        "第 1 轮进度：契约镜像 ✅ 模型 ✅ database_manager ✅ prefs_manager ✅\n"
-        "验证：check_prefs_manager 4 项全通过"
-    )
+    new_tree = req("POST", f"{API}/repos/{REPO}/git/trees",
+                   {"base_tree": base_tree, "tree": items})
     commit = req("POST", f"{API}/repos/{REPO}/git/commits",
-                 {"message": msg, "tree": tree["sha"], "parents": [BASE_SHA]})
-    print("commit:", commit["sha"][:8])
-
+                 {"message": COMMIT_MSG, "tree": new_tree["sha"], "parents": [base_sha]})
     upd = req("PATCH", f"{API}/repos/{REPO}/git/refs/heads/main",
               {"sha": commit["sha"], "force": False})
     print("✅ 已推送:", upd["object"]["sha"][:8])
+
+    # 回写远程 SHA，便于本地对齐
+    (ROOT / ".git" / "REMOTE_HEAD").write_text(commit["sha"])
     return 0
 
 
