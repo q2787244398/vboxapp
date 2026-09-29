@@ -82,6 +82,50 @@ def main() -> int:
         fail(f"分组不一致 缺={sorted(json_groups - dart_groups)} 多={sorted(dart_groups - json_groups)}")
         errors += 1
 
+    # 3b. 类型一致性：Dart 的 type: PrefsType.X 必须与 JSON type 映射一致
+    json_types: dict[str, str] = {}
+    for items in contract["keys"].values():
+        if isinstance(items, dict):
+            for k_name, meta in items.items():
+                if isinstance(meta, dict):
+                    json_types[k_name] = meta.get("type", "")
+        else:
+            for it in items:
+                if isinstance(it, dict):
+                    json_types[it["key"]] = it.get("type", "")
+    dart_types: dict[str, str] = {}
+    for m in re.finditer(
+        r"PrefsKey\(name:\s*'(\w+)'[^)]*?type:\s*PrefsType\.(\w+)", dart_text
+    ):
+        dart_types[m.group(1)] = m.group(2)
+    type_map = {
+        "string": "string", "stringArray": "stringArray", "bool": "bool",
+        "int": "int", "long": "long", "float": "float",
+    }
+    type_bad = []
+    for k, jt in json_types.items():
+        dt = dart_types.get(k)
+        if dt != type_map.get(jt):
+            type_bad.append(f"{k}(json={jt} dart={dt})")
+    if type_bad:
+        fail(f"类型不一致: {type_bad}")
+        errors += len(type_bad)
+    else:
+        ok(f"类型全一致（{len(json_types)} 键）")
+
+    print("== 3c. 误抓键防回归 ==")
+    false_positives = {
+        "bufferedPosition", "maxBufferDuration", "highBufferDuration",
+        "startBufferDuration", "maxDelayTime", "timeout", "networkTimeout",
+        "positionTimerIntervalMs", "reconnect", "danmaku_scroll",
+    }
+    leaked = false_positives & json_keys
+    if leaked:
+        fail(f"误抓键回归（v1.1 应已移除）: {sorted(leaked)}")
+        errors += 1
+    else:
+        ok("10 个误抓键（播放器 KVC / CA 动画 key）均不在契约中")
+
     print("== 4. SQLite 表名与字段（含迁移链）==")
     sql_text = sql_path.read_text(encoding="utf-8")
     sql_tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS\s+(\w+)", sql_text))
