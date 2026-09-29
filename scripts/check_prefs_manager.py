@@ -3,7 +3,7 @@
 
 1. 文件内所有键名字面量必须在 prefs_keys_v1.json 内
 2. jsonListKeys 集合必须是契约键的子集
-3. 敏感键必须经 meta.sensitive 分支走 secure storage（静态检查）
+3. 安全存储分派必须覆盖「敏感键 ∪ storage=keychain」且经统一 helper（静态检查）
 """
 from __future__ import annotations
 
@@ -45,11 +45,15 @@ def main() -> int:
     else:
         print(f"  ✅ {len(jlk)} 个 JSON 列表键均在契约内")
 
-    print("== 3. 敏感键走 secure storage ==")
-    if "meta.sensitive" in pm and "FlutterSecureStorage" in pm:
-        print("  ✅ 存在 meta.sensitive 分支 + secure storage 引用")
+    print("== 3. 安全存储分派（敏感键 ∪ storage=keychain）==")
+    has_helper = "_isSecure" in pm
+    covers_sensitive = "meta.sensitive" in pm
+    covers_keychain = "PrefsStorage.keychain" in pm
+    if has_helper and covers_sensitive and covers_keychain and "FlutterSecureStorage" in pm:
+        print("  ✅ 存在 _isSecure 分派：敏感键 ∪ storage=keychain")
     else:
-        print("  ❌ 未检测到敏感键分派逻辑")
+        print(f"  ❌ 分派不完整 helper={has_helper} "
+              f"sensitive={covers_sensitive} keychain={covers_keychain}")
         errors += 1
 
     print("== 4. 契约键总数核对 ==")

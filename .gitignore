@@ -19,6 +19,7 @@ build/
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
+coverage/
 
 # 阶段3+阶段4 临时备份目录（不推送）
 dead-code-review-step4/

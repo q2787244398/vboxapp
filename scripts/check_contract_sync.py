@@ -4,6 +4,7 @@
 校验项：
   1. prefs_keys.dart 的键名集合 == prefs_keys_v1.json 的 98 键
   2. prefs_keys.dart 的敏感键集合 == JSON 的 sensitiveKeys
+     （声明集 kSensitiveKeys 与逐键 sensitive:true 标志**各自**都要一致）
   3. prefs_keys.dart 的分组枚举数 == JSON 的 _group_* 分组数（21 组）
   3b. type 逐键一致   3c. 误抓键防回归
   3d. storage 完整性（D19）：每键必含 storage，且 Dart 镜像逐键一致
@@ -46,21 +47,19 @@ def main() -> int:
 
     dart_text = dart_path.read_text(encoding="utf-8")
     dart_keys = set(re.findall(r"PrefsKey\(name:\s*'([^']+)'", dart_text))
-    dart_sensitive = set(re.findall(r"sensitive:\s*true.*?description", dart_text) and
-                         re.findall(r"name:\s*'([^']+)'[^)]*sensitive:\s*true", dart_text))
-    # 更稳的敏感键提取：逐行 PrefsKey(... sensitive: true ...)
-    dart_sensitive = set()
-    # v1.2：敏感键以 const Set kSensitiveKeys 形式声明
+    # 敏感键有两个 Dart 来源，**二者都必须与 JSON 一致**（v6.4 加固）：
+    #   ① const Set kSensitiveKeys —— 声明用
+    #   ② 每个 PrefsKey 的 `sensitive: true` —— 被 PrefsManager 实际用于存储分派
+    # 旧实现把两者取并集再比对，导致「标志全缺」也能通过（真实漏检过）。
     m_set = re.search(r"kSensitiveKeys = <String>\{(.*?)\}", dart_text, re.S)
-    if m_set:
-        dart_sensitive |= set(re.findall(r"'([^']+)'", m_set.group(1)))
-    # 兼容旧版：PrefsKey(... sensitive: true ...)
+    dart_sensitive_const = set(re.findall(r"'([^']+)'", m_set.group(1))) if m_set else set()
+    dart_sensitive_flags: set[str] = set()
     for m in re.finditer(r"PrefsKey\(([^)]*)\)", dart_text, re.S):
         body = m.group(1)
         if "sensitive: true" in body:
             nm = re.search(r"name:\s*'([^']+)'", body)
             if nm:
-                dart_sensitive.add(nm.group(1))
+                dart_sensitive_flags.add(nm.group(1))
     dart_groups = set(re.findall(r"_group_\w+", dart_text))
 
     print("== 1. Prefs 键名集合 ==")
@@ -75,11 +74,17 @@ def main() -> int:
     if not missing and not extra:
         ok(f"键名完全一致（{len(json_keys)} 键）")
 
-    print("== 2. 敏感键集合 ==")
-    if dart_sensitive == json_sensitive:
-        ok(f"敏感键一致（{len(json_sensitive)} 键）")
+    print("== 2. 敏感键集合（声明集 + 逐键标志）==")
+    if dart_sensitive_const == json_sensitive:
+        ok(f"kSensitiveKeys 一致（{len(json_sensitive)} 键）")
     else:
-        fail(f"敏感键不一致 dart={sorted(dart_sensitive)} json={sorted(json_sensitive)}")
+        fail(f"kSensitiveKeys 不一致 dart={sorted(dart_sensitive_const)} json={sorted(json_sensitive)}")
+        errors += 1
+    if dart_sensitive_flags == json_sensitive:
+        ok(f"PrefsKey.sensitive 逐键标志一致（{len(json_sensitive)} 键）")
+    else:
+        fail(f"PrefsKey.sensitive 标志缺失/多余 dart={sorted(dart_sensitive_flags)} "
+             f"json={sorted(json_sensitive)}（未标注的键会被 PrefsManager 写入明文存储）")
         errors += 1
 
     print("== 3. 分组数 ==")

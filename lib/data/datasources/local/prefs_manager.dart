@@ -1,10 +1,12 @@
 /// 数据层：偏好管理器（Preferences Manager）。
 ///
-/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.1，53 键）
+/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.2，98 键）
 ///
 /// 设计要点：
-/// - **非敏感键** → `SharedPreferences`（对应 iOS `UserDefaults.standard`）
-/// - **敏感键**（[kSensitiveKeys]，5 个）→ `flutter_secure_storage`
+/// - **普通键** → `SharedPreferences`（对应 iOS `UserDefaults.standard`）
+/// - **安全键** → `flutter_secure_storage`，判定见 [_isSecure]：
+///   ① 契约敏感键（[kSensitiveKeys]，5 个，JSON `sensitive: true`）
+///   ② 契约 `storage = keychain` 的键（云盘凭据）
 /// - 读取时按契约 `type` 分派正确的 getter
 /// - 23 个 string 键中，`custom_fallback_sites`/`user_parsers`/`live_tv_local_channels`/
 ///   `mdtv_home_tabs`/`welfare_platform_order`/`fuli_remote_platform_order_v2`/`searchHistory`
@@ -63,6 +65,13 @@ class PrefsManager {
     return s;
   }
 
+  /// 该键是否走安全存储（`flutter_secure_storage`）。
+  ///
+  /// 依据契约 `notes`：`sensitiveKeys` 在 Flutter 端建议迁移到安全存储
+  /// （iOS 曾写入 UserDefaults，读取需兼容）；`storage = keychain` 的云盘凭据同理。
+  static bool _isSecure(PrefsKey meta) =>
+      meta.sensitive || meta.storage == PrefsStorage.keychain;
+
   // ─────────────────────────────────────────────────────────
   // 通用读取（按契约 type 分派；无值时回退契约默认值）
   // ─────────────────────────────────────────────────────────
@@ -73,7 +82,7 @@ class PrefsManager {
     if (meta == null) {
       throw ArgumentError('契约外键名: $name（见 prefs_keys_v1.json）');
     }
-    if (meta.sensitive) {
+    if (_isSecure(meta)) {
       final String? v = await _s.read(key: name);
       return v ?? meta.defaultValue;
     }
@@ -94,7 +103,7 @@ class PrefsManager {
     if (meta == null) {
       throw ArgumentError('契约外键名: $name（见 prefs_keys_v1.json）');
     }
-    if (meta.sensitive) {
+    if (_isSecure(meta)) {
       if (value == null) {
         await _s.delete(key: name);
       } else {
@@ -121,7 +130,7 @@ class PrefsManager {
   Future<void> remove(String name) async {
     final PrefsKey? meta = findPrefsKey(name);
     if (meta == null) return;
-    if (meta.sensitive) {
+    if (_isSecure(meta)) {
       await _s.delete(key: name);
     } else {
       await _p.remove(name);
@@ -202,7 +211,7 @@ class PrefsManager {
   Future<Map<String, Object?>> dumpAll({bool maskSensitive = true}) async {
     final Map<String, Object?> out = <String, Object?>{};
     for (final PrefsKey k in kAllPrefsKeys) {
-      if (k.sensitive && maskSensitive) {
+      if (_isSecure(k) && maskSensitive) {
         out[k.name] = (await _s.read(key: k.name)) == null ? null : '***';
       } else {
         out[k.name] = await get(k.name);

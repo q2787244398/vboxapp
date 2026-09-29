@@ -13,6 +13,9 @@
 ///  · userDefaults —— 走 SharedPreferences
 ///  · keychain     —— 走 flutter_secure_storage（Keychain 语义）
 ///  · credentialExtra —— 存于凭据对象的 extra 字典，非独立键
+///
+/// ⚠️ 安全键（sensitive）：5 个（[kSensitiveKeys]），须走安全存储
+/// （其 `storage` 为 `userDefaults` 系 iOS 侧历史写法，Flutter 端读取需兼容）。
 library;
 
 /// 键值类型。
@@ -183,7 +186,7 @@ const List<PrefsKey> kAllPrefsKeys = <PrefsKey>[
   PrefsKey(name: 'player_pip_enabled', group: PrefsGroup.player, type: PrefsType.bool, storage: PrefsStorage.userDefaults, description: '画中画开关'),
   // ────────────── _group_tmdb（3）──────────────
   PrefsKey(name: 'app_tmdb_proxy_url', group: PrefsGroup.tmdb, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'TMDB 代理地址'),
-  PrefsKey(name: 'app_tmdb_proxy_token', group: PrefsGroup.tmdb, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'TMDB 代理 token'),
+  PrefsKey(name: 'app_tmdb_proxy_token', group: PrefsGroup.tmdb, type: PrefsType.string, storage: PrefsStorage.userDefaults, sensitive: true, description: 'TMDB 代理 token'),
   PrefsKey(name: 'app_tmdb_use_token', group: PrefsGroup.tmdb, type: PrefsType.bool, storage: PrefsStorage.userDefaults, description: 'TMDB 使用 token'),
   // ────────────── _group_danmaku（2）──────────────
   PrefsKey(name: 'custom_danmaku_source_enabled', group: PrefsGroup.danmaku, type: PrefsType.bool, storage: PrefsStorage.userDefaults, description: '自定义弹幕源'),
@@ -198,9 +201,9 @@ const List<PrefsKey> kAllPrefsKeys = <PrefsKey>[
   // ────────────── _group_one_platform（5）──────────────
   PrefsKey(name: 'one_platform_iv_idx', group: PrefsGroup.onePlatform, type: PrefsType.int, storage: PrefsStorage.userDefaults, description: 'One 平台 IV 索引'),
   PrefsKey(name: 'one_platform_key_idx', group: PrefsGroup.onePlatform, type: PrefsType.int, storage: PrefsStorage.userDefaults, description: 'One 平台 Key 索引'),
-  PrefsKey(name: 'one_platform_token', group: PrefsGroup.onePlatform, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'One 平台 token'),
-  PrefsKey(name: 'one_platform_userkey', group: PrefsGroup.onePlatform, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'One 平台 userkey'),
-  PrefsKey(name: 'one_platform_uuid', group: PrefsGroup.onePlatform, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'One 平台 UUID'),
+  PrefsKey(name: 'one_platform_token', group: PrefsGroup.onePlatform, type: PrefsType.string, storage: PrefsStorage.userDefaults, sensitive: true, description: 'One 平台 token'),
+  PrefsKey(name: 'one_platform_userkey', group: PrefsGroup.onePlatform, type: PrefsType.string, storage: PrefsStorage.userDefaults, sensitive: true, description: 'One 平台 userkey'),
+  PrefsKey(name: 'one_platform_uuid', group: PrefsGroup.onePlatform, type: PrefsType.string, storage: PrefsStorage.userDefaults, sensitive: true, description: 'One 平台 UUID'),
   // ────────────── _group_quark_pg（10）──────────────
   PrefsKey(name: 'pg_ali_auto_cleanup', group: PrefsGroup.quarkPg, type: PrefsType.bool, storage: PrefsStorage.userDefaults, description: '自动清理'),
   PrefsKey(name: 'pg_ali_cleanup_delay', group: PrefsGroup.quarkPg, type: PrefsType.int, storage: PrefsStorage.userDefaults, description: '清理延迟(s)'),
@@ -211,7 +214,7 @@ const List<PrefsKey> kAllPrefsKeys = <PrefsKey>[
   PrefsKey(name: 'pg_ali_thread_night', group: PrefsGroup.quarkPg, type: PrefsType.int, storage: PrefsStorage.userDefaults, description: '夜间线程'),
   PrefsKey(name: 'pg_ali_transfer_dir', group: PrefsGroup.quarkPg, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: '转存目录'),
   PrefsKey(name: 'pg_ali_vod_flags', group: PrefsGroup.quarkPg, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'VOD 标志'),
-  PrefsKey(name: 'quark_device_id', group: PrefsGroup.quarkPg, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: '夸克设备 ID'),
+  PrefsKey(name: 'quark_device_id', group: PrefsGroup.quarkPg, type: PrefsType.string, storage: PrefsStorage.userDefaults, sensitive: true, description: '夸克设备 ID'),
   // ────────────── _group_welfare（2）──────────────
   PrefsKey(name: 'welfare_platform_order', group: PrefsGroup.welfare, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: '福利平台排序（JSON）'),
   PrefsKey(name: 'fuli_remote_platform_order_v2', group: PrefsGroup.welfare, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: '福利远程平台排序 v2'),
