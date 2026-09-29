@@ -1,0 +1,66 @@
+// TVS node_bridge —— Android 侧原生模块
+//
+// 用 nodejs-mobile 的 libnode.so 在进程内跑 Node（JNI），而不是起子进程。
+// libnode 由 CI 下载后放在 libnode/bin/<abi>/libnode.so（见 _scripts/fetch_node_runtime.sh），
+// 该目录已加入 .gitignore —— 它有三个 ABI 共约 186MB，不适合入库。
+//
+// 注意：本模块刻意用 Java 而非 Kotlin，避免 Flutter 对「插件自带 KGP」的告警/后续不兼容。
+
+group 'com.example.tvs.nodebridge'
+version '1.0.0'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.5.0'
+    }
+}
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'com.example.tvs.nodebridge'
+    compileSdkVersion 36
+
+    defaultConfig {
+        minSdkVersion 24
+        // nodejs-mobile 官方只提供这三个 ABI
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+        }
+        externalNativeBuild {
+            cmake {
+                // nodejs-mobile 的 libnode.so 依赖 libc++_shared
+                arguments '-DANDROID_STL=c++_shared'
+                cppFlags '-std=c++17'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'CMakeLists.txt'
+        }
+    }
+
+    sourceSets {
+        main {
+            // libnode/bin/<abi>/libnode.so 会被打进 AAR/APK
+            jniLibs.srcDirs += 'libnode/bin'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        // 多个模块都可能带上 libc++_shared，取第一个即可
+        pickFirst '**/libc++_shared.so'
+        pickFirst '**/libnode.so'
+    }
+}

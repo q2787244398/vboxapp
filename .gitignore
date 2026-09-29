@@ -48,3 +48,9 @@ Thumbs.db
 # ---- 运行时数据（含设备指纹/凭据，不入库）----
 node/db.json
 node/*.local.json
+
+# ---- nodejs-mobile 运行时 ----
+# 由 _scripts/fetch_node_runtime.sh 在构建前下载：
+#   Android 三个 ABI 的 libnode.so 约 186MB；iOS NodeMobile.xcframework 约 167MB
+packages/node_bridge/android/libnode/
+packages/node_bridge/ios/Frameworks/

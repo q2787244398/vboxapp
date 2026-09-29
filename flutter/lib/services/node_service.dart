@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/models.dart';
+import 'node_project.dart';
 
 /// Service for managing the embedded Node.js CatVod spider engine.
 ///
@@ -17,6 +18,7 @@ class NodeService with ChangeNotifier {
       MethodChannel('com.example.tvs/node_bridge');
 
   static const int _defaultPort = 9775;
+  static const int _defaultDartPort = 9776;
 
   bool _isRunning = false;
   int _port = 0;
@@ -51,7 +53,11 @@ class NodeService with ChangeNotifier {
     }
   }
 
-  /// Start the spider engine with a bundle path.
+  /// 启动 spider 引擎。
+  ///
+  /// [bundlePath] 传的是 **bundle 文件名**（如 `catpaw_index.js`）。
+  /// 真正的 JS 铺文件与占位符替换在 [NodeProject.stage] 里完成，
+  /// 原生桥只接收铺好的工程目录并执行 node。
   Future<int?> startNode(String bundlePath) async {
     if (_isRunning || _starting) return _isRunning ? _port : null;
     _starting = true;
@@ -59,8 +65,13 @@ class NodeService with ChangeNotifier {
     notifyListeners();
 
     try {
-      final port =
-          await _channel.invokeMethod<int>('startNode', {'bundlePath': bundlePath});
+      final String nodeDir = await NodeProject.stage(
+        bundle: bundlePath,
+        port: _defaultPort,
+        dartPort: _defaultDartPort,
+      );
+      final port = await _channel
+          .invokeMethod<int>('startNode', {'nodeDir': nodeDir});
       if (port != null && port > 0) {
         _isRunning = true;
         _port = port;

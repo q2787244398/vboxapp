@@ -22,6 +22,18 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "${HERE}/.." && pwd)/flutter"
 cd "${APP_DIR}"
 
+# Node 运行时（nodejs-mobile）必须在 `flutter create` / `pod install` 之前就位：
+#   android -> packages/node_bridge/android/libnode/{include,bin/<abi>/libnode.so}
+#   ios     -> packages/node_bridge/ios/Frameworks/NodeMobile.xcframework
+# 这两个目录体积很大（合计约 353MB），不入库，由脚本在 CI 上下载。
+if [ "${PLATFORM}" = "android" ] || [ "${PLATFORM}" = "ios" ] || [ "${PLATFORM}" = "macos" ]; then
+  echo "==> 准备 nodejs-mobile 运行时"
+  bash "${HERE}/fetch_node_runtime.sh" "${PLATFORM}" || {
+    echo "!! 运行时下载失败，${PLATFORM} 将缺少 Node 引擎"
+    exit 1
+  }
+fi
+
 echo "==> 目标平台: ${PLATFORM}"
 echo "==> Flutter 版本: $(flutter --version | head -n 1)"
 

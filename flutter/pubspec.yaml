@@ -36,6 +36,10 @@ dependencies:
   yl_player:
     path: ../packages/yl_player
 
+  # Embedded Node.js runtime bridge (nodejs-mobile JNI / NodeMobile.framework)
+  node_bridge:
+    path: ../packages/node_bridge
+
 dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_test:
@@ -48,6 +52,10 @@ flutter:
     - assets/js/config-center-dpad.js
     - assets/js/node-intl-polyfill.js
     - assets/images/logo.png
+    # Node 引擎 bundle：运行时由 NodeProject.stage() 铺到应用可写目录。
+    # iOS 上 V8 无 JIT，catpaw 实测约 23s、kstore 约 68s，故默认用 catpaw。
+    - assets/node/catpaw_index.js
+    - assets/node/kstore_index.js
 
 # 说明：此前这里用 assets/fonts/MaterialIcons-Regular.otf（仅 99 个字形的
 # 子集字体）覆盖了 MaterialIcons 字体族，导致 release 构建的图标
