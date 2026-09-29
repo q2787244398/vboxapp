@@ -59,6 +59,8 @@ sealed class Failure {
         UnsupportedFailure(msg, cause: e.cause, source: e),
       ErrorCode.spiderRuntime =>
         SpiderFailure(msg, cause: e.cause, source: e),
+      ErrorCode.invalidArgument =>
+        ValidationFailure(msg, cause: e.cause, source: e),
       ErrorCode.unknown => UnknownFailure(msg, cause: e.cause, source: e),
     };
   }
@@ -174,6 +176,20 @@ final class SpiderFailure extends Failure {
 
   @override
   bool get isRetryable => true;
+}
+
+/// 入参非法（用例层校验失败，不可重试）。
+final class ValidationFailure extends Failure {
+  const ValidationFailure(
+    String message, {
+    Object? cause,
+    this.source,
+  }) : super(message, code: ErrorCode.invalidArgument, cause: cause);
+
+  final VBoxException? source;
+
+  @override
+  bool get isRetryable => false;
 }
 
 /// 未分类失败。

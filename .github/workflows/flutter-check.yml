@@ -46,7 +46,7 @@ jobs:
       - name: Install crypto deps
         run: pip install cryptography
 
-      - name: Run 9 contract checks
+      - name: Run 10 contract checks
         run: |
           set -e
           for s in check_contract_sync \
@@ -57,7 +57,8 @@ jobs:
                    check_backup_contract \
                    check_spider_domain \
                    check_domain_remote_player \
-                   check_docs_consistency; do
+                   check_docs_consistency \
+                   check_dart_imports; do
             echo "===== $s ====="
             python3 scripts/$s.py
           done

@@ -44,6 +44,9 @@ enum ErrorCode {
   /// 蜘蛛脚本运行时错误。
   spiderRuntime,
 
+  /// 入参非法（用例层校验失败）。
+  invalidArgument,
+
   /// 未分类。
   unknown,
 }
