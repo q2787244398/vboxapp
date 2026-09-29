@@ -37,7 +37,7 @@ void main() {
       expect(normalizeCmsPic('/p.jpg', 'b.com'), 'https://b.com/p.jpg');
     });
 
-    test('parseCmsPlayUrl：标准 名称$地址 串', () {
+    test('parseCmsPlayUrl：标准 名称\$地址 串', () {
       final List<CmsV10Episode> eps = parseCmsPlayUrl(
         '第1集\$https://v.com/1.m3u8#第2集\$https://v.com/2.m3u8',
         'cms.example.com',

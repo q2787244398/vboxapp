@@ -76,7 +76,7 @@ class HistoryUseCases {
 
   /// 按主键移除。
   Future<Result<bool>> remove(int id) async {
-    if (id <= 0) return Err<bool>(const ValidationFailure('主键非法：$id'));
+    if (id <= 0) return Err<bool>(ValidationFailure('主键非法：$id'));
     return _repo.remove(id);
   }
 
@@ -86,7 +86,7 @@ class HistoryUseCases {
   /// 仅保留最新 [keep] 条。
   Future<Result<int>> trimTo(int keep) async {
     if (keep <= 0) {
-      return Err<int>(const ValidationFailure('保留条数必须为正：$keep'));
+      return Err<int>(ValidationFailure('保留条数必须为正：$keep'));
     }
     return _repo.trim(keep);
   }

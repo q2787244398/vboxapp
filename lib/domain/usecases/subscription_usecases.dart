@@ -59,7 +59,7 @@ class SubscriptionUseCases {
 
   /// 删除订阅。
   Future<Result<bool>> remove(int id) async {
-    if (id <= 0) return Err<bool>(const ValidationFailure('主键非法：$id'));
+    if (id <= 0) return Err<bool>(ValidationFailure('主键非法：$id'));
     return _repo.remove(id);
   }
 
@@ -78,9 +78,9 @@ class SubscriptionUseCases {
 
   /// 标记已同步。
   Future<Result<bool>> markSynced(int id, int atSeconds) async {
-    if (id <= 0) return Err<bool>(const ValidationFailure('主键非法：$id'));
+    if (id <= 0) return Err<bool>(ValidationFailure('主键非法：$id'));
     if (atSeconds <= 0) {
-      return Err<bool>(const ValidationFailure('同步时间非法：$atSeconds'));
+      return Err<bool>(ValidationFailure('同步时间非法：$atSeconds'));
     }
     return _repo.touchSync(id, atSeconds);
   }
