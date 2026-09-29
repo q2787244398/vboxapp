@@ -38,7 +38,8 @@
 | v4 | **全部代码由 AI 编写，人力只做测试**（D8）；验收改为自动化 + conformance 自证（D10）；新增第 E 章执行计划、第 V 章 TV 调研、第 S 章侧载方案 |
 | v5 | **三份附属文档并入（附录 A/B/C），全项目仅一份文档**；补 P.1–P.11 实际进度与核查；conformance runner 交付；文档漂移治理（16→0） |
 | v5 增补 | 2026-09-29 增补：**Flutter CI 验证通道落地**（`.github/workflows/flutter-check.yml`，解除 G-07/G-08）；**P.12 核心层交付**（`lib/core/` 5 模块 20 文件 + 7 文件 78 单测，补齐 P.9 第 4 项）；`http_bridge` 编码探测链上移核心层去重 |
-| **v6（现行）** | 2026-09-29：**全量体检入库**（P.13：各层清点 + 15 项问题 + 待办）；核心层 21 文件 / 用例层 4 组 / 远程数据源 2 个交付；单测 143 用例（CI 全绿）；修复 `.version` 回退高危缺陷；**第 10 个校验脚本** `check_dart_imports.py`；全部数字口径刷新；文档更名 `VBOX_PLAN_v6.md` |
+| v6 | 2026-09-29：**全量体检入库**（P.13：各层清点 + 15 项问题 + 待办）；核心层 21 文件 / 用例层 4 组 / 远程数据源 2 个交付；单测 143 用例（CI 全绿）；修复 `.version` 回退高危缺陷；**第 10 个校验脚本** `check_dart_imports.py`；全部数字口径刷新；文档更名 `VBOX_PLAN_v6.md` |
+| **v6.1（现行）** | 2026-09-29：**收尾批次** —— ① 堵住文档守护脚本的历史豁免漏洞（移除弱标记 + 块级历史标记 + 脚本数改**硬失败**），并修正其抓出的 **4 处**残留漂移；② 追加 **D21–D23**（provider / 3.47.5 / sqflite 对齐实现）；③ 修订 §2.3 技术选型表与 §2.7 的 freezed 引用；④ 新增 **P.14 二轮独立复核清单（22 项遗漏）**；⑤ 根目录清理（`.o` ×6 删除、游离脚本归入 `scripts/legacy/`、两份游离 md 归档 `docs/archive/`）；⑥ `.gitignore` 补 `*.o` / `build/` / `.dart_tool/`；⑦ `pubspec.yaml` 版本对齐为 `3.1621.0+1621` |
 
 >
 > **D12 已定稿（经联网查证）**：TV 最低版本定为 **Android 7.0 (API 24)**。
@@ -71,6 +72,9 @@
 | **D18** | **目录结构基准** | 采用方案 §2.4 的**五层架构**（contract/core/data/domain/presentation/platform），取代中途生成的 `PROJECT_LAYOUT.md` 简化结构 | **已确认**（2026-09-29） |
 | **D19** | **契约键存储方式区分** | 键须标注 `storage`：`userDefaults`（SharedPreferences）/ `keychain`（flutter_secure_storage）/ `credentialExtra`（凭据对象 extra 字典，非独立键） | **已确认**（2026-09-29） |
 | **D20** | **阶段完成判定** | 第 1 轮迭代**当前不可标记完成**（E.10b 门禁未通过：不达标 12 项，经补强后降为 **9 项**）；不得进入第 2 轮 | **已确认**（2026-09-29） |
+| **D21** | **Flutter 状态管理** | 采用 **`provider`**（轻量 `ChangeNotifier`），**不引入 Riverpod**。§2.3 原定 Riverpod 系早期选型，现以**已落地实现为准**修订文档 | **已确认**（2026-09-29） |
+| **D22** | **Flutter 版本基线** | 以 CI 实测 **3.47.5** 为准，**修订 §2.3 的「3.24.x 锁版」**；与 D12（API 24，依据 3.47 支持矩阵）保持一致 | **已确认**（2026-09-29） |
+| **D23** | **本地持久化与模型** | Flutter 侧采用 **`sqflite` 直连 + 手写模型**，**不引入 drift / freezed 代码生成**；契约正确性由 Python 侧 `check_*` 断言，不依赖 Dart 代码生成 | **已确认**（2026-09-29） |
 
 ---
 
@@ -474,7 +478,7 @@ welfare_platforms.json  → 福利专区（独立入口）
 ① 逆向提取契约（从 iOS 现有代码）
    ├── DatabaseManager.swift   → SQLite DDL（9 表 + v1→v4 迁移）
    ├── Swift Codable 模型       → JSON Schema
-   ├── UserDefaults 键名扫描    → Prefs 键名契约（57 键）
+   ├── UserDefaults 键名扫描    → Prefs 键名契约（98 键）
    ├── BackupManager.swift     → 备份格式规范
    └── SpiderEngineProtocol    → Spider ABI
                 ↓
@@ -492,20 +496,21 @@ welfare_platforms.json  → 福利专区（独立入口）
 
 | 层级 | 技术 | 版本 | 备注 |
 |------|------|------|------|
-| UI 框架 | Flutter | 3.24.x（锁版） | 5 形态复用 |
+| UI 框架 | Flutter | **3.47.5**（CI 实测，D22） | 5 形态复用 |
 | 设计系统 | Material 3 | — | 三套主题（phone/tv/desktop） |
-| 状态管理 | Riverpod | 2.x | 编译安全、可测试 |
-| 路由 | go_router | 14.x | 声明式、深链接 |
-| 本地数据库 | sqflite + drift | — | 复刻 v1→v4 迁移链 |
-| 网络 | dio | 5.x | 拦截器、取消、重试 |
-| JSON | freezed + json_serializable | — | 不可变模型 |
-| 文件 | path_provider + file_picker | 8.x | ⚠️ 9+ 需验证 |
-| 加密 | cryptography | — | AES-GCM + PBKDF2 |
-| 安全存储 | flutter_secure_storage | 最新稳定版 | ✅ 无需锁版（minSdk 24） |
-| 权限 | permission_handler | 最新稳定版 | ✅ 无需锁版（minSdk 24） |
-| 唤醒锁 | wakelock_plus | 最新稳定版 | ✅ 无需锁版（minSdk 24） |
-| 播放器（移动） | media3 (Android) / video_player | 1.3.1 | + libVLC 回退 |
-| 播放器（桌面） | media_kit | 1.1.x | libmpv 绑定 |
+| 状态管理 | **provider**（D21） | ^6.1.2 | ✅ 已落地；~~Riverpod~~ 早期选型，按实现修订 |
+| 路由 | ~~go_router~~ **未引入** | — | 当前仅 `app.dart` + `ui_mode`，路由待接线 |
+| 本地数据库 | **sqflite**（+ `sqflite_common_ffi`，D23） | ^2.3.3 | 复刻 v1→v4 迁移链；~~drift~~ 不引入代码生成 |
+| 网络 | **http + dio** | ^1.2.2 / ^5.7.0 | 数据源已用 `http`；`dio` 预留拦截器/取消/重试 |
+| JSON | **手写模型**（D23） | — | ~~freezed + json_serializable~~ 不引入代码生成 |
+| 文件 | path_provider + path | ^2.1.4 / ^1.9.0 | ⚠️ `file_picker` 尚未引入 |
+| 加密 | cryptography + crypto | ^2.7.0 / ^3.0.5 | AES-GCM + PBKDF2 |
+| 安全存储 | flutter_secure_storage | ^9.2.2 | 5 个敏感键（keychain） |
+| 权限 | ~~permission_handler~~ **待引入** | — | 平台壳创建后评估 |
+| 唤醒锁 | ~~wakelock_plus~~ **待引入** | — | 播放器阶段引入 |
+| 脚本运行时 | ffi（QuickJS FFI 绑定） | ^2.1.3 | Phase 2+，先占位（**未实现**） |
+| 播放器（移动） | media3 (Android) / video_player | 待定 | + libVLC 回退（**未实现**） |
+| 播放器（桌面） | media_kit | 待定 | libmpv 绑定（**未实现**） |
 | 渲染 | Impeller（默认） | — | ✅ API 24 支持 Impeller |
 
 ### 2.4 目标目录结构
@@ -519,7 +524,7 @@ vbox_flutter/
 │   │   ├── constants/  errors/  network/  storage/  utils/
 │   ├── contract/                    # ⭐ 契约层镜像（从 vbox-contract 同步）
 │   │   ├── schema/                  # SQL DDL 常量
-│   │   ├── prefs_keys.dart          # 57 键名常量（初版估计值，见 P.6）
+│   │   ├── prefs_keys.dart          # 98 键名常量 / 21 组（v1.2）
 │   │   └── abi/                     # Spider ABI 定义
 │   ├── data/
 │   │   ├── datasources/local/       # SQLite 数据源
@@ -652,8 +657,8 @@ abstract class UiModeResolver {
 ### 2.7 数据迁移策略
 
 1. **SQLite**：严格遵循 `schema_v1.sql`，复刻 v1→v4 迁移链（含 v2 重建表）
-2. **JSON**：freezed 模型字段名与 SQL 列名 1:1
-3. **Prefs**：遵循 `prefs_keys_v1.json`，57 键名 + 类型完全一致（初版估计值，见 P.6）
+2. **JSON**：数据模型字段名与 SQL 列名 1:1
+3. **Prefs**：遵循 `prefs_keys_v1.json`，98 键名 + 类型完全一致（v1.2）
 4. **备份**：格式与加密参数不变，须通过跨端互通测试
 5. **迁移标记**：`vbox_sqlite_migration_done` 必须识别，避免重复迁移
 6. **敏感键**：5 个敏感键建议迁 secure storage，但需兼容读取 UserDefaults
@@ -1144,9 +1149,9 @@ enum class PlayerBackend { MEDIA3, LIBVLC }
 /var/minis/workspace/vbox-contract/
 ├── schema/
 │   ├── schema_v1.sql          ✅ SQLite DDL（9 表 + v1→v4 迁移链）
-│   └── prefs_keys_v1.json     ✅ Prefs 键名契约（57 键 + 敏感项标记；初版估计值，见 P.6）
-├── conformance/fixtures/      ⏳ 待填充（SQLite 样本 / 备份样本 / Spider IO）
-└── docs/                      ⏳ 待填充（Spider ABI / 备份格式规范）
+│   └── prefs_keys_v1.json     ✅ Prefs 键名契约（98 键 + 5 敏感键；v1.2）
+├── conformance/fixtures/      ✅ 已交付（SQLite 样本 / 备份样本 / Spider IO，conformance 45/45）
+└── docs/                      ✅ 已交付（Spider ABI / 备份格式规范 / android-compat）
 ```
 
 ### C.2 `schema_v1.sql` 要点
@@ -3021,6 +3026,8 @@ AliyunPlayer + IJK   ~30 MB
 
 #### ✅ 问题 1（已修复）：Prefs 契约遗漏 44 个真实键
 
+<!-- docs-guard:history -->
+
 | 项 | 修复前 | 修复后 |
 |----|--------|--------|
 | 契约键数 | 53 | **98** |
@@ -3036,6 +3043,8 @@ AliyunPlayer + IJK   ~30 MB
 
 **根因**：原提取脚本只匹配 `forKey:"k"` 一种写法，漏掉 `let xKey="k"` 与 `enum XXXKeys` 两种；
 且原校验只验「实现↔契约」，不验「契约↔源码」，导致漏 44 键仍全绿。
+
+<!-- /docs-guard:history -->
 
 #### ✅ 问题 2（已修复）：目录结构对齐方案 §2.4
 
@@ -3285,7 +3294,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 
 | # | 问题 | 具体表现 | 处置 |
 |---|------|---------|------|
-| 1 | 原 `PROGRESS.md` 严重过期（已并入附录 A） | ① 仍写「53 键 / 12 组」（现行 98 / 21）② 仍列 6 个校验脚本（现行 9+runner）③ 引用**重构后已删除的路径**（`lib/contract/schema.dart`、`lib/domain/spider/`、`lib/domain/remote_source/`）④ 进度 50% 未经门禁校验 | **整篇重写**为对齐真相源的状态快照 |
+| 1 | 原 `PROGRESS.md` 严重过期（已并入附录 A） | ① 仍写「53 键 / 12 组」（现行 98 / 21）② 仍列 6 个校验脚本（现行 10）③ 引用**重构后已删除的路径**（`lib/contract/schema.dart`、`lib/domain/spider/`、`lib/domain/remote_source/`）④ 进度 50% 未经门禁校验 | **整篇重写**为对齐真相源的状态快照 |
 | 2 | 原 `PROJECT_LAYOUT.md` 与 D18 冲突（已并入附录 B） | 描述的是中途生成的简化结构，与方案 §2.4 五层架构（D18 定案）不一致 | **重写**为 §2.4 落地快照，并标注空目录现状 |
 | 3 | `contract/docs/prefs_keys_revision_v1.1.md` 缺历史范围声明 | 文中「53 键 / 12 组」未声明是 v1.1 时期状态，易被误读为现行值 | 加**历史范围声明**（指向现行 98 键与 P.6） |
 | 4 | 原进度文档遗漏 `pubspec.yaml` | 此前 P.3 记「平台壳未创建」，但 `pubspec.yaml` **已被 git 跟踪**且依赖已对齐契约 | 更正为「工程清单 ✅ 已交付；`android/`/`macos/`/`windows/` 目录 ⬜ 未创建」 |
@@ -3295,7 +3304,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 **根因**：文档与代码各自演进，**没有自动校对**——与「契约漏 44 键」同类：
 校验只覆盖「实现↔契约」，未覆盖「文档↔事实」。
 
-**处置**：新增 `scripts/check_docs_consistency.py`（第 9 个校验脚本；v6 后共 **10 个**），把文档漂移转为可检测：
+**处置**：新增 `scripts/check_docs_consistency.py`（v6 体系共 **10 个**校验脚本），把文档漂移转为可检测：
 
 | 规则 | 说明 |
 |------|------|
@@ -3303,10 +3312,16 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | 组数 | 陈旧口径（12/13 组）即失败（须与「键/分组」共现，避免误伤） |
 | 失效路径 | 引用重构后已删路径即失败 |
 | 关键文档 | 主方案文档（本文件）必须存在 |
-| 脚本数 | 口径多义，仅告警；历史记录类文档整体豁免 |
+| 脚本数 | **须与 `scripts/check_*.py` 目录实际数量一致**（v6.1 由「仅告警」改为**硬失败**） |
+| 历史豁免 | 仅两种显式方式：行内强标记（v1.x / 修订 / 历史 / → 等）或块级标记 `<!-- docs-guard:history --> … <!-- /docs-guard:history -->` |
 
 **上线效果**：首次运行抓出 **16 处漂移**；修正后 **0 处**。
 期间还修掉检测器自身 3 处误报（白名单「14 键」、iOS 依赖脚本计数、`sources/js` 的「30 脚本文件」）。
+
+> **v6.1 补丁（漏洞修复）**：v6 的 `HISTORY_MARKS` 含「初版 / 估计 / 见 P.6」等弱标记，
+> 使主方案 §2.2/§2.4/§2.8/C.1 的 **4 处陈旧「57 键」**仅凭一句「（初版估计值，见 P.6）」
+> 即被整行豁免——**守卫对自身最该守的文档实际失效**。v6.1 移除这三个弱标记、引入块级历史标记，
+> 并令脚本数检查硬失败；收紧后立刻抓出 **4 处**残留漂移（3 处陈旧键数 + 1 处脚本数）并修正。
 
 > **教训**：文档漂移与契约遗漏是同一类问题——**只靠人工核对必然复发**，
 > 必须把「事实基准」写成可执行断言。
@@ -3432,11 +3447,11 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 4 | 🟡 中 | DB 路径双真相源：`StoragePaths.databaseFile`（核心层）vs `database_manager.dart` 用 sqflite `getDatabasesPath()` | 桌面 FFI 下易分叉 |
 | 5 | 🟡 中 | `prefs_manager.dart` 直连 `flutter_secure_storage`，未走核心层 `SecureStore` 抽象 | 架构双轨，抽象形同未接入 |
 | 6 | 🟡 中 | `analysis_options.yaml` 缺失 | dev 依赖 `flutter_lints` 实际未生效，lint 规则为零 |
-| 7 | 🟡 中 | `修复说明.md`（74 行 iOS 旧修复记录）仍在根目录 | 与 D17–D20「全项目仅一份文档」冲突（附录 B 布局已加注） |
+| 7 | 🟡 中 | `修复说明.md`（74 行 iOS 旧修复记录）仍在根目录 | 与 D17–D20「全项目仅一份文档」冲突（附录 B 布局已加注）；✅ **v6.1 已归档至 `docs/archive/`** |
 | 8 | 🟡 中 | P.8 ⑥「应产出文件齐全」仍列 `PROGRESS.md` / `PROJECT_LAYOUT.md` / `KNOWN_GAPS.md` | 三者已在 v5 并入本方案并删除 → 引用失效 |
-| 9 | 🟢 低 | 根目录 6 个 `.o` 编译产物（`cutils.o` `quickjs.o` `quickjs-libc.o` `libbf.o` `libregexp.o` `libunicode.o`） | 无任何引用（`build-quickjs.yml` 用的是 `.obj/` 路径）→ 构建垃圾 |
-| 10 | 🟢 低 | `.gitignore` 未忽略 `*.o` / `build/` | 与第 9 项同源 |
-| 11 | 🟢 低 | `pre-commit.sh` 引用的 `check_braces.py` 仓库中不存在 | 钩子实际失效 |
+| 9 | 🟢 低 | 根目录 6 个 `.o` 编译产物（`cutils.o` `quickjs.o` `quickjs-libc.o` `libbf.o` `libregexp.o` `libunicode.o`） | 无任何引用（`build-quickjs.yml` 用的是 `.obj/` 路径）→ 构建垃圾；✅ **v6.1 已删除** |
+| 10 | 🟢 低 | `.gitignore` 未忽略 `*.o` / `build/` | 与第 9 项同源；✅ **v6.1 已补 `*.o` / `build/` / `.dart_tool/`** |
+| 11 | 🟢 低 | `pre-commit.sh` 引用的 `check_braces.py` 仓库中不存在 | 钩子实际失效；✅ **v6.1 已删除**（游离脚本一并归入 `scripts/legacy/`） |
 | 12 | 🟢 低 | `lib/contract/abi/` 为空 | Spider ABI 在 Dart 侧无镜像（仅 Python runner 校验） |
 | 13 | 🟢 低 | `core.dart` / `network_info.dart` / `secure_store.dart` / `file_store.dart` / `logger.dart` / `storage_paths.dart` 在 `lib` 内 **0 引用** | 预置能力待接线，存在「写了没用」的漂移风险 |
 | 14 | 🟢 低 | `LICENSE` 缺失 | 自用项目，影响低 |
@@ -3450,7 +3465,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 2 | CI 增 `flutter test --coverage` + 覆盖率门槛（≥70%） | 门禁 ⑤ 变为**可验证** |
 | 3 | 创建平台壳（`flutter create --platforms=android,macos,windows .`）+ CI build job（`flutter build apk --debug` 等） | 解锁门禁 ③/⑤「三端编译」 |
 | 4 | 加 `analysis_options.yaml`；DB 路径统一到 `StoragePaths` | 消除问题 4 / 6（双真相源 + lint 空白） |
-| 5 | 根级清理：`.o` ×6、`修复说明.md` 归档、`.gitignore` 补 `*.o`、修 `pre-commit.sh` | 仓库卫生（问题 7–11） |
+| 5 | ~~根级清理：`.o` ×6、`修复说明.md` 归档、`.gitignore` 补 `*.o`、修 `pre-commit.sh`~~ ✅ **v6.1 已完成** | 仓库卫生（问题 7–11） |
 | 6 | 补 `lib/contract/abi/` Dart 镜像 | ABI 校验可在 Dart 侧自证（问题 12） |
 
 #### 6. 门禁状态（E.10b 复核视角）
@@ -3464,6 +3479,75 @@ conformance **45/45** · iOS IPA 构建链路成功。
 
 > **结论**：E.10b 原 9 项不达标 → **静态分析 1 项已解除，余 8 项**；
 > **第 1 轮仍不得标记完成**，需在完成 §5 第 1–3 项后重跑门禁。
+
+---
+
+### P.14 二轮独立复核清单（v6.1 新增，22 项）
+
+> **触发**：对 v6 的 P.13（15 项）做**独立复核**——逐条比对「方案文档 ↔ 仓库实况」，
+> 在 P.13 之外又发现 **22 项遗漏**（P.13 完全未覆盖）。分级：🔴 高 / 🟡 中 / 🟢 低。
+
+#### 1. 文档治理（4 项）
+
+| # | severity | 问题 | 处置 |
+|---|----------|------|------|
+| 1 | 🔴 高 | 主方案 §2.2/§2.4/§2.8/C.1 残留 4 处陈旧「57 键」，且被守护脚本弱标记整行豁免 | ✅ v6.1 已修正（见 P.11 补丁） |
+| 2 | 🟡 中 | `check_docs_consistency.py` 文档串写「脚本数须为 8 或 9」，实为 10；且该项检查仅告警不失败 | ✅ v6.1 已改（硬失败 + 动态口径） |
+| 3 | 🟡 中 | §6.3 交付物清单仍写 `prefs_keys_v1.json ⚠️ v1.1，53 键（存疑）` | 待下一轮统一 |
+| 4 | 🟢 低 | `scripts/merge_docs_v5.py` 仍以 v5 命名/引用，文档更名未清干净 | 待清理 |
+
+#### 2. 方案 ↔ 实现偏离（未协调，4 项）
+
+| # | severity | 问题 | 处置 |
+|---|----------|------|------|
+| 5 | 🔴 高 | 技术选型冲突：§2.3 定 Riverpod / go_router / drift / freezed，实际 provider / sqflite / 手写模型 | ✅ v6.1 D21/D23 + 修订 §2.3 |
+| 6 | 🟡 中 | Flutter 版本冲突：§2.3 写 3.24.x，CI 实为 3.47.5 | ✅ v6.1 D22 + 修订 §2.3 |
+| 7 | 🟡 中 | §2.4 目标结构含 `plugins/`、`integration_test/`、`assets/{js,python,node,fonts}`，全部缺失 | 待第 2 阶段 |
+| 8 | 🟡 中 | 版本体系割裂：`pubspec` 1.0.0+1 vs iOS `.version 3.1620`；Flutter 无签名/自更新流程 | ✅ v6.1 版本已对齐；签名仍缺 |
+
+#### 3. 工程与构建（6 项）
+
+| # | severity | 问题 |
+|---|----------|------|
+| 9 | 🔴 高 | **无 `pubspec.lock`** → 依赖未锁定、构建不可复现（与 §A21.3「依赖锁版」原则冲突） |
+| 10 | 🟡 中 | 无 `integration_test/` → 人测是关键路径，却无自动化 E2E 入口 |
+| 11 | 🟢 低 | 无 `.github/ISSUE_TEMPLATE` / PR 模板 / CODEOWNERS；`bug_report_template.yaml` 未接入 Issue 流程 |
+| 12 | 🟢 低 | 根目录另有 `check_project.py` / `fix_pbxproj.py` / `fix_pbxproj2.py` 游离脚本（P.13 只列了 `.o` 等） |
+| 13 | 🟢 低 | `contract/schema/` 混入脚本中间产物 `_clean_keys.json` / `_extracted_keys.json` / `_unknown_resolved.json` |
+| 14 | 🟢 低 | 无 `.editorconfig` / `.gitattributes`（跨端换行与编码一致性） |
+
+#### 4. 安全 / 供应链 / 合规（5 项，P.13 完全空白）
+
+| # | severity | 问题 |
+|---|----------|------|
+| 15 | 🔴 高 | **第三方框架许可证合规未评估**：MobileVLCKit / swift-mdk / IJKMediaFrameworkWithSSL / MPVKit 含 GPL/LGPL；§S 却断言「无政策合规风险」，风险清单 §3.4 无法律项 |
+| 16 | 🟡 中 | **供应链**：`MobileVLCKit` 取自个人 fork `hf805864818/MobileVLCKit` 的 release 二进制（`Podfile`），无校验和 / 来源评估 |
+| 17 | 🟡 中 | `scripts/Crypto/` 为 PyCryptodome vendored 副本（AES/ARC4/RSA/PKCS1_v1_5），无许可证 / 来源声明 |
+| 18 | 🟡 中 | 内容合规：福利专区聚合成人 / 盗版站点，文档把「侧载」当规避手段而非风险 |
+| 19 | 🟢 低 | 敏感数据脱敏仅覆盖 prefs 5 键；网盘 token / `saved_drive_tokens` 在备份导出与日志路径的脱敏无校验 |
+
+#### 5. 功能与架构（3 项，P.13 仅以「平台壳缺失」一笔带过）
+
+| # | severity | 问题 |
+|---|----------|------|
+| 20 | 🔴 高 | **5 个 Spider 引擎（JSC/QuickJS/Node/NodeLX/Python）Dart 侧零实现**；go-proxy gomobile 绑定、QuickJS FFI 绑定均无 Dart 入口 —— 迁移最大工作量 |
+| 21 | 🔴 高 | 4 端播放器后端（Media3/libVLC/media_kit）零实现；`player.dart` 仅有枚举与降级链注释，「可播放」无验证 |
+| 22 | 🟡 中 | iOS 遗留 3 处 native 修复（MDK 黑屏 / MPV 闪退 / 切集倒序）仍「需真机验证」；文档仅当文档垃圾待清理，未作功能风险跟踪 |
+
+#### 6. 本轮（v6.1）实际处置与进度
+
+| 类别 | 处置 | 状态 |
+|------|------|------|
+| 文档守护漏洞 | 移除弱标记 + 块级历史标记 + 脚本数改硬失败 | ✅ 已提交 |
+| 残留漂移 | 3 处陈旧键数 + 1 处脚本数 | ✅ 已修正，守卫 **0 漂移** |
+| 决策缺口 | D21（provider）/ D22（3.47.5）/ D23（sqflite） | ✅ 已入库 |
+| 仓库卫生 | `.o` ×6 删除；游离脚本 → `scripts/legacy/`；游离 md → `docs/archive/`；`.gitignore` 补 `*.o` / `build/` / `.dart_tool/` | ✅ 已完成 |
+| 版本 | `pubspec.yaml` → `3.1621.0+1621`（对齐 iOS 方案位） | ✅ 已完成 |
+| 未做（环境限制） | `pubspec.lock` 需 Flutter SDK 解析依赖（本地 aarch64 无 Flutter/Dart）→ 留待 CI 首次 `pub get` 后回填 | ⬜ 待办 |
+
+> **复核结论**：P.13 的 15 项 + P.14 的 22 项 = **共 37 项**。本轮（v6.1）关闭 **11 项**，
+> 余 **26 项**中 5 项 🔴 直接卡 E.10b 门禁（repositories / 平台壳 / 覆盖率 / 5 引擎 / 4 播放器），
+> 4 项属安全合规（须专项评估）。**第 1 轮仍不得标记完成。**
 
 ---
 

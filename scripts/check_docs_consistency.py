@@ -10,9 +10,15 @@
 
 本脚本把「文档漂移」转为可自动检测，规则如下：
   1. 现行键数/组数必须与契约唯一真相源一致（历史提及须带历史标记）
-  2. 校验脚本数量必须为 8（scripts）或 9（含 conformance runner）
+  2. 校验脚本数量必须与 scripts/ 目录实际数量一致（含 conformance runner 时 +1）
   3. 不得引用已删除的旧路径（除非该行带历史标记）
   4. 关键文档（唯一主方案文档）必须存在
+
+历史豁免的两种显式方式（二者取一，禁止靠模糊措辞自我豁免）：
+  · 行内强标记：v1.0/v1.1/v1.2、修订、历史、误抓、已删除、废弃、→ 等
+  · 块级标记：``<!-- docs-guard:history -->`` 与 ``<!-- /docs-guard:history -->`` 之间的整块
+「修复前 vs 修复后」对比表、历史数值表必须放进块级标记；
+不得再用「（初版估计值，见 P.6）」这类措辞冒充历史语境（该漏洞已随 v6.1 移除）。
 
 退出码：0 通过 / 1 存在漂移
 """
@@ -28,13 +34,19 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTRACT = ROOT / "contract" / "schema" / "prefs_keys_v1.json"
 
 # 允许出现「旧数值」的语境标记（历史叙述、修订对比）
+# v6.1：移除「初版 / 估计 / 见 P.6」——这三个弱标记曾让主方案 §2.x 的
+#       4 处陈旧「57 键」整行自我豁免，是历史豁免的真实漏洞。
 HISTORY_MARKS = (
-    "v1.0", "v1.1", "修订", "历史", "原", "误抓", "移除", "→", "->",
+    "v1.0", "v1.1", "v1.2", "修订", "历史", "原", "误抓", "移除", "→", "->",
     "前", "旧", "曾", "回退", "对比", "before", "deprecated", "废弃",
     "未修复", "bug", "缺陷", "教训", "误报", "故障",
-    "遗漏", "冗余", "初版", "估计", "见 P.6",
+    "遗漏", "冗余",
     "陈旧", "仍写", "仍列", "过时", "已删除", "同类", "失效",
 )
+
+# 块级历史标记：两行之间的整块豁免「数值规则」（已删除路径规则仍生效）
+BLOCK_ON = "<!-- docs-guard:history -->"
+BLOCK_OFF = "<!-- /docs-guard:history -->"
 
 # 已知的陈旧总数（曾出现过的错误口径）——仅这些值触发失败
 STALE_KEY_COUNTS = {44, 53, 57, 63}
@@ -97,8 +109,15 @@ def main() -> int:
         if is_historical_doc(p):
             print(f"  ·  {rel}（历史记录文档，数值规则豁免）")
             continue
+        in_block = False
         for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
-            if is_history(line):
+            if BLOCK_OFF in line:
+                in_block = False
+                continue
+            if BLOCK_ON in line:
+                in_block = True
+                continue
+            if in_block or is_history(line):
                 continue
             # 键数（仅在命中已知陈旧口径时失败，避免误伤白名单/KVC 等异对象计数）
             for m in re.finditer(r"(\d+)\s*键", line):
@@ -122,19 +141,25 @@ def main() -> int:
                     print(f"      {line.strip()[:100]}")
                     errors += 1
 
-    # 2：校验脚本数量（口径多义，仅告警不失败）
+    # 2：校验脚本数量（v6.1 起为硬失败：须与 scripts/ 目录实际数量一致）
     print()
     n_scripts = len([
         p for p in (ROOT / "scripts").glob("check_*.py")
         if "mpv" not in p.name  # iOS CI 依赖检查，不属契约校验套件
     ])
     runner = (ROOT / "conformance" / "runner" / "run_conformance.py").exists()
-    warns = 0
     print(f"校验脚本：{n_scripts} 个 check_*.py，runner={'有' if runner else '无'}")
     for p in docs:
         rel = p.relative_to(ROOT)
+        in_block = False
         for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
-            if is_history(line):
+            if BLOCK_OFF in line:
+                in_block = False
+                continue
+            if BLOCK_ON in line:
+                in_block = True
+                continue
+            if in_block or is_history(line):
                 continue
             if "校验" not in line:
                 continue
@@ -145,8 +170,9 @@ def main() -> int:
                 if "%" in line[m.start():m.end()]:
                     continue
                 if n not in (n_scripts, n_scripts + (1 if runner else 0)):
-                    print(f"  ⚠️  {rel}:{i} 脚本数 {n}（目录实为 {n_scripts}）；口径可能不同")
-                    warns += 1
+                    print(f"  ❌ {rel}:{i} 脚本数 {n}（目录实为 {n_scripts}）")
+                    print(f"      {line.strip()[:100]}")
+                    errors += 1
 
     # 4：关键文档存在
     print()
