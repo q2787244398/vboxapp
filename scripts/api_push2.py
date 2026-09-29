@@ -33,6 +33,9 @@ CI_MANAGED = frozenset({
     "vbox/Info.plist",
     "vbox.xcodeproj/project.pbxproj",
     "CHANGELOG.md",
+    # build-ipa.yml 的版本 bump 任务会写入该文件（`git add … .version`），
+    # changelog.yml 亦以它为触发源 → 属 CI 管理，本地旧值不得回推。
+    ".version",
 })
 
 COMMIT_MSG = """feat(stage-1): backup_manager — AES-256-GCM + PBKDF2 字节级兼容
