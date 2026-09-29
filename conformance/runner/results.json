@@ -79,7 +79,7 @@
    "suite": "spider",
    "name": "错误码含 E_REGISTER / E_SCRIPT_LOAD",
    "ok": true,
-   "detail": "实为 {'E_SCRIPT_LOAD', 'E_REGISTER'}"
+   "detail": "实为 {'E_REGISTER', 'E_SCRIPT_LOAD'}"
   },
   {
    "suite": "spider",

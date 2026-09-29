@@ -17,18 +17,25 @@
 >
 > **D14/D15/D16 已确认**：**`q2787244398/vboxapp` 为项目唯一开发仓库**（含 iOS + Flutter 三端）；
 > **每阶段完成后推送**；源仓库 **`q2787244398/app` 冻结归档**（仅历史备份，改动不回流）。
-> 迁移已于 2026-09-29 完成（481 文件），Commit `bef4e9e`。
+> 迁移已于 2026-09-29 完成（迁入时全仓 **481 项**；其中 `vbox/` 主工程 **274 项**），Commit `bef4e9e`。
 >
 > **v5 变更**：**文档合并**——原 `PROGRESS.md`、`PROJECT_LAYOUT.md`、
 > 附录 C 三份附属文档**全部并入本方案**（附录 A / B / C），全项目**仅此一份文档**；
 > 新增 P.1–P.11 实际开发进度与核查章节；conformance runner 交付（45/45）；
 > 新增文档漂移守护脚本；E.10b 不达标项 12 → 9。
 >
-> **v6 定稿变更（本版）**：**全量体检入库**（新增 **P.13**：15 项问题、1 项高危缺陷修复、6 项待办）；
+> **v6 定稿变更**：**全量体检入库**（新增 **P.13**：15 项问题、1 项高危缺陷修复、6 项待办）；
 > 第 1 轮进度 65% → **70%**；交付**核心层**（`lib/core/` 21 文件）、**用例层与远程数据源**
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名由 `VBOX_PLAN_v5.md` 升为 **`VBOX_PLAN_v6.md`**。
+>
+> **v6.2 变更（本版）**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
+> 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
+> （§C.3 曾以 `| **合计** | **57** |` 长期绕过）；② §C.3 按契约 v1.2 实况重写；③ 文件数 / 脚本数
+> 逐处对齐 `git ls-files` 实测；④ 形态判定 §2.4 ↔ §T.1 ↔ 实现 三处口径统一（实现标注为**占位**）；
+> ⑤ 清除 `freezed` 残留、修正 `TODO(D21)` 决策号语义碰撞；⑥ 守卫新增 **Dart 源码**失效引用扫描；
+> ⑦ README / CI 注释对齐多端现状。
 
 ## 版本历史
 
@@ -39,7 +46,8 @@
 | v5 | **三份附属文档并入（附录 A/B/C），全项目仅一份文档**；补 P.1–P.11 实际进度与核查；conformance runner 交付；文档漂移治理（16→0） |
 | v5 增补 | 2026-09-29 增补：**Flutter CI 验证通道落地**（`.github/workflows/flutter-check.yml`，解除 G-07/G-08）；**P.12 核心层交付**（`lib/core/` 5 模块 20 文件 + 7 文件 78 单测，补齐 P.9 第 4 项）；`http_bridge` 编码探测链上移核心层去重 |
 | v6 | 2026-09-29：**全量体检入库**（P.13：各层清点 + 15 项问题 + 待办）；核心层 21 文件 / 用例层 4 组 / 远程数据源 2 个交付；单测 143 用例（CI 全绿）；修复 `.version` 回退高危缺陷；**第 10 个校验脚本** `check_dart_imports.py`；全部数字口径刷新；文档更名 `VBOX_PLAN_v6.md` |
-| **v6.1（现行）** | 2026-09-29：**收尾批次** —— ① 堵住文档守护脚本的历史豁免漏洞（移除弱标记 + 块级历史标记 + 脚本数改**硬失败**），并修正其抓出的 **4 处**残留漂移；② 追加 **D21–D23**（provider / 3.47.5 / sqflite 对齐实现）；③ 修订 §2.3 技术选型表与 §2.7 的 freezed 引用；④ 新增 **P.14 二轮独立复核清单（22 项遗漏）**；⑤ 根目录清理（`.o` ×6 删除、游离脚本归入 `scripts/legacy/`、两份游离 md 归档 `docs/archive/`）；⑥ `.gitignore` 补 `*.o` / `build/` / `.dart_tool/`；⑦ `pubspec.yaml` 版本对齐为 `3.1621.0+1621` |
+| **v6.1** | 2026-09-29：**收尾批次** —— ① 堵住文档守护脚本的历史豁免漏洞（移除弱标记 + 块级历史标记 + 脚本数改**硬失败**），并修正其抓出的 **4 处**残留漂移；② 追加 **D21–D23**（provider / 3.47.5 / sqflite 对齐实现）；③ 修订 §2.3 技术选型表与 §2.7 的 freezed 引用；④ 新增 **P.14 二轮独立复核清单（22 项遗漏）**；⑤ 根目录清理（`.o` ×6 删除、游离脚本归入 `scripts/legacy/`、两份游离 md 归档 `docs/archive/`）；⑥ `.gitignore` 补 `*.o` / `build/` / `.dart_tool/`；⑦ `pubspec.yaml` 版本对齐为 `3.1621.0+1621` |
+| **v6.2（现行）** | 2026-09-29：**三轮独立复核**（新增 P.15：**12 项**遗漏，v6.1「守卫 0 漂移」结论被推翻）。① 文档守卫堵「表格 / 加粗 / 合计」数值逃逸，并新增 **Dart 源码**失效引用扫描；② §C.3 按契约 v1.2 重写（原 v1.0 口径 14 组 / 57 键，含已删 `buffer` 组）；③ 文件数 / 脚本数逐处对齐 `git ls-files`；④ 形态判定 §2.4 ↔ §T.1 ↔ 实现口径统一（实现标注为**占位**）；⑤ 清除 `freezed` 残留、`TODO(D21→G-01)`；⑥ README / CI 注释对齐多端现状；⑦ `merge_docs_v5.py` 归档 `scripts/legacy/` |
 
 >
 > **D12 已定稿（经联网查证）**：TV 最低版本定为 **Android 7.0 (API 24)**。
@@ -402,7 +410,7 @@ welfare_platforms.json  → 福利专区（独立入口）
 |-----------|---------------|----------|
 | `RemoteSourceConfigManager` | manifest / allSources / spiderJS / lxPlugins / nodeRuntimeBundle | **必须整体重写为 Dart**，含代理降级链 |
 | `SpiderManager.resolveSiteMode` | type / key 前缀 / api / group / playMode | **纯逻辑，可直接迁移** |
-| `SiteConfig` 模型 | 20+ 字段（含扩展） | freezed 模型，字段名必须 1:1 |
+| `SiteConfig` 模型 | 20+ 字段（含扩展） | 手写模型（D23），字段名必须 1:1 |
 | `NodeRuntimeManager` | nodeRuntimeBundle / kstore.version | 需重新实现进程管理 + MD5 校验 |
 | `SpiderRepository` | parsers / disabledSources / domainOverrides | 纯逻辑可迁移 |
 | 福利加载器 | welfarePlatforms 全字段 | 需完整复刻 schema |
@@ -529,7 +537,7 @@ vbox_flutter/
 │   ├── data/
 │   │   ├── datasources/local/       # SQLite 数据源
 │   │   ├── datasources/remote/      # HTTP 数据源
-│   │   ├── models/                  # freezed 模型（1:1 对齐契约）
+│   │   ├── models/                  # 手写模型（D23，1:1 对齐契约）
 │   │   └── repositories/
 │   ├── domain/
 │   │   ├── entities/  repositories/  usecases/
@@ -568,6 +576,13 @@ vbox_flutter/
 │   └── android-min-sdk21-compat.md   # ⭐ 依赖锁定清单
 └── test/  integration_test/
 ```
+
+> **⚠️ 形态判定口径统一（v6.2）**：`presentation/ui_mode/` 的**权威设计口径为 §T.1**
+> （Android 侧经平台通道 `getUiModeType` / `hasLeanbackFeature` / `hasTouchscreen` 三重判定，
+> 桌面端为编译期常量）。**当前实现 `ui_mode_resolver.dart` 仅为占位**：无平台通道调用、
+> `resolve()` 的 `screenSize/hasTouch/hasRemote` 参数**无任何调用方提供**、
+> 注释中提及的 `ui_tv_mode` 键**不在契约 98 键内**。故真机 Android TV 现状会被判为 `phone`。
+> 接线须等 `platform/system` 的 `SystemPlugin` 落地（见附录 C，登记待办）。
 
 ### 2.5 平台能力矩阵（v3）
 
@@ -1163,26 +1178,43 @@ enum class PlayerBackend { MEDIA3, LIBVLC }
 
 ### C.3 `prefs_keys_v1.json` 要点
 
+> **v6.2 修订**：本节原为 **v1.0 时期 14 组 / 57 键** 的旧表（含已不存在的 `buffer` 组），
+> 与 §C.1「98 键」及现行契约矛盾，且以 `| **合计** | **57** |` 的表格写法绕过了文档守卫。
+> 现按 **契约 v1.2 实况** 重写为 **21 组 / 98 键**。
+
 | 组 | 键数 | 说明 |
 |----|------|------|
-| subscription | 3 | 含 skip 项 |
-| spider | 4 | fallback / dual_mode 等 |
-| remote_source | 9 | manifest 相关 |
-| player | 7 | 播放行为 |
-| buffer | 6 | 缓冲参数 |
-| tmdb | 3 | 含 1 敏感键 |
-| danmaku | 3 | 弹幕 |
-| live_tv | 6 | MDTV 相关 |
-| one_platform | 5 | **4 个敏感键** |
-| quark_pg | 10 | 含 1 敏感键 |
-| welfare | 2 | 福利排序 |
-| debug | 4 | 调试 |
-| legacy_migration | 1 | **必须迁移** |
-| **合计** | **57** | |
+| `_group_subscription` | 3 | 含 skip 项 |
+| `_group_spider` | 4 | fallback / dual_mode 等 |
+| `_group_remote_source` | 9 | manifest 相关 |
+| `_group_player` | 4 | 播放行为 |
+| `_group_tmdb` | 3 | 含 1 敏感键 |
+| `_group_danmaku` | 2 | 弹幕 |
+| `_group_live_tv` | 6 | MDTV 相关 |
+| `_group_one_platform` | 5 | 含 **3** 敏感键 |
+| `_group_quark_pg` | 10 | 含 1 敏感键 |
+| `_group_welfare` | 2 | 福利排序 |
+| `_group_debug` | 4 | 调试 |
+| `_group_legacy_migration` | 1 | **必须迁移**（`vbox_sqlite_migration_done`） |
+| `_group_log` | 8 | 日志（v1.2 新增组） |
+| `_group_app_settings` | 4 | 应用设置（v1.2 新增组） |
+| `_group_welfare_ext` | 6 | 福利扩展（v1.2 新增组） |
+| `_group_live_ext` | 2 | 直播扩展（v1.2 新增组） |
+| `_group_music` | 2 | 音乐（v1.2 新增组） |
+| `_group_tg` | 3 | 电报（v1.2 新增组） |
+| `_group_push` | 1 | 推送（v1.2 新增组） |
+| `_group_pg_extra` | 2 | 凭据扩展（`credential_extra`，v1.2 新增组） |
+| `_group_cloud` | 17 | 云盘（含 2 keychain 键，v1.2 新增组） |
+| **合计** | **98** | **21 组** |
 
 **5 个敏感键**：`app_tmdb_proxy_token`、`one_platform_token`、`one_platform_userkey`、`one_platform_uuid`、`quark_device_id`
 
 **关键提醒**：`vbox_sqlite_migration_done` 必须迁移，否则 Flutter 首次启动会重复执行 UserDefaults→SQLite 迁移，导致数据重复。
+
+> **已知结构缺陷（v6.2 登记，待专项批次）**：契约 v1.2 的键对象有两种异构结构 ——
+> 前 12 组为 `{type, default, desc[, sensitive]}`，后 9 组为 `{type, storage, evidence, desc}`。
+> **D19「键须标注 `storage`」仅落实在 9/21 组**，前 12 组无 `storage`（`default` 亦仅前 12 组有）。
+> 修改契约真相源须同步 Dart 镜像与相关校验脚本，故本批次**仅登记不改**。
 
 ### C.4 待生成的契约产物
 
@@ -2138,25 +2170,28 @@ https://github.com/q2787244398/app/releases/latest/download/vbox.dmg          (m
 |----|----|
 | 操作 | vboxapp 清空 → 迁入 app 全部代码 |
 | 清空前 | 236 文件（TVS 逆向重建项目） |
-| 迁入后 | **481 文件** |
+| 迁入后 | **481 项**（全仓，含 `vbox/` 274 项） |
 | Commit | `bef4e9e` feat: migrate vbox iOS project |
 | 校验 | 文件列表 diff 一致 + 抽样 MD5 匹配 |
 | 源仓库影响 | **无**（app 保持原样） |
 
-**vboxapp 当前结构**：
+**vboxapp 当前结构**（v6.2 复核后计数）：
 ```
 vboxapp/
 ├── vbox/                        274 项  Swift 主工程（189 .swift）
 ├── quickjs/                      67 项  QuickJS 引擎
-├── .uploads/                     65 项  素材
-├── scripts/                      26 项  构建脚本
+├── .uploads/                     65 项  素材（不推送）
+├── scripts/                      34 项  构建/校验脚本（含 legacy/ 与 Crypto/）
 ├── remote-source-repo-template/  13 项  远程源模板
-├── .github/                      10 项  CI workflow
+├── .github/                      11 项  CI workflow
 ├── go-proxy/                      7 项  Go 代理
+├── lib/ test/ contract/ docs/          Flutter 多端代码与契约（v6 起）
 ├── Podfile / Podfile.lock
 ├── vbox.xcodeproj
-└── README.md / CHANGELOG.md / 修复说明.md（⚠️ 待归档，见 P.13 §4-7）
+└── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
+
+> 计数口径：`VBOX_PLAN_v6.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -2373,13 +2408,13 @@ vbox 是一个功能丰富的 iOS 聚合视频播放器，代码质量较高，�
 | Prefs 键名契约 | `minis://workspace/vbox-contract/schema/prefs_keys_v1.json` | ✅ |
 | 远程源仓库快照 | `/var/minis/workspace/vbox-api/` | ✅ |
 | 主仓库快照 | `/var/minis/workspace/app-repo/` | ✅ |
-| **唯一开发仓库 vboxapp** | `https://github.com/q2787244398/vboxapp` @ `bef4e9e` | ✅ 已迁移 481 文件 |
-| Spider ABI 规范 | `vbox-contract/docs/abi_v1.md` | ⏳ 待生成 |
-| 备份格式规范 | `vbox-contract/docs/backup_v1.md` | ⏳ 待生成 |
-| JSON Schema | `vbox-contract/schema/*_v1.json` | ⏳ 待生成 |
-| conformance fixtures | `vbox-contract/conformance/fixtures/` | ⏳ 待生成 |
-| **Bug 报告模板** | `vbox-contract/docs/bug_report_template.yaml` | ⏳ 待生成 |
-| **android-min-sdk21-compat.md** | `vbox_flutter/docs/` | ⏳ 待生成 |
+| **唯一开发仓库 vboxapp** | `https://github.com/q2787244398/vboxapp` @ `bef4e9e` | ✅ 已迁移（迁入时全仓 481 项） |
+| Spider ABI 规范 | `contract/docs/abi_v1.md` | ✅ |
+| 备份格式规范 | `contract/docs/backup_v1.md` | ✅ |
+| JSON Schema | `contract/schema/{site,welfare,manifest}_v1.json` | ✅ |
+| conformance fixtures | `conformance/fixtures/` | ✅（3 类样本） |
+| **Bug 报告模板** | `contract/docs/bug_report_template.yaml` | ✅ |
+| **android-min-sdk21-compat.md** | `contract/docs/android-compat.md` | ✅（命名与计划不符） |
 
 ### 3.7 下一步行动（AI 主导，可立即执行）
 
@@ -2641,7 +2676,7 @@ searchHistory / cloudCredentials（敏感，默认关闭）
 
 **RemoteSourcesSnapshot 特殊要求：**
 - `lxPlugins` 字段必须可选（旧备份无此字段 → 空字典）
-- 自定义 `init(from:)`/`encode(to:)` 需在 Dart 中用 `freezed` 的 `@JsonKey(includeIfNull: false)` 复刻
+- 自定义 `init(from:)`/`encode(to:)` 需在 Dart 手写模型中按 `includeIfNull: false` 语义复刻（D23：不引入 freezed 代码生成）
 
 ### 4.8 安全配置迁移（新增）
 
@@ -2895,7 +2930,7 @@ AliyunPlayer + IJK   ~30 MB
 | 文件 | 大小 | 状态 |
 |------|------|------|
 | `contract/schema/schema_v1.sql` | 5.9 KB | ✅ |
-| `contract/schema/prefs_keys_v1.json` | ⚠️ v1.1，**53 键（存疑，见 P.5）** | ⚠️ |
+| `contract/schema/prefs_keys_v1.json` | v1.2，**98 键 / 21 组** | ✅ |
 | `contract/docs/abi_v1.md` | 14.7 KB | ✅ |
 | `contract/docs/backup_v1.md` | 13.1 KB | ✅ |
 | `contract/schema/site_v1.json` | — | ✅ |
@@ -2953,8 +2988,9 @@ AliyunPlayer + IJK   ~30 MB
 ## 二之补八：实际开发进度追踪（2026-09-29 更新）
 
 > **本章由开发过程实时核验生成。**
-> 仓库：https://github.com/q2787244398/vboxapp · 465 文件
-> **⚠️ Flutter 代码均未经编译验证**（环境限制，见 P.7）
+> 仓库：https://github.com/q2787244398/vboxapp · **530 文件**（v6.2 复核计数，`git ls-files`）
+> **⚠️ 本机（aarch64）无 Flutter SDK**（见 P.7）；Dart 代码的编译 / 静态 / 单测验证
+> 已由 GitHub Actions `flutter-check.yml` 承接（`analyze` 0 issues · 143 用例）。
 
 ### P.1 总体进度
 
@@ -3078,6 +3114,7 @@ lib/
 
 ### P.6 键数口径澄清（原 4 处矛盾）
 
+<!-- docs-guard:history -->
 | 出处 | 键数 | 说明 |
 |------|------|------|
 | 方案文档 | 57 | ❌ 初版估计值 |
@@ -3085,6 +3122,7 @@ lib/
 | 契约 v1.1 | 53 | ❌ 移除误抓键后，但漏 45 个 |
 | **契约 v1.2（现行）** | **98** | ✅ 经双向校验，与 iOS 源码一致 |
 | iOS 源码实测 | 98 | ✅ 权威基准 |
+<!-- /docs-guard:history -->
 
 > **结论**：以 **iOS 源码实测 98 键** 为唯一基准。
 
@@ -3227,7 +3265,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 
 #### ③ TODO 登记 ✅
 
-`lib/app.dart:84` 改为可追踪格式 `TODO(D21/stage-1)`，并在 `附录 C`
+`lib/app.dart:84` 改为可追踪格式 `TODO(G-01/stage-1)`，并在 `附录 C`
 登记为 **G-01**（含影响、阻塞原因、解除条件）。
 
 #### ④ 决策记录追加 ✅
@@ -3493,8 +3531,8 @@ conformance **45/45** · iOS IPA 构建链路成功。
 |---|----------|------|------|
 | 1 | 🔴 高 | 主方案 §2.2/§2.4/§2.8/C.1 残留 4 处陈旧「57 键」，且被守护脚本弱标记整行豁免 | ✅ v6.1 已修正（见 P.11 补丁） |
 | 2 | 🟡 中 | `check_docs_consistency.py` 文档串写「脚本数须为 8 或 9」，实为 10；且该项检查仅告警不失败 | ✅ v6.1 已改（硬失败 + 动态口径） |
-| 3 | 🟡 中 | §6.3 交付物清单仍写 `prefs_keys_v1.json ⚠️ v1.1，53 键（存疑）` | 待下一轮统一 |
-| 4 | 🟢 低 | `scripts/merge_docs_v5.py` 仍以 v5 命名/引用，文档更名未清干净 | 待清理 |
+| 3 | 🟡 中 | §6.3 交付物清单仍写 `prefs_keys_v1.json ⚠️ v1.1，53 键（存疑）` | ✅ v6.2 已改为「v1.2，98 键 / 21 组」 |
+| 4 | 🟢 低 | `scripts/merge_docs_v5.py` 仍以 v5 命名/引用，文档更名未清干净 | ✅ v6.2 已归档至 `scripts/legacy/`（一次性破坏性脚本，避免误跑改写主文档） |
 
 #### 2. 方案 ↔ 实现偏离（未协调，4 项）
 
@@ -3548,6 +3586,67 @@ conformance **45/45** · iOS IPA 构建链路成功。
 > **复核结论**：P.13 的 15 项 + P.14 的 22 项 = **共 37 项**。本轮（v6.1）关闭 **11 项**，
 > 余 **26 项**中 5 项 🔴 直接卡 E.10b 门禁（repositories / 平台壳 / 覆盖率 / 5 引擎 / 4 播放器），
 > 4 项属安全合规（须专项评估）。**第 1 轮仍不得标记完成。**
+
+---
+
+### P.15 三轮独立复核（v6.2 新增）
+
+> **触发**：对 v6.1「守卫 0 漂移」结论的再次独立验证。
+> **方法**：逐层实测（`git ls-files` 点算 / 全脚本实跑 / 逐节比对方案与实况）。
+> **结果**：**又发现 12 项**（P.13+P.14 完全未覆盖），本轮全部处置或登记。
+
+#### 1. 文档守卫「格式逃逸」（v6.1 声称已清零，实为未清）
+
+| # | severity | 问题 | 证据 | 处置 |
+|---|----------|------|------|------|
+| 1 | 🔴 高 | **§C.3 整节仍是 v1.0 口径 14 组 / 57 键**（含已不存在的 `buffer` 组），与同页 §C.1「98 键」矛盾 | `VBOX_PLAN_v6.md` §C.3 原表；守卫因合计写成 `\| **合计** \| **57** \|`（数字后无「键」字）而漏检 | ✅ 已按契约实况重写为 21 组 / 98 键 |
+| 2 | 🔴 高 | 守卫的键数规则要求数字**紧邻「键」字**，表格 / 加粗 / 合计写法可逃逸 | `check_docs_consistency.py` 原 `(\d+)\s*键` | ✅ 新增「表格单元格 / 加粗 / 合计」三种包裹形式检测（`INLINE_COUNT_PATTERNS`） |
+| 3 | 🟡 中 | 文件数口径漂移：`vbox/` 被 2 处写 **481 文件**（实为 **274**）；仓库总数写 **465**（实为 **530**）；§R.2 `scripts 26→34`、`.github 10→11` | `git ls-files` 实测 | ✅ 已逐处对齐 |
+| 4 | 🟡 中 | §3.6 交付物清单仍标 ABI / 备份 / JSON Schema / fixtures / bug_report 「⏳ 待生成」，实则全部已交付 | `contract/` 实况 | ✅ 已改为 ✅ |
+| 5 | 🟡 中 | 源码注释引用已删除文档：`app.dart:8` 写「唯一真相源：`docs/PROJECT_LAYOUT.md`」（v5 已删） | 源码扫描 | ✅ 已修正；守卫新增 **Dart 源码扫描** |
+| 6 | 🟢 低 | `P.7` 之后多处仍称「Flutter 代码未经编译验证」，与 `flutter-check.yml` 已生效矛盾 | P 章头 | ✅ 已更正 |
+
+#### 2. 方案 ↔ 实现（v6.1 D21–D23 未清干净）
+
+| # | severity | 问题 | 证据 | 处置 |
+|---|----------|------|------|------|
+| 7 | 🔴 高 | **形态判定三处口径互不一致**：§2.4 / §T.1（平台通道）/ 实现（参数化 + 常量）各不相同；实现 `resolve()` 参数**无调用方**、注释提及的 `ui_tv_mode` **不在契约 98 键内** → 真机 Android TV 判为 `phone` | `ui_mode_resolver.dart` · `app.dart:71` | ✅ 已统一口径（§2.4 加注 + 实现注释改为「占位」） |
+| 8 | 🟡 中 | `freezed` 残留 3 处（§A.7 表 / §2.4 目录树 / §4.7）未随 D23 清除 | 全文扫描 | ✅ 已改为「手写模型」 |
+| 9 | 🟡 中 | `TODO(D21/stage-1)` 决策号语义碰撞 —— v6.1 把 **D21 占用为「provider」**，该 TODO 实指 **G-01** | `app.dart:84` | ✅ 改为 `TODO(G-01/stage-1)` |
+
+#### 3. 质量基线
+
+| # | severity | 问题 | 证据 | 处置 |
+|---|----------|------|------|------|
+| 10 | 🟡 中 | **高风险层 Dart 侧零单测**：`lib/contract/*`（98 键镜像 / 9 表 DDL）、`lib/data/datasources/local/*`（db / prefs / **backup**）、`lib/data/models/*`（9 模型）、`lib/presentation/ui_mode` 均无任何 Dart 测试 | `test/` 清点（143 用例全部集中在 core/utils + remote + usecases） | ⬜ 登记待办（见 §4-4 类；E.10b ⑤ 覆盖率不可判之深层原因） |
+
+#### 4. 契约真相源（P.13/P.14 完全空白）
+
+| # | severity | 问题 | 证据 | 处置 |
+|---|----------|------|------|------|
+| 11 | 🟡 中 | **契约 v1.2 键对象异构**：前 12 组为 `{type, default, desc[, sensitive]}`，后 9 组为 `{type, storage, evidence, desc}` —— **D19「键须标注 storage」仅落实 9/21 组** | `prefs_keys_v1.json` 逐组解析 | ⬜ 仅登记（改真相源须同步 Dart 镜像与校验脚本，留专项批次） |
+
+#### 5. 工程卫生
+
+| # | severity | 问题 | 处置 |
+|---|----------|------|------|
+| 12 | 🟢 低 | `README.md` 仍为「iOS 聚合视频播放器」，未反映 D14 多端唯一仓库；CI `flutter-check.yml` 注释过期（9 脚本 / 30 文件 / test 为空） | ✅ README 补多端说明；CI 注释对齐（10 脚本 / 69 文件 / 143 用例） |
+
+#### 6. 本轮（v6.2）处置小结
+
+| 类别 | 处置 | 状态 |
+|------|------|------|
+| 守卫加固 | 新增表格/加粗/合计数值检测 + Dart 源码失效引用扫描 + 「取代」历史词 | ✅ |
+| 文档修正 | §C.3 重写 / §6.3 / §3.6 / 文件数 / freezed 残留 / P.6 加块级历史标记 | ✅ |
+| 口径统一 | §2.4↔T.1↔实现（形态判定）；TODO 改指 G-01 | ✅ |
+| 工程卫生 | README / CI 注释；`merge_docs_v5.py` → `scripts/legacy/` | ✅ |
+| 登记待办 | 高风险层零单测（#10）、契约 storage 异构（#11） | ⬜ |
+
+> **结论**：v6.1 的「守卫 0 漂移」并不成立 —— §C.3 以格式化写法长期逃逸。
+> v6.2 已堵住该向量并修正全部可离线处置项；**第 1 轮仍不得标记完成**（门禁项未变）。
+
+> **教训（二次）**：守卫一旦以「字面邻接」判数值，就会被**格式化**绕过。
+> 断言须覆盖同一事实的多种书写形式（表格 / 加粗 / 合计 / 单位后缀）。
 
 ---
 
@@ -3634,7 +3733,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 
 ```
 vboxapp/
-├── vbox/                       iOS 现有代码（Swift / SwiftUI，481 文件）
+├── vbox/                       iOS 现有代码（Swift / SwiftUI，274 文件 / 189 .swift）
 │                               └─ 契约来源；后续 iOS 改动亦在此进行（D16）
 ├── lib/                        Flutter 三端共享 Dart 代码
 ├── pubspec.yaml                Flutter 工程清单（依赖已对齐契约）
@@ -3744,7 +3843,7 @@ lib/
 
 | 项 | 内容 |
 |----|------|
-| 代码位置 | `lib/app.dart:84`（`TODO(D21/stage-1)`） |
+| 代码位置 | `lib/app.dart:84`（`TODO(G-01/stage-1)`） |
 | 影响 | 应用无法呈现实际界面，仅有占位 Scaffold |
 | 阻塞原因 | 需 Flutter SDK 编译验证（见 G-07） |
 | 解除条件 | `lib/presentation/{phone,tv,desktop}/` 布局交付 |
@@ -3806,7 +3905,7 @@ lib/
 
 | 项 | 内容 |
 |----|------|
-| 现状 | ✅ `vbox/` 目录 481 文件完好，未被破坏 |
+| 现状 | ✅ `vbox/` 目录 **274 文件**（189 .swift）完好，未被破坏 |
 | 说明 | 零改造原则（D1）已遵守 |
 
 ## G-07 Flutter SDK 无法在本机运行 ✅ 已解决（2026-09-29）

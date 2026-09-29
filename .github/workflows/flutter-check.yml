@@ -2,7 +2,7 @@
 #
 # 背景：本机 iSH aarch64 无法运行 Flutter（官方 Linux 包仅 x86-64），
 # 所有 Dart 代码未经编译验证。本 workflow 在 GitHub Actions 上补齐验证闭环：
-#   1. contract-checks   9 个 Python 校验脚本 + conformance runner（ubuntu）
+#   1. contract-checks   10 个 Python 校验脚本 + conformance runner（ubuntu）
 #   2. flutter-analyze   flutter analyze + flutter test（macos-15）
 #
 # 对应主文档：docs/VBOX_PLAN_v6.md P.7（环境约束）/ P.10（未决事项 #5）
@@ -66,7 +66,7 @@ jobs:
       - name: Run conformance runner (45 checks)
         run: python3 conformance/runner/run_conformance.py
 
-  # ── Flutter 编译验证（首次让 30 个 Dart 文件真正被检查）─────
+  # ── Flutter 编译验证（对全部 Dart 文件（当前 69 个）做编译器级静态检查）─────
   flutter-analyze:
     runs-on: macos-15
     timeout-minutes: 45
@@ -88,11 +88,11 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
-      # 单测：当前 test/ 为空（G-05），有测试后自动生效
+      # 单测：当前 12 文件 / 143 用例（覆盖率门槛待接入，见 P.13 §4-3）
       - name: Test (when present)
         run: |
           if [ -d test ] && find test -name '*.dart' 2>/dev/null | grep -q .; then
             flutter test
           else
-            echo "test/ 尚不存在（KNOWN_GAPS G-05），跳过"
+            echo "test/ 无用例，跳过"
           fi

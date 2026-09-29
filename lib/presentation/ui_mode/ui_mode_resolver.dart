@@ -1,11 +1,17 @@
 /// 形态判定（UI Mode Resolver）。
 ///
-/// 唯一真相源：方案 §2.4（⭐ 形态判定）+ T.1「三重判定，优先级递减」
+/// ⚠️ **占位实现**：权威设计口径见方案 §T.1（Android 侧经平台通道
+/// `getUiModeType` / `hasLeanbackFeature` / `hasTouchscreen` 三重判定；
+/// 桌面端为编译期常量）。本文件当前**未调用任何平台通道**，
+/// [UiModeController.resolve] 的 `screenSize/hasTouch/hasRemote` 参数
+/// 尚无调用方提供（见 app.dart），故真机 Android TV 现状会落到 `phone`。
+/// 接线须等 `platform/system` 的 `SystemPlugin` 落地。
 ///
-/// 三重判定优先级（对齐方案 T.1）：
-///   ① 用户显式偏好（Prefs: ui_tv_mode）—— 最高
-///   ② 系统/设备特征（屏幕尺寸、遥控器、触屏）
-///   ③ 编译期平台常量（desktop/mobile）
+/// 判定优先级（目标态，对齐方案 T.1）：
+///   ① 系统 UI Mode（Android 官方标准，经平台通道）
+///   ② PackageManager 设备特征（Leanback / 触屏）
+///   ③ 屏幕尺寸 + 输入设备（山寨盒子 ROM 兜底）
+///   ④ 编译期平台常量（桌面端）
 library;
 
 import 'package:flutter/foundation.dart';
@@ -52,7 +58,7 @@ class UiModeController extends ChangeNotifier {
     bool? hasRemote,
     bool? userPrefersTv,
   }) {
-    // ① 用户显式偏好（最高优先级）
+    // ① 用户显式偏好（由调用方注入；目标态来自设置项，非契约 prefs 键）
     if (userPrefersTv == true) return UiMode.tv;
 
     // ③ 编译期平台常量（桌面端）

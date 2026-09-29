@@ -5,7 +5,7 @@
 /// - 形态判定（手机 / TV / 桌面）→ 选择对应 UI 布局
 /// - 全局 Provider 注入
 ///
-/// 唯一真相源：`docs/PROJECT_LAYOUT.md` + 方案 §2.4
+/// 唯一真相源：方案 §2.4（目录结构落地快照见附录 B）
 library;
 
 import 'package:flutter/material.dart';
@@ -81,7 +81,7 @@ class _RootRouter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final UiModeController mode = context.watch<UiModeController>();
-    // TODO(D21/stage-1): 接入 presentation/{phone,tv,desktop} 三套布局
+    // TODO(G-01/stage-1): 接入 presentation/{phone,tv,desktop} 三套布局
     //   登记于 docs/VBOX_PLAN_v6.md 附录 C（缺口登记表），阻塞项：UI 三形态未实现
     //   解除条件：presentation 层布局文件交付
     return MaterialApp(

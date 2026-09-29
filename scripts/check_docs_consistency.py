@@ -9,10 +9,15 @@
   · 校验脚本数量 6 / 8 / 9 并存
 
 本脚本把「文档漂移」转为可自动检测，规则如下：
-  1. 现行键数/组数必须与契约唯一真相源一致（历史提及须带历史标记）
+  1. 现行键数/组数必须与契约唯一真相源一致（含表格/加粗/合计三种写法，v6.2 起）
   2. 校验脚本数量必须与 scripts/ 目录实际数量一致（含 conformance runner 时 +1）
-  3. 不得引用已删除的旧路径（除非该行带历史标记）
-  4. 关键文档（唯一主方案文档）必须存在
+  3. 不得引用已删除的旧路径或已并入的附属文档（PROJECT_LAYOUT/PROGRESS/KNOWN_GAPS）
+  4. 源码（`lib/**/*.dart`）注释不得引用已删除文档 / 失效路径（v6.2 新增）
+  5. 关键文档（唯一主方案文档）必须存在
+
+v6.2 补丁：v6.1 的键数规则要求数字紧邻「键」字，§C.3 把合计写成
+``| **合计** | **57** |``（数字后是竖线），整节 57 键 / 14 组得以绕过检测。
+现按「表格单元格 / 加粗 / 合计」三种包裹形式识别数值，堵住该格式化逃逸。
 
 历史豁免的两种显式方式（二者取一，禁止靠模糊措辞自我豁免）：
   · 行内强标记：v1.0/v1.1/v1.2、修订、历史、误抓、已删除、废弃、→ 等
@@ -42,6 +47,7 @@ HISTORY_MARKS = (
     "未修复", "bug", "缺陷", "教训", "误报", "故障",
     "遗漏", "冗余",
     "陈旧", "仍写", "仍列", "过时", "已删除", "同类", "失效",
+    "取代",  # v6.2：历史对比用词（如 D18「取代中途生成的 PROJECT_LAYOUT.md」）
 )
 
 # 块级历史标记：两行之间的整块豁免「数值规则」（已删除路径规则仍生效）
@@ -63,7 +69,24 @@ DEAD_PATHS = (
     "lib/domain/player/player.dart",
 )
 
+# v5 并入本方案后已删除的附属文档：不得作为「现行真相源」引用。
+# v6.2 新增：此前 app.dart 注释仍写「唯一真相源：docs/PROJECT_LAYOUT.md」，
+#           而守卫只扫 *.md，源码注释里的失效引用完全失控。
+DEAD_DOCS = ("PROJECT_LAYOUT.md", "PROGRESS.md", "KNOWN_GAPS.md")
+
 DOC_GLOBS = ("docs/*.md", "contract/docs/*.md", "*.md")
+
+# 源码目录：其中注释引用的失效路径/文档同样纳管（v6.2 新增）
+DART_GLOBS = ("lib/**/*.dart",)
+
+# 数值的「表格 / 加粗 / 合计」写法（v6.2 新增，堵 §C.3 式逃逸）：
+#   旧漏洞：C.3 的合计写成 `| **合计** | **57** |`，数字后无「键」字，
+#   得以绕过 `(\d+)\s*键` 规则；本组正则按「数值被表格/加粗/合计包裹」识别。
+INLINE_COUNT_PATTERNS = (
+    r"\*\*(\d{2,3})\*\*",                          # **57**
+    r"\|\s*(\d{2,3})\s*\|",                        # | 57 |
+    r"(?:合计|总计|共)\s*[:：]?\s*\*{0,2}(\d{2,3})",  # 合计 57
+)
 
 # 历史记录类文档（修订说明/变更日志）：其数值描述的是当时状态，整体豁免数值规则
 HISTORICAL_DOC_PAT = re.compile(r"(revision|history|changelog|修订|历史)", re.I)
@@ -134,10 +157,18 @@ def main() -> int:
                         print(f"  ❌ {rel}:{i} 陈旧组数 {n}（现行 {groups}）")
                         print(f"      {line.strip()[:100]}")
                         errors += 1
-            # 旧路径
-            for old in DEAD_PATHS:
+            # 数值的表格 / 加粗 / 合计写法（v6.2：堵 §C.3 式「无键字」逃逸）
+            for pat in INLINE_COUNT_PATTERNS:
+                for m in re.finditer(pat, line):
+                    n = int(m.group(1))
+                    if n in STALE_KEY_COUNTS and not is_comparative(line, keys):
+                        print(f"  ❌ {rel}:{i} 陈旧键数（表格写法）{n}（现行 {keys}）")
+                        print(f"      {line.strip()[:100]}")
+                        errors += 1
+            # 旧路径 / 已删除文档
+            for old in DEAD_PATHS + DEAD_DOCS:
                 if old in line and not is_comparative(line, keys):
-                    print(f"  ❌ {rel}:{i} 引用已失效路径 {old}")
+                    print(f"  ❌ {rel}:{i} 引用已失效路径/文档 {old}")
                     print(f"      {line.strip()[:100]}")
                     errors += 1
 
@@ -174,7 +205,19 @@ def main() -> int:
                     print(f"      {line.strip()[:100]}")
                     errors += 1
 
-    # 4：关键文档存在
+    # 4：源码注释不得引用已删除文档 / 失效路径（v6.2 新增）
+    print()
+    for g in DART_GLOBS:
+        for p in sorted(ROOT.glob(g)):
+            rel = p.relative_to(ROOT)
+            for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                for bad in DEAD_DOCS + DEAD_PATHS:
+                    if bad in line:
+                        print(f"  ❌ {rel}:{i} 源码引用已失效路径/文档 {bad}")
+                        print(f"      {line.strip()[:100]}")
+                        errors += 1
+
+    # 5：关键文档存在
     print()
     for req in ("docs/VBOX_PLAN_v6.md",):
         ok = (ROOT / req).exists()
