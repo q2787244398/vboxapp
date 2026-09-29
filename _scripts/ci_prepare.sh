@@ -26,7 +26,11 @@ cd "${APP_DIR}"
 #   android -> packages/node_bridge/android/libnode/{include,bin/<abi>/libnode.so}
 #   ios     -> packages/node_bridge/ios/Frameworks/NodeMobile.xcframework
 # 这两个目录体积很大（合计约 353MB），不入库，由脚本在 CI 上下载。
-if [ "${PLATFORM}" = "android" ] || [ "${PLATFORM}" = "ios" ] || [ "${PLATFORM}" = "macos" ]; then
+#
+# 注意：macOS 不在其中 —— node_bridge 插件只声明了 android/ios 两个平台，
+# 且 nodejs-mobile 官方未提供 macOS 产物（其 xcframework 只有 ios-arm64 与
+# ios-arm64_x86_64-simulator 两个切片）。macOS 上引擎不可用，但构建照常通过。
+if [ "${PLATFORM}" = "android" ] || [ "${PLATFORM}" = "ios" ]; then
   echo "==> 准备 nodejs-mobile 运行时"
   bash "${HERE}/fetch_node_runtime.sh" "${PLATFORM}" || {
     echo "!! 运行时下载失败，${PLATFORM} 将缺少 Node 引擎"
