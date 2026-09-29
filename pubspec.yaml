@@ -1,0 +1,54 @@
+name: vbox
+description: VBox 多端聚合视频播放器（Android / Android TV / Windows / macOS）
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── 状态与路由 ──
+  provider: ^6.1.2
+
+  # ── 数据库（对齐 contract/schema/schema_v1.sql）──
+  sqflite: ^2.3.3
+  sqflite_common_ffi: ^2.3.3        # Windows / macOS 桌面端
+
+  # ── 偏好存储（对齐 contract/schema/prefs_keys_v1.json）──
+  shared_preferences: ^2.3.2
+  flutter_secure_storage: ^9.2.2     # 5 个敏感键（凭据类）
+
+  # ── 备份加密（对齐 contract/docs/backup_v1.md）──
+  # AES-256-GCM + PBKDF2-HMAC-SHA256, iter=100000, salt=16B, iv=12B, tag=16B
+  cryptography: ^2.7.0
+
+  # ── 网络 ──
+  http: ^1.2.2
+  dio: ^5.7.0
+
+  # ── 文件与路径 ──
+  path: ^1.9.0
+  path_provider: ^2.1.4
+
+  # ── 脚本运行时（Phase 2+，先占位）──
+  # quickjs_dart 通过 FFI 绑定 vboxapp/quickjs
+  ffi: ^2.1.3
+
+  # ── 工具 ──
+  crypto: ^3.0.5                     # SHA-256 等
+  intl: ^0.19.0
+  collection: ^1.18.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  test: ^1.25.8
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
