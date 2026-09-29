@@ -8,7 +8,7 @@
   4. urls 回填规则：urls ?? (url 非空 ? [url] : null)
   5. 错误前缀检测（Error/TypeError/ReferenceError/SyntaxError）
   6. 注册检测（typeof __JS_SPIDER__ == object）
-  7. 编码规范化映射表（契约 §4.2）
+  7. 编码规范化映射表（契约 §4.2，实现在 lib/core/utils/charset.dart）
   8. HTTP 默认超时 15s
 """
 from __future__ import annotations
@@ -28,6 +28,8 @@ def main() -> int:
     sm = (SP / "spider_models.dart").read_text()
     se = (SP / "spider_engine.dart").read_text()
     hb = (SP / "http_bridge.dart").read_text()
+    # 契约 §4.2 编码逻辑已上移核心层（http_bridge 仅 re-export）
+    cs = (ROOT / "lib/core/utils/charset.dart").read_text()
 
     print("== 1. 引擎类型 rawValue ==")
     for name, raw in [
@@ -152,10 +154,17 @@ def main() -> int:
         ("'iso-8859-1' || 'latin1' || 'latin-1'", "Latin1 3 变体"),
     ]
     for frag, desc in checks:
-        if frag.replace('"', "'") in hb.replace('"', "'"):
+        if frag.replace('"', "'") in cs.replace('"', "'"):
             print(f"  ✅ {desc}")
         else:
-            print(f"  ⚠️ {desc} 写法不同（人工确认）")
+            print(f"  ❌ {desc} 未在 lib/core/utils/charset.dart 找到")
+            errors += 1
+
+    if "core/utils/charset.dart" in hb and "core/network/http_body_decoder.dart" in hb:
+        print("  ✅ http_bridge 已委托核心层（无逻辑双份）")
+    else:
+        print("  ❌ http_bridge 未委托核心层，编码逻辑有双份漂移风险")
+        errors += 1
 
     print("== 8. HTTP 默认超时 15s ==")
     if re.search(r"defaultTimeout\s*=\s*15", hb):
