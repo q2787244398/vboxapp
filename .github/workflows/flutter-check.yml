@@ -1,0 +1,95 @@
+# Flutter 编译验证 + 契约校验（解锁 G-05/G-07/G-08）
+#
+# 背景：本机 iSH aarch64 无法运行 Flutter（官方 Linux 包仅 x86-64），
+# 所有 Dart 代码未经编译验证。本 workflow 在 GitHub Actions 上补齐验证闭环：
+#   1. contract-checks   9 个 Python 校验脚本 + conformance runner（ubuntu）
+#   2. flutter-analyze   flutter analyze + flutter test（macos-15）
+#
+# 对应主文档：docs/VBOX_PLAN_v5.md P.7（环境约束）/ P.10（未决事项 #5）
+name: Flutter Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - 'contract/**'
+      - 'conformance/**'
+      - 'scripts/check_*.py'
+      - '.github/workflows/flutter-check.yml'
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - 'contract/**'
+      - 'conformance/**'
+      - 'scripts/check_*.py'
+      - '.github/workflows/flutter-check.yml'
+
+jobs:
+  # ── 契约与一致性校验（纯 Python，不需要 Flutter）──────────────
+  contract-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install crypto deps
+        run: pip install cryptography
+
+      - name: Run 9 contract checks
+        run: |
+          set -e
+          for s in check_contract_sync \
+                   check_contract_completeness \
+                   check_migration_chain \
+                   check_models_roundtrip \
+                   check_prefs_manager \
+                   check_backup_contract \
+                   check_spider_domain \
+                   check_domain_remote_player \
+                   check_docs_consistency; do
+            echo "===== $s ====="
+            python3 scripts/$s.py
+          done
+
+      - name: Run conformance runner (45 checks)
+        run: python3 conformance/runner/run_conformance.py
+
+  # ── Flutter 编译验证（首次让 30 个 Dart 文件真正被检查）─────
+  flutter-analyze:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5" # 与本地已验证可解析的发行版一致
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Pub get
+        run: flutter pub get
+
+      # 关键步骤：首次对全部 Dart 代码做编译器级静态检查
+      - name: Analyze
+        run: flutter analyze
+
+      # 单测：当前 test/ 为空（G-05），有测试后自动生效
+      - name: Test (when present)
+        run: |
+          if [ -d test ] && find test -name '*.dart' 2>/dev/null | grep -q .; then
+            flutter test
+          else
+            echo "test/ 尚不存在（KNOWN_GAPS G-05），跳过"
+          fi
