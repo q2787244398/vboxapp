@@ -5,7 +5,7 @@
 #   1. contract-checks   9 个 Python 校验脚本 + conformance runner（ubuntu）
 #   2. flutter-analyze   flutter analyze + flutter test（macos-15）
 #
-# 对应主文档：docs/VBOX_PLAN_v5.md P.7（环境约束）/ P.10（未决事项 #5）
+# 对应主文档：docs/VBOX_PLAN_v6.md P.7（环境约束）/ P.10（未决事项 #5）
 name: Flutter Check
 
 on:

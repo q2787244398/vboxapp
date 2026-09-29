@@ -7,8 +7,10 @@
   docs/PROJECT_LAYOUT.md  → 附录 B（目录结构）
   docs/KNOWN_GAPS.md      → 附录 C（缺口登记表）
 
-产出：docs/VBOX_PLAN_v5.md
+产出：docs/VBOX_PLAN_v6.md
 """
+# 说明：本脚本为 v5 期一次性合并工具（历史留存）；产出目标已随文档
+# 更名更新为 v6，实际内容由后续增量编辑维护。
 from __future__ import annotations
 
 import pathlib
@@ -168,7 +170,7 @@ def main() -> int:
         if n > 0:
             print(f"⚠️  仍引用已删文件名 {bad} ×{n}")
 
-    dst = DOCS / "VBOX_PLAN_v5.md"
+    dst = DOCS / "VBOX_PLAN_v6.md"
     dst.write_text(out, encoding="utf-8")
     print(f"✅ 已生成 {dst.relative_to(ROOT)}（{len(out)} 字符 / {out.count(chr(10))+1} 行）")
     return 0

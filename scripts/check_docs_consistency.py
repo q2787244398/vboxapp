@@ -150,7 +150,7 @@ def main() -> int:
 
     # 4：关键文档存在
     print()
-    for req in ("docs/VBOX_PLAN_v5.md",):
+    for req in ("docs/VBOX_PLAN_v6.md",):
         ok = (ROOT / req).exists()
         print(f"  {'✅' if ok else '❌'} {req} 存在")
         if not ok:

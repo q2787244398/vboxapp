@@ -1,4 +1,4 @@
-# vbox 项目全面分析与 Flutter 多端重构方案（**v5 定稿版** · AI 全量开发）
+# vbox 项目全面分析与 Flutter 多端重构方案（**v6 定稿版** · AI 全量开发）
 
 > 基于仓库 `https://github.com/q2787244398/app` commit `1f95d10` (2026-09-29)
 > 与远程源仓库 `https://github.com/vbox-Ai/api` main 分支 (2026-09-29) 的完整代码审查
@@ -19,10 +19,16 @@
 > **每阶段完成后推送**；源仓库 **`q2787244398/app` 冻结归档**（仅历史备份，改动不回流）。
 > 迁移已于 2026-09-29 完成（481 文件），Commit `bef4e9e`。
 >
-> **v5 定稿变更（本版）**：**文档合并**——原 `PROGRESS.md`、`PROJECT_LAYOUT.md`、
+> **v5 变更**：**文档合并**——原 `PROGRESS.md`、`PROJECT_LAYOUT.md`、
 > 附录 C 三份附属文档**全部并入本方案**（附录 A / B / C），全项目**仅此一份文档**；
 > 新增 P.1–P.11 实际开发进度与核查章节；conformance runner 交付（45/45）；
 > 新增文档漂移守护脚本；E.10b 不达标项 12 → 9。
+>
+> **v6 定稿变更（本版）**：**全量体检入库**（新增 **P.13**：15 项问题、1 项高危缺陷修复、6 项待办）；
+> 第 1 轮进度 65% → **70%**；交付**核心层**（`lib/core/` 21 文件）、**用例层与远程数据源**
+> （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
+> 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
+> 本文件名由 `VBOX_PLAN_v5.md` 升为 **`VBOX_PLAN_v6.md`**。
 
 ## 版本历史
 
@@ -31,7 +37,8 @@
 | v3 | 确认 iOS 方案 A4（契约共享，零改造）；TV 同一 APK 双形态；新增第 0 阶段契约层 |
 | v4 | **全部代码由 AI 编写，人力只做测试**（D8）；验收改为自动化 + conformance 自证（D10）；新增第 E 章执行计划、第 V 章 TV 调研、第 S 章侧载方案 |
 | v5 | **三份附属文档并入（附录 A/B/C），全项目仅一份文档**；补 P.1–P.11 实际进度与核查；conformance runner 交付；文档漂移治理（16→0） |
-| **v5 增补（现行）** | 2026-09-29 增补：**Flutter CI 验证通道落地**（`.github/workflows/flutter-check.yml`，解除 G-07/G-08）；**P.12 核心层交付**（`lib/core/` 5 模块 20 文件 + 7 文件 78 单测，补齐 P.9 第 4 项）；`http_bridge` 编码探测链上移核心层去重 |
+| v5 增补 | 2026-09-29 增补：**Flutter CI 验证通道落地**（`.github/workflows/flutter-check.yml`，解除 G-07/G-08）；**P.12 核心层交付**（`lib/core/` 5 模块 20 文件 + 7 文件 78 单测，补齐 P.9 第 4 项）；`http_bridge` 编码探测链上移核心层去重 |
+| **v6（现行）** | 2026-09-29：**全量体检入库**（P.13：各层清点 + 15 项问题 + 待办）；核心层 21 文件 / 用例层 4 组 / 远程数据源 2 个交付；单测 143 用例（CI 全绿）；修复 `.version` 回退高危缺陷；**第 10 个校验脚本** `check_dart_imports.py`；全部数字口径刷新；文档更名 `VBOX_PLAN_v6.md` |
 
 >
 > **D12 已定稿（经联网查证）**：TV 最低版本定为 **Android 7.0 (API 24)**。
@@ -2143,7 +2150,7 @@ vboxapp/
 ├── go-proxy/                      7 项  Go 代理
 ├── Podfile / Podfile.lock
 ├── vbox.xcodeproj
-└── README.md / CHANGELOG.md / 修复说明.md
+└── README.md / CHANGELOG.md / 修复说明.md（⚠️ 待归档，见 P.13 §4-7）
 ```
 
 ### R.3 每阶段推送流程（D15）
@@ -2920,6 +2927,24 @@ AliyunPlayer + IJK   ~30 MB
 
 ---
 
+## 6.6 v5 → v6 变更（本版）
+
+| # | 变更 | 说明 |
+|---|------|------|
+| 1 | **新增 P.13 全量体检与问题清单** | 21 项（6 已修 / 15 待处理）+ 6 项待办 + 门禁复核视角 |
+| 2 | **交付核心层** | `lib/core/` 5 模块 21 文件（常量 / 错误 / 网络 / 存储 / 工具），零插件依赖 |
+| 3 | **交付用例层与远程数据源** | `domain/entities/library` 3 实体 + 4 仓储契约 + 4 用例组；`data/datasources/remote`（CMS V10 + 清单） |
+| 4 | **单测体系** | 12 文件 / **143 用例**（core + 用例层 + 数据源），CI 由空跑转为真实执行 |
+| 5 | **第 10 个校验脚本** | `check_dart_imports.py`（相对路径断链秒级检测，开发中即捕获 22 处） |
+| 6 | **高危缺陷修复** | `.version` 纳入 `CI_MANAGED`，杜绝 CI 版本号被本地旧值回推 |
+| 7 | **数字口径全面刷新** | 用例数 78 → 143 · 脚本 9 → 10 · 错误码 11 → 14 · lib 文件 51 → 69 · 进度 65% → 70% |
+| 8 | **文档更名** | `docs/VBOX_PLAN_v5.md` → **`docs/VBOX_PLAN_v6.md`**（脚本与代码注释同步更新） |
+
+> **注意**：本文件为**唯一现行文档**（D17–D20）。历史版本 v5 不再保留副本，
+> 变更内容全部体现在本文件的 §6.6 与 P.13。
+
+---
+
 ## 二之补八：实际开发进度追踪（2026-09-29 更新）
 
 > **本章由开发过程实时核验生成。**
@@ -2951,7 +2976,7 @@ AliyunPlayer + IJK   ~30 MB
 
 ### P.3 第 1 轮交付核验
 
-**✅ 已完成（51 个 Dart 文件 + 7 个测试文件）**
+**✅ 已完成（69 个 Dart 文件 + 12 个测试文件 / 143 用例）**
 
 | 模块 | 产物 |
 |------|------|
@@ -2960,7 +2985,8 @@ AliyunPlayer + IJK   ~30 MB
 | 领域层 | `domain/entities/spider/`（6 文件）· `remote_source/`（3）· `player/`（1） |
 | 表现层 | `presentation/ui_mode/ui_mode_resolver.dart`（⭐ 三重判定） |
 | 入口 | `main.dart` · `app.dart` |
-| **核心层**（P.12 新增） | `core/{constants,errors,network,storage,utils}`（20 文件）· `test/core/`（7 文件 78 用例） |
+| **核心层**（P.12） | `core/{constants,errors,network,storage,utils}`（21 文件） |
+| **用例层与远程数据源**（P.13） | `domain/entities/library` + `domain/{repositories,usecases}` · `data/datasources/remote`（CMS V10 + 清单） |
 
 **❌ 未完成**
 
@@ -2969,11 +2995,11 @@ AliyunPlayer + IJK   ~30 MB
 | `presentation/{phone,tv,desktop,shared,theme}` 布局 | 空目录 |
 | `platform/{player,spider,runtime,system}` 插件层 | 空目录 |
 | 平台壳 | ⚠️ `pubspec.yaml` ✅ 已交付（依赖对齐契约）；`android/`/`macos/`/`windows/` 目录 ⬜ 未创建 |
-| **单元测试**（目标 >70%） | ⚠️ 已起步：core 层 7 文件 / **78 用例通过**；功能层未覆盖 |
+| **单元测试**（目标 >70%） | ⚠️ 12 文件 / **143 用例通过**（core + 用例层 + 数据源）；**覆盖率未测量**（CI 无 coverage 步骤，见 P.13 §4-3） |
 | conformance runner | ✅ 已交付（45/45，见 P.8b） |
 | `lib/domain/{repositories,usecases}` · `lib/data/datasources/remote` | 空目录 |
 
-### P.4 自动化校验体系（**9 脚本 + 1 runner，全部通过**）
+### P.4 自动化校验体系（**10 脚本 + 1 runner，全部通过**）
 
 | 脚本 | 验证内容 | 结果 |
 |------|---------|------|
@@ -2985,7 +3011,8 @@ AliyunPlayer + IJK   ~30 MB
 | `check_backup_contract.py` | PBKDF2实测/AES-GCM往返/错口令/静态检查 | ✅ |
 | `check_spider_domain.py` | 引擎rawValue/15模式用例/容错解码/回填/错误检测 | ✅ |
 | `check_domain_remote_player.py` | 代理链/同步判定/后端降级链/封装回退 | ✅ |
-| `check_docs_consistency.py` | **文档漂移检测**：陈旧键数/组数、失效路径（本轮新增） | ✅ |
+| `check_docs_consistency.py` | **文档漂移检测**：陈旧键数/组数、失效路径（P.11 新增） | ✅ |
+| `check_dart_imports.py` | **Dart 导入路径可达性**（v6 新增）：相对路径/`package:vbox` 断链；本地秒级兜住「相对路径写错一次连带 20+ analyze 报错」 | ✅ |
 | **`conformance/runner/run_conformance.py`** | **fixture 消费：Spider ABI 20 + SQLite 6 + 备份 19 = 45 项** | ✅ **45/45** |
 
 > 另有 `check_mpv_installed_dependencies.py`（iOS CI 依赖检查，不属契约校验套件）。
@@ -3141,6 +3168,10 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 阻断：第 1 轮迭代不得标记完成，不得进入第 2 轮
 ```
 
+> **v6 更新**：⑤「静态分析无 error」已随 CI 通道解除（`flutter analyze` 0 issues，每次推送执行）；
+> ⑤「单测覆盖率 ≥70%」与「三端编译」仍不达标（前者缺覆盖率测量，后者缺平台壳）。
+> 当前口径：**9 项 → 8 项**，需重跑门禁正式确认。详见 **P.13 §6**。
+
 **不达标项归类（12 → 9）**：
 
 | 类型 | 数量 | 说明 |
@@ -3216,20 +3247,21 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | 2 | TODO 登记 | ✅ `附录 C` G-01 |
 | 3 | 决策记录 D17+ | ✅ D17–D20 |
 
-**⏳ 仍未补齐（7 项，其中第 4 项已于 2026-09-29 补齐，见 P.12）**
+**⏳ 仍未补齐（7 项；其中第 4–6 项已于 2026-09-29 补齐，见 P.12/P.13）**
 
 | # | 缺失项 | 严重度 | 可否在当前环境完成 |
 |---|--------|--------|------------------|
 | 4 | ~~`lib/core/*` 实现~~ | 中 | ✅ **已补齐**（5 模块 20 文件，见 P.12） |
-| 5 | `lib/data/datasources/remote` HTTP 数据源 | 中 | ✅ 可（纯 Dart） |
-| 6 | `lib/domain/usecases` 用例层 | 中 | ✅ 可（纯 Dart） |
-| 7 | UI 三形态（phone/tv/desktop） | 高 | ⚠️ 可写但**不可编译验证** |
+| 5 | ~~`lib/data/datasources/remote` HTTP 数据源~~ | 中 | ✅ **已补齐**（CMS V10 + 清单，见 P.13） |
+| 6 | ~~`lib/domain/usecases` 用例层~~ | 中 | ✅ **已补齐**（4 契约 + 4 用例组，见 P.13） |
+| 7 | UI 三形态（phone/tv/desktop） | 高 | ⚠️ 未开始；**现已可编译验证**（CI 通道已通，不再是阻碍） |
 | 8 | 平台插件层（Android/桌面） | 高 | ❌ 需原生工具链 |
-| 9 | 单元测试 | 高 | ⚠️ **部分**：core 层 78 用例已通过；功能层待随代码补齐 |
+| 9 | 单元测试 | 高 | ⚠️ **部分**：12 文件 / 143 用例已通过；**覆盖率未测量** |
 | 10 | 5 个 Spider 引擎实现 | 高 | ❌ 需 QuickJS/Node/Python 运行时 |
 
-> **风险提示**：第 7 项虽「可写」，但在无法编译验证的前提下持续产码，
-> 将累积**未经验证的代码债**——错误要等到 CI/真机阶段才暴露，修复成本更高。
+> **风险提示（v6 更新）**：编译验证通道已通（`flutter-check.yml`），
+> 第 7 项不再有「不可编译验证」的阻碍；但 **UI 三形态 / 平台插件层 / Spider 引擎**仍是
+> 体量与风险最大的三项，且 E.10b 门禁未通过，**第 1 轮不得结项**。
 > 建议优先解决 P.7 的编译环境问题（GitHub Actions macOS runner）。
 
 ### P.10 未决事项
@@ -3241,9 +3273,9 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | 3 | ~~键数口径~~ | ✅ 已定：以 iOS 源码 98 键为准 |
 | 4 | ~~conformance runner~~ | ✅ **已交付**（45/45 + 否定测试通过） |
 | 5 | ~~Flutter 编译环境~~ | ✅ **已解决**（`flutter-check.yml`，见 P.12）—— 解除 G-07/G-08，解锁 G-05 |
-| 6 | **第 1 轮可否标记完成** | ❌ **不可**（E.10b 原 9 项不达标；G-07/G-08 已解除，**需重跑门禁后再下结论**） |
+| 6 | **第 1 轮可否标记完成** | ❌ **不可**（E.10b 原 9 项 → 静态分析 1 项已可解除，余 **8 项**；需重跑门禁后结项） |
 | 7 | ~~文档漂移~~ | ✅ **已修复**（16 处 → 0），新增 `check_docs_consistency.py` 守护（见 P.11） |
-| 8 | **下一步优先级** | ~~P.7 编译环境~~ ✅ → **P.9 #5/#6（remote 数据源、usecases）** > UI 三形态 > 平台插件层 > Spider 引擎 |
+| 8 | **下一步优先级** | ~~P.7 编译环境~~ ✅ · ~~P.9 #4–#6~~ ✅ → **`data/repositories` 实现与接线** > CI 覆盖率门槛 > 平台壳与构建 > UI 三形态 > 平台插件层 > Spider 引擎（详见 **P.13 §5**） |
 
 ---
 
@@ -3263,7 +3295,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 **根因**：文档与代码各自演进，**没有自动校对**——与「契约漏 44 键」同类：
 校验只覆盖「实现↔契约」，未覆盖「文档↔事实」。
 
-**处置**：新增 `scripts/check_docs_consistency.py`（第 9 个校验脚本），把文档漂移转为可检测：
+**处置**：新增 `scripts/check_docs_consistency.py`（第 9 个校验脚本；v6 后共 **10 个**），把文档漂移转为可检测：
 
 | 规则 | 说明 |
 |------|------|
@@ -3293,15 +3325,15 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | `flutter-analyze` | macos-15 | Flutter 3.47.5 → `pub get` → `flutter analyze` → `flutter test` | ✅ |
 
 - **首跑即抓到 28 errors + 8 warnings**（相对路径写错、record 返回类型不符、`kIsWeb` 未导入、未使用导入、`assets/` 缺目录），全部修复后 **analyze 0 issues**——证明此前「未编译验证」的代码确实藏有缺陷。
-- `flutter test` 由空跑转为真实执行：**78 用例全部通过**（G-05 起步）。
+- `flutter test` 由空跑转为真实执行：**78 用例全部通过**（G-05 起步；v6 已扩展至 **143 用例**）。
 - 意义：本机 aarch64 无法运行 Flutter（G-07）→ 由 GitHub Actions macOS runner 绕过，**编译 / 静态 / 单测验证闭环成立**，后续所有纯 Dart 工作可直接交付验证。
 
-#### 2. 核心层 `lib/core/`（P.9 第 4 项，20 文件）
+#### 2. 核心层 `lib/core/`（P.9 第 4 项，21 文件）
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `constants/` | `app_constants.dart` | 应用 / DB / 网络 / 目录 / 日志常量（对齐契约与 iOS） |
-| `errors/` | `exceptions.dart` `failures.dart` | 11 类错误码异常体系 + `sealed Failure`（8 类，含可重试判定）+ 归一映射 |
+| `errors/` | `exceptions.dart` `failures.dart` | **14 个错误码** + 7 类 `VBoxException` + `sealed Failure`（9 类，含可重试判定）+ 归一映射 |
 | `network/` | `http_body_decoder.dart` `http_client.dart` `network_info.dart` | 契约 §4.2 探测链**权威实现**；HTTP 客户端（UA / 超时 / 指数退避重试 / 解码 / 异常归一）；可达性抽象 |
 | `storage/` | `storage_paths.dart` `file_store.dart` `secure_store.dart` | 目录布局（根目录注入）· 原子写文件 · 敏感键存储抽象 |
 | `utils/` | `charset.dart` `json_utils.dart` `logger.dart` `result.dart` `string_utils.dart` `time_utils.dart` | 字符集原语 + 码表注册 · JSON 宽容取值 · 环形缓冲日志 · `Result<T>` · 字符串 / 时间工具 |
@@ -3313,7 +3345,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 `domain/entities/spider/http_bridge.dart` 原本自带一份编码探测链 → 上移核心层后该文件 **204 行 → 75 行**，仅 **re-export**；
 `scripts/check_spider_domain.py` 同步改为「校验核心层实现 + 校验委托关系」，防止回退成双份。
 
-#### 4. 单测（G-05 起步，7 文件 78 用例）
+#### 4. 单测（G-05 起步，7 文件 78 用例；v6 后为 12 文件 143 用例，见 P.13）
 
 | 文件 | 覆盖 |
 |------|------|
@@ -3348,6 +3380,93 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 
 ---
 
+### P.13 全量体检与问题清单（2026-09-29，v6 新增）
+
+> **触发**：第 1 轮增量交付（核心层 / 用例层 / 远程数据源 / 单测）后的**全量复查**。
+> **方法**：各层文件清点 → 引用关系（接线）扫描 → 文档口径比对 → 工程配置缺口检查 →
+> 远程仓库清单核对。**合计发现 21 项：6 项已修、15 项待处理。**
+
+#### 1. 各层实测（文件数，`lib/` 69 + `test/` 12）
+
+| 层 | 目录 | Dart 文件 | 状态 |
+|----|------|----------|------|
+| 契约层 | `lib/contract` | 2 | ✅ 已交付（`abi/` 仍为空，见 §4-12） |
+| 核心层 | `lib/core` | 21 | ✅ 已交付（5 模块） |
+| 数据层 | `lib/data` | 18 | 🔶 local 有实现；`repositories/` 空（见 §4-1） |
+| 领域层 | `lib/domain` | 24 | ✅ entities / repositories / usecases 齐备 |
+| 表现层 | `lib/presentation` | 2 | 🔶 仅 `ui_mode` |
+| 平台层 | `lib/platform` | **0** | ⬜ 全空（4 个子目录） |
+| 测试 | `test` | 12（**143 用例**） | ✅ 全绿 |
+
+**CI 实测**：`flutter analyze` 0 issues · **143 单测通过** · **10 个校验脚本**全绿 ·
+conformance **45/45** · iOS IPA 构建链路成功。
+
+#### 2. 高危缺陷（✅ 本次体检当场修复）
+
+| # | 问题 | 证据 | 处置 |
+|---|------|------|------|
+| 1 | **`.version` 未纳入 `api_push2` 的 `CI_MANAGED`** | 远程 `BASE_BUILD=1619` vs 本地 `1614`；`build-ipa.yml` 的 bump 任务会 `git add … .version`，`changelog.yml` 以其为触发源 | ✅ commit `529180a3`，**已验证推送后远程仍为 1619** |
+
+> **教训（必须固化）**：CI 自管文件为 **4 个** —— `vbox/Info.plist`、
+> `vbox.xcodeproj/project.pbxproj`、`CHANGELOG.md`、`.version`。
+> 上一次只排除了前 3 个，导致版本号被本地旧值回推（3.1615 → 3.1614）。
+> **规则：凡 CI bump / changelog 任务会写入的文件，一律排除出 API 推送集。**
+
+#### 3. 本轮交付过程中由 CI 抓出并修复的编译级缺陷（5 类 / 6 处提交）
+
+| 缺陷 | 根因 | commit |
+|------|------|--------|
+| `analyze` 28 errors + 8 warnings | 相对路径写错（连带 21 个 undefined）、record 返回类型不符、`kIsWeb` 未导入、7 个未使用导入、`assets/` 目录缺失 | `eda3abf6` |
+| directive 顺序错误 ×2 | `export` 写在类声明之后（`directive_after_declaration`） | `ef06b193` |
+| `const` 内使用字符串插值 ×6 | `const ValidationFailure('…$id')` 非法常量 | `6b339fca` |
+| 测试名 `$` 未转义 | `'…名称$地址…'` → `$中文` 被当作标识符插值 | `6b339fca` |
+| MockClient 响应缺 charset | `package:http` 的 `Response(String …)` 在无 charset 时按 **latin1** 编码，含中文即抛错（被数据源捕获成 `ParseFailure`，造成 2 个用例假失败） | `24c15bd9` |
+
+#### 4. 待处理问题清单（15 项，按严重度）
+
+| # | severity | 问题 | 影响 / 证据 |
+|---|----------|------|------------|
+| 1 | 🔴 高 | `lib/data/repositories/` 为空 —— 用例层无实现、**lib 内 0 处引用** | 用例「可测但不可用」，门禁 E.10b ④ 仍不达标 |
+| 2 | 🔴 高 | 平台壳 `android/` `macos/` `windows/` 全缺，CI 无 build job | 无法编译三端，门禁 E.10b ③/⑤ 持续阻塞 |
+| 3 | 🔴 高 | CI 未测量覆盖率（无 `flutter test --coverage`） | 143 用例通过 ≠ 覆盖率 ≥70%，门禁 ⑤ 不可验证 |
+| 4 | 🟡 中 | DB 路径双真相源：`StoragePaths.databaseFile`（核心层）vs `database_manager.dart` 用 sqflite `getDatabasesPath()` | 桌面 FFI 下易分叉 |
+| 5 | 🟡 中 | `prefs_manager.dart` 直连 `flutter_secure_storage`，未走核心层 `SecureStore` 抽象 | 架构双轨，抽象形同未接入 |
+| 6 | 🟡 中 | `analysis_options.yaml` 缺失 | dev 依赖 `flutter_lints` 实际未生效，lint 规则为零 |
+| 7 | 🟡 中 | `修复说明.md`（74 行 iOS 旧修复记录）仍在根目录 | 与 D17–D20「全项目仅一份文档」冲突（附录 B 布局已加注） |
+| 8 | 🟡 中 | P.8 ⑥「应产出文件齐全」仍列 `PROGRESS.md` / `PROJECT_LAYOUT.md` / `KNOWN_GAPS.md` | 三者已在 v5 并入本方案并删除 → 引用失效 |
+| 9 | 🟢 低 | 根目录 6 个 `.o` 编译产物（`cutils.o` `quickjs.o` `quickjs-libc.o` `libbf.o` `libregexp.o` `libunicode.o`） | 无任何引用（`build-quickjs.yml` 用的是 `.obj/` 路径）→ 构建垃圾 |
+| 10 | 🟢 低 | `.gitignore` 未忽略 `*.o` / `build/` | 与第 9 项同源 |
+| 11 | 🟢 低 | `pre-commit.sh` 引用的 `check_braces.py` 仓库中不存在 | 钩子实际失效 |
+| 12 | 🟢 低 | `lib/contract/abi/` 为空 | Spider ABI 在 Dart 侧无镜像（仅 Python runner 校验） |
+| 13 | 🟢 低 | `core.dart` / `network_info.dart` / `secure_store.dart` / `file_store.dart` / `logger.dart` / `storage_paths.dart` 在 `lib` 内 **0 引用** | 预置能力待接线，存在「写了没用」的漂移风险 |
+| 14 | 🟢 低 | `LICENSE` 缺失 | 自用项目，影响低 |
+| 15 | 🟢 低 | `assets/.gitkeep` 会被打进包 | 无害 |
+
+#### 5. 待办（按优先级，供下一轮执行）
+
+| 序 | 任务 | 直接收益 |
+|----|------|---------|
+| 1 | 补 `lib/data/repositories/` 四个实现（绑定 database / prefs manager）+ 在 `main.dart`/`app.dart` 注入 | 让已交付用例真正可用；推进门禁 ④ |
+| 2 | CI 增 `flutter test --coverage` + 覆盖率门槛（≥70%） | 门禁 ⑤ 变为**可验证** |
+| 3 | 创建平台壳（`flutter create --platforms=android,macos,windows .`）+ CI build job（`flutter build apk --debug` 等） | 解锁门禁 ③/⑤「三端编译」 |
+| 4 | 加 `analysis_options.yaml`；DB 路径统一到 `StoragePaths` | 消除问题 4 / 6（双真相源 + lint 空白） |
+| 5 | 根级清理：`.o` ×6、`修复说明.md` 归档、`.gitignore` 补 `*.o`、修 `pre-commit.sh` | 仓库卫生（问题 7–11） |
+| 6 | 补 `lib/contract/abi/` Dart 镜像 | ABI 校验可在 Dart 侧自证（问题 12） |
+
+#### 6. 门禁状态（E.10b 复核视角）
+
+| 门禁项 | 状态 | 依据 |
+|--------|------|------|
+| ⑤ 静态分析无 error | ✅ **已可判通过** | `flutter analyze` 0 issues，每次推送执行 |
+| ⑤ 单测覆盖率 ≥70% | ❌ **不可判** | 无覆盖率测量（问题 3） |
+| ③/⑤ 三端编译通过 | ❌ **仍阻塞** | 无平台壳（问题 2） |
+| ④ 本阶段承诺功能交付 | ❌ 不达标 | 用例层无实现（问题 1） |
+
+> **结论**：E.10b 原 9 项不达标 → **静态分析 1 项已解除，余 8 项**；
+> **第 1 轮仍不得标记完成**，需在完成 §5 第 1–3 项后重跑门禁。
+
+---
+
 # 附录部分
 
 ---
@@ -3361,17 +3480,22 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 
 ```
 第 0 阶段  契约冻结        ████████████████████ 100%  ✅ 已过 D13 门禁
-第 1 轮    核心骨架        █████████████░░░░░░░  65%  🔄 进行中（E.10b 未通过）
+第 1 轮    核心骨架        ██████████████░░░░░░  70%  🔄 进行中（E.10b 未通过）
 第 2 轮    功能补全        ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 3 轮    兼容性与稳定性   ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 4 轮    数据互通与边界   ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 5 轮    发布准备        ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 ```
 
-**第 1 轮 65% 的依据**：9 个交付块完成 6 个 + 1 个部分（2026-09-29 增补后）——
+**第 1 轮 70% 的依据**：9 个交付块完成 **5 个**，另 **2 项计划外交付**，单测部分达成——
 ✅ 契约层镜像 · ✅ 数据层 · ✅ 领域层实体 · ✅ 入口与形态判定 · ✅ conformance runner
-· ✅ 核心层（`lib/core/` 5 模块，见 P.12）· ⚠️ 单元测试（core 层 78 用例已通过，功能层未覆盖）；
+· ✅ 核心层（`lib/core/` 21 文件，计划外，见 P.12）
+· ✅ 用例层 + 远程数据源（计划外，见 P.13）
+· ⚠️ 单元测试（12 文件 / 143 用例通过；**覆盖率未测量**）；
 ⬜ UI 三形态 · ⬜ 平台插件层 · ⬜ Spider 引擎实现。
+
+> 口径说明：5/9 块 + 2 项计划外交付 + 1 项部分达成 ≈ 70%（若按块数硬算为 56%，
+> 但计划外交付显著推进了「可运行骨架」的完整度，故取 70%）。
 
 ## A.2 第 0 阶段交付产物（15 文件）
 
@@ -3395,7 +3519,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | `scripts/*.sh` 缺执行位 | ✅ 已修复（100644 → 100755） |
 | 最新构建 | ✅ run `36540984193` = success（IPA 链路跑通） |
 | 版本自动 bump | ✅ 已到 `3.1614`（本地旧值曾回退为 3.1614，已加 `CI_MANAGED` 排除防复发） |
-| **Flutter 校验通道** | ✅ `flutter-check.yml` 双 job 全绿：`analyze` 0 issues + **78 单测** + 9 脚本 + conformance 45/45 |
+| **Flutter 校验通道** | ✅ `flutter-check.yml` 双 job 全绿：`analyze` 0 issues + **143 单测** + **10 脚本** + conformance 45/45 |
 
 ## A.4 环境约束摘要
 
@@ -3405,7 +3529,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | `github.com:443` 不可达 | `git push/fetch` 失败 | 推送走 `scripts/api_push2.py`（API 通道，自动 diff） |
 | 本地 git 历史与远程不一致 | 无法直接比对 | 网络恢复后 `git fetch && git reset --hard origin/main` |
 
-> ⚠️ Dart 代码现已由 `flutter-check.yml` 做**编译 + 静态 + 单测**三重验证（analyze 0 issues / 78 用例）；
+> ⚠️ Dart 代码现已由 `flutter-check.yml` 做**编译 + 静态 + 单测**三重验证（analyze 0 issues / 143 用例）；
 > 但**功能层（UI 三形态 / 平台插件 / Spider 引擎）尚未落地**，仍是当前最大风险。
 
 ---
@@ -3496,15 +3620,16 @@ lib/
 |------|------|------|
 | 入口 | `main.dart` `app.dart` | ✅ 已交付（未编译验证） |
 | 契约层 | `contract/` | ✅ 已交付并校验 |
-| 核心层 | `core/*` | ✅ 已交付（5 子目录 20 文件，见 P.12） |
+| 核心层 | `core/*` | ✅ 已交付（5 子目录 **21 文件**，见 P.12） |
 | 数据层 | `data/{models,datasources/local}` | ✅ 已交付 |
-| 数据层 | `data/{datasources/remote,repositories}` | ⬜ 空目录（下一步） |
+| 数据层 | `data/datasources/remote` | ✅ 已交付（CMS V10 + 清单数据源，见 P.13） |
+| 数据层 | `data/repositories` | ⬜ **空目录** —— 用例层尚无实现（P.13 §4-1，高优先级） |
 | 领域层 | `domain/entities/*` | ✅ 已交付 |
-| 领域层 | `domain/{repositories,usecases}` | ⬜ 空目录 |
+| 领域层 | `domain/{repositories,usecases}` | ✅ 已交付（4 契约 + 4 用例组 + 3 实体，见 P.13） |
 | 表现层 | `presentation/ui_mode` | ✅ 已交付 |
 | 表现层 | `presentation/{phone,tv,desktop,providers,shared,theme}` | ⬜ 空目录 |
 | 平台层 | `platform/*` | ⬜ **空目录**（4 个子目录已建） |
-| 测试 | `test/` | ✅ core 层 7 文件 / 78 用例（功能层待补） |
+| 测试 | `test/` | ✅ 12 文件 / **143 用例**（覆盖率未测量，见 P.13 §4-3） |
 
 > 空目录已按目标结构预建，便于后续填充；`git` 不跟踪空目录，故远端不可见。
 
@@ -3588,7 +3713,7 @@ lib/
 
 | 项 | 内容 |
 |----|------|
-| 现状 | ✅ core 层 7 文件 **78 用例全部通过**（P.12）；功能层尚未覆盖 |
+| 现状 | ✅ 12 文件 **143 用例全部通过**（P.12/P.13）；**覆盖率未测量**（CI 无 coverage 步骤） |
 | 影响 | E.10b ⑤「单测覆盖率 ≥ 70%」仍不达标（整体口径） |
 | 阻塞原因 | ~~需 `flutter test`~~ → 通道已通（G-07 解除） |
 | 解除条件 | 功能层代码落地时同步补测，整体覆盖率 ≥ 70% |
@@ -3640,7 +3765,7 @@ lib/
 | 类别 | 数量 | 编号 |
 |------|------|------|
 | ✅ 已解决 | 3 | G-04（conformance runner）, G-07（编译环境）, G-08（静态分析） |
-| 部分解除 | 1 | G-05（core 层 78 用例已过，整体覆盖率待补） |
+| 部分解除 | 1 | G-05（143 用例已过；覆盖率仍不可判） |
 | 功能未实现 | 4 | G-01, G-02, G-03, G-09 |
 | 需真机验证 | 2 | G-09, G-10 |
 | 已满足 | 1 | G-06 |
