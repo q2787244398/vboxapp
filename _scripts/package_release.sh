@@ -80,7 +80,9 @@ case "${PLATFORM}" in
     # 由模板生成实际脚本。不用 ISCC 的 /D 参数，因为 Git Bash(MSYS) 会把
     # 以 / 开头的参数当作 Unix 路径自动改写，导致
     # "You may not specify more than one script filename."。
-    python3 - "${ROOT}/packaging/windows/tvs.iss.in" "${WISS}" "${VERSION}" "${WSRC}" "${WDIST}" <<'PY'
+    # Windows 上 Python 的 stdout 默认是 cp1252，输出非 ASCII 会抛
+    # UnicodeEncodeError。这里只用 ASCII 打印，并显式指定 PYTHONIOENCODING 兜底。
+    PYTHONIOENCODING=utf-8 python3 - "${ROOT}/packaging/windows/tvs.iss.in" "${WISS}" "${VERSION}" "${WSRC}" "${WDIST}" <<'PY'
 import sys
 tpl, out, ver, src, dst = sys.argv[1:6]
 text = open(tpl, encoding='utf-8').read()
@@ -88,10 +90,10 @@ text = (text.replace('@@MYAPPVERSION@@', ver)
             .replace('@@SOURCEDIR@@', src)
             .replace('@@OUTPUTDIR@@', dst))
 if '@@' in text:
-    sys.exit('模板中仍有未替换的占位符')
+    sys.exit('ERROR: unreplaced placeholder remains in template')
 # Inno Setup 需要能识别编码；带 BOM 的 UTF-8 最稳妥
 open(out, 'w', encoding='utf-8-sig').write(text)
-print(f'    生成脚本: {out}')
+print(f'    generated iss: {out}')
 PY
 
     # 只传一个参数（脚本路径），彻底避开 MSYS 参数转换
