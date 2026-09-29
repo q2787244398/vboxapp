@@ -1,6 +1,6 @@
 {
   "name": "tvs-spider",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "TVS CatVod Spider Engine",
   "main": "server.js",
   "scripts": {
