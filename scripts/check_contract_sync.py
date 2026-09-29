@@ -2,9 +2,11 @@
 """契约一致性校验：lib/contract/*.dart  vs  contract/schema/*
 
 校验项：
-  1. prefs_keys.dart 的键名集合 == prefs_keys_v1.json 的 63 键
+  1. prefs_keys.dart 的键名集合 == prefs_keys_v1.json 的 98 键
   2. prefs_keys.dart 的敏感键集合 == JSON 的 sensitiveKeys
-  3. prefs_keys.dart 的分组枚举数 == JSON 的 _group_* 分组数
+  3. prefs_keys.dart 的分组枚举数 == JSON 的 _group_* 分组数（21 组）
+  3b. type 逐键一致   3c. 误抓键防回归
+  3d. storage 完整性（D19）：每键必含 storage，且 Dart 镜像逐键一致
   4. schema.dart 的表名集合 == schema_v1.sql 的 CREATE TABLE 表名
 退出码 0 = 全通过，1 = 有不一致。
 """
@@ -130,6 +132,53 @@ def main() -> int:
         errors += 1
     else:
         ok("10 个误抓键（播放器 KVC / CA 动画 key）均不在契约中")
+
+    # 3d. storage 完整性（D19）：每个键对象必须显式标注 storage，且 Dart 镜像逐键一致
+    print("== 3d. storage 完整性（D19）==")
+    allowed_storage = {"userdefaults", "keychain", "credential_extra"}
+    json_storage: dict[str, str] = {}
+    missing_storage = []
+    for items in contract["keys"].values():
+        if not isinstance(items, dict):
+            continue
+        for k_name, meta in items.items():
+            if not isinstance(meta, dict):
+                continue
+            st = meta.get("storage")
+            if st is None:
+                missing_storage.append(k_name)
+            else:
+                json_storage[k_name] = st
+    if missing_storage:
+        fail(f"{len(missing_storage)} 键缺 storage（D19）: {sorted(missing_storage)}")
+        errors += 1
+    bad_storage = [f"{k}={v}" for k, v in json_storage.items() if v not in allowed_storage]
+    if bad_storage:
+        fail(f"storage 取值非法（应为 {sorted(allowed_storage)}）: {bad_storage}")
+        errors += 1
+    if not missing_storage and not bad_storage:
+        ok(f"全部 {len(json_storage)} 键均标注 storage，取值合法")
+
+    dart_storage_map = {
+        "userDefaults": "userdefaults",
+        "keychain": "keychain",
+        "credentialExtra": "credential_extra",
+    }
+    dart_storage: dict[str, str] = {}
+    for m in re.finditer(
+        r"name:\s*'(\w+)'[^)]*?storage:\s*PrefsStorage\.(\w+)", dart_text
+    ):
+        dart_storage[m.group(1)] = dart_storage_map.get(m.group(2), m.group(2))
+    storage_drift = [
+        f"{k}(json={json_storage[k]} dart={dart_storage.get(k, 'userDefaults(默认)')})"
+        for k in json_storage
+        if dart_storage.get(k, "userdefaults") != json_storage[k]
+    ]
+    if storage_drift:
+        fail(f"Dart↔JSON storage 不一致: {storage_drift}")
+        errors += len(storage_drift)
+    else:
+        ok(f"Dart↔JSON storage 逐键一致（{len(json_storage)} 键）")
 
     print("== 4. SQLite 表名与字段（含迁移链）==")
     sql_text = sql_path.read_text(encoding="utf-8")

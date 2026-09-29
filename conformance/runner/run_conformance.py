@@ -186,7 +186,7 @@ def suite_spider_io() -> None:
     codes = {v.get("expected", {}).get("error", {}).get("code")
              for v in errs.values() if isinstance(v, dict)}
     check("spider", "错误码含 E_REGISTER / E_SCRIPT_LOAD",
-          {"E_REGISTER", "E_SCRIPT_LOAD"} <= codes, f"实为 {codes}")
+          {"E_REGISTER", "E_SCRIPT_LOAD"} <= codes, f"实为 {sorted(codes)}")
     abi = (DOCS / "abi_v1.md").read_text(encoding="utf-8")
     for pre in ["Error", "TypeError", "ReferenceError", "SyntaxError"]:
         check("spider", f"契约声明错误前缀 {pre}",

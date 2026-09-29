@@ -30,12 +30,18 @@
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名由 `VBOX_PLAN_v5.md` 升为 **`VBOX_PLAN_v6.md`**。
 >
-> **v6.2 变更（本版）**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
+> **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
 > （§C.3 曾以 `| **合计** | **57** |` 长期绕过）；② §C.3 按契约 v1.2 实况重写；③ 文件数 / 脚本数
 > 逐处对齐 `git ls-files` 实测；④ 形态判定 §2.4 ↔ §T.1 ↔ 实现 三处口径统一（实现标注为**占位**）；
 > ⑤ 清除 `freezed` 残留、修正 `TODO(D21)` 决策号语义碰撞；⑥ 守卫新增 **Dart 源码**失效引用扫描；
 > ⑦ README / CI 注释对齐多端现状。
+>
+> **v6.3 变更（本版）**：**契约 D19 闭环** —— 消除 `prefs_keys_v1.json` 键对象异构：为前 12 组的
+> **53 键**补齐 `storage: userdefaults`，现 **98/98 键**均显式标注 `storage`
+> （`userdefaults | keychain | credential_extra`）；`check_contract_sync.py` 新增
+> 「3d. storage 完整性 + Dart↔JSON 逐键比对」防回归（经负向测试验证可拦截）。对应 P.15 #11
+> （v6.2 登记待办，本轮闭环）。
 
 ## 版本历史
 
@@ -47,7 +53,8 @@
 | v5 增补 | 2026-09-29 增补：**Flutter CI 验证通道落地**（`.github/workflows/flutter-check.yml`，解除 G-07/G-08）；**P.12 核心层交付**（`lib/core/` 5 模块 20 文件 + 7 文件 78 单测，补齐 P.9 第 4 项）；`http_bridge` 编码探测链上移核心层去重 |
 | v6 | 2026-09-29：**全量体检入库**（P.13：各层清点 + 15 项问题 + 待办）；核心层 21 文件 / 用例层 4 组 / 远程数据源 2 个交付；单测 143 用例（CI 全绿）；修复 `.version` 回退高危缺陷；**第 10 个校验脚本** `check_dart_imports.py`；全部数字口径刷新；文档更名 `VBOX_PLAN_v6.md` |
 | **v6.1** | 2026-09-29：**收尾批次** —— ① 堵住文档守护脚本的历史豁免漏洞（移除弱标记 + 块级历史标记 + 脚本数改**硬失败**），并修正其抓出的 **4 处**残留漂移；② 追加 **D21–D23**（provider / 3.47.5 / sqflite 对齐实现）；③ 修订 §2.3 技术选型表与 §2.7 的 freezed 引用；④ 新增 **P.14 二轮独立复核清单（22 项遗漏）**；⑤ 根目录清理（`.o` ×6 删除、游离脚本归入 `scripts/legacy/`、两份游离 md 归档 `docs/archive/`）；⑥ `.gitignore` 补 `*.o` / `build/` / `.dart_tool/`；⑦ `pubspec.yaml` 版本对齐为 `3.1621.0+1621` |
-| **v6.2（现行）** | 2026-09-29：**三轮独立复核**（新增 P.15：**12 项**遗漏，v6.1「守卫 0 漂移」结论被推翻）。① 文档守卫堵「表格 / 加粗 / 合计」数值逃逸，并新增 **Dart 源码**失效引用扫描；② §C.3 按契约 v1.2 重写（原 v1.0 口径 14 组 / 57 键，含已删 `buffer` 组）；③ 文件数 / 脚本数逐处对齐 `git ls-files`；④ 形态判定 §2.4 ↔ §T.1 ↔ 实现口径统一（实现标注为**占位**）；⑤ 清除 `freezed` 残留、`TODO(D21→G-01)`；⑥ README / CI 注释对齐多端现状；⑦ `merge_docs_v5.py` 归档 `scripts/legacy/` |
+| **v6.2** | 2026-09-29：**三轮独立复核**（新增 P.15：**12 项**遗漏，v6.1「守卫 0 漂移」结论被推翻）。① 文档守卫堵「表格 / 加粗 / 合计」数值逃逸，并新增 **Dart 源码**失效引用扫描；② §C.3 按契约 v1.2 重写（原 v1.0 口径 14 组 / 57 键，含已删 `buffer` 组）；③ 文件数 / 脚本数逐处对齐 `git ls-files`；④ 形态判定 §2.4 ↔ §T.1 ↔ 实现口径统一（实现标注为**占位**）；⑤ 清除 `freezed` 残留、`TODO(D21→G-01)`；⑥ README / CI 注释对齐多端现状；⑦ `merge_docs_v5.py` 归档 `scripts/legacy/` |
+| **v6.3（现行）** | 2026-09-29：**契约 D19 闭环**（P.15 #11）—— `prefs_keys_v1.json` 键对象去异构：前 12 组 **53 键**补齐 `storage: userdefaults`，现 **98/98** 键显式标注（userdefaults / keychain / credential_extra）；`check_contract_sync.py` 新增规则 **3d**（storage 完整性 + Dart↔JSON 逐键比对）并经负向测试验证；修正该脚本陈旧 docstring（63 → 98 键） |
 
 >
 > **D12 已定稿（经联网查证）**：TV 最低版本定为 **Android 7.0 (API 24)**。
@@ -1211,10 +1218,11 @@ enum class PlayerBackend { MEDIA3, LIBVLC }
 
 **关键提醒**：`vbox_sqlite_migration_done` 必须迁移，否则 Flutter 首次启动会重复执行 UserDefaults→SQLite 迁移，导致数据重复。
 
-> **已知结构缺陷（v6.2 登记，待专项批次）**：契约 v1.2 的键对象有两种异构结构 ——
-> 前 12 组为 `{type, default, desc[, sensitive]}`，后 9 组为 `{type, storage, evidence, desc}`。
-> **D19「键须标注 `storage`」仅落实在 9/21 组**，前 12 组无 `storage`（`default` 亦仅前 12 组有）。
-> 修改契约真相源须同步 Dart 镜像与相关校验脚本，故本批次**仅登记不改**。
+> **结构统一（v6.3 已闭环）**：v6.2 登记的键对象异构（原前 12 组为 `{type, default, desc[, sensitive]}`、
+> 后 9 组为 `{type, storage, evidence, desc}`）**已消除** —— 现**全部 98 键**均显式标注 `storage`
+> （取值 `userdefaults | keychain | credential_extra`），落实 **D19**。
+> `check_contract_sync.py` 新增「**3d. storage 完整性 + Dart↔JSON 逐键比对**」防回归
+> （已通过负向测试：人为删去任一键的 `storage` 即硬失败）。
 
 ### C.4 待生成的契约产物
 
@@ -3624,7 +3632,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 
 | # | severity | 问题 | 证据 | 处置 |
 |---|----------|------|------|------|
-| 11 | 🟡 中 | **契约 v1.2 键对象异构**：前 12 组为 `{type, default, desc[, sensitive]}`，后 9 组为 `{type, storage, evidence, desc}` —— **D19「键须标注 storage」仅落实 9/21 组** | `prefs_keys_v1.json` 逐组解析 | ⬜ 仅登记（改真相源须同步 Dart 镜像与校验脚本，留专项批次） |
+| 11 | 🟡 中 | **契约 v1.2 键对象异构**：前 12 组为 `{type, default, desc[, sensitive]}`，后 9 组为 `{type, storage, evidence, desc}` —— **D19「键须标注 storage」仅落实 9/21 组** | `prefs_keys_v1.json` 逐组解析 | ✅ **v6.3 已闭环**：98/98 键补齐 `storage`（见 §C.3 结构统一注）+ `check_contract_sync` 规则 3d 防回归 |
 
 #### 5. 工程卫生
 
@@ -3640,7 +3648,8 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 文档修正 | §C.3 重写 / §6.3 / §3.6 / 文件数 / freezed 残留 / P.6 加块级历史标记 | ✅ |
 | 口径统一 | §2.4↔T.1↔实现（形态判定）；TODO 改指 G-01 | ✅ |
 | 工程卫生 | README / CI 注释；`merge_docs_v5.py` → `scripts/legacy/` | ✅ |
-| 登记待办 | 高风险层零单测（#10）、契约 storage 异构（#11） | ⬜ |
+| 登记待办 | 高风险层零单测（#10） | ⬜ |
+| 待办闭环（v6.3） | 契约 storage 异构（#11）→ 98/98 键标注 `storage` + `check_contract_sync` 规则 3d + 负向测试 | ✅ |
 
 > **结论**：v6.1 的「守卫 0 漂移」并不成立 —— §C.3 以格式化写法长期逃逸。
 > v6.2 已堵住该向量并修正全部可离线处置项；**第 1 轮仍不得标记完成**（门禁项未变）。

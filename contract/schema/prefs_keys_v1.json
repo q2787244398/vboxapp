@@ -7,17 +7,20 @@
     "_group_subscription": {
       "subscribed_config_urls": {
         "type": "stringArray",
+        "storage": "userdefaults",
         "default": [],
         "desc": "订阅源 URL 列表",
         "migrated": "同时写入 subscription 表"
       },
       "active_subscription_index": {
         "type": "int",
+        "storage": "userdefaults",
         "default": 0,
         "desc": "当前激活订阅源索引"
       },
       "cached_subscribe_config": {
         "type": "string",
+        "storage": "userdefaults",
         "default": null,
         "desc": "订阅 JSON 缓存（建议不迁移）",
         "skip": true
@@ -26,21 +29,25 @@
     "_group_spider": {
       "fallback_enabled": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": true,
         "desc": "兜底源开关"
       },
       "enable_dual_mode": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": true,
         "desc": "双模式（type=3 HTTP API 走原生链路）"
       },
       "custom_fallback_sites": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "[]",
         "desc": "自定义兜底源（JSON 数组字符串）"
       },
       "user_parsers": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "[]",
         "desc": "用户自定义解析器（JSON）"
       }
@@ -48,46 +55,55 @@
     "_group_remote_source": {
       "remote_default_source_enabled": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": true,
         "desc": "启用远程默认源"
       },
       "bundle_sources_enabled": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "启用内置源（兼容模式）"
       },
       "remote_default_manifest_url": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "https://vbox-ai.github.io/api/sources/manifest.json",
         "desc": "manifest 地址"
       },
       "remote_default_last_config_version": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "",
         "desc": "上次同步的 configVersion"
       },
       "remote_default_last_sync_time": {
         "type": "long",
+        "storage": "userdefaults",
         "default": null,
         "desc": "上次同步时间戳"
       },
       "remote_default_last_sync_error": {
         "type": "string",
+        "storage": "userdefaults",
         "default": null,
         "desc": "上次同步错误"
       },
       "remote_default_last_sync_app_version": {
         "type": "string",
+        "storage": "userdefaults",
         "default": null,
         "desc": "上次同步时的 App 版本"
       },
       "remote_node_bundle_url": {
         "type": "string",
+        "storage": "userdefaults",
         "default": null,
         "desc": "Node bundle 远程地址"
       },
       "remote_node_bundle_ver": {
         "type": "string",
+        "storage": "userdefaults",
         "default": null,
         "desc": "Node bundle 版本"
       }
@@ -95,21 +111,25 @@
     "_group_player": {
       "player_auto_play_next": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": true,
         "desc": "自动播放下一集"
       },
       "player_background_play": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "后台播放"
       },
       "player_long_press_speed": {
         "type": "float",
+        "storage": "userdefaults",
         "default": 2.0,
         "desc": "长按倍速"
       },
       "player_pip_enabled": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": true,
         "desc": "画中画开关"
       }
@@ -117,17 +137,20 @@
     "_group_tmdb": {
       "app_tmdb_proxy_url": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "",
         "desc": "TMDB 代理地址"
       },
       "app_tmdb_proxy_token": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "",
         "desc": "TMDB 代理 token",
         "sensitive": true
       },
       "app_tmdb_use_token": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "TMDB 使用 token"
       }
@@ -135,11 +158,13 @@
     "_group_danmaku": {
       "custom_danmaku_source_enabled": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "自定义弹幕源"
       },
       "custom_danmaku_source_url": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "",
         "desc": "弹幕源地址"
       }
@@ -147,31 +172,37 @@
     "_group_live_tv": {
       "live_tv_local_channels": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "[]",
         "desc": "本地直播频道（JSON）"
       },
       "mdtv_home_tabs": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "[]",
         "desc": "MDTV 首页 Tab"
       },
       "mdtv_iv_idx": {
         "type": "int",
+        "storage": "userdefaults",
         "default": 0,
         "desc": "MDTV IV 索引"
       },
       "mdtv_key_idx": {
         "type": "int",
+        "storage": "userdefaults",
         "default": 0,
         "desc": "MDTV Key 索引"
       },
       "mdtv_key_verified": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "MDTV Key 已校验"
       },
       "mdtv_mode_idx": {
         "type": "int",
+        "storage": "userdefaults",
         "default": 0,
         "desc": "MDTV 模式索引"
       }
@@ -179,28 +210,33 @@
     "_group_one_platform": {
       "one_platform_iv_idx": {
         "type": "int",
+        "storage": "userdefaults",
         "default": 0,
         "desc": "One 平台 IV 索引"
       },
       "one_platform_key_idx": {
         "type": "int",
+        "storage": "userdefaults",
         "default": 0,
         "desc": "One 平台 Key 索引"
       },
       "one_platform_token": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "",
         "desc": "One 平台 token",
         "sensitive": true
       },
       "one_platform_userkey": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "",
         "desc": "One 平台 userkey",
         "sensitive": true
       },
       "one_platform_uuid": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "",
         "desc": "One 平台 UUID",
         "sensitive": true
@@ -209,51 +245,61 @@
     "_group_quark_pg": {
       "pg_ali_auto_cleanup": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "自动清理"
       },
       "pg_ali_cleanup_delay": {
         "type": "int",
+        "storage": "userdefaults",
         "default": 60,
         "desc": "清理延迟(s)"
       },
       "pg_ali_enabled": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "启用 PG"
       },
       "pg_ali_is_vip": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "VIP 状态"
       },
       "pg_ali_proxy_port": {
         "type": "int",
+        "storage": "userdefaults",
         "default": 58090,
         "desc": "代理端口"
       },
       "pg_ali_thread_limit": {
         "type": "int",
+        "storage": "userdefaults",
         "default": 3,
         "desc": "线程上限"
       },
       "pg_ali_thread_night": {
         "type": "int",
+        "storage": "userdefaults",
         "default": 5,
         "desc": "夜间线程"
       },
       "pg_ali_transfer_dir": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "",
         "desc": "转存目录"
       },
       "pg_ali_vod_flags": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "",
         "desc": "VOD 标志"
       },
       "quark_device_id": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "",
         "desc": "夸克设备 ID",
         "sensitive": true
@@ -262,11 +308,13 @@
     "_group_welfare": {
       "welfare_platform_order": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "[]",
         "desc": "福利平台排序（JSON）"
       },
       "fuli_remote_platform_order_v2": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "[]",
         "desc": "福利远程平台排序 v2"
       }
@@ -274,21 +322,25 @@
     "_group_debug": {
       "show_debug_overlay": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "调试浮层"
       },
       "show_search_debug": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "搜索调试"
       },
       "searchHistory": {
         "type": "string",
+        "storage": "userdefaults",
         "default": "[]",
         "desc": "搜索历史（JSON）"
       },
       "dns_cache_clear": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "DNS 缓存清理"
       }
@@ -296,6 +348,7 @@
     "_group_legacy_migration": {
       "vbox_sqlite_migration_done": {
         "type": "bool",
+        "storage": "userdefaults",
         "default": false,
         "desc": "UserDefaults→SQLite 迁移标记。Flutter 首次启动必须识别，避免重复迁移"
       }
@@ -603,6 +656,7 @@
     "类型映射：stringArray→List<String>，long→int，float→double，其余一一对应",
     "v1.1：经逐键源码核验，移除 _group_buffer 整组及 networkTimeout/positionTimerIntervalMs/reconnect/danmaku_scroll —— 它们是 AliPlayer/IJKPlayer 的 KVC 属性名与 CoreAnimation 动画 key，并非 UserDefaults 偏好键。见 contract/docs/prefs_keys_revision_v1.1.md。",
     "v1.2：补齐 46 个遗漏键（云盘/福利/直播/音乐/TG/日志/推送）。其中 cloud_drive_credentials_v1 / saved_drive_tokens_v1 为 Keychain account，pg_source / qr_scan 为 credential.extra 字典键，均**非 UserDefaults**，已用 storage 字段标注（userdefaults|keychain|credential_extra）。",
-    "v1.2 补记：saved_drive_tokens（CloudDriveManager.swift:124）为 UserDefaults 键，与 Keychain account saved_drive_tokens_v1 是两个不同对象。"
+    "v1.2 补记：saved_drive_tokens（CloudDriveManager.swift:124）为 UserDefaults 键，与 Keychain account saved_drive_tokens_v1 是两个不同对象。",
+    "v1.2 补记（结构统一，2026-09-29）：为全部 98 键显式标注 storage —— 此前前 12 组仅隐式（UserDefaults），与后 9 组 {type, storage, evidence, desc} 结构异构。现统一为「每键必含 storage」（userdefaults|keychain|credential_extra），落实 D19；校验脚本 check_contract_sync.py 新增 storage 完整性 + Dart↔JSON 逐键比对（防回归）。"
   ]
 }
