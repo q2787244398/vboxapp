@@ -81,7 +81,9 @@ class _RootRouter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final UiModeController mode = context.watch<UiModeController>();
-    // TODO(stage-1): 接入 presentation/{phone,tv,desktop} 三套布局
+    // TODO(D21/stage-1): 接入 presentation/{phone,tv,desktop} 三套布局
+    //   登记于 docs/KNOWN_GAPS.md，阻塞项：UI 三形态未实现
+    //   解除条件：presentation 层布局文件交付
     return MaterialApp(
       title: 'VBox',
       theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
