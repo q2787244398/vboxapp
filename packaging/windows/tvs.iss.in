@@ -1,34 +1,31 @@
-; TVS Windows 安装包脚本（Inno Setup 6）
+; TVS Windows 安装包脚本模板（Inno Setup 6）
 ;
-; 由 CI 调用：
-;   ISCC.exe /DMyAppVersion=1.2.2 /DSourceDir=<构建输出目录> /DOutputDir=<dist目录> tvs.iss
+; 这是「模板」，不是可直接编译的脚本。
+; _scripts/package_release.sh 会在 CI 上把下面三个占位符替换成真实值，
+; 生成临时 .iss 后再交给 ISCC 编译：
 ;
-; 默认值仅用于本地手动编译时兜底。
-
-#ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
-#endif
-#ifndef SourceDir
-  #define SourceDir "..\..\flutter\build\windows\x64\runner\Release"
-#endif
-#ifndef OutputDir
-  #define OutputDir "..\..\dist"
-#endif
+;   @@MYAPPVERSION@@  -> 版本号，如 1.2.2
+;   @@SOURCEDIR@@     -> Flutter Windows 构建输出目录（Windows 路径）
+;   @@OUTPUTDIR@@     -> 安装包输出目录（Windows 路径）
+;
+; 之所以用模板而不是 ISCC 的 /D 参数：Git Bash(MSYS) 会把以 / 开头的参数
+; 当成 Unix 路径自动转换成 Windows 路径，导致 ISCC 报
+; "You may not specify more than one script filename."
 
 [Setup]
 ; 注意：Inno Setup 中 "{{" 转义为字面量 "{"，固定 AppId 才能正确覆盖安装/卸载
 AppId={{8F3A2C1E-5B47-4D9A-9E21-7C6F0B4A3D18}
 AppName=TVS
-AppVersion={#MyAppVersion}
-AppVerName=TVS {#MyAppVersion}
+AppVersion=@@MYAPPVERSION@@
+AppVerName=TVS @@MYAPPVERSION@@
 AppPublisher=TVS
 AppPublisherURL=https://github.com/q2787244398/vboxapp
 DefaultDirName={autopf}\TVS
 DefaultGroupName=TVS
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
-OutputDir={#OutputDir}
-OutputBaseFilename=TVS-{#MyAppVersion}-windows-setup
+OutputDir=@@OUTPUTDIR@@
+OutputBaseFilename=TVS-@@MYAPPVERSION@@-windows-setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -48,7 +45,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Flutter Windows 构建输出：tvs.exe + 若干 DLL + data/ 资源目录
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "@@SOURCEDIR@@\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\TVS"; Filename: "{app}\tvs.exe"

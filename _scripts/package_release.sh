@@ -75,13 +75,28 @@ case "${PLATFORM}" in
     echo "    使用: ${ISCC}"
     WSRC="$(cygpath -w "${SRC}")"
     WDIST="$(cygpath -w "${DIST}")"
-    WISS="$(cygpath -w "${ROOT}/packaging/windows/tvs.iss")"
-    # 这些路径都不含空格（runner 工作目录形如 D:\a\vboxapp\vboxapp）
-    "${ISCC}" \
-      "/DMyAppVersion=${VERSION}" \
-      "/DSourceDir=${WSRC}" \
-      "/DOutputDir=${WDIST}" \
-      "${WISS}"
+    WISS="${DIST}/.tvs-win.iss"
+
+    # 由模板生成实际脚本。不用 ISCC 的 /D 参数，因为 Git Bash(MSYS) 会把
+    # 以 / 开头的参数当作 Unix 路径自动改写，导致
+    # "You may not specify more than one script filename."。
+    python3 - "${ROOT}/packaging/windows/tvs.iss.in" "${WISS}" "${VERSION}" "${WSRC}" "${WDIST}" <<'PY'
+import sys
+tpl, out, ver, src, dst = sys.argv[1:6]
+text = open(tpl, encoding='utf-8').read()
+text = (text.replace('@@MYAPPVERSION@@', ver)
+            .replace('@@SOURCEDIR@@', src)
+            .replace('@@OUTPUTDIR@@', dst))
+if '@@' in text:
+    sys.exit('模板中仍有未替换的占位符')
+# Inno Setup 需要能识别编码；带 BOM 的 UTF-8 最稳妥
+open(out, 'w', encoding='utf-8-sig').write(text)
+print(f'    生成脚本: {out}')
+PY
+
+    # 只传一个参数（脚本路径），彻底避开 MSYS 参数转换
+    MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "${ISCC}" "$(cygpath -w "${WISS}")"
+    rm -f "${WISS}"
     ;;
 
   *)
