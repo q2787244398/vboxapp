@@ -4,7 +4,6 @@
 /// 唯一约束：UNIQUE(dyurl)
 library;
 
-import 'db_model.dart';
 
 class Subscription {
   static const String table = 'subscription';

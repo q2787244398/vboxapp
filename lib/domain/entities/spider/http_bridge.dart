@@ -161,7 +161,7 @@ String _decodeMultiByte(Uint8List bytes, Map<int, String> table) {
 /// 按契约 §4.2 的探测链解码响应体。
 ///
 /// 返回 [文字, 是否使用 base64 兜底]。
-(List<String>, bool) decodeResponseBody(
+(String, bool) decodeResponseBody(
   Uint8List bytes, {
   String? contentTypeCharset,
   String? metaCharsetOverride,

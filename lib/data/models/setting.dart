@@ -4,7 +4,6 @@
 /// 主键：`key`（TEXT）
 library;
 
-import 'db_model.dart';
 
 class Setting {
   static const String table = 'settings';

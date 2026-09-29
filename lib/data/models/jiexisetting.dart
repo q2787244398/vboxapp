@@ -4,7 +4,6 @@
 /// 主键：`bianma`（TEXT，编码）
 library;
 
-import 'db_model.dart';
 
 class Jiexisetting {
   static const String table = 'jiexisetting';

@@ -6,7 +6,6 @@
 ///    新增，**均为可空**——旧版本写入的行这些列为 NULL，读取必须容忍 NULL。
 library;
 
-import 'db_model.dart';
 
 /// 下载状态枚举（DDL 注释：pending|downloading|completed|failed）。
 enum DownloadStatus {

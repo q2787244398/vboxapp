@@ -3,7 +3,6 @@
 /// 唯一真相源：`contract/schema/schema_v1.sql`
 library;
 
-import 'db_model.dart';
 
 class History {
   static const String table = 'history';

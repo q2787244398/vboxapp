@@ -13,7 +13,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import '../../../contract/schema/schema.dart';
-import 'models/models.dart';
+import '../../models/models.dart';
 
 class DatabaseManager {
   DatabaseManager._();

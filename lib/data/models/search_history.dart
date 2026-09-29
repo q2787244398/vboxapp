@@ -4,7 +4,6 @@
 /// 索引：idx_search_history_time(searchedAt DESC)（v3 新增）
 library;
 
-import 'db_model.dart';
 
 class SearchHistory {
   static const String table = 'search_history';
