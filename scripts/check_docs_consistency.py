@@ -12,7 +12,7 @@
   1. 现行键数/组数必须与契约唯一真相源一致（历史提及须带历史标记）
   2. 校验脚本数量必须为 8（scripts）或 9（含 conformance runner）
   3. 不得引用已删除的旧路径（除非该行带历史标记）
-  4. 关键文档必须存在
+  4. 关键文档（唯一主方案文档）必须存在
 
 退出码：0 通过 / 1 存在漂移
 """
@@ -150,8 +150,7 @@ def main() -> int:
 
     # 4：关键文档存在
     print()
-    for req in ("docs/PROGRESS.md", "docs/KNOWN_GAPS.md",
-                "docs/DEV_PLAN_v4_with_progress.md"):
+    for req in ("docs/VBOX_PLAN_v5.md",):
         ok = (ROOT / req).exists()
         print(f"  {'✅' if ok else '❌'} {req} 存在")
         if not ok:
