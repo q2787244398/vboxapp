@@ -70,7 +70,10 @@ void main() {
     test('强制 at=json 且保留站点自有查询参数', () {
       final Uri? uri = CmsV10Datasource(
         client: HttpClient(inner: MockClient((http.Request r) async =>
-            http.Response('{}', 200))),
+            http.Response('{}', 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              }))),
       ).buildUri('$kBase?token=abc', <String, String>{'ac': 'list'});
       expect(uri, isNotNull);
       expect(uri!.queryParameters['token'], 'abc');
@@ -80,7 +83,10 @@ void main() {
 
     test('非法地址返回 null', () {
       final CmsV10Datasource ds = datasourceWith(
-        MockClient((http.Request r) async => http.Response('{}', 200)),
+        MockClient((http.Request r) async => http.Response('{}', 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              })),
       );
       expect(ds.buildUri('ftp://a.com/x', <String, String>{}), isNull);
       expect(ds.buildUri('not a url', <String, String>{}), isNull);
@@ -142,9 +148,10 @@ void main() {
                   'type_name': '剧集',
                 },
               ],
-            }),
-            200,
-          );
+            }), 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              });
         }),
       );
 
@@ -170,7 +177,10 @@ void main() {
       final CmsV10Datasource ds = datasourceWith(
         MockClient((http.Request r) async {
           calls++;
-          return http.Response('{}', 200);
+          return http.Response('{}', 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              });
         }),
       );
       expect(
@@ -182,7 +192,10 @@ void main() {
 
     test('空列表是合法结果（返回空数组而非错误）', () async {
       final CmsV10Datasource ds = datasourceWith(
-        MockClient((http.Request r) async => http.Response('{"list":[]}', 200)),
+        MockClient((http.Request r) async => http.Response('{"list":[]}', 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              })),
       );
       final Result<List<CmsV10Video>> r = await ds.fetchVideos(kBase);
       expect(r.isSuccess, isTrue);
@@ -201,7 +214,10 @@ void main() {
       final CmsV10Datasource ds = datasourceWith(
         MockClient((http.Request r) async {
           requested = r.url;
-          return http.Response(detailJson, 200);
+          return http.Response(detailJson, 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              });
         }),
       );
       final Result<CmsV10Detail> r = await ds.fetchDetail(kBase, '7');
@@ -217,7 +233,10 @@ void main() {
 
     test('ids 为空 → ValidationFailure', () async {
       final CmsV10Datasource ds = datasourceWith(
-        MockClient((http.Request r) async => http.Response(detailJson, 200)),
+        MockClient((http.Request r) async => http.Response(detailJson, 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              })),
       );
       expect(
         (await ds.fetchDetail(kBase, '  ')).failureOrNull,
@@ -227,7 +246,10 @@ void main() {
 
     test('详情为空 → ParseFailure', () async {
       final CmsV10Datasource ds = datasourceWith(
-        MockClient((http.Request r) async => http.Response('{"list":[]}', 200)),
+        MockClient((http.Request r) async => http.Response('{"list":[]}', 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              })),
       );
       expect(
         (await ds.fetchDetail(kBase, '9')).failureOrNull,
@@ -248,7 +270,10 @@ void main() {
 
     test('非 JSON 响应 → ParseFailure', () async {
       final CmsV10Datasource ds = datasourceWith(
-        MockClient((http.Request r) async => http.Response('<xml/>', 200)),
+        MockClient((http.Request r) async => http.Response('<xml/>', 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              })),
       );
       expect(
         (await ds.fetchCategories(kBase)).failureOrNull,
@@ -258,7 +283,10 @@ void main() {
 
     test('非法站点地址 → ValidationFailure', () async {
       final CmsV10Datasource ds = datasourceWith(
-        MockClient((http.Request r) async => http.Response('{}', 200)),
+        MockClient((http.Request r) async => http.Response('{}', 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              })),
       );
       expect(
         (await ds.fetchCategories('ftp://a.com/x')).failureOrNull,

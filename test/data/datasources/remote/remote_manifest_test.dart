@@ -40,7 +40,10 @@ void main() {
       final RemoteManifestDatasource ds = datasourceWith(
         MockClient((http.Request r) async {
           requested = r.url;
-          return http.Response(jsonEncode(validManifest()), 200);
+          return http.Response(jsonEncode(validManifest()), 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              });
         }),
       );
 
@@ -62,7 +65,10 @@ void main() {
         'parsers': 'https://cdn.example.com/parsers.json',
       };
       final RemoteManifestDatasource ds = datasourceWith(
-        MockClient((http.Request r) async => http.Response(jsonEncode(body), 200)),
+        MockClient((http.Request r) async => http.Response(jsonEncode(body), 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              })),
       );
       final Result<RemoteManifest> r = await ds.fetch(kManifestUrl);
       expect(r.failureOrNull, isA<ParseFailure>());
@@ -73,7 +79,10 @@ void main() {
       final Map<String, Object?> body = validManifest();
       body['configVersion'] = 'v1.0';
       final RemoteManifestDatasource ds = datasourceWith(
-        MockClient((http.Request r) async => http.Response(jsonEncode(body), 200)),
+        MockClient((http.Request r) async => http.Response(jsonEncode(body), 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              })),
       );
       expect(
         (await ds.fetch(kManifestUrl)).failureOrNull,
@@ -83,7 +92,10 @@ void main() {
 
     test('非 JSON 响应 → ParseFailure', () async {
       final RemoteManifestDatasource ds = datasourceWith(
-        MockClient((http.Request r) async => http.Response('<html>404</html>', 200)),
+        MockClient((http.Request r) async => http.Response('<html>404</html>', 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              })),
       );
       expect(
         (await ds.fetch(kManifestUrl)).failureOrNull,
@@ -93,7 +105,10 @@ void main() {
 
     test('JSON 数组（非对象）→ ParseFailure', () async {
       final RemoteManifestDatasource ds = datasourceWith(
-        MockClient((http.Request r) async => http.Response('[1,2]', 200)),
+        MockClient((http.Request r) async => http.Response('[1,2]', 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              })),
       );
       expect(
         (await ds.fetch(kManifestUrl)).failureOrNull,
@@ -132,7 +147,10 @@ void main() {
       final RemoteManifestDatasource ds = datasourceWith(
         MockClient((http.Request r) async {
           calls++;
-          return http.Response('{}', 200);
+          return http.Response('{}', 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              });
         }),
       );
       for (final String bad in <String>['', 'not a url', 'ftp://a.com/m.json', 'https://']) {
@@ -150,7 +168,10 @@ void main() {
       final RemoteManifestDatasource ds = datasourceWith(
         MockClient((http.Request r) async {
           cacheControl = r.headers['cache-control'];
-          return http.Response(jsonEncode(validManifest()), 200);
+          return http.Response(jsonEncode(validManifest()), 200,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              });
         }),
       );
       await ds.fetch(kManifestUrl, forceRefresh: true);
