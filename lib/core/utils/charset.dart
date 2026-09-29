@@ -7,7 +7,7 @@
 /// 平台适配层（`lib/platform/spider/`）在启动时注入码表；
 /// **未注入时 `gbk` / `big5` 解码返回 null**（不静默产出乱码），
 /// 由探测链继续下探或走 base64 兜底。
-/// 码表注入属 G-03（见 `docs/VBOX_PLAN_v6.md` 附录 C）。
+/// 码表注入属 G-03（见 `docs/VBOX_PLAN_v6.9.md` 附录 C）。
 library;
 
 import 'dart:convert';

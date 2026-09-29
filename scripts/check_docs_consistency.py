@@ -13,7 +13,13 @@
   2. 校验脚本数量必须与 scripts/ 目录实际数量一致（含 conformance runner 时 +1）
   3. 不得引用已删除的旧路径或已并入的附属文档（PROJECT_LAYOUT/PROGRESS/KNOWN_GAPS）
   4. 源码（`lib/**/*.dart`）注释不得引用已删除文档 / 失效路径（v6.2 新增）
-  5. 关键文档（唯一主方案文档）必须存在
+  5. 关键文档（唯一主方案文档）必须存在，且 `docs/` 下仅此一份
+  6. 文件名版本 ↔ 版本历史「（现行）」行 ↔ 顶部「本版变更」块，三处必须一致（v6.9 新增，D24/D25）
+  7. 决策编号在决策表内唯一 + 全文 `D<编号>` 引用无悬空（v6.9 新增）
+
+v6.9 补丁：D24/D25 把「文档版本」升级为强制治理 —— 此前版本只活在正文里，文件名可长期停在
+`VBOX_PLAN_v6.md`，且「（本版）」标记曾同时出现在两处（v6.6/v6.7）。故新增规则 6/7，
+并把旧文件名纳入 DEAD_DOCS，使「改名后残留引用」当场失败。
 
 v6.2 补丁：v6.1 的键数规则要求数字紧邻「键」字，§C.3 把合计写成
 ``| **合计** | **57** |``（数字后是竖线），整节 57 键 / 14 组得以绕过检测。
@@ -73,6 +79,9 @@ DEAD_PATHS = (
 # v6.2 新增：此前 app.dart 注释仍写「唯一真相源：docs/PROJECT_LAYOUT.md」，
 #           而守卫只扫 *.md，源码注释里的失效引用完全失控。
 DEAD_DOCS = ("PROJECT_LAYOUT.md", "PROGRESS.md", "KNOWN_GAPS.md")
+# v6.9 新增：D25 起主方案文档文件名携带修订版本号，旧文件名不得再作现行引用
+# （历史叙述行含「→」等强标记，仍走 is_history 豁免）。
+DEAD_DOCS += ("VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
 
 DOC_GLOBS = ("docs/*.md", "contract/docs/*.md", "*.md")
 
@@ -90,6 +99,18 @@ INLINE_COUNT_PATTERNS = (
 
 # 历史记录类文档（修订说明/变更日志）：其数值描述的是当时状态，整体豁免数值规则
 HISTORICAL_DOC_PAT = re.compile(r"(revision|history|changelog|修订|历史)", re.I)
+
+# ── v6.9 新增：主方案文档版本治理（D24/D25）+ 决策编号引用一致性 ──────────────
+# 文件名：D25 起必须携带修订次版本号 —— docs/VBOX_PLAN_v<主>.<次>.md
+PLAN_NAME_PAT = re.compile(r"^VBOX_PLAN_v(\d+\.\d+)\.md$")
+# 版本历史表「（现行）」行：| **v6.9（现行）** | …
+CUR_VER_PAT = re.compile(r"\|\s*\*{0,2}v(\d+\.\d+)（现行）\*{0,2}\s*\|")
+# 顶部变更块：> **v6.9 变更（本版）**：…
+TOP_VER_PAT = re.compile(r"\*{0,2}v(\d+\.\d+)\s*变更（本版）")
+# 决策表定义行：| **D8** | …（仅在「决策记录」小节内算定义，别处的均按引用处理）
+DEC_ROW_PAT = re.compile(r"^\|\s*\*{0,2}(D\d+)\*{0,2}\s*\|")
+DEC_ID_PAT = re.compile(r"\bD(\d+)\b")
+DEC_SECTION = "## 〇、决策记录（Decision Log）"
 
 
 def iter_docs() -> Iterable[pathlib.Path]:
@@ -113,6 +134,59 @@ def is_comparative(line: str, cur: int) -> bool:
 
 def is_historical_doc(p: pathlib.Path) -> bool:
     return bool(HISTORICAL_DOC_PAT.search(p.name))
+
+
+def check_plan_doc_versions(p: pathlib.Path) -> int:
+    """规则 6：文件名 / 版本历史「（现行）」行 / 顶部「本版变更」块，三处版本必须一致。"""
+    m = PLAN_NAME_PAT.match(p.name)
+    if not m:
+        print(f"  ❌ 主方案文档文件名 {p.name} 不合规：须为 VBOX_PLAN_vX.Y.md（D25）")
+        return 1
+    text = p.read_text(encoding="utf-8")
+    cur = CUR_VER_PAT.findall(text)
+    top = TOP_VER_PAT.findall(text)
+    errs = 0
+    if len(cur) != 1:
+        print(f"  ❌ 版本历史「（现行）」行应恰好 1 处，实为 {len(cur)} 处 {cur}")
+        errs += 1
+    if len(top) != 1:
+        print(f"  ❌ 顶部「本版变更」块应恰好 1 处，实为 {len(top)} 处 {top}")
+        errs += 1
+    if errs:
+        return errs
+    if not (m.group(1) == cur[0] == top[0]):
+        print(f"  ❌ 版本三处不一致：文件名 v{m.group(1)} · 「（现行）」v{cur[0]} · "
+              f"「本版变更」v{top[0]}（D24/D25）")
+        return 1
+    print(f"  ✅ 版本三处一致：v{m.group(1)}（文件名 / 「（现行）」行 / 「本版变更」块）")
+    return 0
+
+
+def check_decision_ids(p: pathlib.Path) -> int:
+    """规则 7：决策表内编号唯一 + 全文 `D<编号>` 引用无悬空。"""
+    lines = p.read_text(encoding="utf-8").splitlines()
+    start = next((i for i, l in enumerate(lines) if l.startswith(DEC_SECTION)), None)
+    if start is None:
+        print(f"  ❌ 未找到决策记录小节：{DEC_SECTION}")
+        return 1
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")),
+               len(lines))
+    defined = [m.group(1) for m in
+               (DEC_ROW_PAT.match(l) for l in lines[start:end]) if m]
+    errs = 0
+    dupes = sorted({d for d in defined if defined.count(d) > 1})
+    if dupes:
+        print(f"  ❌ 决策编号重复定义：{dupes}")
+        errs += 1
+    known = set(defined)
+    dangling = sorted({f"D{n}" for n in DEC_ID_PAT.findall("\n".join(lines))
+                       if f"D{n}" not in known}, key=lambda s: int(s[1:]))
+    if dangling:
+        print(f"  ❌ 引用了决策表中不存在的编号：{dangling}")
+        errs += 1
+    if not errs:
+        print(f"  ✅ 决策编号：{len(defined)} 条定义唯一，全文引用无悬空")
+    return errs
 
 
 def main() -> int:
@@ -217,13 +291,19 @@ def main() -> int:
                         print(f"      {line.strip()[:100]}")
                         errors += 1
 
-    # 5：关键文档存在
+    # 5：关键文档存在（主方案文档），6/7：版本三处一致 + 决策编号（v6.9 新增）
     print()
-    for req in ("docs/VBOX_PLAN_v6.md",):
-        ok = (ROOT / req).exists()
-        print(f"  {'✅' if ok else '❌'} {req} 存在")
-        if not ok:
-            errors += 1
+    plans = sorted((ROOT / "docs").glob("VBOX_PLAN_v*.md"))
+    if len(plans) != 1:
+        print(f"  ❌ docs/ 下主方案文档应恰好 1 个，实为 {len(plans)} 个："
+              f"{[p.name for p in plans]}")
+        errors += 1
+    else:
+        plan = plans[0]
+        print(f"  ✅ {plan.relative_to(ROOT)} 存在（主方案文档唯一）")
+        errors += check_plan_doc_versions(plan)
+        print()
+        errors += check_decision_ids(plan)
 
     print()
     if errors:
