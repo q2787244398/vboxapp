@@ -26,6 +26,15 @@ API = "https://api.github.com"
 # 不纳入版本控制的路径前缀（本地临时日志等）
 SKIP_PREFIXES = (".uploads/", ".git/")
 
+# CI 自动提交管理的文件（版本号 bump / CHANGELOG 自动更新）。
+# 本地旧值若被推送回去会回退 CI 的自动提交（例：曾回退 3.1615 → 3.1614），
+# 因此这些文件永不纳入推送/删除集。
+CI_MANAGED = frozenset({
+    "vbox/Info.plist",
+    "vbox.xcodeproj/project.pbxproj",
+    "CHANGELOG.md",
+})
+
 COMMIT_MSG = """feat(stage-1): backup_manager — AES-256-GCM + PBKDF2 字节级兼容
 
 - lib/data/backup_manager.dart
@@ -52,8 +61,11 @@ def req(method: str, url: str, payload=None):
 
 def local_files() -> dict[str, str]:
     """本地 HEAD 的 path→blob-sha。"""
+    # 必须关闭 core.quotepath，否则非 ASCII 路径会被转义成 \346\250\241...，
+    # 与远程真实路径无法比对（会反复误判为新增/删除）
     out = subprocess.run(
-        ["git", "ls-tree", "-r", "HEAD"], cwd=ROOT, capture_output=True, check=True
+        ["git", "-c", "core.quotepath=false", "ls-tree", "-r", "HEAD"],
+        cwd=ROOT, capture_output=True, check=True
     ).stdout.decode(errors="surrogateescape")
     res = {}
     for line in out.splitlines():
@@ -61,6 +73,15 @@ def local_files() -> dict[str, str]:
         mode, typ, sha = meta.split()
         res[path] = sha
     return res
+
+
+def local_head_message() -> str:
+    """取本地 HEAD 的提交信息，使远程提交信息与本地一致。"""
+    out = subprocess.run(
+        ["git", "log", "-1", "--pretty=%B"], cwd=ROOT,
+        capture_output=True, check=True
+    ).stdout.decode(errors="replace")
+    return out.strip()
 
 
 def main() -> int:
@@ -76,14 +97,23 @@ def main() -> int:
     local = local_files()
     changed = [
         p for p, sha in local.items()
-        if not p.startswith(SKIP_PREFIXES) and remote.get(p) != sha
+        if (not p.startswith(SKIP_PREFIXES) and p not in CI_MANAGED
+        and remote.get(p) != sha)
     ]
-    print(f"需上传: {len(changed)} 个文件")
+    # 删除集：远程有、本地 HEAD 已无（base_tree 会保留未声明的旧条目，
+    # 必须显式传 sha=None 才能删除）
+    deleted = [
+        p for p in remote
+        if p not in local and not p.startswith(SKIP_PREFIXES) and p not in CI_MANAGED
+    ]
+    print(f"需上传: {len(changed)} 个文件 · 需删除: {len(deleted)} 个")
     for p in changed:
         print("   ", "~" if p in remote else "+", p)
+    for p in sorted(deleted):
+        print("    -", p)
     if dry:
         return 0
-    if not changed:
+    if not changed and not deleted:
         print("无差异，无需推送")
         return 0
 
@@ -101,11 +131,16 @@ def main() -> int:
         res = req("POST", f"{API}/repos/{REPO}/git/blobs",
                   {"content": content, "encoding": enc})
         items.append({"path": path, "mode": mode, "type": "blob", "sha": res["sha"]})
+    for path in sorted(deleted):
+        items.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
 
     new_tree = req("POST", f"{API}/repos/{REPO}/git/trees",
                    {"base_tree": base_tree, "tree": items})
+    msg = local_head_message() or COMMIT_MSG
+    if deleted:
+        msg += f"\n\n(远程同步删除 {len(deleted)} 个文件)"
     commit = req("POST", f"{API}/repos/{REPO}/git/commits",
-                 {"message": COMMIT_MSG, "tree": new_tree["sha"], "parents": [base_sha]})
+                 {"message": msg, "tree": new_tree["sha"], "parents": [base_sha]})
     upd = req("PATCH", f"{API}/repos/{REPO}/git/refs/heads/main",
               {"sha": commit["sha"], "force": False})
     print("✅ 已推送:", upd["object"]["sha"][:8])
