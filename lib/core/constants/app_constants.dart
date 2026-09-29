@@ -2,7 +2,7 @@
 ///
 /// 唯一真相源：
 /// - 数据库文件名 / 迁移终点 → `contract/schema/schema_v1.sql`
-/// - 目录布局 → `docs/VBOX_PLAN_v6.9.md` 附录 B
+/// - 目录布局 → `docs/VBOX_PLAN_v6.10.md` 附录 B
 /// - 网络默认值 → `contract/docs/abi_v1.md` §6
 library;
 
@@ -14,11 +14,11 @@ abstract final class AppInfo {
   /// 包名（与 `pubspec.yaml` 的 `name` 一致）。
   static const String packageName = 'vbox';
 
-  /// 语义版本（与 `pubspec.yaml` 的 `version` 前缀一致）。
-  static const String version = '1.0.0';
+  /// 语义版本（与 `pubspec.yaml` 的 `version` 前缀一致，由守卫规则 8 强制）。
+  static const String version = '3.1621.0';
 
-  /// 构建号。
-  static const int buildNumber = 1;
+  /// 构建号（与 `pubspec.yaml` 的 `version` 的 `+build` 段一致）。
+  static const int buildNumber = 1621;
 }
 
 /// 数据库常量（与 iOS `vbox/Services/DatabaseManager.swift` 对齐）。

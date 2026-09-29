@@ -16,6 +16,8 @@
   5. 关键文档（唯一主方案文档）必须存在，且 `docs/` 下仅此一份
   6. 文件名版本 ↔ 版本历史「（现行）」行 ↔ 顶部「本版变更」块，三处必须一致（v6.9 新增，D24/D25）
   7. 决策编号在决策表内唯一 + 全文 `D<编号>` 引用无悬空（v6.9 新增）
+  8. `pubspec.yaml` 的 `version`（`X.Y.Z+N`）↔ `AppInfo.version` / `buildNumber` 必须一致（v6.10 新增）
+  9. 现行文档不得出现「空目录」声明：git 不跟踪空目录，此类声明无法验证，须改用「未创建 / 待填充」（v6.10 新增）
 
 v6.9 补丁：D24/D25 把「文档版本」升级为强制治理 —— 此前版本只活在正文里，文件名可长期停在
 `VBOX_PLAN_v6.md`，且「（本版）」标记曾同时出现在两处（v6.6/v6.7）。故新增规则 6/7，
@@ -51,7 +53,8 @@ HISTORY_MARKS = (
     "v1.0", "v1.1", "v1.2", "修订", "历史", "原", "误抓", "移除", "→", "->",
     "前", "旧", "曾", "回退", "对比", "before", "deprecated", "废弃",
     "未修复", "bug", "缺陷", "教训", "误报", "故障",
-    "遗漏", "冗余",
+    # v6.10：移除「遗漏」「冗余」——二者过泛，曾让现行清单行
+    #        「Prefs 键名 57 个全覆盖，无遗漏无拼错」凭「无遗漏」自我豁免。
     "陈旧", "仍写", "仍列", "过时", "已删除", "同类", "失效",
     "取代",  # v6.2：历史对比用词（如 D18「取代中途生成的 PROJECT_LAYOUT.md」）
 )
@@ -81,7 +84,14 @@ DEAD_PATHS = (
 DEAD_DOCS = ("PROJECT_LAYOUT.md", "PROGRESS.md", "KNOWN_GAPS.md")
 # v6.9 新增：D25 起主方案文档文件名携带修订版本号，旧文件名不得再作现行引用
 # （历史叙述行含「→」等强标记，仍走 is_history 豁免）。
-DEAD_DOCS += ("VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
+# v6.10：追加 v6.9 —— 本轮把文件名升到 v6.10，v6.9 成为旧名，纳入防回流。
+DEAD_DOCS += ("VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
+
+# v6.10 新增：现行契约校验套件（check_*.py）总数，供规则 2 使用
+APP_CONSTANTS = ROOT / "lib" / "core" / "constants" / "app_constants.dart"
+
+# v6.10 新增：规则 9 的禁词 —— git 不跟踪空目录，任何「空目录」声明都不可验证
+EMPTY_DIR_WORD = "空目录"
 
 DOC_GLOBS = ("docs/*.md", "contract/docs/*.md", "*.md")
 
@@ -189,6 +199,56 @@ def check_decision_ids(p: pathlib.Path) -> int:
     return errs
 
 
+def check_version_sync() -> int:
+    """规则 8：`pubspec.yaml` 的 `version`(X.Y.Z+N) ↔ `AppInfo.version` / `buildNumber`。"""
+    pub = (ROOT / "pubspec.yaml").read_text(encoding="utf-8")
+    m = re.search(r"^version:\s*(\d+\.\d+\.\d+)\+(\d+)\s*$", pub, re.M)
+    if not m:
+        print("  ❌ pubspec.yaml 缺 `version: X.Y.Z+N` 形式的版本号（规则 8）")
+        return 1
+    ver, build = m.group(1), m.group(2)
+    src = APP_CONSTANTS.read_text(encoding="utf-8")
+    mv = re.search(r"static const String version = '([^']+)'", src)
+    mb = re.search(r"static const int buildNumber = (\d+)", src)
+    if not mv or not mb:
+        print(f"  ❌ {APP_CONSTANTS.relative_to(ROOT)} 缺 `AppInfo.version` / `buildNumber`（规则 8）")
+        return 1
+    errs = 0
+    if mv.group(1) != ver:
+        print(f"  ❌ AppInfo.version={mv.group(1)} ≠ pubspec.yaml {ver}（规则 8）")
+        errs += 1
+    if mb.group(1) != build:
+        print(f"  ❌ AppInfo.buildNumber={mb.group(1)} ≠ pubspec.yaml +{build}（规则 8）")
+        errs += 1
+    if not errs:
+        print(f"  ✅ 版本一致：pubspec {ver}+{build} ↔ AppInfo（规则 8）")
+    return errs
+
+
+def check_empty_dir_words(docs: Iterable[pathlib.Path]) -> int:
+    """规则 9：现行文档不得声明「空目录」（git 不跟踪空目录，声明不可验证）。"""
+    errs = 0
+    for p in docs:
+        rel = p.relative_to(ROOT)
+        in_block = False
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if BLOCK_OFF in line:
+                in_block = False
+                continue
+            if BLOCK_ON in line:
+                in_block = True
+                continue
+            if in_block or is_history(line):
+                continue
+            if EMPTY_DIR_WORD in line:
+                print(f"  ❌ {rel}:{i} 出现「{EMPTY_DIR_WORD}」声明（不可验证，请写「未创建/待填充」）（规则 9）")
+                print(f"      {line.strip()[:100]}")
+                errs += 1
+    if not errs:
+        print(f"  ✅ 无不可验证的「{EMPTY_DIR_WORD}」声明（规则 9）")
+    return errs
+
+
 def main() -> int:
     errors = 0
     d = json.loads(CONTRACT.read_text(encoding="utf-8"))
@@ -229,6 +289,14 @@ def main() -> int:
                     n = int(m.group(1))
                     if n in STALE_GROUP_COUNTS and not is_comparative(line, groups):
                         print(f"  ❌ {rel}:{i} 陈旧组数 {n}（现行 {groups}）")
+                        print(f"      {line.strip()[:100]}")
+                        errors += 1
+            # 「NN 个」写法（v6.10：曾以「Prefs 键名 57 个全覆盖」绕过 —— 数字后是「个」而非「键」）
+            if "键" in line:
+                for m in re.finditer(r"(\d+)\s*个", line):
+                    n = int(m.group(1))
+                    if n in STALE_KEY_COUNTS and not is_comparative(line, keys):
+                        print(f"  ❌ {rel}:{i} 陈旧键数（「NN 个」写法）{n}（现行 {keys}）")
                         print(f"      {line.strip()[:100]}")
                         errors += 1
             # 数值的表格 / 加粗 / 合计写法（v6.2：堵 §C.3 式「无键字」逃逸）
@@ -304,6 +372,12 @@ def main() -> int:
         errors += check_plan_doc_versions(plan)
         print()
         errors += check_decision_ids(plan)
+
+    # 8：pubspec ↔ AppInfo 版本一致；9：不得声明「空目录」（v6.10 新增）
+    print()
+    errors += check_version_sync()
+    print()
+    errors += check_empty_dir_words(docs)
 
     print()
     if errors:

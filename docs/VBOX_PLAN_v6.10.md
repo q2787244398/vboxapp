@@ -29,7 +29,7 @@
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名随修订版本递增（**D25**）：`VBOX_PLAN_v5.md` → `VBOX_PLAN_v6.md`（v6 系列首版，现已废弃）
-> → **`VBOX_PLAN_v6.9.md`**（当前版）。
+> → `VBOX_PLAN_v6.9.md` → **`VBOX_PLAN_v6.10.md`**（当前版）。
 >
 > **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
@@ -89,7 +89,7 @@
 > 本版**不含代码 / 契约改动**，故各项事实计数（74 lib / 28 测试文件 / 365 用例 / 11 脚本 / conformance 45/45 /
 > 覆盖率 71.1%）**全部不变**。
 >
-> **v6.9 变更（本版）**：**文档文件名版本化（新增 D25）+ 守卫加固** ——
+> **v6.9 变更**：**文档文件名版本化（新增 D25）+ 守卫加固** ——
 > ① 主方案文档**重命名** `VBOX_PLAN_v6.md` → **`VBOX_PLAN_v6.9.md`**：文件名版本须与文档修订版本、
 > 顶部「本版变更」块**三处一致**（D25）；全部引用同步更新（`README.md`、`lib/app.dart`、
 > `lib/core/**` 3 处注释、`flutter-check.yml`、守卫脚本），并把**旧文件名纳入 `DEAD_DOCS`** 防回流；
@@ -98,8 +98,24 @@
 > ③ 修正一处**决策号误引**：末章「唯一现行文档（D17–D20）」与实际 D17–D20
 > （契约键范围 / 目录结构 / storage / 阶段完成判定）无关，实为 **v5 文档合并结论**，已改注（P.20）；
 > ④ 本版**无代码 / 契约改动**（仅注释级引用更新），各项事实计数不变。
+>
+> **v6.10 变更（本版）**：**清账批次（文档漂移归零 + 守卫加固 + 代码小修）** ——
+> ① **修复守卫结构性漏洞**：主方案「版本历史」块的 `<!-- docs-guard:history -->` **缺闭合标记**，
+> 致其后 **L104–L3158 整段**（含 §C.3、§2.x、E.10b、P.1–P.9）长期被判为历史区，**数值 / 失效路径
+> 规则整体静默失效**；补闭合标记后当场再抓出 **2 处陈旧键数**（`57` / `44`）与 **1 处旧文件名引用**，均已修正；
+> ② 守卫新增**规则 8**（`pubspec.yaml` ↔ `AppInfo.version` / `buildNumber` 一致）与**规则 9**
+> （目录声明须可验证：`git` 不跟踪无文件的目录，故该类断言一律失败）；并从历史标记中移除过泛的
+> 「遗漏 / 冗余」（曾让清单行凭「无遗漏」自我豁免）；
+> ③ **代码小修**：`AppInfo.version` / `buildNumber` 由 `1.0.0` / `1` 对齐 `pubspec.yaml` 的 `3.1621.0+1621`；
+> `pubspec.yaml` 移除**零引用**依赖 `dio` / `collection`；
+> ④ **修正多处目录 / 路径漂移**：`data/repositories`（v6.7 已交付，文档曾误标未实现）、
+> `platform/*` 与 `presentation/{phone,tv,desktop,…}`（实为**未创建**）、`android-min-sdk21-compat.md`
+> （实际 `contract/docs/android-compat.md`）、`vbox_flutter/`、`flutter/`、`KNOWN_GAPS` 引用、`app.dart` 行号；
+> ⑤ 新增 **D26**（守卫结构性漏洞须闭环）与 **P.21 本轮清账复核**；旧文件名 `VBOX_PLAN_v6.9.md` 入 `DEAD_DOCS`。
 
 ## 版本历史
+
+<!-- docs-guard:history -->
 
 | 版本 | 主要变更 |
 |------|---------|
@@ -116,9 +132,11 @@
 | **v6.6** | 2026-09-29：**收口批次 + 覆盖率门禁做实** —— ① Spider 实体层单测 **5 文件 / 98 用例**补齐（P.17 #2 闭环，该层 0% → 5/5 触达）；② 单测 **246 → 344**（测试文件 **19 → 24**），`flutter analyze` 0 issues；③ 覆盖率复测：触达 **85.6%**、零触达 **28 → 23**、**全 lib 整体口径 ≈ 70.6%（保守下界）→ 门禁 ⑤ 转为「达标（临界）」**；④ 新增**第 11 个校验脚本** `check_coverage.py`（全 lib 口径 + 70% 硬门槛，堵 P.17 #1 口径陷阱）；⑤ CI 增 `flutter test --coverage` + 覆盖率门槛步骤（P.17 #4）；⑥ `pubspec.lock` 入库；新增 **P.18 六轮收口复核** |
 | **v6.7** | 2026-09-29：**仓储实现批次**（闭环 P.13 §4-1 / §5-1）—— ① `lib/data/repositories/` **四个实现 + barrel**（favorite / history / subscription / remote_source），绑定 `DatabaseManager` / `PrefsManager` 统一返回 `Result`；② `app.dart` 组装并注入用例层（`MultiProvider`）；③ 新增 `test/data/repositories/` **4 文件**：单测 **344 → 365**（测试文件 **24 → 28**、lib **69 → 74**）；覆盖率触达 **86.4%**、全 lib 整体 **71.1%（达标）**、零触达 **24/74**；④ **修复契约漂移**（P.19 #1）：`subscription` 判重键由 `(dyname, dyurl)` 统一为 `findByUrl`（对齐 DDL `dyurl UNIQUE`）；新增 **P.19 七轮复核（3 项）** |
 | **v6.8** | 2026-09-29：**文档版本治理固化** —— 新增 **D24**：文档每次变更**必须先递增修订版本号再交付 / 推送**（同步顶部变更块 + 版本历史「（现行）」行 + 计数口径）；清除 v6.6 变更块残留的「（本版）」标记（唯一性收归 v6.8）；**无代码 / 契约改动**，各项计数不变 |
-| **v6.9（现行）** | 2026-09-29：**文档文件名版本化 + 守卫加固** —— 新增 **D25**：文件名须携带修订版本号（`VBOX_PLAN_v6.9.md`）且与「（现行）」行 / 「本版变更」块三处一致；**重命名主方案文档**并同步全部引用（README / Dart 注释 / CI / 守卫），旧文件名入 `DEAD_DOCS`；`check_docs_consistency.py` 新增**规则 6 / 规则 7**（版本三处一致 + D 编号唯一性与引用无悬空）；修正「唯一现行文档（D17–D20）」误引（实为 v5 文档合并结论）；**无代码 / 契约改动** |
+| **v6.9** | 2026-09-29：**文档文件名版本化 + 守卫加固** —— 新增 **D25**：文件名须携带修订版本号（`VBOX_PLAN_v6.9.md`）且与「（现行）」行 / 「本版变更」块三处一致；**重命名主方案文档**并同步全部引用（README / Dart 注释 / CI / 守卫），旧文件名入 `DEAD_DOCS`；`check_docs_consistency.py` 新增**规则 6 / 规则 7**（版本三处一致 + D 编号唯一性与引用无悬空）；修正「唯一现行文档（D17–D20）」误引（实为 v5 文档合并结论）；**无代码 / 契约改动** |
+| **v6.10（现行）** | 2026-09-29：**清账批次** —— ① 修复 `docs-guard:history` 块**缺闭合**致 L104–L3158 数值 / 路径规则静默失效的结构性漏洞（闭合后再抓 2 处陈旧键数 + 1 处旧文件名并修正）；② 守卫新增**规则 8**（`pubspec` ↔ `AppInfo` 版本一致）/ **规则 9**（禁不可验证的目录声明），并从历史标记移除过泛的「遗漏 / 冗余」、补「NN 个」写法检测；③ `AppInfo` 版本对齐 `pubspec`（`3.1621.0+1621`）、`pubspec.yaml` 移除零引用依赖 `dio` / `collection`；④ 修正 `data/repositories` / `platform/*` / `presentation/*` / `android-compat.md` / `vbox_flutter/` / `flutter/` / `app.dart` 行号等目录路径漂移；⑤ 新增 **D26**、**P.21**；旧文件名入 `DEAD_DOCS` |
 
->
+<!-- /docs-guard:history -->
+
 > **D12 已定稿（经联网查证）**：TV 最低版本定为 **Android 7.0 (API 24)**。
 > 依据：Flutter 官方支持矩阵（3.47）**仅支持 API 24-37，明确标注 `Unsupported: 23 and earlier`**；
 > Flutter 引擎源码 `minSdkVersionInt = 24`。原 API 21 方案不受官方支持，现予修正。
@@ -153,7 +171,8 @@
 | **D22** | **Flutter 版本基线** | 以 CI 实测 **3.47.5** 为准，**修订 §2.3 的「3.24.x 锁版」**；与 D12（API 24，依据 3.47 支持矩阵）保持一致 | **已确认**（2026-09-29） |
 | **D23** | **本地持久化与模型** | Flutter 侧采用 **`sqflite` 直连 + 手写模型**，**不引入 drift / freezed 代码生成**；契约正确性由 Python 侧 `check_*` 断言，不依赖 Dart 代码生成 | **已确认**（2026-09-29） |
 | **D24** | **文档版本号递增** | **每次修改本方案文档必须先递增修订版本号**（v6.x → v6.x+1）**再交付 / 推送**；递增须同步：① 顶部「本版变更」块（旧版去掉「（本版）」标记）、② 版本历史表「（现行）」行、③ 受影响的计数与口径引用 | **已确认**（2026-09-29） |
-| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.9.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
+| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.10.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
+| **D26** | **守卫结构性漏洞须闭环** | 文档守卫的**块级豁免标记必须成对闭合**；凡「静默豁免 / 静默跳过」类设计必须自带**自检**（如块标记成对性、豁免行数上限告警）。发现「规则静默失效」类结构性漏洞时，须**先补漏洞、再用其复查全量**，并把新规则纳入 CI（本轮即由未闭合的 `docs-guard:history` 块暴露 L104–L3158 长期失守） | **已确认**（2026-09-29） |
 
 ---
 
@@ -595,7 +614,7 @@ welfare_platforms.json  → 福利专区（独立入口）
 ### 2.4 目标目录结构
 
 ```
-vbox_flutter/
+vboxapp/
 ├── lib/
 │   ├── main.dart
 │   ├── app.dart
@@ -644,7 +663,7 @@ vbox_flutter/
 │   ├── fixtures/                     # SQLite 样本 / 备份样本 / Spider IO 样本
 │   └── runner/                       # 各端一致性测试运行器
 ├── docs/
-│   └── android-min-sdk21-compat.md   # ⭐ 依赖锁定清单
+│   └── android-compat.md            # ⭐ 依赖锁定清单（实际位于 contract/docs/）
 └── test/  integration_test/
 ```
 
@@ -1121,7 +1140,7 @@ dependencies {
 
 ### A21.3 依赖版本锁定清单（关键！）
 
-写入 `docs/android-min-sdk21-compat.md`，CI 加守卫。
+写入 `contract/docs/android-compat.md`，CI 加守卫。
 
 | 依赖 | 锁定版本 | 上限原因 | 替代方案 |
 |------|---------|---------|---------|
@@ -1298,7 +1317,7 @@ enum class PlayerBackend { MEDIA3, LIBVLC }
 | 4 | JSON Schema（福利平台） | `vbox-contract/schema/welfare_v1.json` | P1 |
 | 5 | JSON Schema（远程源 manifest） | `vbox-contract/schema/manifest_v1.json` | P1 |
 | 6 | 一致性 fixtures | `vbox-contract/conformance/fixtures/*` | P1 |
-| 7 | `android-min-sdk21-compat.md` | `vbox_flutter/docs/` | P0 |
+| 7 | `android-compat.md` | `contract/docs/` | P0 |
 
 ---
 
@@ -1563,7 +1582,7 @@ notes: "第一行末尾正常，仅第二行复现"
 - [ ] SQLite 迁移链 v1→v4 完整复刻
 - [ ] 旧数据可读写（fixtures 实测）
 - [ ] 备份文件可双向互通
-- [ ] Prefs 键名 57 个全覆盖，无遗漏无拼错
+- [ ] Prefs 键名 98 个全覆盖，无遗漏无拼错
 - [ ] 敏感键按约定处理
 
 **③ 平台差异**
@@ -2263,7 +2282,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.9.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.10.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -3106,8 +3125,8 @@ AliyunPlayer + IJK   ~30 MB
 
 | 方案要求 | 状态 |
 |---------|------|
-| `presentation/{phone,tv,desktop,shared,theme}` 布局 | 空目录 |
-| `platform/{player,spider,runtime,system}` 插件层 | 空目录 |
+| `presentation/{phone,tv,desktop,shared,theme}` 布局 | ⬜ 未创建（仅 `ui_mode/` 已交付） |
+| `platform/{player,spider,runtime,system}` 插件层 | ⬜ 未创建 |
 | 平台壳 | ⚠️ `pubspec.yaml` ✅ 已交付（依赖对齐契约）；`android/`/`macos/`/`windows/` 目录 ⬜ 未创建 |
 | **单元测试**（目标 >70%） | ✅ **28 文件 / 365 用例通过**（本机 + CI 双复现）；覆盖率**已测量**：触达口径 **86.4%**，全 lib 整体口径 **71.1%**（保守下界，**达标**），零触达文件 **24/74**（见 P.18 / P.19） |
 | conformance runner | ✅ 已交付（45/45，见 P.8b） |
@@ -3134,7 +3153,7 @@ AliyunPlayer + IJK   ~30 MB
 
 ### P.5 核查发现的问题与修复状态
 
-#### ✅ 问题 1（已修复）：Prefs 契约遗漏 44 个真实键
+#### ✅ 问题 1（v6.1 已修复）：Prefs 契约曾遗漏 44 个真实键
 
 <!-- docs-guard:history -->
 
@@ -3169,7 +3188,7 @@ lib/
 ├── presentation/{providers,ui_mode,phone,tv,desktop,shared,theme}
 └── platform/{player,spider,runtime,system}
 ```
-（`core/` `presentation/` `platform/` 部分为占位空目录，待填充）
+（`presentation/` 仅 `ui_mode/` 已交付、`platform/` 尚未创建；`core/` 已交付 21 文件）
 
 #### ✅ 问题 3（已修复）：新增双向完整性校验
 
@@ -3339,7 +3358,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 
 #### ③ TODO 登记 ✅
 
-`lib/app.dart:84` 改为可追踪格式 `TODO(G-01/stage-1)`，并在 `附录 C`
+`lib/app.dart` 的 TODO 改为可追踪格式 `TODO(G-01/stage-1)`，并在 `附录 C`
 登记为 **G-01**（含影响、阻塞原因、解除条件）。
 
 #### ④ 决策记录追加 ✅
@@ -3756,7 +3775,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 #### 3. 结论与门禁
 
 > 本轮补齐单测**只提高可测性，不改变门禁结论**。P.16 的 4 项 🔴/🟡 属**功能性 / 安全性缺口**，
-> 须在后续轮次实修；叠加 P.13–P.15 累计未闭环的 🔴 项（`repositories` 空目录 / 平台壳 /
+> 须在后续轮次实修；叠加 P.13–P.15 累计未闭环的 🔴 项（`repositories` 曾未接线 / 平台壳 /
 > 覆盖率不可判 / 5 引擎 / 4 播放器 / 供应链），**第 1 轮仍不得标记完成**。
 
 > **教训（三次）**：单测不只是「证明代码对」，更是**发现遗漏的探测器**——
@@ -3804,7 +3823,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 4 | 🟡 中 | **CI 仍无覆盖率步骤/门槛**：本机虽已测量，但 CI 不跑 → **不可防回归**，门禁 ⑤ 对 CI 仍不可判 | `flutter-check.yml` | ✅ **v6.6 已闭环**：CI 增 `flutter test --coverage` + `check_coverage.py` 门槛步骤 |
 | 5 | 🟡 中 | **`.gitignore` 缺 `coverage/`**：本地跑 `--coverage` 即产生 `coverage/lcov.info`，当前会被误入库 | `.gitignore` | ✅ **v6.5 已补 `coverage/`** |
 | 6 | 🟡 中 | **`pubspec.lock` 未入库且未被忽略**：应用工程应提交 lockfile 以保证可复现构建，现为「游离未跟踪」 | `git status` | ✅ **v6.6 已入库** |
-| 7 | 🟡 中 | **`lib/app.dart` 零触达 + 仍含 `TODO(G-01)`**：形态接线未完成，与 G-01 同源 | 不在 lcov；`app.dart:84` | ⬜ 登记（随 G-01） |
+| 7 | 🟡 中 | **`lib/app.dart` 零触达 + 仍含 `TODO(G-01)`**：形态接线未完成，与 G-01 同源 | 不在 lcov；`app.dart:124` | ⬜ 登记（随 G-01） |
 | 8 | 🟢 低 | **14 个 barrel 文件（纯 re-export）无逻辑**，会干扰「按文件数」的覆盖率口径 | `core.dart` / `models.dart` 等 | ⬜ 登记（覆盖率按行口径，不按文件数） |
 
 #### 4. 结论与门禁
@@ -3947,6 +3966,53 @@ conformance **45/45** · iOS IPA 构建链路成功。
 
 ---
 
+### P.21 九轮复核：清账批次（文档漂移归零 + 守卫加固 + 代码小修）（v6.10 新增）
+
+> **触发**：进入下一阶段前的全量复检。**本机实测**：Flutter 3.47.5 · `flutter analyze` 0 issues ·
+> `flutter test` 365 用例全通过 · 11 守卫脚本 + conformance 45/45 全绿。
+
+#### 1. 复核结论（Git 状态虚警）
+
+| 项 | 现象 | 判定 |
+|----|------|------|
+| 本地 `main` 与 `origin/main` 显示「分叉」（本轮观测 8 / 17） | 上一轮以 **GitHub API**（`scripts/api_push2.py`）推送，重建提交 SHA 与 CI 自动 bump 提交交错（远端每推一次 `ci: auto bump version`） | ✅ **虚警**：`git diff main origin/main` 仅 `.version` / `Info.plist` / `project.pbxproj` 三个 **CI 托管文件**有别，v6.1–v6.9 内容**全部已在远端**，无丢失 |
+
+#### 2. 本轮最有价值的发现：守卫「块级豁免」结构性失效 🔴
+
+| # | severity | 问题 | 证据 | 处置 |
+|---|----------|------|------|------|
+| 1 | 🔴 高 | **`docs-guard:history` 块缺闭合标记**：版本历史块开标后**无对应闭合标记**，致其后 **L104–L3158 整段**（§C.3 / §2.x / E.10b / P.1–P.9）被判为历史区 → **键数 / 组数 / 失效路径规则整体静默失效**（此前「守卫 0 漂移」结论因此**部分失真**） | 全文档仅 2 处闭合标记，均在 P.15 区 | ✅ **已补闭合**；闭合后立即抓出 **2 处陈旧键数 + 1 处旧文件名引用**并修正 |
+| 2 | 🔴 高 | **`AppInfo` 版本与 `pubspec.yaml` 不一致**：`version='1.0.0'` / `buildNumber=1`，而 pubspec 为 `3.1621.0+1621`（注释却称「与 pubspec 一致」） | `lib/core/constants/app_constants.dart` | ✅ **已对齐** `3.1621.0` / `1621`；并新增守卫**规则 8** 强制 |
+| 3 | 🟡 中 | **过泛历史标记成豁免后门**：过泛的「遗漏 / 冗余」使现行清单行凭「无遗漏」自我豁免 | 本轮实测 | ✅ 移除该两标记，并新增「NN 个」写法检测 |
+| 4 | 🟡 中 | **目录现状陈述漂移**：`data/repositories` 已于 v6.7 交付（5 文件）却仍标「未实现」；`platform/*`、`presentation/{phone,tv,desktop,…}` **实际未创建**却标为已预建 | 附录 A §三 / P.3 未完成表 | ✅ **已改**为「未创建 / 已交付」；新增守卫**规则 9** 禁不可验证的目录声明 |
+| 5 | 🟢 低 | **失效路径残留**：`android-min-sdk21-compat.md`（实为 `contract/docs/android-compat.md`）、`vbox_flutter/`、`flutter/`、`KNOWN_GAPS` 引用、`app.dart:84` 行号 | 附录 A/B / §2.4 / A21 | ✅ 逐处修正 |
+
+#### 3. 守卫加固（`check_docs_consistency.py`）
+
+| 规则 | 内容 | 覆盖的失效模式 |
+|---|---|---|
+| **8（v6.10 新增）** | `pubspec.yaml` 的 `version`(`X.Y.Z+N`) ↔ `AppInfo.version` / `buildNumber` **必须一致** | 版本号双源漂移（本轮 #2） |
+| **9（v6.10 新增）** | 现行文档**不得出现不可验证的目录声明**（`git` 不跟踪无文件的目录） | 目录现状虚标（本轮 #4） |
+| 1（扩展） | 数值检测补「`NN 个`」写法（此前可绕过 `NN 键` 规则） | 格式化 / 措辞逃逸 |
+| 历史豁免（收窄） | 移除过泛标记「遗漏 / 冗余」 | 自我豁免后门（本轮 #3） |
+| 3（扩展） | `DEAD_DOCS` 增列旧文件名 `VBOX_PLAN_v6.9.md` | 改名后残留旧引用 |
+
+> **教训（九次）**：守卫「**不报错**」≠「**没问题**」——**豁免机制本身**也会失效（一个漏写的闭合标记，
+> 就让三千行脱离监管）。凡「静默豁免」类设计，必须有**自检**（如：块标记必须成对出现、豁免行数上限告警）。
+
+#### 4. 代码与依赖小修
+
+| 项 | 变更 |
+|----|------|
+| `lib/core/constants/app_constants.dart` | `AppInfo.version` `1.0.0`→`3.1621.0`；`buildNumber` `1`→`1621`（对齐 pubspec） |
+| `pubspec.yaml` | 移除**零引用**依赖 `dio`、`collection`（`flutter pub get` 后 lock 同步） |
+| 源码注释引用 | `app_constants.dart` / `storage_paths.dart` / `charset.dart` / `app.dart` 的文档名 → `VBOX_PLAN_v6.10.md` |
+
+> **登记项（下轮守卫候选）**：① 块级标记**成对性**自检（本轮漏洞的根治，见 D26）；
+> ② `check_docs_consistency.py` 目前只扫 `*.md`，`.github/workflows/*.yml` 的文档引用不在监管内（本轮手工同步）。
+
+---
+
 # 附录部分
 
 ---
@@ -4038,13 +4104,13 @@ vboxapp/
 ├── conformance/                一致性样本与 runner
 ├── scripts/                    校验与运维脚本
 ├── docs/                       开发文档
-├── flutter/ · quickjs/         脚本运行时源码（Spider 引擎依赖）
+├── quickjs/                   脚本运行时源码（Spider 引擎依赖）
 ├── go-proxy/                   iOS 侧 Go 代理
 ├── remote-source-repo-template/ 远程源仓库模板
 └── vbox.xcodeproj/             iOS 工程
 ```
 
-> ⚠️ `android/`、`macos/`、`windows/` 平台目录**尚未创建**（见 KNOWN_GAPS G-02）。
+> ⚠️ `android/`、`macos/`、`windows/` 平台目录**尚未创建**（见附录 C G-02）。
 
 ---
 
@@ -4103,15 +4169,15 @@ lib/
 | 核心层 | `core/*` | ✅ 已交付（5 子目录 **21 文件**，见 P.12） |
 | 数据层 | `data/{models,datasources/local}` | ✅ 已交付 |
 | 数据层 | `data/datasources/remote` | ✅ 已交付（CMS V10 + 清单数据源，见 P.13） |
-| 数据层 | `data/repositories` | ⬜ **空目录** —— 用例层尚无实现（P.13 §4-1，高优先级） |
+| 数据层 | `data/repositories` | ✅ 已交付（4 实现 + barrel，v6.7，见 P.19） |
 | 领域层 | `domain/entities/*` | ✅ 已交付 |
 | 领域层 | `domain/{repositories,usecases}` | ✅ 已交付（4 契约 + 4 用例组 + 3 实体，见 P.13） |
 | 表现层 | `presentation/ui_mode` | ✅ 已交付 |
-| 表现层 | `presentation/{phone,tv,desktop,providers,shared,theme}` | ⬜ 空目录 |
-| 平台层 | `platform/*` | ⬜ **空目录**（4 个子目录已建） |
+| 表现层 | `presentation/{phone,tv,desktop,providers,shared,theme}` | ⬜ 未创建（仅 `ui_mode` 已交付） |
+| 平台层 | `platform/*` | ⬜ 未创建 |
 | 测试 | `test/` | ✅ 28 文件 / **365 用例**（本机实测）；覆盖率触达 86.4%，全 lib 整体 **71.1%**（保守下界，达标），零触达 24/74（见 P.18 / P.19） |
 
-> 空目录已按目标结构预建，便于后续填充；`git` 不跟踪空目录，故远端不可见。
+> `presentation/` 的子目录与 `platform/` 尚未创建（`git` 不跟踪无文件的目录，故远端亦不可见）；已交付部分以上表为准。
 
 ---
 
@@ -4140,7 +4206,7 @@ lib/
 
 | 项 | 内容 |
 |----|------|
-| 代码位置 | `lib/app.dart:84`（`TODO(G-01/stage-1)`） |
+| 代码位置 | `lib/app.dart:124`（`TODO(G-01/stage-1)`） |
 | 影响 | 应用无法呈现实际界面，仅有占位 Scaffold |
 | 阻塞原因 | 需 Flutter SDK 编译验证（见 G-07） |
 | 解除条件 | `lib/presentation/{phone,tv,desktop}/` 布局交付 |
@@ -4150,7 +4216,7 @@ lib/
 
 | 项 | 内容 |
 |----|------|
-| 位置 | `lib/platform/{player,spider,runtime,system}/`（空目录）· `android/` `macos/` `windows/`（未创建） |
+| 位置 | `lib/platform/{player,spider,runtime,system}/`（未创建）· `android/` `macos/` `windows/`（未创建） |
 | 影响 | 播放器/Spider 引擎/运行时无法实际运行 |
 | 阻塞原因 | 需 Android NDK + 桌面工具链 |
 | 解除条件 | PlayerPlugin.kt（Media3+libVLC）、PlayerPlugin.swift、player_plugin.cpp 等交付 |
