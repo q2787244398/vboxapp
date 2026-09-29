@@ -112,7 +112,6 @@ final class YlEngine {
     func load(url: URL) -> AVPlayer {
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)
-        player.automaticallyMutesAudio = false
         // Prefer VideoToolbox hardware decoding:
         //   player.preferredForwardBufferDuration = 2.0
         current = player

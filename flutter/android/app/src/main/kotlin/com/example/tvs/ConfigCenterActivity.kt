@@ -92,7 +92,10 @@ class ConfigCenterActivity : FlutterActivity() {
         val prefs = getSharedPreferences("tvs_config", Context.MODE_PRIVATE)
         val config = mutableMapOf<String, Any>()
         prefs.all.forEach { (key, value) ->
-            config[key] = value
+            // SharedPreferences.getAll() 的 value 类型是 Any?，需剔除 null。
+            if (value != null) {
+                config[key] = value
+            }
         }
         return config
     }

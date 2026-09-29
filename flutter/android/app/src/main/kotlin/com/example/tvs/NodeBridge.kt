@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import java.io.File
-import java.net.ServerSocket
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -69,12 +68,13 @@ class NodeBridge(private val context: Context) {
                 processBuilder.environment()[key] = value
             }
 
-            nodeProcess = processBuilder.start()
+            val process = processBuilder.start()
+            nodeProcess = process
             nodePid = try {
                 // Try to get PID (Android-specific)
-                val pidField = nodeProcess.javaClass.getDeclaredField("pid")
+                val pidField = process.javaClass.getDeclaredField("pid")
                 pidField.isAccessible = true
-                pidField.getInt(nodeProcess)
+                pidField.getInt(process)
             } catch (e: Exception) {
                 -1
             }
@@ -166,8 +166,8 @@ class NodeBridge(private val context: Context) {
      */
     private fun isPortOpen(host: String, port: Int, timeout: Int): Boolean {
         return try {
-            ServerSocket().use { socket ->
-                socket.soTimeout = timeout
+            // 探测端口是否可连接要用客户端 Socket；ServerSocket 只有 bind 没有 connect。
+            java.net.Socket().use { socket ->
                 socket.connect(java.net.InetSocketAddress(host, port), timeout)
                 true
             }
