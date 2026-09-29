@@ -29,7 +29,7 @@
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名随修订版本递增（**D25**）：`VBOX_PLAN_v5.md` → `VBOX_PLAN_v6.md`（v6 系列首版，现已废弃）
-> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → **`VBOX_PLAN_v6.11.md`**（当前版）。
+> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → **`VBOX_PLAN_v6.12.md`**（当前版）。
 >
 > **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
@@ -113,7 +113,7 @@
 > （实际 `contract/docs/android-compat.md`）、`vbox_flutter/`、`flutter/`、`KNOWN_GAPS` 引用、`app.dart` 行号；
 > ⑤ 新增 **D26**（守卫结构性漏洞须闭环）与 **P.21 本轮清账复核**；旧文件名 `VBOX_PLAN_v6.9.md` 入 `DEAD_DOCS`。
 >
-> **v6.11 变更（本版）**：**平台壳批次（三端编译门禁解锁）** ——
+> **v6.11 变更**：**平台壳批次（三端编译门禁解锁）** ——
 > ① **交付 Flutter 三端平台壳** `android/` / `macos/` / `windows/`（`flutter create` 官方模板，共 **66 文件**：`android/` 20 · `macos/` 28 · `windows/` 18）；
 > 落地方式**非侵入**：在临时目录生成后**仅拷贝平台目录 + `.metadata`**，不改动 `lib/` / `test/` / `pubspec.yaml`；
 > ② **标识对齐**：Android `namespace` / `applicationId` 与 macOS `PRODUCT_BUNDLE_IDENTIFIER` 统一为
@@ -124,6 +124,15 @@
 > 转为**已具备三端编译通道（待 CI 首跑确认）**；触发路径补 `android/**` / `macos/**` / `windows/**`；
 > ④ 新增 **D27**（平台壳与包名基线）与 **P.22 十轮复核**；文档更名 `VBOX_PLAN_v6.10.md` → **`VBOX_PLAN_v6.11.md`**（D25）；
 > ⑤ 本版**未改动 `lib/` / 契约 / 测试**，各项事实计数不变（74 lib 文件 / 28 测试文件 / 365 用例）。
+>
+> **v6.12 变更（本版）**：**CI 首跑验证（门禁 ③/⑤ 由「待确认」转「✅ 已通过」）** ——
+> ① 平台壳批次推送后触发 **Flutter Check**（run `36600564607`，commit `f59d04e`），**5 个 job 全部 success**：
+> `contract-checks` · `flutter-analyze`（含覆盖率门槛）· `build-android` · `build-macos` · `build-windows`；
+> ② E.10b 门禁 **③/⑤「三端编译通过」由「已具备编译通道（待 CI 首跑确认）」升级为「✅ 已通过」**，
+> 全文相应表述同步（P.3 / P.13 / P.22 / 附录 A）；
+> ③ 顺带修正 **P.14** 遗留的一处状态漂移（`pubspec.lock` 记为「⬜ 待办」，实为 v6.6 已入库）；
+> ④ **无代码 / 契约 / 平台壳改动**，各项事实计数不变（74 lib / 28 测试 / 365 用例 / 11 脚本 / 66 平台壳文件）；
+> 文档更名 `VBOX_PLAN_v6.11.md` → **`VBOX_PLAN_v6.12.md`**（D25）。
 
 ## 版本历史
 
@@ -146,7 +155,8 @@
 | **v6.8** | 2026-09-29：**文档版本治理固化** —— 新增 **D24**：文档每次变更**必须先递增修订版本号再交付 / 推送**（同步顶部变更块 + 版本历史「（现行）」行 + 计数口径）；清除 v6.6 变更块残留的「（本版）」标记（唯一性收归 v6.8）；**无代码 / 契约改动**，各项计数不变 |
 | **v6.9** | 2026-09-29：**文档文件名版本化 + 守卫加固** —— 新增 **D25**：文件名须携带修订版本号（`VBOX_PLAN_v6.9.md`）且与「（现行）」行 / 「本版变更」块三处一致；**重命名主方案文档**并同步全部引用（README / Dart 注释 / CI / 守卫），旧文件名入 `DEAD_DOCS`；`check_docs_consistency.py` 新增**规则 6 / 规则 7**（版本三处一致 + D 编号唯一性与引用无悬空）；修正「唯一现行文档（D17–D20）」误引（实为 v5 文档合并结论）；**无代码 / 契约改动** |
 | **v6.10** | 2026-09-29：**清账批次** —— ① 修复 `docs-guard:history` 块**缺闭合**致 L104–L3158 数值 / 路径规则静默失效的结构性漏洞（闭合后再抓 2 处陈旧键数 + 1 处旧文件名并修正）；② 守卫新增**规则 8**（`pubspec` ↔ `AppInfo` 版本一致）/ **规则 9**（禁不可验证的目录声明），并从历史标记移除过泛的「遗漏 / 冗余」、补「NN 个」写法检测；③ `AppInfo` 版本对齐 `pubspec`（`3.1621.0+1621`）、`pubspec.yaml` 移除零引用依赖 `dio` / `collection`；④ 修正 `data/repositories` / `platform/*` / `presentation/*` / `android-compat.md` / `vbox_flutter/` / `flutter/` / `app.dart` 行号等目录路径漂移；⑤ 新增 **D26**、**P.21**；旧文件名入 `DEAD_DOCS` |
-| **v6.11（现行）** | 2026-09-29：**平台壳批次（三端编译门禁解锁）** —— ① 交付 `android/` `macos/` `windows/` 三端平台壳（`flutter create` 官方模板，**66 文件**，非侵入落地）；② 标识统一 **`com.vbox.player`**（Android namespace/applicationId + macOS bundle id + `MainActivity.kt` 迁移）、`minSdk` 锁 **24**；③ `flutter-check.yml` 新增 **build-android / build-macos / build-windows** 三个 build job，门禁 E.10b ③/⑤「三端编译」转为**已具备编译通道（待 CI 首跑确认）**；④ 新增 **D27**、**P.22**；文档更名 `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` |
+| **v6.11** | 2026-09-29：**平台壳批次（三端编译门禁解锁）** —— ① 交付 `android/` `macos/` `windows/` 三端平台壳（`flutter create` 官方模板，**66 文件**，非侵入落地）；② 标识统一 **`com.vbox.player`**（Android namespace/applicationId + macOS bundle id + `MainActivity.kt` 迁移）、`minSdk` 锁 **24**；③ `flutter-check.yml` 新增 **build-android / build-macos / build-windows** 三个 build job，门禁 E.10b ③/⑤「三端编译」转为**已具备编译通道（待 CI 首跑确认）**；④ 新增 **D27**、**P.22**；文档更名 `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` |
+| **v6.12（现行）** | 2026-09-29：**CI 首跑验证** —— Flutter Check（run `36600564607`，`f59d04e`）**5 job 全绿**（`contract-checks` / `flutter-analyze` / `build-android` / `build-macos` / `build-windows`）；门禁 **③/⑤「三端编译通过」由「待首跑确认」转为「✅ 已通过」**；修正 P.14 `pubspec.lock` 状态漂移；**无代码 / 契约 / 平台壳改动**，计数不变；文档更名 `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` |
 
 <!-- /docs-guard:history -->
 
@@ -184,7 +194,7 @@
 | **D22** | **Flutter 版本基线** | 以 CI 实测 **3.47.5** 为准，**修订 §2.3 的「3.24.x 锁版」**；与 D12（API 24，依据 3.47 支持矩阵）保持一致 | **已确认**（2026-09-29） |
 | **D23** | **本地持久化与模型** | Flutter 侧采用 **`sqflite` 直连 + 手写模型**，**不引入 drift / freezed 代码生成**；契约正确性由 Python 侧 `check_*` 断言，不依赖 Dart 代码生成 | **已确认**（2026-09-29） |
 | **D24** | **文档版本号递增** | **每次修改本方案文档必须先递增修订版本号**（v6.x → v6.x+1）**再交付 / 推送**；递增须同步：① 顶部「本版变更」块（旧版去掉「（本版）」标记）、② 版本历史表「（现行）」行、③ 受影响的计数与口径引用 | **已确认**（2026-09-29） |
-| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.11.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
+| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.12.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
 | **D26** | **守卫结构性漏洞须闭环** | 文档守卫的**块级豁免标记必须成对闭合**；凡「静默豁免 / 静默跳过」类设计必须自带**自检**（如块标记成对性、豁免行数上限告警）。发现「规则静默失效」类结构性漏洞时，须**先补漏洞、再用其复查全量**，并把新规则纳入 CI（本轮即由未闭合的 `docs-guard:history` 块暴露 L104–L3158 长期失守） | **已确认**（2026-09-29） |
 | **D27** | **平台壳与包名基线** | Flutter 平台壳**一律以 `flutter create` 官方模板生成**（不手写），且**非侵入落地**（临时目录生成后仅拷贝平台目录 + `.metadata`，不改 `lib/` / `test/` / `pubspec.yaml`）；Android `namespace`/`applicationId` 与 macOS `PRODUCT_BUNDLE_IDENTIFIER` 统一为 **`com.vbox.player`**（iOS 保持 `com.vbox.iosplayer`）；`minSdk` **显式写死 24**（D12），不依赖 `flutter.minSdkVersion` 隐式默认 | **已确认**（2026-09-29） |
 
@@ -2296,7 +2306,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.11.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.12.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -3141,7 +3151,7 @@ AliyunPlayer + IJK   ~30 MB
 |---------|------|
 | `presentation/{phone,tv,desktop,shared,theme}` 布局 | ⬜ 未创建（仅 `ui_mode/` 已交付） |
 | `platform/{player,spider,runtime,system}` 插件层 | ⬜ 未创建 |
-| 平台壳 | ✅ **v6.11 已交付**：`android/` / `macos/` / `windows/`（`flutter create` 官方模板，66 文件，包名 `com.vbox.player`）；CI 增三端 build job（待 CI 首跑确认） |
+| 平台壳 | ✅ **v6.11 已交付**：`android/` / `macos/` / `windows/`（`flutter create` 官方模板，66 文件，包名 `com.vbox.player`）；CI 三端 build job **v6.12 首跑全绿**（Flutter Check `f59d04e`，见 P.22） |
 | **单元测试**（目标 >70%） | ✅ **28 文件 / 365 用例通过**（本机 + CI 双复现）；覆盖率**已测量**：触达口径 **86.4%**，全 lib 整体口径 **71.1%**（保守下界，**达标**），零触达文件 **24/74**（见 P.18 / P.19） |
 | conformance runner | ✅ 已交付（45/45，见 P.8b） |
 | `lib/domain/{repositories,usecases}` · `lib/data/{datasources/remote,repositories}` | ✅ 已交付（接口 + **四个仓储实现**，v6.7） |
@@ -3323,7 +3333,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 ```
 
 > **v6 更新**：⑤「静态分析无 error」已随 CI 通道解除（`flutter analyze` 0 issues，每次推送执行）。
-> **后续闭环**（见 P.13 §6 / P.22）：⑤「单测覆盖率 ≥70%」✅ **v6.6 达标**；③/⑤「三端编译」✅ **v6.11 已交付平台壳 + CI build job（待首跑确认）**。
+> **后续闭环**（见 P.13 §6 / P.22）：⑤「单测覆盖率 ≥70%」✅ **v6.6 达标**；③/⑤「三端编译」✅ **v6.11 交付平台壳 + CI build job，v6.12 首跑全绿（已通过）**。
 > 当前口径：**9 项 → 6 项**（余：UI 三形态 / 插件层 / 5 引擎 / 4 播放器 / 三端功能对齐 / 侧载链路），需重跑门禁正式确认。
 
 **不达标项归类（12 → 9 → 6）**：
@@ -3587,7 +3597,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | # | severity | 问题 | 影响 / 证据 |
 |---|----------|------|------------|
 | 1 | 🔴 高 | ~~`lib/data/repositories/` 为空 —— 用例层无实现、**lib 内 0 处引用**~~ | ✅ **v6.7 已闭环**：四个仓储实现 + `app.dart` 组装注入（见 P.19）；门禁 ④ 待 UI / 平台层补齐后整体复核 |
-| 2 | 🔴 高 | ~~平台壳 `android/` `macos/` `windows/` 全缺，CI 无 build job~~ | ✅ **v6.11 已闭环**：三端平台壳交付（`com.vbox.player`）+ CI `build-android`/`build-macos`/`build-windows` job；门禁 ③/⑤ 由「无能力」转为「已具备编译通道（待首跑确认）」（见 P.22） |
+| 2 | 🔴 高 | ~~平台壳 `android/` `macos/` `windows/` 全缺，CI 无 build job~~ | ✅ **v6.11 已闭环**：三端平台壳交付（`com.vbox.player`）+ CI `build-android`/`build-macos`/`build-windows` job；门禁 ③/⑤ 由「无能力」转为「已具备编译通道」（v6.12 CI 首跑全绿 → **已通过**，见 P.22） |
 | 3 | 🔴 高 | CI 未测量覆盖率（无 `flutter test --coverage`） | 344 用例通过 ≠ 覆盖率 ≥70%；✅ **v6.6 已闭环**：CI 增 `flutter test --coverage` + `check_coverage.py`（全 lib 口径 70% 硬门槛），本机整体 **71.1%**（见 P.18 / P.19） |
 | 4 | 🟡 中 | DB 路径双真相源：`StoragePaths.databaseFile`（核心层）vs `database_manager.dart` 用 sqflite `getDatabasesPath()` | 桌面 FFI 下易分叉 |
 | 5 | 🟡 中 | `prefs_manager.dart` 直连 `flutter_secure_storage`，未走核心层 `SecureStore` 抽象 | 架构双轨，抽象形同未接入 |
@@ -3619,7 +3629,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 |--------|------|------|
 | ⑤ 静态分析无 error | ✅ **已可判通过** | `flutter analyze` 0 issues，每次推送执行 |
 | ⑤ 单测覆盖率 ≥70% | ✅ **达标** | v6.7 本机实测：触达 86.4%，全 lib 整体 **71.1%**（保守下界），零触达仍有 **24/74**（P.18 / P.19） |
-| ③/⑤ 三端编译通过 | ✅ **通道已具备**（待 CI 首跑确认） | v6.11 交付三端平台壳 + `build-android`/`build-macos`/`build-windows` job（D27，见 P.22） |
+| ③/⑤ 三端编译通过 | ✅ **已通过** | v6.11 交付三端平台壳 + 三个 build job（D27）；v6.12 Flutter Check（`f59d04e`）`build-android`/`build-macos`/`build-windows` 首跑全绿 |
 | ④ 本阶段承诺功能交付 | ⚠️ **部分解除** | 用例层已有实现（v6.7），仍缺 UI 三形态 / 平台插件层 |
 
 > **结论**：E.10b 原 9 项不达标 → **静态分析（v6）· 覆盖率（v6.6）· 三端编译通道（v6.11）三项已解除，余 6 项**；
@@ -3688,7 +3698,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 决策缺口 | D21（provider）/ D22（3.47.5）/ D23（sqflite） | ✅ 已入库 |
 | 仓库卫生 | `.o` ×6 删除；游离脚本 → `scripts/legacy/`；游离 md → `docs/archive/`；`.gitignore` 补 `*.o` / `build/` / `.dart_tool/` | ✅ 已完成 |
 | 版本 | `pubspec.yaml` → `3.1621.0+1621`（对齐 iOS 方案位） | ✅ 已完成 |
-| 未做（环境限制） | `pubspec.lock` 需 Flutter SDK 解析依赖（本地 aarch64 无 Flutter/Dart）→ 留待 CI 首次 `pub get` 后回填 | ⬜ 待办 |
+| 未做（环境限制） | `pubspec.lock` 需 Flutter SDK 解析依赖（本地 aarch64 无 Flutter/Dart）→ 留待 CI 首次 `pub get` 后回填 | ✅ **v6.6 已入库**（见 P.18 #6；v6.12 更正此处旧状态） |
 
 > **复核结论**：P.13 的 15 项 + P.14 的 22 项 = **共 37 项**。本轮（v6.1）关闭 **11 项**，
 > 余 **26 项**中 5 项 🔴 直接卡 E.10b 门禁（repositories / 平台壳 / 覆盖率 / 5 引擎 / 4 播放器），
@@ -4031,7 +4041,8 @@ conformance **45/45** · iOS IPA 构建链路成功。
 
 > **触发**：清账批次后进入「动工」，执行 P.13 §5 第 3 项（平台壳 + CI build job）。
 > **本机实测**：`flutter pub get` · `flutter analyze` **0 issues** · `flutter test` **365 用例全通过** ·
-> 守卫 **11 脚本** + conformance **45/45** 全绿。三端编译由 **CI 首跑**验证（本机无 Android SDK / JDK 17 / Xcode）。
+> 守卫 **11 脚本** + conformance **45/45** 全绿。三端编译由 **CI 首跑验证 → 已通过**
+> （Flutter Check run `36600564607`，`f59d04e`，5 job 全绿；本机无 Android SDK / JDK 17 / Xcode）。
 
 #### 1. 交付内容
 
@@ -4047,7 +4058,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 
 | 门禁项 | 变更前 | 变更后 |
 |--------|--------|--------|
-| ③/⑤ 三端编译 | ❌ 无平台壳、无 build job | ✅ **已具备编译通道（待 CI 首跑确认）** |
+| ③/⑤ 三端编译 | ❌ 无平台壳、无 build job | ✅ **已通过**（v6.12：CI `f59d04e` 首跑 `build-android`/`build-macos`/`build-windows` 全绿） |
 
 > 余项不变：UI 三形态 / 平台插件层（`lib/platform/*`）/ 5 引擎 / 4 播放器 / 三端功能对齐 / 侧载链路。
 > **第 1 轮仍不得标记完成**（D20）。
@@ -4056,7 +4067,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 
 | # | 项 | 说明 |
 |---|----|------|
-| 1 | 🟡 CI 首跑未验证 | 三端 build job 需在 CI 实跑一次方可判定「三端编译通过」；本机缺 SDK / 工具链，无法本地预验 |
+| 1 | 🟢 CI 首跑已验证 | ✅ **v6.12 闭环**：Flutter Check（`f59d04e`）5 job 全绿，`build-android` / `build-macos` / `build-windows` 均 success → 门禁 ③/⑤ 判定「三端编译通过」 |
 | 2 | 🟡 模板版本较新 | 模板生成 AGP **9.1.0** / Kotlin **2.4.0** / Gradle **9.3.1**（Flutter 3.47.5 默认）；若与 runner JDK 不匹配，需在 CI 侧调整 |
 | 3 | 🟢 `analysis_options.yaml` 仍缺 | `flutter_lints` 未生效（P.13 §4 #6），属独立工程项，未纳入本批次 |
 
@@ -4236,7 +4247,7 @@ lib/
 | 表现层 | `presentation/ui_mode` | ✅ 已交付 |
 | 表现层 | `presentation/{phone,tv,desktop,providers,shared,theme}` | ⬜ 未创建（仅 `ui_mode` 已交付） |
 | 平台层 | `platform/*` | ⬜ 未创建 |
-| 平台壳 | `android/` `macos/` `windows/` | ✅ 已交付（v6.11，`flutter create` 官方模板，包名 `com.vbox.player`；CI 三端 build job 待首跑确认） |
+| 平台壳 | `android/` `macos/` `windows/` | ✅ 已交付（v6.11，`flutter create` 官方模板，包名 `com.vbox.player`；CI 三端 build job v6.12 首跑全绿） |
 | 测试 | `test/` | ✅ 28 文件 / **365 用例**（本机实测）；覆盖率触达 86.4%，全 lib 整体 **71.1%**（保守下界，达标），零触达 24/74（见 P.18 / P.19） |
 
 > `presentation/` 的子目录与 `platform/` 尚未创建（`git` 不跟踪无文件的目录，故远端亦不可见）；已交付部分以上表为准。
