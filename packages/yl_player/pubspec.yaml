@@ -16,7 +16,13 @@ flutter:
       android:
         package: dev.ylplayer.yl_player_android
         pluginClass: YlPlayerPlugin
+      # iOS 与 macOS 共用 darwin/ 目录下的同一份源码与 podspec。
+      # 缺省时 Flutter 会在 ios/ 与 macos/ 目录下查找 podspec，
+      # 找不到就把插件当作「无原生实现」跳过，最终 GeneratedPluginRegistrant
+      # 仍会 import yl_player，导致 "Module 'yl_player' not found"。
       ios:
         pluginClass: YlPlayerPlugin
+        sharedDarwinSource: true
       macos:
         pluginClass: YlPlayerPlugin
+        sharedDarwinSource: true

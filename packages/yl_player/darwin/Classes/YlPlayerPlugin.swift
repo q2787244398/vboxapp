@@ -1,4 +1,8 @@
+#if os(iOS)
 import Flutter
+#elseif os(macOS)
+import FlutterMacOS
+#endif
 import AVKit
 #if os(macOS)
 import AppKit
@@ -11,18 +15,23 @@ import AppKit
 /// engine with an FFmpeg demux bridge (YlFFmpegBridge.framework).
 public class YlPlayerPlugin: NSObject, FlutterPlugin {
     private var channel: FlutterMethodChannel?
-    private var flutterController: FlutterPlugin.FlutterPluginAddToEngine?
     #if os(iOS)
     private var engine: YlEngine?
     #endif
 
     public static func register(with registrar: FlutterPluginRegistrar) {
+        // FlutterPluginRegistrar.messenger 是 iOS 的方法 / macOS 的属性，
+        // 两端写法不同（见 FlutterPlugin.h 与 FlutterPluginRegistrarMacOS.h）。
+        #if os(iOS)
+        let messenger = registrar.messenger()
+        #else
+        let messenger = registrar.messenger
+        #endif
         let channel = FlutterMethodChannel(
             name: "dev.flutter.pigeon.yl_player",
-            binaryMessenger: registrar.messenger())
+            binaryMessenger: messenger)
         let instance = YlPlayerPlugin()
         instance.channel = channel
-        instance.flutterController = registrar
 
         channel.setMethodCallHandler { call, result in
             switch call.method {
@@ -37,7 +46,7 @@ public class YlPlayerPlugin: NSObject, FlutterPlugin {
             case "setPlaybackSpeed": instance.handleSpeed(args: call.arguments as! [String: Any], result: result)
             case "selectAudioTrack": instance.handleTrack(args: call.arguments as! [String: Any], result: result)
             case "attach": instance.handleAttach(args: call.arguments as! [String: Any], result: result)
-            case "assess": result([ "tracks": [ [String: Any]] ])
+            case "assess": result(["tracks": []])
             case "dispose": instance.handleDispose(result: result)
             default: result(FlutterMethodNotImplemented)
             }
