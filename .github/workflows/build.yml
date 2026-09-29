@@ -4,11 +4,12 @@ name: Build
 #   1. 计算下一个版本号（pubspec.yaml 的 X.Y.Z+N 每次 +1）
 #   2. 快速静态分析（ubuntu，约 1-2 分钟）—— 失败则不再消耗 macOS/Windows 额度
 #   3. Android / iOS / macOS / Windows 四端并行编译
-#   4. 版本号回写 main + 打 tag + 发 Release
+#   4. 各端打成**原生安装包**：.apk / .ipa / .dmg / setup.exe
+#   5. 版本号回写 main + 打 tag + 发布 Release（附件即安装包本体，不再套 zip）
 #
 # 版本号传播：Flutter 以 pubspec.yaml 为唯一版本源，自动注入
 #   Android(versionName/versionCode) / iOS 与 macOS(CFBundleShortVersionString/CFBundleVersion)，
-#   Windows 的 Runner.rc 由 _scripts/bump_version.py 单独对齐。
+#   Windows 的 Runner.rc 与安装包文件名由 _scripts/bump_version.py / package_release.sh 对齐。
 
 on:
   push:
@@ -62,22 +63,17 @@ jobs:
       - name: flutter pub get
         working-directory: flutter
         run: flutter pub get
-      - name: Show resolved dependency versions
-        working-directory: flutter
-        run: flutter pub deps --style=compact || true
       - name: flutter analyze
         working-directory: flutter
         run: flutter analyze --no-fatal-infos
-
       # 插件包是独立 package，flutter analyze 不会覆盖它。
-      # 之前 macOS 构建就因这里的 const 默认值错误失败，故单独分析。
       - name: flutter analyze (yl_player plugin)
         working-directory: packages/yl_player
         run: |
           flutter pub get
           flutter analyze --no-fatal-infos
 
-  # ---------- 3. 四端并行编译 ----------
+  # ---------- 3. 四端并行编译 + 打包 ----------
   build:
     needs: [version, analyze]
     strategy:
@@ -88,22 +84,18 @@ jobs:
             platform: android
             artifact_name: tvs-android
             build_cmd: flutter build apk --release
-            artifact_path: build/app/outputs/flutter-apk/
           - os: macos-latest
             platform: ios
             artifact_name: tvs-ios
             build_cmd: flutter build ios --release --no-codesign
-            artifact_path: build/ios/iphoneos/
           - os: macos-latest
             platform: macos
             artifact_name: tvs-macos
             build_cmd: flutter build macos --release
-            artifact_path: build/macos/Build/Products/Release/
           - os: windows-latest
             platform: windows
             artifact_name: tvs-windows
             build_cmd: flutter build windows --release
-            artifact_path: build/windows/x64/runner/Release/
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -142,11 +134,17 @@ jobs:
         run: ${{ matrix.build_cmd }}
         timeout-minutes: 60
 
-      - name: Upload artifact
+      # 产出该平台的原生安装包到 dist/
+      - name: Package installer (${{ matrix.platform }})
+        shell: bash
+        run: bash _scripts/package_release.sh ${{ matrix.platform }} ${{ needs.version.outputs.version }}
+        timeout-minutes: 20
+
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}-${{ needs.version.outputs.full }}
-          path: flutter/${{ matrix.artifact_path }}
+          path: dist/*
           if-no-files-found: error
           retention-days: 30
 
@@ -157,18 +155,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download all installers
         uses: actions/download-artifact@v4
         with:
           path: dist
+          merge-multiple: true
 
-      - name: Pack artifacts
-        run: |
-          cd dist
-          for d in */; do
-            zip -qr "${d%/}.zip" "$d"
-          done
-          ls -lh
+      - name: Show release assets
+        run: ls -lh dist | sed 's/^/    /'
 
       - name: Commit version bump back to main
         run: |
@@ -183,12 +177,25 @@ jobs:
             git push
           fi
 
+      # 直接发布安装包本体，不再套一层 zip
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cat > /tmp/notes.md <<'NOTES'
+          ## 安装包说明
+
+          | 平台 | 文件 | 安装方式 |
+          |---|---|---|
+          | Android | `TVS-<版本>-android.apk` | 直接安装 |
+          | iOS | `TVS-<版本>-ios.ipa` | **未签名**，需 TrollStore / 巨魔 或自签工具（AltStore、Sideloadly）安装 |
+          | macOS | `TVS-<版本>-macos.dmg` | 打开后将 TVS.app 拖入「应用程序」；首次运行需在「系统设置 → 隐私与安全性」中放行 |
+          | Windows | `TVS-<版本>-windows-setup.exe` | 双击安装 |
+
+          > 所有产物均为自动构建，未做代码签名与公证。
+          NOTES
           gh release create "${{ needs.version.outputs.tag }}" \
-            dist/*.zip \
+            dist/* \
             --title "TVS v${{ needs.version.outputs.version }}" \
-            --notes "自动构建发布 — 版本 ${{ needs.version.outputs.version }} (build ${{ needs.version.outputs.build }})" \
-            || gh release upload "${{ needs.version.outputs.tag }}" dist/*.zip --clobber
+            --notes-file /tmp/notes.md \
+            || gh release upload "${{ needs.version.outputs.tag }}" dist/* --clobber
