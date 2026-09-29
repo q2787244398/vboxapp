@@ -3,7 +3,7 @@
 # 背景：本机 iSH aarch64 无法运行 Flutter（官方 Linux 包仅 x86-64），
 # 所有 Dart 代码未经编译验证。本 workflow 在 GitHub Actions 上补齐验证闭环：
 #   1. contract-checks   10 个 Python 校验脚本 + conformance runner（ubuntu）
-#   2. flutter-analyze   flutter analyze + flutter test（macos-15）
+#   2. flutter-analyze   flutter analyze + flutter test --coverage + 覆盖率门槛（macos-15）
 #
 # 对应主文档：docs/VBOX_PLAN_v6.md P.7（环境约束）/ P.10（未决事项 #5）
 name: Flutter Check
@@ -88,11 +88,20 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
-      # 单测：当前 12 文件 / 143 用例（覆盖率门槛待接入，见 P.13 §4-3）
-      - name: Test (when present)
+      # 单测 + 覆盖率：当前 24 文件 / 344 用例（v6.6）
+      # 覆盖率门槛由 check_coverage.py 按「全 lib 行数」口径硬校验 70%（堵 lcov 只算触达文件的口径陷阱，见 P.18）
+      - name: Test with coverage (when present)
         run: |
           if [ -d test ] && find test -name '*.dart' 2>/dev/null | grep -q .; then
-            flutter test
+            flutter test --coverage
           else
             echo "test/ 无用例，跳过"
+          fi
+
+      - name: Coverage gate (all-lib lines >= 70%)
+        run: |
+          if [ -f coverage/lcov.info ]; then
+            python3 scripts/check_coverage.py
+          else
+            echo "无覆盖率数据，跳过（test/ 无用例）"
           fi
