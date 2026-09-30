@@ -5,9 +5,11 @@
 # P5 要求的 GitHub Release 资产（vbox-arm64.apk / vbox-v7a.apk / vbox-setup.exe / vbox.dmg）
 # 此前无任何工作流产出 → 本工作流补齐。
 #
-# 触发方式：仅 workflow_dispatch（手动）。手动触发时机：IPA 所在 Release（v{版本}，由
-# build-ipa 管道在 q2787244398/vboxapp 创建）已存在或即将发布时，把平台安装包追加到
-# 同一个 Release（同名资产带 vbox.ipa，`releases/latest/download/` 口径即与 S.7 一致）。
+# 触发方式（自动 · 主路径）：跟随 build-ipa 管道 —— iOS 构建成功（workflow_run completed/success）
+# 后自动执行，把三端安装包追加到「同一个 Release」（该 Release 已含 vbox.ipa，tag 来自 iOS
+# 版本号，例如 v3.1649），从而实现「代码一变动即产出 ipa + APK + EXE + DMG」。
+# 另保留 workflow_dispatch 手动触发（可显式指定 release_tag）。
+# iOS 构建失败时本工作流整体跳过，绝不产出残包。
 #
 # 分发决策（D28）：libmpv 原生二进制不入 git 仓库，由 scripts/fetch_libmpv.sh 从
 # q2787244398/vbox-deps 的 Release 资产下载并随 DMG / EXE 分发；访问私有仓库需配置
@@ -22,20 +24,34 @@
 name: Build Release Assets (APK / EXE / DMG)
 
 on:
+  # 主路径：iOS（build-ipa）构建成功完成后自动触发
+  workflow_run:
+    workflows: ["Build IPA (巨魔安装版)"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       release_tag:
         description: >-
-          目标 Release tag。缺省取 pubspec.yaml 的 version 前缀（如 v3.1621.0）。
-          若要与 iOS IPA 同 Release（build-ipa 管道创建，tag 来自 iOS Info.plist
-          MARKETING_VERSION，例如 v6.27.0），请填该 tag。
+          目标 Release tag。留空则自动取最近一个含 vbox.ipa 资产的 Release
+          （即 build-ipa 刚创建的版本，如 v3.1649）；也可手动填写其他 tag。
         required: false
         type: string
+
+# 建 Release / 上传资产需要写权限
+permissions:
+  contents: write
+
+# 按提交串行：同一份代码只跑一份，且不同提交互不顶掉（避免漏掉某个版本的打包）
+concurrency:
+  group: build-release-assets-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
 
 jobs:
   # ── Android：release APK（arm64 + v7a）+ S.6 自签名 ────────────────
   build-android:
     name: Build Android APK (arm64 + v7a)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -97,6 +113,7 @@ jobs:
   # ── Windows：release 构建 + libmpv dll + Inno Setup → vbox-setup.exe ──
   build-windows:
     name: Build Windows installer (vbox-setup.exe)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -146,6 +163,7 @@ jobs:
   # ── macOS：release 构建 + libmpv dylib + hdiutil → vbox.dmg ─────────
   build-macos:
     name: Build macOS DMG (vbox.dmg)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -204,15 +222,28 @@ jobs:
 
       - name: Resolve release tag
         id: tag
-        run: |
-          if [ -n "$RELEASE_TAG" ]; then
-            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          else
-            VER="$(grep '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([0-9.]+).*/\1/')"
-            echo "tag=v${VER}" >> "$GITHUB_OUTPUT"
-          fi
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          # ① 手动指定优先
+          if [ -n "${INPUT_TAG:-}" ]; then
+            echo "tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+            echo "使用手动指定 tag: ${INPUT_TAG}"
+            exit 0
+          fi
+          # ② 自动模式：取最近一个「含 .ipa 资产」的 Release —— 即 build-ipa 刚创建的版本，
+          #    保证三端安装包与 iOS IPA 落在同一 Release / 同一版本号
+          TAG="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=20" \
+            --jq '[.[] | select(any(.assets[]; .name | endswith(".ipa")))] | .[0].tag_name' 2>/dev/null || true)"
+          # ③ 兜底：无 IPA Release 时，改按 iOS Info.plist 版本号推导（与 build-ipa 同源）
+          if [ -z "${TAG:-}" ] || [ "${TAG}" = "null" ]; then
+            VER="$(python3 -c "import re;t=open('vbox/Info.plist').read();m=re.search(r'<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>',t);print(m.group(1) if m else '')")"
+            TAG="v${VER}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "解析到 Release tag: ${TAG}"
 
       - name: Upload assets to Release
         env:
