@@ -29,7 +29,7 @@
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名随修订版本递增（**D25**）：`VBOX_PLAN_v5.md` → `VBOX_PLAN_v6.md`（v6 系列首版，现已废弃）
-> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` → **`VBOX_PLAN_v6.20.md`**（当前版）。
+> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` → **`VBOX_PLAN_v6.21.md`**（当前版）。
 >
 > **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
@@ -211,7 +211,7 @@
 > ④ 本轮**不改码**（纯登记），计数不变（80 / 33 / 396 / 73.5% / 24/80）；
 > 新增 **P.29 G-03 评估登记**；文档更名 `VBOX_PLAN_v6.18.md` → **`VBOX_PLAN_v6.19.md`**（D25）。
 >
-> **v6.20 变更（本版）**：**G-02 平台插件层可行性评估登记（含播放器插件）+ 门禁编号纠偏（不改码）** ——
+> **v6.20 变更**：**G-02 平台插件层可行性评估登记（含播放器插件）+ 门禁编号纠偏（不改码）** ——
 > ① 完成 **G-02 × 三端平台壳**评估（详见 P.30）：**Android 播放器插件（Media3 + libVLC）为纯 Gradle 依赖
 > （零 NDK，libVLC aar 自带原生库）**，CI build-android 可直接编译验证；macOS **AVPlayer 零原生依赖**可交付，
 > libmpv 回退需 dylib 分发；Windows libmpv 需 dll 分发（最重）；
@@ -222,6 +222,18 @@
 > **G-02-B**（macOS AVPlayer 接线 + Windows/macOS libmpv 二进制分发决策）；
 > ⑤ 本轮**不改码**（纯登记），计数不变（80 / 33 / 396 / 73.5% / 24/80）；
 > 新增 **P.30 G-02 评估登记**；文档更名 `VBOX_PLAN_v6.19.md` → **`VBOX_PLAN_v6.20.md`**（D25）。
+>
+> **v6.21 变更（本版）**：**G-03-A 桥接协议层交付（G-03 从「未开始」推进到「桥接协议层交付」）** ——
+> ① 交付 `lib/platform/spider/` **6 文件**（ABI 编解码 `spider_abi.dart` / Node·NodeLX HTTP 桥 `node_bridge_engine.dart` /
+> Node 客户端 `node_http_client.dart` / Python 子进程桥 `python_bridge_engine.dart` / 引擎工厂 `spider_engine_factory.dart` / barrel `spider.dart`），
+> 引擎差异收敛到适配层（契约 §4.5），Node/NodeLX/Python 三引擎走 ABI 统一编解码；
+> ② 新增 **4 个测试文件 / 27 用例**（ABI 编解码 7 / Node 桥 7 / Python 桥 8（真实 python3 子进程）/ 引擎工厂 5）；
+> ③ 本机全量校验：`flutter analyze` **0 issues**、`flutter test` **423 用例全通过**、conformance **45/45**、
+> 11 守卫脚本全绿（含覆盖率：触达口径 **86.9%**、全 lib 整体 **74.0%（达标）**、零触达 **25/86**）；
+> ④ 计数变化：lib **80 → 86**、测试文件 **33 → 37**、单测 **396 → 423**、整体覆盖 **73.5% → 74.0%**、零触达 **24/80 → 25/86**（新增文件均有测试触达）；
+> ⑤ 门禁（E.10b）：**G-03 部分解除** —— G-03-A（桥接协议层：Node/NodeLX/Python + 引擎工厂 + ABI conformance）**交付**；
+> G-03-B（QuickJS FFI + 运行时分发）**待决策**；
+> 新增 **P.31 G-03-A 交付复核**；文档更名 `VBOX_PLAN_v6.20.md` → **`VBOX_PLAN_v6.21.md`**（D25）。
 
 ## 版本历史
 
@@ -253,7 +265,8 @@
 | **v6.17** | 2026-09-30：**G-01 desktop 形态交付（第 1 轮 UI 第三块）+ 共享视图抽取** —— ① 新增 `lib/presentation/widgets/library_views.dart`（FavoritesView / HistoryView 抽取为三形态共享组件）；② 新增 `lib/presentation/desktop/desktop_home_page.dart`（NavigationRail 宽屏布局，内嵌远程源）；③ `app.dart` desktop 占位解除；④ 新增 widget 测试 **5 用例**；lib **77 → 79**、测试 **31 → 32**、单测 **386 → 391**、整体覆盖 **73.1% → 73.2%**、零触达 **24/79**；E.10b **G-01 继续解除**（仅余 TV）；新增 **P.27**；文档更名 `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` |
 | **v6.18** | 2026-09-30：**G-01 tv 形态交付（第 1 轮 UI 收官）** —— ① 新增 `lib/presentation/tv/tv_home_page.dart`（T.7 焦点规范：FocusTraversalGroup + TabBar autofocus，三 Tab 导航复用共享视图）；② `app.dart` tv 占位解除，**三形态全部交付**；③ 新增 widget 测试 **5 用例**；lib **79 → 80**、测试 **32 → 33**、单测 **391 → 396**、整体覆盖 **73.2% → 73.5%**、零触达 **24/80**；E.10b **G-01 UI 三形态解除**（TV D-pad 归 G-10 人工验收）；新增 **P.28**；文档更名 `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` |
 | **v6.19** | 2026-09-30：**G-03 可行性评估登记（不改码）** —— 5 引擎 × 三端可行性矩阵（Node/NodeLX 桥 + Python 桥纯 Dart 可交付，QuickJS 需 FFI 原生，JSC 三端不可用）；关键判断（ABI 收敛差异、运行时分发为最大风险）；推荐路线 G-03-A（引擎工厂 + 双桥 + ABI conformance）→ G-03-B（QuickJS FFI + 分发方案待决策）；**计数不变**（80 / 33 / 396 / 73.5% / 24/80）；新增 **P.29**；文档更名 `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` |
-| **v6.20（现行）** | 2026-09-30：**G-02 平台插件层可行性评估登记（含播放器插件）+ 门禁编号纠偏（不改码）** —— 三端插件矩阵（Android Media3+libVLC 纯 Gradle 零 NDK / macOS AVPlayer 零原生依赖 / Windows libmpv 需 dll）；播放器回退路径三端齐备（A21.5）；**编号纠偏**（G-06=iOS 参照已✅、G-07=编译环境已✅，播放器属 G-02；E.10b 余项 = G-02 / G-03 / G-05 / G-09 / G-10）；推荐 G-02-A（Dart PlayerController + Android 接线，CI 可验）→ G-02-B（libmpv 分发待决策）；**计数不变**（80 / 33 / 396 / 73.5% / 24/80）；新增 **P.30**；文档更名 `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` |
+| v6.20 | 2026-09-30：**G-02 平台插件层可行性评估登记（含播放器插件）+ 门禁编号纠偏（不改码）** —— 三端插件矩阵（Android Media3+libVLC 纯 Gradle 零 NDK / macOS AVPlayer 零原生依赖 / Windows libmpv 需 dll）；播放器回退路径三端齐备（A21.5）；**编号纠偏**（G-06=iOS 参照已✅、G-07=编译环境已✅，播放器属 G-02；E.10b 余项 = G-02 / G-03 / G-05 / G-09 / G-10）；推荐 G-02-A（Dart PlayerController + Android 接线，CI 可验）→ G-02-B（libmpv 分发待决策）；**计数不变**（80 / 33 / 396 / 73.5% / 24/80）；新增 **P.30**；文档更名 `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` |
+| **v6.21（现行）** | 2026-09-30：**G-03-A 桥接协议层交付（G-03 从「未开始」推进到「桥接协议层交付」）** —— ① 交付 `lib/platform/spider/` **6 文件**（ABI 编解码 / Node·NodeLX HTTP 桥 / Python 子进程桥 / 引擎工厂 / Node 客户端 / barrel），引擎差异收敛到适配层，三引擎走 ABI 统一编解码；② 新增 **4 个测试文件 / 27 用例**（ABI 7 / Node 桥 7 / Python 桥 8（真实 python3 子进程）/ 工厂 5）；③ 本机全量校验：analyze 0 issues · 423 用例全通过 · conformance 45/45 · 11 守卫全绿（触达 86.9%、整体 **74.0% 达标**、零触达 25/86）；④ 计数：lib **80 → 86**、测试 **33 → 37**、单测 **396 → 423**、整体 **73.5% → 74.0%**、零触达 **24/80 → 25/86**；⑤ E.10b **G-03 部分解除**（G-03-A 交付，G-03-B 待决策）；新增 **P.31**；文档更名 `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` |
 
 <!-- /docs-guard:history -->
 
@@ -2403,7 +2416,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.20.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.21.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -4477,13 +4490,14 @@ E.10b 余项（最新，v6.20 编号纠偏）：**G-02 平台插件层（含播�
 
 | 批次 | 内容 | 环境可验 | 状态 |
 |------|------|:---:|------|
-| **G-03-A** | 引擎工厂（按站点模式解析 → 引擎选择）+ NodeBridgeEngine（HTTP 桥，ABI 请求/响应 + 错误码映射 + HTTP 回调回传）+ PythonBridgeEngine（子进程 stdio，ABI 编解码）+ ABI 往返 conformance（对齐 fixtures Spider IO） | ✅ 纯 Dart | 待执行（下次批次） |
+| **G-03-A** | 引擎工厂（按站点模式解析 → 引擎选择）+ NodeBridgeEngine（HTTP 桥，ABI 请求/响应 + 错误码映射 + HTTP 回调回传）+ PythonBridgeEngine（子进程 stdio，ABI 编解码）+ ABI 往返 conformance（对齐 fixtures Spider IO） | ✅ 纯 Dart | ✅ **已交付（v6.21，见 P.31）** |
 | **G-03-B** | QuickJS FFI 绑定（原生库来源决策）+ Node / Python 运行时分发方案（内置 / 首次下载 / 仅桌面，参考 §4.5 结论与 iOS Python 3.14 实现） | ❌ 需决策 + 原生工具链 | 待决策 |
 
 #### 5. 门禁影响
 
-G-03（5 引擎实现）**状态不变（未开始）**：抽象层已交付，实现待 G-03-A / G-03-B。
-E.10b 余项（v6.20 编号纠偏）：**G-02 / G-03 / G-05（部分解除）/ G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
+G-03（5 引擎实现）**G-03-A 部分解除（v6.21）**：桥接协议层（Node/NodeLX/Python 三引擎 + 引擎工厂 + ABI conformance）已交付；
+G-03-B（QuickJS FFI + 运行时分发）待决策，G-03 整体**未完全解除**。
+E.10b 余项（v6.21）：**G-02 / G-03（G-03-B 余项）/ G-05（零触达收尾）/ G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
 
 ---
 
@@ -4531,6 +4545,64 @@ E.10b 余项（v6.20 编号纠偏）：**G-02 / G-03 / G-05（部分解除）/ G
 
 G-02（平台插件层）**状态不变（未开始）**：评估已登记，实现待 G-02-A / G-02-B / G-02-C。
 E.10b 余项（**v6.20 编号纠偏**）：**G-02 / G-03 / G-05（零触达收尾）/ G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
+
+---
+
+### P.31 十九轮复核：G-03-A 桥接协议层交付（G-03 部分解除）（v6.21 新增）
+
+> 复核方法：本机 Flutter **3.47.5** 实测 `flutter analyze`（0 issues）/ `flutter test --coverage`（**423 用例**）+
+> **11 守卫脚本** + conformance **45/45**；Python 桥用例以**真实 python3 子进程**（`conformance/fixtures/python_echo_spider.py`）
+> 验证 stdio ABI 往返；Node 桥用例注入 fake HTTP 客户端，无真实端口依赖。
+
+#### 1. 交付内容（`lib/platform/spider/` 6 文件）
+
+| 文件 | 职责 | 对齐来源 |
+|------|------|---------|
+| `spider_abi.dart` | ABI 请求组装（op / params / ctx）/ 响应解码（ok/data/error/logs/elapsedMs）/ 错误码映射（E_* → SpiderErrorCode，契约 §5.1） | 契约 §7 + §5.1 |
+| `node_bridge_engine.dart` | Node（58080）/ NodeLX（58083）HTTP 桥：脚本驻留远端进程，宿主经 `/spider/` ABI 调用；load* 为 no-op，register 即 ready；超时 / SocketException → 结构化错误 | iOS 常驻 Node 进程 + lx-music 桥 |
+| `node_http_client.dart` | `NodeHttpClient` 抽象（注入点）+ `LocalNodeHttpClient` 本机实现（15s 超时） | iOS 127.0.0.1:58080 |
+| `python_bridge_engine.dart` | Python 子进程 stdio ABI：`loadScript` 写临时 .py、`python3 -u` 常驻、等 READY 行；stdin 写请求行 / stdout 读响应行；超时 / 首行非 READY / 语法错误 → scriptLoad | iOS `PythonSpiderEngine` 脚本语义 |
+| `spider_engine_factory.dart` | 按 `SpiderEngineType` 分派：node / nodeLX → NodeBridgeEngine；python → PythonBridgeEngine；quickJS / javaScriptCore → unimplemented（G-03-B 待决策） | 契约 §1 + §1.1 |
+| `spider.dart` | barrel（平台层 Spider 导出） | — |
+
+> 设计要点：**引擎差异收敛到适配层**（契约 §4.5 结论落地）—— 三引擎共用 `SpiderAbiCodec`，ABI 请求/响应格式三端一致；
+> Node/Python 桥的 `loadScript / loadLibrary / loadScriptFromURL` 语义差异由各引擎自行声明（Node 桥 no-op、Python 桥真实加载）。
+
+#### 2. 测试（新增 4 文件 / 27 用例，全部通过）
+
+| 测试文件 | 用例数 | 覆盖 |
+|---------|:---:|------|
+| `spider_abi_test.dart` | 7 | encodeRequest 组装 / 成功响应解析（searchContent、homeContent、playerContent fixtures）/ 错误映射 / 非 JSON → E_PROTOCOL / E_* 全映射 |
+| `node_bridge_engine_test.dart` | 7 | ABI 请求构造（op/params/ctx）+ 响应解析 / 请求路径 `/spider/` / urls 回填 / E_RUNTIME 映射 / 非 JSON → protocol / 超时 → timeout / 引擎类型断言 |
+| `python_bridge_engine_test.dart` | 8 | 真实子进程：READY + homeContent 往返 / keyword 透传 / 剩余 3 op 全链路 / 未加载调用 → register / 首行非 READY → scriptLoad / 语法错误超时 → scriptLoad / URL 加载不支持 / engineType 恒为 python（环境无 python3 时整组 skip） |
+| `spider_engine_factory_test.dart` | 5 | node / nodeLX → NodeBridgeEngine、python → PythonBridgeEngine、quickJS / javaScriptCore → unimplemented、注入 fake 客户端走 ABI 调用 |
+
+#### 3. 事实计数（v6.21）
+
+| 指标 | v6.20 | v6.21 |
+|------|-------|-------|
+| lib 文件 | 80 | **86**（+platform/spider 6） |
+| 测试文件 | 33 | **37**（+4） |
+| 单测用例 | 396 | **423**（+27） |
+| 触达口径 | 87.2%（v6.18 口径） | **86.9%**（2048/2357） |
+| 全 lib 整体覆盖 | 73.5% | **74.0%**（达标，2048/2766） |
+| 零触达文件 | 24/80 | **25/86**（新增 barrel `spider.dart` 未触达，其余新文件均有测试触达） |
+
+> 注：`lib/platform/spider/spider.dart`（barrel）零触达为**预期**（纯导出无执行逻辑），与既有 barrel 文件（`lib/domain/entities/spider/spider.dart` 等 24 个）同类，不计入门禁问题。
+
+#### 4. 门禁影响（E.10b）
+
+**G-03 部分解除（G-03-A 交付）**：桥接协议层（Node/NodeLX/Python 三引擎 + 引擎工厂 + ABI conformance）已交付，
+纯 Dart 可验证路径全部通过；**G-03-B（QuickJS FFI + Node/Python 运行时分发方案）待决策**，G-03 整体未完全解除。
+E.10b 余项（v6.21）：**G-02 / G-03（G-03-B 余项）/ G-05（零触达收尾）/ G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
+
+#### 5. 遗留 / 下批待办（更新）
+
+| # | severity | 项 | 说明 |
+|---|----------|----|------|
+| 1 | 🟡 中 | **G-03-B**：QuickJS FFI 绑定（原生库来源决策）+ Node / Python 运行时分发方案 | 需决策 + 原生工具链，参考 P.29 §4 |
+| 2 | 🟡 中 | **G-02-A**：Dart `PlayerController` 抽象 + Android 接线 | 见 P.30 §4，CI build-android 可验 |
+| 3 | 🟢 低 | 详情页 / 播放入口接线（Spider 内容 → 播放链路） | 依赖 G-03 引擎接线与 G-02 播放器 |
 
 ---
 
@@ -4747,15 +4819,15 @@ lib/
 | 推荐路线 | **G-02-A**（Dart PlayerController + Android 接线，CI 编译可验）→ **G-02-B**（macOS AVPlayer + libmpv 分发决策）→ **G-02-C**（SystemPlugin / 前台服务 / 真机验收） |
 | 关联 | 方案 §2.4、D6、D27、**P.30 评估登记** |
 
-## G-03 5 个 Spider 引擎实现未开始 ⛔ 高（**v6.19 完成可行性评估登记，P.29**）
+## G-03 5 个 Spider 引擎实现部分解除（**G-03-A 已交付 v6.21**；G-03-B 待决策）⛔ 高
 
 | 项 | 内容 |
 |----|------|
-| 现状 | 抽象层 ✅（`lib/domain/entities/spider/` 6 文件，98 单测）；实现 0%（`lib/platform/spider/` 不存在） |
-| 影响 | 所有 Spider 源不可用 |
+| 现状 | 抽象层 ✅（`lib/domain/entities/spider/` 6 文件，98 单测）；**桥接协议层 ✅（G-03-A v6.21 交付）**：`lib/platform/spider/` 6 文件（ABI 编解码 / Node·NodeLX HTTP 桥 / Python 子进程桥 / 引擎工厂），Node/NodeLX/Python 三引擎已可走 ABI 调用（见 **P.31**） |
+| 影响 | 所有 Spider 源不可用（Node/NodeLX/Python 桥已就绪，QuickJS/JSC 仍未实现） |
 | 阻塞原因 | ~~需 QuickJS/Node/Python 运行时绑定~~ → **v6.19 已评估**：Node/NodeLX 桥 + Python 桥为**纯 Dart 可交付**（G-03-A）；QuickJS FFI 与运行时分发需先行决策（G-03-B） |
-| 解除条件 | 5 引擎（JSC/QuickJS/Node/NodeLX/Python）实现并通过 conformance；JSC 三端以 QuickJS 顶替（iOS 走原生） |
-| 关联 | 契约 `abi_v1.md`、方案 E.7 / §4.5、**P.29 评估登记** |
+| 解除条件 | G-03-A ✅（桥接协议层 + conformance）；**G-03-B**（QuickJS FFI 绑定 + Node/Python 运行时分发方案）待决策；JSC 三端以 QuickJS 顶替（iOS 走原生） |
+| 关联 | 契约 `abi_v1.md`、方案 E.7 / §4.5、**P.29 评估登记**、**P.31 交付复核** |
 
 ## G-04 conformance runner ✅ 已解决（2026-09-29）
 
