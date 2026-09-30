@@ -29,7 +29,7 @@
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名随修订版本递增（**D25**）：`VBOX_PLAN_v5.md` → `VBOX_PLAN_v6.md`（v6 系列首版，现已废弃）
-> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` → **`VBOX_PLAN_v6.22.md`**（当前版）。
+> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` → `VBOX_PLAN_v6.22.md` → **`VBOX_PLAN_v6.23.md`**（当前版）。
 >
 > **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
@@ -235,7 +235,19 @@
 > G-03-B（QuickJS FFI + 运行时分发）**待决策**；
 > 新增 **P.31 G-03-A 交付复核**；文档更名 `VBOX_PLAN_v6.20.md` → **`VBOX_PLAN_v6.21.md`**（D25）。
 >
-> **v6.22 变更（本版）**：**G-02-A 平台插件层首批交付（G-02 从「未开始」推进到「部分解除」）** ——
+> **v6.23 变更（本版）**：**第 1 轮（核心骨架）全面检查报告交付（stage_check_report_stage1.yaml + 报告文档刷新）** ——
+> ① 按 E.10b.2 六类扫描逐项输出**第 1 轮阶段遗漏检查报告**（`contract/docs/stage_check_report_stage1.yaml`，依据模板
+> `stage_check_template.yaml`，与 `stage0` 报告同目录留档）；同步**刷新** `docs/第1轮核心骨架全面检查报告_v6.23.md`
+> （v6.13 首版 → v6.23 现版：计数 lib 75→90 / 测试 29→39 / 用例 371→436、门禁 G-01✅/G-02·G-03 部分解除、
+> 遗留问题闭环 3 项 B1/C1/C3、下一步 G-02-B 优先）：契约一致性 ✅ / 数据与状态 ✅ / 平台差异 ⚠️ 部分
+> （macOS AVPlayer + libmpv 分发（G-02-B）与 TV D-pad 真机（G-10）待）/ 功能完整性 ⚠️ 部分（Spider 桥接 G-03-A 已交付、
+> QuickJS FFI（G-03-B）与详情页·播放入口接线待）/ 质量基线 ✅（v6.21 实测覆盖 74.0% 达标）/ 交付物 ✅；
+> ② 结论 **verdict: blocked** —— 第 1 轮 70% 进行中（D20 不得标记完成、不得进入第 2 轮）；阻断项 =
+> G-02（B/C）/ G-03（B）/ G-05（零触达收尾）/ G-09（真机）/ G-10（TV D-pad）/ 详情页·播放入口接线；
+> ③ 计数不变（lib **90** / 测试 **39** / 单测 **438**（静态声明））；conformance **45/45** + Python 守卫 **10/10** 本地实测通过；
+> ④ 文档更名 `VBOX_PLAN_v6.22.md` → **`VBOX_PLAN_v6.23.md`**（D25）；下一批 = **G-02-B**（macOS AVPlayer 接线 + libmpv 分发决策）。
+>
+> **v6.22 变更**：**G-02-A 平台插件层首批交付（G-02 从「未开始」推进到「部分解除」）** ——
 > ① 交付 `lib/platform/player/` **4 文件**（通道桥 `player_channel_bridge.dart`（MethodChannel + EventChannel 适配，`backendWireValue` 与原生 wire 值对齐）/ 通道播放器 `channel_player.dart`（实现 `Player`，`PlayerOpenException` 透传原生错误码）/ 统一控制层 `player_controller.dart`（后端降级链 + 状态 / 进度 / 错误转发 + `togglePlay`）/ barrel `player.dart`），
 > 对齐 iOS `PlayerEngine` 协议（type/state/event）与契约 §2.5 / A21.5 回退策略；
 > ② Android 接线：`PlayerPlugin.kt`（MethodChannel/EventChannel 双通道，Media3/ExoPlayer 主后端，`open/play/pause/seekTo/setVolume/setSpeed/dispose` + state/progress/error 事件流）、
@@ -280,7 +292,8 @@
 | **v6.19** | 2026-09-30：**G-03 可行性评估登记（不改码）** —— 5 引擎 × 三端可行性矩阵（Node/NodeLX 桥 + Python 桥纯 Dart 可交付，QuickJS 需 FFI 原生，JSC 三端不可用）；关键判断（ABI 收敛差异、运行时分发为最大风险）；推荐路线 G-03-A（引擎工厂 + 双桥 + ABI conformance）→ G-03-B（QuickJS FFI + 分发方案待决策）；**计数不变**（80 / 33 / 396 / 73.5% / 24/80）；新增 **P.29**；文档更名 `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` |
 | v6.20 | 2026-09-30：**G-02 平台插件层可行性评估登记（含播放器插件）+ 门禁编号纠偏（不改码）** —— 三端插件矩阵（Android Media3+libVLC 纯 Gradle 零 NDK / macOS AVPlayer 零原生依赖 / Windows libmpv 需 dll）；播放器回退路径三端齐备（A21.5）；**编号纠偏**（G-06=iOS 参照已✅、G-07=编译环境已✅，播放器属 G-02；E.10b 余项 = G-02 / G-03 / G-05 / G-09 / G-10）；推荐 G-02-A（Dart PlayerController + Android 接线，CI 可验）→ G-02-B（libmpv 分发待决策）；**计数不变**（80 / 33 / 396 / 73.5% / 24/80）；新增 **P.30**；文档更名 `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` |
 | **v6.21** | 2026-09-30：**G-03-A 桥接协议层交付（G-03 从「未开始」推进到「桥接协议层交付」）** —— ① 交付 `lib/platform/spider/` **6 文件**（ABI 编解码 / Node·NodeLX HTTP 桥 / Python 子进程桥 / 引擎工厂 / Node 客户端 / barrel），引擎差异收敛到适配层，三引擎走 ABI 统一编解码；② 新增 **4 个测试文件 / 27 用例**（ABI 7 / Node 桥 7 / Python 桥 8（真实 python3 子进程）/ 工厂 5）；③ 本机全量校验：analyze 0 issues · 423 用例全通过 · conformance 45/45 · 11 守卫全绿（触达 86.9%、整体 **74.0% 达标**、零触达 25/86）；④ 计数：lib **80 → 86**、测试 **33 → 37**、单测 **396 → 423**、整体 **73.5% → 74.0%**、零触达 **24/80 → 25/86**；⑤ E.10b **G-03 部分解除**（G-03-A 交付，G-03-B 待决策）；新增 **P.31**；文档更名 `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` |
-| **v6.22（现行）** | 2026-09-30：**G-02-A 平台插件层首批交付（G-02 从「未开始」推进到「部分解除」）** —— ① 交付 `lib/platform/player/` **4 文件**（通道桥 / 通道播放器 / 统一控制层 PlayerController / barrel），对齐 iOS `PlayerEngine` 协议与契约 §2.5 / A21.5 回退策略；② Android 接线（`PlayerPlugin.kt` Media3 主后端双通道 + `CodecCapability.kt` A21.5 selectBackend + Gradle 依赖 + MainActivity 注册；libVLC 回退实现在 G-02-B/C）；③ 新增 **2 个测试文件 / 15 用例**；④ 修复 `PlayerController` 误标 `@override` 与 `CodecCapability.kt` 缺导入两处缺陷；⑤ 计数：lib **86 → 90**、测试 **37 → 39**、单测 **423 → 438**、零触达 **25/86 → 26/90**（新增 barrel `player.dart` 零触达属预期）；⑥ E.10b **G-02 部分解除**（G-02-A 交付，G-02-B/C 待决策）；新增 **P.32**；文档更名 `VBOX_PLAN_v6.21.md` → `VBOX_PLAN_v6.22.md` |
+| **v6.22** | 2026-09-30：**G-02-A 平台插件层首批交付（G-02 从「未开始」推进到「部分解除」）** —— ① 交付 `lib/platform/player/` **4 文件**（通道桥 / 通道播放器 / 统一控制层 PlayerController / barrel），对齐 iOS `PlayerEngine` 协议与契约 §2.5 / A21.5 回退策略；② Android 接线（`PlayerPlugin.kt` Media3 主后端双通道 + `CodecCapability.kt` A21.5 selectBackend + Gradle 依赖 + MainActivity 注册；libVLC 回退实现在 G-02-B/C）；③ 新增 **2 个测试文件 / 15 用例**；④ 修复 `PlayerController` 误标 `@override` 与 `CodecCapability.kt` 缺导入两处缺陷；⑤ 计数：lib **86 → 90**、测试 **37 → 39**、单测 **423 → 438**、零触达 **25/86 → 26/90**（新增 barrel `player.dart` 零触达属预期）；⑥ E.10b **G-02 部分解除**（G-02-A 交付，G-02-B/C 待决策）；新增 **P.32**；文档更名 `VBOX_PLAN_v6.21.md` → `VBOX_PLAN_v6.22.md` |
+| **v6.23（现行）** | 2026-09-30：**第 1 轮（核心骨架）全面检查报告交付** —— ① 新增 `contract/docs/stage_check_report_stage1.yaml`（E.10b.2 六类扫描逐项：契约 ✅ / 数据 ✅ / 平台差异 ⚠️ / 功能 ⚠️ / 质量 ✅ / 交付 ✅）；② **verdict: blocked**（第 1 轮 70% 进行中，D20 不得标记完成、不得进入第 2 轮；阻断 G-02-B/C / G-03-B / G-05 / G-09 / G-10 / 详情页·播放入口接线）；③ 计数不变（90 / 39 / 438（静态声明））；conformance 45/45 + 守卫 10/10 本地实测；④ 文档更名 `VBOX_PLAN_v6.22.md` → `VBOX_PLAN_v6.23.md`；下一批 = G-02-B |
 
 <!-- /docs-guard:history -->
 
@@ -2430,7 +2443,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.22.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.23.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 

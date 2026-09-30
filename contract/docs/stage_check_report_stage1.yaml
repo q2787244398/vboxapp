@@ -1,0 +1,132 @@
+# 阶段遗漏检查报告 · 第 1 轮（核心骨架）（D13 / E.10b）
+# 契约层文件 · contract/docs/stage_check_report_stage1.yaml
+# 依据模板：stage_check_template.yaml（命名规范 stage_check_report_stage<N>.yaml）
+# 本报告对应的主方案文档版本：docs/VBOX_PLAN_v6.23.md（v6.23 批次交付）
+
+stage: 1
+stage_name: "核心骨架"
+timestamp: "2026-09-30T12:00:00+08:00"
+completed_at_iteration: "第 1 轮迭代（进行中，E.10b 未通过，D20 不得标记完成）"
+
+# ────────────────────────────────────────────────────────────
+# 六类扫描（E.10b.2）
+# status 取值：pass | fail | partial | na
+# ────────────────────────────────────────────────────────────
+checks:
+
+  # ① 契约一致性
+  contract_alignment:
+    status: pass
+    details: "lib/ 90 文件全部对齐 contract/（数据层 / 领域层 / 平台层）；conformance 本地实测 45/45 通过"
+    items:
+      - { name: "代码对齐 contract/", status: pass, detail: "check_contract_sync 通过；G-02-A 平台层 wire 值对齐契约 §2.5" }
+      - { name: "无契约外新增字段/行为", status: pass, detail: "check_contract_completeness / check_models_roundtrip 通过" }
+      - { name: "契约本身无需修订", status: pass, detail: "ABI v1.0（abi_v1.md）G-03-A 交付后无修订需求" }
+      - { name: "conformance 100% 通过", status: pass, detail: "conformance/runner 45/45 本地实测（2026-09-30）" }
+
+  # ② 数据与状态
+  data_and_state:
+    status: pass
+    details: "SQLite 迁移链 / fixtures / Prefs 98 键 / 敏感键 5 项全部通过守卫校验"
+    items:
+      - { name: "SQLite 迁移链 v1→v4 完整", status: pass, detail: "check_migration_chain 通过（10 CREATE + 4 ALTER）" }
+      - { name: "旧数据可读写（fixtures）", status: pass, detail: "sample_v4.sqlite3 9 表建库 + 读写断言通过" }
+      - { name: "备份双向互通", status: pass, detail: "check_backup_contract 通过（backup_v1.json）" }
+      - { name: "Prefs 键名全覆盖无拼错", status: pass, detail: "98 键（D17）check_prefs_manager / check_contract_completeness 通过" }
+      - { name: "敏感键按约定处理", status: pass, detail: "5 个敏感键按 D19 storage 区分（userDefaults / keychain / credentialExtra）" }
+
+  # ③ 平台差异
+  platform_parity:
+    status: partial
+    details: "G-01 UI 三形态 + G-02-A Android 接线已交付；macOS/Windows 播放器原生（G-02-B）与 TV D-pad 真机（G-10）待"
+    items:
+      - { name: "三端功能对齐", status: partial, detail: "G-01 phone/desktop/tv 形态 ✅；Android Media3 接线 ✅（G-02-A）；macOS AVPlayer / Windows libmpv 待 G-02-B；详情·播放链路待接线" }
+      - { name: "TV 焦点全程可见", status: partial, detail: "G-01 tv 形态已交付；D-pad 遥控真机行为归 G-10（人工验收）" }
+      - { name: "iOS 参照实现未破坏", status: pass, detail: "vbox/ 目录零改动（D1 契约共享，零改造原则）" }
+      - { name: "minSdk 24 依赖可用", status: pass, detail: "D12 已查证；media3 / libvlc-all 纯 Gradle 依赖零 NDK（P.30）" }
+      - { name: "侧载链路验证", status: na, detail: "D11 侧载分发；安装 + 自更新需真机（G-09），本阶段未涉及" }
+
+  # ④ 功能完整性
+  feature_complete:
+    status: partial
+    details: "9 个交付块完成 5 个 + 3 项计划外交付 + 2 项部分达成（Spider 桥接 G-03-A、播放器控制层 G-02-A）；详情页 / 播放入口接线待"
+    items:
+      - { name: "阶段承诺功能全交付", status: partial, detail: "契约/数据/领域/入口形态/conformance 5 块 ✅ + 核心层/用例层/Spider 桥 3 项计划外 ✅；详情页·播放入口接线（依赖 G-03 引擎 + G-02 播放器）待" }
+      - { name: "无 TODO/写死值遗留", status: pass, detail: "守卫 check_dart_imports / check_docs_consistency 通过；未定义项均已登记" }
+      - { name: "5 个 Spider 引擎跑通", status: partial, detail: "G-03-A 桥接协议层交付（Node/NodeLX/Python 桥 + 引擎工厂 + ABI conformance）；JavaScriptCore/QuickJS 桥与运行时分发（G-03-B）待决策" }
+      - { name: "播放器后端均有回退", status: partial, detail: "A21.5 selectBackend 设计冻结 + Dart 降级链 + 15 单测 ✅；libVLC 回退原生实现（G-02-B/C）与桌面 libmpv 待交付；端到端回退需真机（G-09）" }
+      - { name: "福利/音乐隔离生效", status: pass, detail: "welfare_v1.json 三重隔离约束 + 领域层校验通过" }
+
+  # ⑤ 质量基线
+  quality_gate:
+    status: pass
+    details: "覆盖率 v6.21 实测 74.0% 达标（触达 86.9%）；v6.22 后 39 文件 / 436 用例（静态声明）待 CI 复核；Python 守卫 10/10 本地实测"
+    items:
+      - { name: "单测覆盖率 ≥ 70%", status: pass, detail: "v6.21 实测全 lib 整体 74.0%（达标）；v6.22 新增 15 用例，待 CI 复核（零触达 26/90，新增 barrel 属预期）" }
+      - { name: "静态分析无 error", status: pass, detail: "CI flutter-analyze 通道就绪（G-07/G-08 已解除）；本地 Python 守卫 10/10 通过" }
+      - { name: "无 blocker/critical Bug", status: pass, detail: "无；导入包名 vboxapp→vbox 编译级问题已修复闭环（P.32 §5）" }
+      - { name: "三端编译通过", status: pass, detail: "CI build-android / build-macos / build-windows jobs 就绪（G-07 解除）；G-02-A Android Kotlin 接线由 CI 复核" }
+      - { name: "本阶段 Bug 已闭环", status: pass, detail: "CodecCapability 缺导入、PlayerController 误标 @override、测试包名 3 项均已修复" }
+
+  # ⑥ 交付物与文档
+  deliverables:
+    status: pass
+    details: "lib 90 文件 / test 39 文件 / 契约 8 文件 / 守卫 12 脚本；文档 v6.23（本报告批次）；决策 D1-D27"
+    items:
+      - { name: "应产出文件齐全", status: pass, detail: "lib/ 90 + test/ 39 + contract/schema/ 8 + scripts/check_*.py 12 + conformance 全量" }
+      - { name: "决策记录已追加", status: pass, detail: "D1-D27 全表维护（D28 未使用，编号唯一性守卫通过）" }
+      - { name: "风险清单已更新", status: pass, detail: "P.28-P.32 逐轮登记；P.30 G-02 评估、P.31 G-03 评估" }
+      - { name: "已知限制已记录", status: pass, detail: "本沙箱无 Flutter SDK（P.7 环境约束），Dart 验证由 CI 承担" }
+      - { name: "下阶段输入就绪", status: partial, detail: "第 1 轮未完成（D20），不得进入第 2 轮；下批输入 = G-02-B / G-03-B / G-02-C / 详情页·播放入口接线" }
+
+# ────────────────────────────────────────────────────────────
+# 阻断项（E.10b 余项，第 1 轮不得标记完成（D20））
+# ────────────────────────────────────────────────────────────
+blockers:
+  - id: G-02-B
+    desc: "macOS AVPlayer 接线（Swift，CI 可验）+ Windows/macOS libmpv 原生二进制分发决策（.dylib / mpv-2.dll 入库或下载策略）"
+    severity: high
+    plan: "先交付 AVPlayer 接线（零原生依赖，CI build-macos 可验）；libmpv 分发作决策单"
+  - id: G-03-B
+    desc: "QuickJS FFI 绑定 + Node / Python 运行时分发方案（JavaScriptCore 桥随 iOS 参照）"
+    severity: high
+    plan: "FFI 方案决策 + 运行时分发决策（复用 G-02-B 分发决策模板）"
+  - id: G-02-C
+    desc: "SystemPlugin（UiMode 真机判定）+ MediaPlaybackService + 播放真机验收（E.10b ④端到端回退）"
+    severity: medium
+    plan: "依赖 G-02-B 完成与真机（G-09）；后台播放服务按契约 §2.5 设计"
+  - id: G-05
+    desc: "零触达收尾（26/90 文件，barrel 类属预期，其余逐文件排除/补测）"
+    severity: medium
+    plan: "CI 覆盖率报告落地后逐文件复核"
+  - id: G-09
+    desc: "播放器真机/真机矩阵验收（Media3→libVLC、AVPlayer→libmpv 回退实测）"
+    severity: medium
+    plan: "需硬件；与 G-02-C 合并验收批次"
+  - id: G-10
+    desc: "TV D-pad 遥控真机行为验收（G-01 tv 形态已交付，真机行为未验）"
+    severity: low
+    plan: "与 G-09 真机批次合并"
+  - id: 详情页·播放入口接线
+    desc: "Spider 内容 → 详情页 → 播放入口链路（依赖 G-03 引擎接线与 G-02 播放器）"
+    severity: low
+    plan: "G-02-B/G-03-B 交付后接线"
+
+# ────────────────────────────────────────────────────────────
+# 结论
+# ────────────────────────────────────────────────────────────
+verdict: blocked
+block_reason: "第 1 轮（核心骨架）70% 进行中：E.10b 余项 G-02（B/C）/ G-03（B）/ G-05 / G-09 / G-10 未闭环；按 D20 不得标记完成、不得进入第 2 轮"
+next_action: "执行 G-02-B（macOS AVPlayer 接线 + libmpv 分发决策）→ G-03-B（QuickJS FFI + 运行时分发）→ G-02-C / G-09 真机批次 → 详情页·播放入口接线"
+
+# ────────────────────────────────────────────────────────────
+# 签核
+# ────────────────────────────────────────────────────────────
+ai_signoff:
+  agent: "石井"
+  timestamp: "2026-09-30T12:00:00+08:00"
+human_review:
+  reviewer: "q2787244398"
+  timestamp: ""
+  approved: false
+  comments: "待老板评审：确认六类扫描逐项与阻断项后放行下批（G-02-B）"
