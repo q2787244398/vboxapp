@@ -11,9 +11,9 @@ class MainFlutterWindow: NSWindow {
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     // G-02-B：播放器插件（非插件工程手动注册，与 Android MainActivity 同模式）。
-    if let registrar = flutterViewController.registrar(forPlugin: "PlayerPlugin") {
-      PlayerPlugin.register(with: registrar)
-    }
+    // Flutter 3.47.5+ 起 registrar(forPlugin:) 返回非可选 any FlutterPluginRegistrar，直接取值。
+    let registrar = flutterViewController.registrar(forPlugin: "PlayerPlugin")
+    PlayerPlugin.register(with: registrar)
 
     super.awakeFromNib()
   }
