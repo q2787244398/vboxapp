@@ -1,7 +1,7 @@
 # 阶段遗漏检查报告 · 第 1 轮（核心骨架）（D13 / E.10b）
 # 契约层文件 · contract/docs/stage_check_report_stage1.yaml
 # 依据模板：stage_check_template.yaml（命名规范 stage_check_report_stage<N>.yaml）
-# 本报告对应的主方案文档版本：docs/VBOX_PLAN_v6.29.md（v6.29 批次交付刷新）
+# 本报告对应的主方案文档版本：docs/VBOX_PLAN_v6.30.md（v6.30 批次交付刷新）
 
 stage: 1
 stage_name: "核心骨架"
