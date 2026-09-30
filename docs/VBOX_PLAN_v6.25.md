@@ -29,7 +29,7 @@
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名随修订版本递增（**D25**）：`VBOX_PLAN_v5.md` → `VBOX_PLAN_v6.md`（v6 系列首版，现已废弃）
-> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` → `VBOX_PLAN_v6.22.md` → `VBOX_PLAN_v6.23.md` → **`VBOX_PLAN_v6.24.md`**（当前版）。
+> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` → `VBOX_PLAN_v6.22.md` → `VBOX_PLAN_v6.23.md` → `VBOX_PLAN_v6.24.md` → **`VBOX_PLAN_v6.25.md`**（当前版）。
 >
 > **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
@@ -235,7 +235,14 @@
 > G-03-B（QuickJS FFI + 运行时分发）**待决策**；
 > 新增 **P.31 G-03-A 交付复核**；文档更名 `VBOX_PLAN_v6.20.md` → **`VBOX_PLAN_v6.21.md`**（D25）。
 >
-> **v6.24 变更（本版）**：**G-02-B / G-03-B 平台插件与 Spider 运行时交付（三端决策 D28/D29 定稿）** ——
+> **v6.25 变更（本版）**：**详情页·播放入口接线交付（第 1 轮 E.10b 余项最后一块 UI / 播放数据链路）** ——
+> ① 交付 **5 个 lib 文件**：`lib/domain/entities/playback/`（`playback_detail.dart`：`PlaybackDetail` / `PlaybackEpisode` / `ParsedPlayUrl` / `PlaybackUrlParser`（契约 §3.4 `vod_play_from`（`$$$` 线路）/ `vod_play_url`（`#` 剧集 / `$` 名址）解析 + 直链媒体判定）+ barrel `playback.dart`）；`lib/data/datasources/remote/all_sources_datasource.dart`（清单 → allSources **代理降级链**拉取 + `findSite` 按 key 查找站点）；`lib/domain/usecases/detail_playback_usecases.dart`（站点解析 → 模式判定 → CMS V10（apiEndpoint/zhanyuan `?ac=detail&ids=`）或 Spider 引擎（node 免脚本 / jsSpider 由 **QuickJS 顶替 JSC** / pythonSpider 加载脚本）详情拉取 → `resolvePlayUrl` 直链 / API 地址即直链 / 引擎 `playerContent` 二次解析三分支）；`lib/presentation/widgets/detail_page.dart`（详情页：影片信息 / 线路 ChoiceChip / 剧集 ActionChip / 播放按钮，续播 `initialIndex` 钳制到线路内索引 + 线路切换 + 失败重试）；
+> ② 接线：`lib/presentation/widgets/library_views.dart` 收藏 / 历史列表项 onTap → `DetailPage`（`siteKey=laiyuan` / `vodId=detailurl` / `initialIndex=jishu`）；`lib/app.dart` 装配 `AllSourcesDatasource` / `CmsV10Datasource` / `DetailPlaybackUseCases` 并注册 Provider；barrel 导出（`remote.dart` / `usecases.dart`）；
+> ③ 测试：新增 **3 个测试文件 / 32 用例**（`playback_detail_test.dart` 9：契约 §3.4 双线路多剧集 / 名址含 `$` / 直链判定；`detail_playback_usecases_test.dart` 15：参数校验 / 站点解析 / CMS 路径 / 蜘蛛路径（node 免脚本、QuickJS 顶替、python 脚本加载、注册失败、详情为空）/ `resolvePlayUrl` 三分支；`detail_page_test.dart` 8：加载中 / 失败重试 / 线路切换 / 续播高亮 / 播放按钮驱动 `PlayerController.open·play` / 解析失败提示 / 无剧集禁用）；静态用例 **450 → 482**、测试文件 **40 → 43**、lib 文件 **93 → 98**；
+> ④ 门禁（E.10b）：**详情页·播放入口接线解除** —— 第 1 轮 UI / 播放数据链路闭环（G-01 三形态 + 书架 / 远程源 + 详情页均交付）；E.10b 余项 = **G-02-C / G-05 / G-09 / G-10**；
+> 新增 **P.35（详情页·播放入口接线交付复核）**；文档更名 `VBOX_PLAN_v6.24.md` → **`VBOX_PLAN_v6.25.md`**（D25）。
+>
+> **v6.24 变更**：**G-02-B / G-03-B 平台插件与 Spider 运行时交付（三端决策 D28/D29 定稿）** ——
 > ① **G-02-B-1 macOS AVPlayer 接线交付**：`macos/Runner/PlayerPlugin.swift`（AVFoundation 主后端，MethodChannel `com.vbox.player/player` + EventChannel `com.vbox.player/player/events`，open/play/pause/seekTo/setVolume/setSpeed/dispose + state/progress/error 事件流，A21.5 复杂封装（MKV/FLV）返回 `E_BACKEND_UNAVAILABLE` 供降级链捕获）；`MainFlutterWindow.swift` 手动注册插件；`project.pbxproj` 纳入 Swift 编译（CI build-macos 可验）；
 > ② **D28 libmpv 原生二进制分发决策**：**原生二进制不入 git 仓库**，由构建脚本从 GitHub Release 资产下载（沿用 iOS `mpvkit-deps-0.0.1` 模式，新增 `libmpv-{os}-{arch}-{ver}` 资产），随 DMG/EXE 侧载产物分发（D11）；CI 仅验证下载 + 链接（smoke），端到端回退真机验收归 G-02-C；
 > ③ **G-03-B-1 QuickJS FFI 绑定交付**：`quickjs/wrapper.{h,c}`（纯 C 封装 `vq_create_runtime/vq_create_context/vq_eval/...`，三端可编译）+ `scripts/build_quickjs_wrapper.sh`（产物 `libvbox_quickjs.{so,dylib,dll}`）+ CI 新增 `build-native-quickjs` job（ubuntu gcc 实测编译通过）；
@@ -304,7 +311,8 @@
 | **v6.21** | 2026-09-30：**G-03-A 桥接协议层交付（G-03 从「未开始」推进到「桥接协议层交付」）** —— ① 交付 `lib/platform/spider/` **6 文件**（ABI 编解码 / Node·NodeLX HTTP 桥 / Python 子进程桥 / 引擎工厂 / Node 客户端 / barrel），引擎差异收敛到适配层，三引擎走 ABI 统一编解码；② 新增 **4 个测试文件 / 27 用例**（ABI 7 / Node 桥 7 / Python 桥 8（真实 python3 子进程）/ 工厂 5）；③ 本机全量校验：analyze 0 issues · 423 用例全通过 · conformance 45/45 · 11 守卫全绿（触达 86.9%、整体 **74.0% 达标**、零触达 25/86）；④ 计数：lib **80 → 86**、测试 **33 → 37**、单测 **396 → 423**、整体 **73.5% → 74.0%**、零触达 **24/80 → 25/86**；⑤ E.10b **G-03 部分解除**（G-03-A 交付，G-03-B 待决策）；新增 **P.31**；文档更名 `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` |
 | **v6.22** | 2026-09-30：**G-02-A 平台插件层首批交付（G-02 从「未开始」推进到「部分解除」）** —— ① 交付 `lib/platform/player/` **4 文件**（通道桥 / 通道播放器 / 统一控制层 PlayerController / barrel），对齐 iOS `PlayerEngine` 协议与契约 §2.5 / A21.5 回退策略；② Android 接线（`PlayerPlugin.kt` Media3 主后端双通道 + `CodecCapability.kt` A21.5 selectBackend + Gradle 依赖 + MainActivity 注册；libVLC 回退实现在 G-02-B/C）；③ 新增 **2 个测试文件 / 15 用例**；④ 修复 `PlayerController` 误标 `@override` 与 `CodecCapability.kt` 缺导入两处缺陷；⑤ 计数：lib **86 → 90**、测试 **37 → 39**、单测 **423 → 438**、零触达 **25/86 → 26/90**（新增 barrel `player.dart` 零触达属预期）；⑥ E.10b **G-02 部分解除**（G-02-A 交付，G-02-B/C 待决策）；新增 **P.32**；文档更名 `VBOX_PLAN_v6.21.md` → `VBOX_PLAN_v6.22.md` |
 | **v6.23** | 2026-09-30：**第 1 轮（核心骨架）全面检查报告交付** —— ① 新增 `contract/docs/stage_check_report_stage1.yaml`（E.10b.2 六类扫描逐项：契约 ✅ / 数据 ✅ / 平台差异 ⚠️ / 功能 ⚠️ / 质量 ✅ / 交付 ✅）；② **verdict: blocked**（第 1 轮 70% 进行中，D20 不得标记完成、不得进入第 2 轮；阻断 G-02-B/C / G-03-B / G-05 / G-09 / G-10 / 详情页·播放入口接线）；③ 计数不变（90 / 39 / 438（静态声明））；conformance 45/45 + 守卫 10/10 本地实测；④ 文档更名 `VBOX_PLAN_v6.22.md` → `VBOX_PLAN_v6.23.md`；下一批 = G-02-B |
-| **v6.24（现行）** | 2026-09-30：**G-02-B / G-03-B 平台插件与 Spider 运行时交付（三端决策 D28/D29 定稿）** —— ① **G-02-B-1 macOS AVPlayer 接线交付**：`macos/Runner/PlayerPlugin.swift`（AVFoundation 主后端，MethodChannel `com.vbox.player/player` + EventChannel `.../player/events`，open/play/pause/seekTo/setVolume/setSpeed/dispose + state/progress/error 事件流，A21.5 复杂封装（MKV/FLV/TS/RMVB/AVI/WMV/M2TS）返回 `E_BACKEND_UNAVAILABLE` 供降级链捕获）+ `MainFlutterWindow.swift` 手动注册 + `project.pbxproj` 纳入 Swift 编译；② **D28 libmpv 原生二进制分发决策**：**原生二进制不入 git 仓库**，由构建脚本从 GitHub Release 资产下载（沿用 iOS `mpvkit-deps-0.0.1` 模式，新增 `libmpv-{os}-{arch}-{ver}` 资产），随 DMG/EXE 侧载产物分发（D11）；CI 仅验证下载 + 链接（smoke），端到端回退真机验收归 G-02-C；③ **G-03-B-1 QuickJS FFI 绑定交付**：`quickjs/wrapper.{h,c}`（纯 C 封装 `vq_create_runtime/vq_create_context/vq_eval/...`，三端可编译）+ `scripts/build_quickjs_wrapper.sh`（产物 `libvbox_quickjs.{so,dylib,dll}`）+ CI 新增 `build-native-quickjs` job（ubuntu gcc 实测编译通过）；④ **G-03-B-2 QuickJS 引擎交付**：`lib/platform/runtime/` **3 文件**（`quickjs_ffi.dart` / `quickjs_bridge_engine.dart` / barrel `runtime.dart`）+ `spider_engine_factory.dart` quickJS 分派接入（javaScriptCore 仍抛 unimplemented，iOS 原生保留）；⑤ **D29 Node/Python 运行时分发决策**：**Python 三端内置 + 桌面系统探测**（Android 用 Chaquopy Gradle 依赖零 NDK / iOS 原生 python-stdlib 3.14 / 桌面探测系统 python3，缺失 → `E_BACKEND_UNAVAILABLE`）；**Node 仅桌面系统探测 + iOS 原生常驻**（Android NodeMobile 嵌入成本高，登记待评估）；**不采用首次下载**（D11 侧载无商店更新通道，运行时网络依赖与校验不可控）；⑥ 测试：新增 `test/platform/runtime/quickjs_bridge_engine_test.dart`（**13 用例**）+ 工厂测试更新（5 → 6 用例）；静态用例 **436 → 450**、测试文件 **39 → 40**、lib 文件 **90 → 93**；⑦ E.10b：**G-02 继续解除**（余 G-02-C 需真机）、**G-03 继续解除**（QuickJS 顶替 JSC 落地）；余项 = **G-02-C / G-05 / G-09 / G-10 / 详情页·播放入口接线**；新增 **P.33（G-02-B 交付复核）/ P.34（G-03-B 交付复核）**；文档更名 `VBOX_PLAN_v6.23.md` → `VBOX_PLAN_v6.24.md`；下一批 = G-02-C（真机前置）或 G-05（零触达收尾） |
+| **v6.24** | 2026-09-30：**G-02-B / G-03-B 平台插件与 Spider 运行时交付（三端决策 D28/D29 定稿）** —— ① **G-02-B-1 macOS AVPlayer 接线交付**：`macos/Runner/PlayerPlugin.swift`（AVFoundation 主后端，MethodChannel `com.vbox.player/player` + EventChannel `.../player/events`，open/play/pause/seekTo/setVolume/setSpeed/dispose + state/progress/error 事件流，A21.5 复杂封装（MKV/FLV/TS/RMVB/AVI/WMV/M2TS）返回 `E_BACKEND_UNAVAILABLE` 供降级链捕获）+ `MainFlutterWindow.swift` 手动注册 + `project.pbxproj` 纳入 Swift 编译；② **D28 libmpv 原生二进制分发决策**：**原生二进制不入 git 仓库**，由构建脚本从 GitHub Release 资产下载（沿用 iOS `mpvkit-deps-0.0.1` 模式，新增 `libmpv-{os}-{arch}-{ver}` 资产），随 DMG/EXE 侧载产物分发（D11）；CI 仅验证下载 + 链接（smoke），端到端回退真机验收归 G-02-C；③ **G-03-B-1 QuickJS FFI 绑定交付**：`quickjs/wrapper.{h,c}`（纯 C 封装 `vq_create_runtime/vq_create_context/vq_eval/...`，三端可编译）+ `scripts/build_quickjs_wrapper.sh`（产物 `libvbox_quickjs.{so,dylib,dll}`）+ CI 新增 `build-native-quickjs` job（ubuntu gcc 实测编译通过）；④ **G-03-B-2 QuickJS 引擎交付**：`lib/platform/runtime/` **3 文件**（`quickjs_ffi.dart` / `quickjs_bridge_engine.dart` / barrel `runtime.dart`）+ `spider_engine_factory.dart` quickJS 分派接入（javaScriptCore 仍抛 unimplemented，iOS 原生保留）；⑤ **D29 Node/Python 运行时分发决策**：**Python 三端内置 + 桌面系统探测**（Android 用 Chaquopy Gradle 依赖零 NDK / iOS 原生 python-stdlib 3.14 / 桌面探测系统 python3，缺失 → `E_BACKEND_UNAVAILABLE`）；**Node 仅桌面系统探测 + iOS 原生常驻**（Android NodeMobile 嵌入成本高，登记待评估）；**不采用首次下载**（D11 侧载无商店更新通道，运行时网络依赖与校验不可控）；⑥ 测试：新增 `test/platform/runtime/quickjs_bridge_engine_test.dart`（**13 用例**）+ 工厂测试更新（5 → 6 用例）；静态用例 **436 → 450**、测试文件 **39 → 40**、lib 文件 **90 → 93**；⑦ E.10b：**G-02 继续解除**（余 G-02-C 需真机）、**G-03 继续解除**（QuickJS 顶替 JSC 落地）；余项 = **G-02-C / G-05 / G-09 / G-10 / 详情页·播放入口接线**；新增 **P.33（G-02-B 交付复核）/ P.34（G-03-B 交付复核）**；文档更名 `VBOX_PLAN_v6.23.md` → `VBOX_PLAN_v6.24.md`；下一批 = G-02-C（真机前置）或 G-05（零触达收尾） |
+| **v6.25（现行）** | 2026-09-30：**详情页·播放入口接线交付（第 1 轮 E.10b 余项最后一块 UI / 播放数据链路）** —— ① 交付 **5 个 lib 文件**：`lib/domain/entities/playback/`（`playback_detail.dart`：`PlaybackDetail` / `PlaybackEpisode` / `PlaybackUrlParser`（契约 §3.4 `vod_play_from` / `vod_play_url` 解析 + 直链判定）+ barrel）；`lib/data/datasources/remote/all_sources_datasource.dart`（allSources 代理降级链拉取 + `findSite`）；`lib/domain/usecases/detail_playback_usecases.dart`（站点 → 模式 → CMS V10 / Spider 引擎（QuickJS 顶替 JSC）→ 详情 → `resolvePlayUrl` 三分支）；`lib/presentation/widgets/detail_page.dart`（详情页：线路 ChoiceChip / 剧集 ActionChip / 播放按钮 / 续播钳制 / 失败重试）；② 接线：`library_views.dart` 收藏/历史 onTap → `DetailPage`（siteKey=laiyuan / vodId=detailurl / initialIndex=jishu）；`app.dart` 装配 `AllSourcesDatasource` / `CmsV10Datasource` / `DetailPlaybackUseCases` + Provider；③ 测试：新增 **3 文件 / 32 用例**（playback_detail 9 / detail_playback_usecases 15 / detail_page 8）；静态用例 **450 → 482**、测试文件 **40 → 43**、lib 文件 **93 → 98**；④ E.10b：**详情页·播放入口接线解除**；余项 = **G-02-C / G-05 / G-09 / G-10**；新增 **P.35（交付复核）**；文档更名 `VBOX_PLAN_v6.24.md` → `VBOX_PLAN_v6.25.md`；下一批 = G-02-C（真机前置）或 G-05（零触达收尾） |
 
 <!-- /docs-guard:history -->
 
@@ -2456,7 +2464,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.24.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.25.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -4726,6 +4734,7 @@ E.10b 余项（v6.22）：**G-02（G-02-B/C 余项）/ G-03（G-03-B 余项）/ 
 
 > v6.24：G-02-B（macOS AVPlayer + libmpv 分发 D28）与 G-03-B（QuickJS FFI + 运行时 D29）已交付，
 > 原清单 #1 / #2 关闭，转由 **P.33 / P.34** 复核记录。
+> v6.25：详情页 / 播放入口接线（Spider 内容 → 播放链路）已交付，原清单 #3 关闭，转由 **P.35** 复核记录。
 
 ---
 
@@ -4830,6 +4839,45 @@ E.10b 余项（v6.24）：**G-02-C / G-05 / G-09 / G-10 / 详情页·播放入�
 
 ---
 
+### P.35 二十三轮复核：详情页·播放入口接线交付（v6.25 新增）
+
+> 复核方法：源码审读（4 个新 lib 文件 + barrel）+ 单测静态计数（9 / 15 / 8）+ 接线路径核对
+> （`library_views.dart` 收藏/历史 onTap + `app.dart` Provider 装配）+ 与契约逐条比对
+> （§1.1 引擎选择规则 / §3.4 `vod_play_from`·`vod_play_url` 解析 / §3.5 `playerContent` 二次解析）。
+
+#### 1. 交付内容（详情页·播放入口）
+
+| 文件 | 职责 | 验证 |
+|------|------|------|
+| `lib/domain/entities/playback/playback_detail.dart` + barrel `playback.dart` | `PlaybackDetail` / `PlaybackEpisode` / `ParsedPlayUrl` / `PlaybackUrlParser`：契约 §3.4 `vod_play_from`（`$$$` 线路，兼容 `$$` 残余）· `vod_play_url`（`#` 剧集 / `$` 名址，地址含 `$` 取首个 `$` 后剩余拼接）解析；空地址/非法段过滤；`from` 缺失按线路序号回填；直链媒体判定（http/https + 20 种扩展名：`.m3u8/.mp4/.mkv/.flv/.ts/.mpd/.mp3/...`）；`initialIndex` 钳制到合法区间 | **9 单测**（双线路多剧集 / 名址含 `$` / 直链判定 / 空值容错） |
+| `lib/data/datasources/remote/all_sources_datasource.dart` | 清单 `files.allSources` → **代理降级链**（ghfast → gh-proxy → 直连，对齐 iOS `proxyHosts`）拉取；校验链 HTTP 2xx → JSON 对象 → `AllSourcesContainer.fromJson`；URL 合法性校验（http/https 绝对地址）；`findSite` 按 key 查找站点 | usecases 单测覆盖（容器构造 + 站点查找 + 失败透传） |
+| `lib/domain/usecases/detail_playback_usecases.dart` | 链路：站点 key → 模式判定 → **CMS V10**（apiEndpoint/zhanyuan，`?ac=detail&ids=`）或 **Spider 引擎**（node 免脚本 / jsSpider 由 QuickJS 顶替（G-03-B 决策）/ pythonSpider 加载脚本）→ 详情 → `resolvePlayUrl` **三分支**（直链媒体原地址 / API 站点地址即直链 / 脚本引擎 `playerContent` 二次解析）；`_prepareEngine` 脚本 URL 校验（仅 http(s)）+ 注册失败检测（`__JS_SPIDER__`）；CMS 详情 → `VodItem` 归一复用 `PlaybackDetail.fromVod` | **15 单测**（参数校验 / 站点解析 / CMS 路径 / 蜘蛛路径 / resolvePlayUrl 三分支） |
+| `lib/presentation/widgets/detail_page.dart` | 详情页：封面（`Image.network` + 占位）+ 影片信息 + 线路 ChoiceChip（>1 线路才显示）+ 剧集 ActionChip（选中高亮 + 点击即播）+ 播放按钮（`PlayerController.open` + `play`，标题 `影片名 - 剧集名`）；续播 `initialIndex` → 线路 + 线路内剧集**双映射**（flat → from/url 反查）；失败重试；加载中 / 播放中状态 | **8 widget 单测**（加载中 / 失败重试 / 线路切换 / 续播高亮 / 播放驱动 / 解析失败提示 / 无剧集禁用） |
+
+#### 2. 接线核对（收藏/历史 → 详情 → 播放）
+
+- `lib/presentation/widgets/library_views.dart`：收藏 / 历史列表项 onTap → `DetailPage`（`siteKey=item.laiyuan` / `vodId=item.detailurl` / `initialIndex=item.jishu` / `title=item.name`），2 处接线一致；
+- `lib/app.dart`：装配 `AllSourcesDatasource`（`HttpClient` 注入）+ `CmsV10Datasource` + `DetailPlaybackUseCases`（`loadAllSources` 走清单 → allSources URL → 代理降级链），Provider 注册，详情页经 `context.read` 取用；
+- 契约对齐：`$$$` / `#` / `$` 分隔符与 §3.4 示例逐字比对；`playerContent(ids, flag, url)` 参数序（vodId / 线路 from / 剧集地址）对齐 §3.5；引擎选择规则对齐 §1.1（jsSpider → QuickJS 顶替落地）。
+
+#### 3. 事实计数（v6.25）
+
+| 指标 | 值 |
+|------|------|
+| lib 文件 | **93 → 98**（+`entities/playback/` 2（实体 + barrel）+ `all_sources_datasource.dart` + `detail_playback_usecases.dart` + `detail_page.dart`） |
+| 测试文件 | **40 → 43**（+`playback_detail_test.dart` / `detail_playback_usecases_test.dart` / `detail_page_test.dart`） |
+| 单测用例（静态声明） | **450 → 482**（+9 +15 +8，磁盘实测一致） |
+| 接线 | 收藏/历史 onTap → DetailPage（2 处）+ app.dart Provider（1 处）+ barrel 导出（`remote.dart` / `usecases.dart` / `playback.dart`） |
+
+#### 4. 门禁影响（E.10b）
+
+**详情页·播放入口接线解除**：第 1 轮 UI / 播放数据链路闭环 —— G-01 三形态 + 书架 / 远程源 +
+**详情页均交付**，收藏/历史 → 详情 → 播放全链路接通（`siteKey/vodId/initialIndex` → `PlaybackDetail` →
+`resolvePlayUrl` → `PlayerController.open/play`）。
+E.10b 余项（v6.25）：**G-02-C / G-05 / G-09 / G-10**。
+
+---
+
 # 附录部分
 
 ---
@@ -4843,25 +4891,26 @@ E.10b 余项（v6.24）：**G-02-C / G-05 / G-09 / G-10 / 详情页·播放入�
 
 ```
 第 0 阶段  契约冻结        ████████████████████ 100%  ✅ 已过 D13 门禁
-第 1 轮    核心骨架        ██████████████░░░░░░  72%  🔄 进行中（E.10b 未通过）
+第 1 轮    核心骨架        ██████████████░░░░░░  73%  🔄 进行中（E.10b 未通过）
 第 2 轮    功能补全        ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 3 轮    兼容性与稳定性   ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 4 轮    数据互通与边界   ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 5 轮    发布准备        ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 ```
 
-**第 1 轮 72% 的依据**：9 个交付块完成 **5 个**，另 **3 项计划外交付**，单测部分达成——
+**第 1 轮 73% 的依据**：9 个交付块完成 **5 个**，另 **3 项计划外交付**，单测部分达成——
 ✅ 契约层镜像 · ✅ 数据层 · ✅ 领域层实体 · ✅ 入口与形态判定 · ✅ conformance runner
 · ✅ 核心层（`lib/core/` 21 文件，计划外，见 P.12）
 · ✅ 用例层 + 远程数据源（计划外，见 P.13）
 · ✅ Spider 引擎桥接协议层（G-03-A，计划外，见 P.31）
 · ✅ UI 三形态（G-01 收官，见 P.28）
-· ✅ 单元测试（40 文件 / 450 用例静态声明，v6.24；覆盖率口径与 CI 复核详见 P.32）；
-🔄 平台插件层（**G-02-A/B 交付**：Dart 控制层 + Android Media3 接线 + macOS AVPlayer + libmpv 分发决策 D28，见 P.32/P.33）· 🔄 Spider 引擎（**G-03-A/B 交付**：桥接协议层 + QuickJS FFI + 运行时 D29，见 P.31/P.34）· ⬜ 详情页·播放入口接线。
+· ✅ 单元测试（43 文件 / 482 用例静态声明，v6.25；覆盖率口径与 CI 复核详见 P.32）；
+· ✅ 详情页·播放入口接线（收藏/历史 → 详情 → 播放全链路，v6.25，见 P.35）；
+🔄 平台插件层（**G-02-A/B 交付**：Dart 控制层 + Android Media3 接线 + macOS AVPlayer + libmpv 分发决策 D28，见 P.32/P.33）· 🔄 Spider 引擎（**G-03-A/B 交付**：桥接协议层 + QuickJS FFI + 运行时 D29，见 P.31/P.34）。
 
-> 口径说明：5/9 块 + 3 项计划外交付 + G-01 三形态 + 2 项部分达成推进（平台插件层 G-02-A/B /
-> Spider 引擎 G-03-A/B，v6.24 增补；余 G-02-C 真机 / G-05 收尾 / 详情页接线）≈ 72%
-> （若按块数硬算为 56%，但计划外交付显著推进了「可运行骨架」的完整度，故取 72%）。
+> 口径说明：5/9 块 + 3 项计划外交付 + G-01 三形态 + 详情页接线 + 2 项部分达成推进（平台插件层 G-02-A/B /
+> Spider 引擎 G-03-A/B，v6.25 增补；余 G-02-C 真机 / G-05 收尾）≈ 73%
+> （若按块数硬算为 56%，但计划外交付显著推进了「可运行骨架」的完整度，故取 73%）。
 
 ## A.2 第 0 阶段交付产物（15 文件）
 

@@ -69,7 +69,16 @@ class PlayerController {
 
   void Function(PlaybackProgress)? onProgress;
 
-  void Function(String message, {required bool fatal})? onError;
+  void Function(String message, {required bool fatal})? _onError;
+
+  void Function(String message, {required bool fatal})? get onError =>
+      _onError;
+
+  set onError(void Function(String message, {required bool fatal})? handler) {
+    _onError = handler;
+    // 已 attach 的播放器同步新处理器（open 之后再设置也生效）。
+    _player?.onError = handler;
+  }
 
   // ─────────────── 控制面 ───────────────
 
@@ -153,7 +162,7 @@ class PlayerController {
       onStateChanged?.call(s);
     };
     p.onProgress = onProgress;
-    p.onError = onError;
+    p.onError = _onError;
   }
 
   Future<void> _disposePlayer() async {

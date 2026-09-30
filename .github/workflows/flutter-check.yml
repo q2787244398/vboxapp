@@ -8,7 +8,7 @@
 #   4. build-macos       flutter build macos --debug（macos-15）
 #   5. build-windows     flutter build windows --debug（windows-latest）
 #
-# 对应主文档：docs/VBOX_PLAN_v6.24.md P.7（环境约束）/ P.10（未决事项 #5）
+# 对应主文档：docs/VBOX_PLAN_v6.25.md P.7（环境约束）/ P.10（未决事项 #5）
 name: Flutter Check
 
 on:

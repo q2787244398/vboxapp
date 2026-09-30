@@ -11,6 +11,7 @@ import '../../core/utils/result.dart';
 import '../../core/utils/time_utils.dart';
 import '../../domain/entities/library/library.dart';
 import '../../domain/usecases/usecases.dart';
+import 'detail_page.dart';
 
 /// 收藏 Tab（直连 [FavoriteUseCases]）。
 class FavoritesView extends StatefulWidget {
@@ -119,9 +120,16 @@ class _FavoritesViewState extends State<FavoritesView> {
             onPressed: () => _remove(item),
           ),
           onTap: () {
-            // 详情页 / 播放入口待远程源 + 播放器接线（G-02/G-03）
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('「${item.name}」详情页待播放器层接线')),
+            // 详情页·播放入口接线：laiyuan=站点 key，detailurl=影片 ID，jishu=剧集索引
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => DetailPage(
+                  siteKey: item.laiyuan,
+                  vodId: item.detailurl,
+                  initialIndex: item.jishu,
+                  title: item.name,
+                ),
+              ),
             );
           },
         );
@@ -254,9 +262,16 @@ class _HistoryViewState extends State<HistoryView> {
             onPressed: () => _remove(item),
           ),
           onTap: () {
-            // 续播入口待播放器接线（G-02）
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('「${item.name}」续播待播放器层接线')),
+            // 续播入口接线：进入详情页并定位到历史剧集
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => DetailPage(
+                  siteKey: item.laiyuan,
+                  vodId: item.detailurl,
+                  initialIndex: item.jishu,
+                  title: item.name,
+                ),
+              ),
             );
           },
         );

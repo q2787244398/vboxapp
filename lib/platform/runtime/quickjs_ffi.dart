@@ -57,20 +57,23 @@ class DartFfiQuickJsBridge implements QuickJsNativeBridge {
   DynamicLibrary? _lib;
 
   late final Pointer<Void> Function() _createRuntime =
-      _lookup('vq_create_runtime');
-  late final Pointer<Void> Function(Pointer<Void>) _createContext =
-      _lookup('vq_create_context');
-  late final void Function(Pointer<Void>) _freeRuntime = _lookup('vq_free_runtime');
-  late final void Function(Pointer<Void>) _freeContext = _lookup('vq_free_context');
-  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _eval =
-      _lookup('vq_eval');
-  late final void Function(Pointer<Void>, Pointer<Utf8>) _freeString =
-      _lookup('vq_free_string');
-
-  T _lookup<T>(String name) {
-    final DynamicLibrary lib = _lib!;
-    return lib.lookupFunction<NativeFunction<T>, T>(name);
-  }
+      _lib!.lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
+          'vq_create_runtime');
+  late final Pointer<Void> Function(Pointer<Void>) _createContext = _lib!
+      .lookupFunction<Pointer<Void> Function(Pointer<Void>),
+          Pointer<Void> Function(Pointer<Void>)>('vq_create_context');
+  late final void Function(Pointer<Void>) _freeRuntime = _lib!
+      .lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>(
+          'vq_free_runtime');
+  late final void Function(Pointer<Void>) _freeContext = _lib!
+      .lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>(
+          'vq_free_context');
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _eval = _lib!
+      .lookupFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
+          Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>('vq_eval');
+  late final void Function(Pointer<Void>, Pointer<Utf8>) _freeString = _lib!
+      .lookupFunction<Void Function(Pointer<Void>, Pointer<Utf8>),
+          void Function(Pointer<Void>, Pointer<Utf8>)>('vq_free_string');
 
   @override
   bool get isAvailable => _lib != null;

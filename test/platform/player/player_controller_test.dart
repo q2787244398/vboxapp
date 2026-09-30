@@ -84,7 +84,7 @@ void main() {
       await expectLater(
         ctrl.open(const PlayerSource(url: 'https://x/a.mp4')),
         throwsA(isA<PlayerOpenException>()
-            .having((e) => e.code, 'code', 'E_NO_BACKEND')),
+            .having((e) => e.code, 'code', 'E_BACKEND_UNAVAILABLE')),
       );
       expect(ctrl.backend, isNull);
       await ctrl.dispose();
@@ -192,15 +192,15 @@ void main() {
       );
       await ctrl.open(const PlayerSource(url: 'https://x/a.mp4'));
       String? message;
-      bool? fatal;
+      bool? wasFatal;
       ctrl.onError = (String m, {required bool fatal}) {
         message = m;
-        fatal = fatal;
+        wasFatal = fatal;
       };
       bridge.emit(<String, Object?>{'type': 'error', 'message': '解码失败', 'fatal': true});
       await Future<void>.delayed(Duration.zero);
       expect(message, '解码失败');
-      expect(fatal, true);
+      expect(wasFatal, true);
       await ctrl.dispose();
     });
   });

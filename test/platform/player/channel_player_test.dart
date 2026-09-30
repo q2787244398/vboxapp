@@ -188,10 +188,10 @@ void main() {
         bridge: bridge,
       );
       String? message;
-      bool? fatal;
+      bool? wasFatal;
       p.onError = (String m, {required bool fatal}) {
         message = m;
-        fatal = fatal;
+        wasFatal = fatal;
       };
       bridge.emit(<String, Object?>{
         'type': 'error',
@@ -200,7 +200,7 @@ void main() {
       });
       await Future<void>.delayed(Duration.zero);
       expect(message, '解码失败');
-      expect(fatal, true);
+      expect(wasFatal, true);
       await p.dispose();
     });
   });

@@ -15,12 +15,15 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
+import 'core/errors/failures.dart';
 import 'core/network/http_client.dart';
 import 'core/storage/storage_paths.dart';
+import 'core/utils/result.dart';
 import 'data/datasources/local/database_manager.dart';
 import 'data/datasources/local/prefs_manager.dart';
-import 'data/datasources/remote/remote_manifest_datasource.dart';
+import 'data/datasources/remote/remote.dart';
 import 'data/repositories/repositories.dart';
+import 'domain/entities/remote_source/remote_source.dart';
 import 'domain/usecases/usecases.dart';
 import 'presentation/desktop/desktop_home_page.dart';
 import 'presentation/phone/home_shelf_page.dart';
@@ -43,11 +46,31 @@ class _VBoxAppState extends State<VBoxApp> {
   late final HistoryUseCases _historyUseCases;
   late final SubscriptionUseCases _subscriptionUseCases;
   late final RemoteSourceUseCases _remoteSourceUseCases;
+  late final DetailPlaybackUseCases _detailPlaybackUseCases;
+  late final AllSourcesDatasource _allSourcesDatasource;
+  late final CmsV10Datasource _cmsDatasource;
 
   @override
   void initState() {
     super.initState();
     _bootstrap();
+  }
+
+  /// 站点聚合加载（清单刷新 → allSources URL → 拉取解析）。
+  Future<Result<AllSourcesContainer>> _loadAllSources() async {
+    final Result<RemoteManifest> manifestResult =
+        await _remoteSourceUseCases.refresh();
+    final Failure? failure = manifestResult.failureOrNull;
+    if (failure != null) return Err<AllSourcesContainer>(failure);
+
+    final String? url =
+        manifestResult.valueOrNull?.files[RemoteManifest.keyAllSources];
+    if (url == null || url.isEmpty) {
+      return const Err<AllSourcesContainer>(
+        ValidationFailure('清单缺少 allSources 文件条目'),
+      );
+    }
+    return _allSourcesDatasource.fetch(url);
   }
 
   /// 初始化依赖。
@@ -70,6 +93,12 @@ class _VBoxAppState extends State<VBoxApp> {
         RemoteSourceRepositoryImpl(
           datasource: RemoteManifestDatasource(client: HttpClient()),
         ),
+      );
+      _allSourcesDatasource = AllSourcesDatasource(client: HttpClient());
+      _cmsDatasource = CmsV10Datasource(client: HttpClient());
+      _detailPlaybackUseCases = DetailPlaybackUseCases(
+        loadAllSources: _loadAllSources,
+        cmsDatasource: _cmsDatasource,
       );
 
       if (mounted) {
@@ -111,6 +140,7 @@ class _VBoxAppState extends State<VBoxApp> {
         Provider<HistoryUseCases>.value(value: _historyUseCases),
         Provider<SubscriptionUseCases>.value(value: _subscriptionUseCases),
         Provider<RemoteSourceUseCases>.value(value: _remoteSourceUseCases),
+        Provider<DetailPlaybackUseCases>.value(value: _detailPlaybackUseCases),
       ],
       child: const _RootRouter(),
     );

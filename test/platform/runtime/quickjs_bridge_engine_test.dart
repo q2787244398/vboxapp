@@ -22,16 +22,14 @@ import 'package:vbox/platform/runtime/quickjs_ffi.dart';
 /// 匹配优先级：完整脚本命中 → 子串命中 → [defaultValue]。
 class _FakeQuickJsBridge implements QuickJsNativeBridge {
   _FakeQuickJsBridge({
-    this.available = true,
     this.byExact = const <String, String>{},
     this.bySubstring = const <String, String>{},
-    this.defaultValue = '',
   });
 
-  final bool available;
+  final bool available = true;
   final Map<String, String> byExact;
   final Map<String, String> bySubstring;
-  final String defaultValue;
+  final String defaultValue = '';
 
   /// 记录全部 eval 调用（断言参数拼接 / init 只调一次）。
   final List<String> evals = <String>[];
@@ -155,8 +153,8 @@ void main() {
 
     test('loadScript：JS 异常（Error 前缀）→ E_SCRIPT_LOAD', () async {
       final QuickJSBridgeEngine engine = QuickJSBridgeEngine(
-        bridge: _FakeQuickJsBridge(bySubstring: <String, String>{
-          'SyntaxError: unexpected': 'SyntaxError: unexpected token',
+        bridge: _FakeQuickJsBridge(byExact: <String, String>{
+          'var = ;': 'SyntaxError: unexpected token',
         }),
       );
       await expectLater(

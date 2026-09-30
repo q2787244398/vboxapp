@@ -4,7 +4,7 @@ iOS 端：基于 Myapp3.1 (TVBox 架构) 逆向分析的 iOS 移植版本（`vbo
 Flutter 端：Android / Android TV / Windows / macOS 四端重构（`lib/`）。
 
 > 本仓库为**唯一开发仓库**（iOS + Flutter 多端，决策 D14）；规划与进度见
-> [`docs/VBOX_PLAN_v6.24.md`](docs/VBOX_PLAN_v6.24.md)。
+> [`docs/VBOX_PLAN_v6.25.md`](docs/VBOX_PLAN_v6.25.md)。
 
 ## 仓库结构（顶层）
 
