@@ -29,7 +29,7 @@
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名随修订版本递增（**D25**）：`VBOX_PLAN_v5.md` → `VBOX_PLAN_v6.md`（v6 系列首版，现已废弃）
-> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → **`VBOX_PLAN_v6.19.md`**（当前版）。
+> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` → **`VBOX_PLAN_v6.20.md`**（当前版）。
 >
 > **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
@@ -204,12 +204,24 @@
 > ⑤ 门禁（E.10b）：**G-01 UI 三形态解除（phone + desktop + tv 均已交付）**；TV D-pad 真机行为归 **G-10**（人工验收）；
 > 新增 **P.28 tv 形态复核**；文档更名 `VBOX_PLAN_v6.17.md` → **`VBOX_PLAN_v6.18.md`**（D25）。
 >
-> **v6.19 变更（本版）**：**G-03 可行性评估登记（不改码）** ——
+> **v6.19 变更**：**G-03 可行性评估登记（不改码）** ——
 > ① 完成 **5 引擎 × Flutter 三端可行性矩阵**评估（详见 P.29）：**Node/NodeLX 桥（HTTP 到本地端口）与 Python 桥（子进程 stdio ABI）为纯 Dart 可交付**；QuickJS 需 FFI 原生绑定；JSC 三端不可用（iOS 原生保留，Flutter 以 QuickJS 顶替）；
 > ② 三个关键判断：ABI（§4.5）已把引擎差异收敛到适配层；QuickJS 原生绑定与 Node/Python **运行时分发**需先行决策（对应 E1 工期翻倍风险）；
 > ③ 推荐路线：**G-03-A**（引擎工厂 + NodeBridge + PythonBridge + ABI conformance，纯 Dart 可验）→ **G-03-B**（QuickJS FFI + 运行时分发方案，待决策）；
 > ④ 本轮**不改码**（纯登记），计数不变（80 / 33 / 396 / 73.5% / 24/80）；
 > 新增 **P.29 G-03 评估登记**；文档更名 `VBOX_PLAN_v6.18.md` → **`VBOX_PLAN_v6.19.md`**（D25）。
+>
+> **v6.20 变更（本版）**：**G-02 平台插件层可行性评估登记（含播放器插件）+ 门禁编号纠偏（不改码）** ——
+> ① 完成 **G-02 × 三端平台壳**评估（详见 P.30）：**Android 播放器插件（Media3 + libVLC）为纯 Gradle 依赖
+> （零 NDK，libVLC aar 自带原生库）**，CI build-android 可直接编译验证；macOS **AVPlayer 零原生依赖**可交付，
+> libmpv 回退需 dylib 分发；Windows libmpv 需 dll 分发（最重）；
+> ② 播放器回退路径（E.10b ④）三端齐备（A21.5 已设计 selectBackend：Android Media3→libVLC、macOS AVPlayer→libmpv、Windows libmpv）；
+> ③ **门禁编号纠偏**：修正 P.28 / P.29 误记 —— **G-06 = iOS 参照实现（已✅）、G-07 = 编译环境（已✅），均非播放器 / 三端对齐**；
+> 播放器插件属 **G-02**（PlayerPlugin.kt / .swift / .cpp）；E.10b 真实余项 = **G-02 / G-03 / G-05（零触达收尾）/ G-09 / G-10**；
+> ④ 推荐路线：**G-02-A**（Dart PlayerController 抽象 + 平台通道桥 + Android Gradle 接线，CI 编译可验）→
+> **G-02-B**（macOS AVPlayer 接线 + Windows/macOS libmpv 二进制分发决策）；
+> ⑤ 本轮**不改码**（纯登记），计数不变（80 / 33 / 396 / 73.5% / 24/80）；
+> 新增 **P.30 G-02 评估登记**；文档更名 `VBOX_PLAN_v6.19.md` → **`VBOX_PLAN_v6.20.md`**（D25）。
 
 ## 版本历史
 
@@ -240,7 +252,8 @@
 | **v6.16** | 2026-09-30：**G-01 phone 远程源列表交付（第 1 轮 UI 第二块）** —— ① 新增 `lib/presentation/phone/remote_source_page.dart`（清单状态卡 + 订阅管理：添加 / 重复拒绝 / 删除 / 强制刷新）；② 书架 AppBar 加「远程源」入口；③ 新增 widget 测试 **8 用例**；lib **76 → 77**、测试 **30 → 31**、单测 **378 → 386**、整体覆盖 **71.8% → 73.1%**、零触达 **24/77**；E.10b **G-01 继续解除**；新增 **P.26**；文档更名 `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` |
 | **v6.17** | 2026-09-30：**G-01 desktop 形态交付（第 1 轮 UI 第三块）+ 共享视图抽取** —— ① 新增 `lib/presentation/widgets/library_views.dart`（FavoritesView / HistoryView 抽取为三形态共享组件）；② 新增 `lib/presentation/desktop/desktop_home_page.dart`（NavigationRail 宽屏布局，内嵌远程源）；③ `app.dart` desktop 占位解除；④ 新增 widget 测试 **5 用例**；lib **77 → 79**、测试 **31 → 32**、单测 **386 → 391**、整体覆盖 **73.1% → 73.2%**、零触达 **24/79**；E.10b **G-01 继续解除**（仅余 TV）；新增 **P.27**；文档更名 `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` |
 | **v6.18** | 2026-09-30：**G-01 tv 形态交付（第 1 轮 UI 收官）** —— ① 新增 `lib/presentation/tv/tv_home_page.dart`（T.7 焦点规范：FocusTraversalGroup + TabBar autofocus，三 Tab 导航复用共享视图）；② `app.dart` tv 占位解除，**三形态全部交付**；③ 新增 widget 测试 **5 用例**；lib **79 → 80**、测试 **32 → 33**、单测 **391 → 396**、整体覆盖 **73.2% → 73.5%**、零触达 **24/80**；E.10b **G-01 UI 三形态解除**（TV D-pad 归 G-10 人工验收）；新增 **P.28**；文档更名 `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` |
-| **v6.19（现行）** | 2026-09-30：**G-03 可行性评估登记（不改码）** —— 5 引擎 × 三端可行性矩阵（Node/NodeLX 桥 + Python 桥纯 Dart 可交付，QuickJS 需 FFI 原生，JSC 三端不可用）；关键判断（ABI 收敛差异、运行时分发为最大风险）；推荐路线 G-03-A（引擎工厂 + 双桥 + ABI conformance）→ G-03-B（QuickJS FFI + 分发方案待决策）；**计数不变**（80 / 33 / 396 / 73.5% / 24/80）；新增 **P.29**；文档更名 `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` |
+| **v6.19** | 2026-09-30：**G-03 可行性评估登记（不改码）** —— 5 引擎 × 三端可行性矩阵（Node/NodeLX 桥 + Python 桥纯 Dart 可交付，QuickJS 需 FFI 原生，JSC 三端不可用）；关键判断（ABI 收敛差异、运行时分发为最大风险）；推荐路线 G-03-A（引擎工厂 + 双桥 + ABI conformance）→ G-03-B（QuickJS FFI + 分发方案待决策）；**计数不变**（80 / 33 / 396 / 73.5% / 24/80）；新增 **P.29**；文档更名 `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` |
+| **v6.20（现行）** | 2026-09-30：**G-02 平台插件层可行性评估登记（含播放器插件）+ 门禁编号纠偏（不改码）** —— 三端插件矩阵（Android Media3+libVLC 纯 Gradle 零 NDK / macOS AVPlayer 零原生依赖 / Windows libmpv 需 dll）；播放器回退路径三端齐备（A21.5）；**编号纠偏**（G-06=iOS 参照已✅、G-07=编译环境已✅，播放器属 G-02；E.10b 余项 = G-02 / G-03 / G-05 / G-09 / G-10）；推荐 G-02-A（Dart PlayerController + Android 接线，CI 可验）→ G-02-B（libmpv 分发待决策）；**计数不变**（80 / 33 / 396 / 73.5% / 24/80）；新增 **P.30**；文档更名 `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` |
 
 <!-- /docs-guard:history -->
 
@@ -278,7 +291,7 @@
 | **D22** | **Flutter 版本基线** | 以 CI 实测 **3.47.5** 为准，**修订 §2.3 的「3.24.x 锁版」**；与 D12（API 24，依据 3.47 支持矩阵）保持一致 | **已确认**（2026-09-29） |
 | **D23** | **本地持久化与模型** | Flutter 侧采用 **`sqflite` 直连 + 手写模型**，**不引入 drift / freezed 代码生成**；契约正确性由 Python 侧 `check_*` 断言，不依赖 Dart 代码生成 | **已确认**（2026-09-29） |
 | **D24** | **文档版本号递增** | **每次修改本方案文档必须先递增修订版本号**（v6.x → v6.x+1）**再交付 / 推送**；递增须同步：① 顶部「本版变更」块（旧版去掉「（本版）」标记）、② 版本历史表「（现行）」行、③ 受影响的计数与口径引用 | **已确认**（2026-09-29） |
-| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.19.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
+| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.20.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
 | **D26** | **守卫结构性漏洞须闭环** | 文档守卫的**块级豁免标记必须成对闭合**；凡「静默豁免 / 静默跳过」类设计必须自带**自检**（如块标记成对性、豁免行数上限告警）。发现「规则静默失效」类结构性漏洞时，须**先补漏洞、再用其复查全量**，并把新规则纳入 CI（本轮即由未闭合的 `docs-guard:history` 块暴露 L104–L3158 长期失守） | **已确认**（2026-09-29） |
 | **D27** | **平台壳与包名基线** | Flutter 平台壳**一律以 `flutter create` 官方模板生成**（不手写），且**非侵入落地**（临时目录生成后仅拷贝平台目录 + `.metadata`，不改 `lib/` / `test/` / `pubspec.yaml`）；Android `namespace`/`applicationId` 与 macOS `PRODUCT_BUNDLE_IDENTIFIER` 统一为 **`com.vbox.player`**（iOS 保持 `com.vbox.iosplayer`）；`minSdk` **显式写死 24**（D12），不依赖 `flutter.minSdkVersion` 隐式默认 | **已确认**（2026-09-29） |
 
@@ -2390,7 +2403,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.19.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.20.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -4416,7 +4429,7 @@ E.10b 余项：**G-01 仅余 TV 子项**；**第 1 轮仍不得标记完成**（
 #### 3. 门禁影响（E.10b）
 
 **G-01（UI 三形态）解除**：phone（书架 + 远程源）+ desktop + tv 均已交付。
-E.10b 余项（最新）：**G-02 平台插件层 / G-03 五引擎 / G-06 播放器 / G-07 三端功能对齐 / G-09 侧载链路 / G-10 TV 真机焦点验收**。
+E.10b 余项（最新，v6.20 编号纠偏）：**G-02 平台插件层（含播放器插件 PlayerPlugin.kt/.swift/.cpp）/ G-03 五引擎 / G-05（零触达收尾）/ G-09 侧载链路 / G-10 TV 真机焦点验收**。
 **第 1 轮仍不得标记完成**（D20）。
 
 #### 4. 遗留 / 下批待办（更新）
@@ -4470,7 +4483,54 @@ E.10b 余项（最新）：**G-02 平台插件层 / G-03 五引擎 / G-06 播放
 #### 5. 门禁影响
 
 G-03（5 引擎实现）**状态不变（未开始）**：抽象层已交付，实现待 G-03-A / G-03-B。
-E.10b 余项：**G-02 / G-03 / G-06 / G-07 / G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
+E.10b 余项（v6.20 编号纠偏）：**G-02 / G-03 / G-05（部分解除）/ G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
+
+---
+
+### P.30 十八轮复核：G-02 平台插件层可行性评估登记（含播放器插件）（v6.20 新增）
+
+> 方法：全量阅读 §2.4（平台插件层目录规划）+ §2.5（平台能力矩阵）+ A21.5（播放器能力探测与回退）+
+> 三端平台壳实况（`android/app/build.gradle.kts` / `macos/Runner/` Swift / `windows/runner/CMakeLists.txt`）+
+> 契约 `abi_v1.md` 播放器 ABI 约束。本轮**纯登记，不改码**。
+
+#### 1. 现状盘点
+
+| 层 | 状态 |
+|----|------|
+| 平台壳（三端） | ✅ v6.11 交付（Kotlin Gradle DSL / Swift Xcode / C++ CMake，包名 `com.vbox.player`，CI 三端 build job 全绿） |
+| 插件实现（`lib/platform/{player,spider,runtime,system}/`） | ❌ 未创建 |
+| 播放器 Dart 抽象（映射 iOS `PlayerEngine` 协议） | ❌ 未创建 |
+| 播放器回退策略 | ✅ 设计已冻结（A21.5 `selectBackend`：Android Media3→libVLC；macOS AVPlayer→libmpv；Windows libmpv） |
+
+#### 2. 三端播放器插件可行性矩阵
+
+| 端 | 目标（§2.5） | 实现路径 | 原生依赖 | CI 可编译验证 | 分发成本 |
+|----|-------------|---------|:---:|:---:|------|
+| Android | Media3 主 + libVLC 回退 | Gradle 依赖：`androidx.media3:media3-exoplayer(-hls,-ui)` + `org.videolan.android:libvlc-all`（**aar 自带原生库**） | ❌ **零 NDK**（JVM + aar） | ✅ build-android | 低（依赖进 APK） |
+| macOS | AVPlayer 主 + libmpv 回退 | Swift：AVFoundation（**系统框架**）；libmpv 需 dylib 嵌入 + Xcode 链接 | AVPlayer 零依赖；libmpv 需 .dylib | ✅ build-macos（Swift 编译） | 中（libmpv dylib 分发） |
+| Windows | libmpv | C++：CMake 链接 mpv（需 `mpv-2.dll`），消息/纹理渲染 | 需 dll | ✅ build-windows | **高**（mpv dll + 依赖链） |
+
+> 另有非播放器插件同属 G-02：`SpiderPlugin` / `QuickJsRuntime` / `PythonRuntime`（Chaquopy，**Gradle 依赖零 NDK**）/ `NodeRuntime` / `SystemPlugin`（UiMode 判定，**v6.2 已登记真机判定接线缺口**）/ `MediaPlaybackService`。
+
+#### 3. 关键判断
+
+1. **Android 播放器插件是 G-02 里最可行的入口**：Media3（JVM）+ libVLC（预编译 aar）均为纯 Gradle 依赖，**无需 NDK**；minSdk 24 满足（A21.4 已核对）；CI build-android 已验证 Gradle 通道 → **G-02-A 可在当前环境完整编译验证**。
+2. **macOS AVPlayer 零原生依赖**可先行交付；libmpv 回退与 Windows libmpv 共同受制于**原生二进制分发**（.dylib / mpv-2.dll 需入库或下载策略）→ G-02-B 需决策。
+3. **Dart 桥接层先行**：播放器统一走 Dart `PlayerController` 抽象（映射 iOS `PlayerEngine` 协议：type/state/event）+ 平台通道（MethodChannel/FFI）适配，**纯 Dart 可测**（注入假通道），三端插件只是通道实现。
+4. **播放能力真机验收不可省略**（E.10b ④「播放器后端均有回退路径」需实测）：Media3→libVLC 回退、AVPlayer→libmpv 回退最终须真机/真机矩阵验证（G-09 关联）。
+
+#### 4. 推荐路线（登记待执行）
+
+| 批次 | 内容 | 环境可验 | 状态 |
+|------|------|:---:|------|
+| **G-02-A** | Dart `PlayerController` 抽象 + 平台通道桥 + 回退策略枚举 + Android Gradle 接线（media3 + libvlc）+ CI build-android 编译验证 + Dart 单测 | ✅ | 待执行（后续批次） |
+| **G-02-B** | macOS AVPlayer 接线（Swift，CI 编译可验）+ Windows/macOS libmpv **原生二进制分发决策**（入库 / 下载策略） | ⚠️ AVPlayer 部分 ✅；libmpv 需决策 | 待决策 |
+| **G-02-C** | `SystemPlugin`（UiMode 真机判定，v6.2 缺口）+ `MediaPlaybackService` + 播放真机验收（G-09 关联） | ❌ 需真机 | 待真机 |
+
+#### 5. 门禁影响
+
+G-02（平台插件层）**状态不变（未开始）**：评估已登记，实现待 G-02-A / G-02-B / G-02-C。
+E.10b 余项（**v6.20 编号纠偏**）：**G-02 / G-03 / G-05（零触达收尾）/ G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
 
 ---
 
@@ -4675,16 +4735,17 @@ lib/
 | 残余 | TV D-pad 真机行为归 **G-10**（人工验收）；详情 / 播放入口依赖 G-02/G-03 |
 | 关联 | 方案 §2.4、T.7（TV 布局规范） |
 
-## G-02 平台插件层未实现 ⛔ 高
+## G-02 平台插件层未实现 ⛔ 高（**v6.20 完成可行性评估登记，P.30**）
 
 | 项 | 内容 |
 |----|------|
 | 位置 | `lib/platform/{player,spider,runtime,system}/`（**未创建**，仍为最高优先级缺口） |
 | 平台壳 | ✅ **v6.11 已交付** `android/` / `macos/` / `windows/`（`flutter create` 官方模板，包名 `com.vbox.player`，CI 三端 build job，见 P.22 / D27） |
 | 影响 | 播放器/Spider 引擎/运行时无法实际运行 |
-| 阻塞原因 | 需 Android NDK + 桌面工具链 |
-| 解除条件 | PlayerPlugin.kt（Media3+libVLC）、PlayerPlugin.swift、player_plugin.cpp 等交付 |
-| 关联 | 方案 §2.4、D6、D27 |
+| 阻塞原因 | ~~需 Android NDK + 桌面工具链~~ → **v6.20 已评估**：Android 播放器插件（Media3 + libVLC）为**纯 Gradle 依赖（零 NDK）**；macOS AVPlayer 零原生依赖；libmpv（macOS 回退 / Windows 主）受制于原生二进制分发 |
+| 解除条件 | PlayerPlugin.kt（Media3+libVLC）、PlayerPlugin.swift（AVPlayer+libmpv 回退）、player_plugin.cpp（libmpv）等交付；含 SpiderPlugin / QuickJsRuntime / PythonRuntime（Chaquopy）/ NodeRuntime / SystemPlugin / MediaPlaybackService |
+| 推荐路线 | **G-02-A**（Dart PlayerController + Android 接线，CI 编译可验）→ **G-02-B**（macOS AVPlayer + libmpv 分发决策）→ **G-02-C**（SystemPlugin / 前台服务 / 真机验收） |
+| 关联 | 方案 §2.4、D6、D27、**P.30 评估登记** |
 
 ## G-03 5 个 Spider 引擎实现未开始 ⛔ 高（**v6.19 完成可行性评估登记，P.29**）
 
