@@ -333,7 +333,7 @@ class BackupService {
       if (strategy == ConflictStrategy.merge) {
         // 合并：仅补齐本机缺失/空值，不覆盖本机已有设置。
         final Object? local = await _prefs.get(k);
-        if (local != null && '${_stringifyPref(local)}'.isNotEmpty) continue;
+        if (local != null && _stringifyPref(local).isNotEmpty) continue;
       }
       await _prefs.set(k, _coercePref(meta.type, value));
       n++;

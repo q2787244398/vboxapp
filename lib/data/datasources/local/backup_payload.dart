@@ -17,11 +17,15 @@ import 'dart:convert';
 import 'backup_manager.dart';
 
 /// 备份负载：账号 + 各类目内容。
+///
+/// 注：非 `const` 构造 —— [putCategory] 会写入 [categories]，若默认值为
+/// `const <String, String>{}`，多个实例将共享同一份**不可变**映射，
+/// 写入时抛 `UnsupportedError`。故默认值改为每次新建的可变映射。
 class BackupPayload {
-  const BackupPayload({
+  BackupPayload({
     this.account = '',
-    this.categories = const <String, String>{},
-  });
+    Map<String, String>? categories,
+  }) : categories = categories ?? <String, String>{};
 
   /// 账号标识（对齐 `BackupPayload.account`）。
   final String account;

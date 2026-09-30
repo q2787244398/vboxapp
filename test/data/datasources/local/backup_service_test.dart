@@ -164,7 +164,7 @@ void main() {
 
     test('备份中无该类目 → 记入 missing，不报错', () async {
       final BackupRestoreReport r = await svc.restore(
-        payload: const BackupPayload(),
+        payload: BackupPayload(),
         categories: <BackupCategory>{BackupCategory.downloads},
         strategy: ConflictStrategy.merge,
       );
