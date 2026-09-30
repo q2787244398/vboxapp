@@ -1,0 +1,24 @@
+{
+  "description": "libmpv 桌面端原生二进制资产清单（D28）。资产命名 libmpv-{os}-{arch}-{ver}.{dylib|dll}，由 scripts/fetch_libmpv.sh 从 GitHub Release 下载（不入 git 仓库，随 DMG/EXE 侧载产物分发）。sha256 由同名 .sha256 资产提供；未发布前留空。",
+  "version": "0.0.1",
+  "assets": [
+    {
+      "os": "macos",
+      "arch": "arm64",
+      "file": "libmpv-macos-arm64-0.0.1.dylib",
+      "sha256": ""
+    },
+    {
+      "os": "macos",
+      "arch": "x86_64",
+      "file": "libmpv-macos-x86_64-0.0.1.dylib",
+      "sha256": ""
+    },
+    {
+      "os": "windows",
+      "arch": "x86_64",
+      "file": "libmpv-windows-x86_64-0.0.1.dll",
+      "sha256": ""
+    }
+  ]
+}

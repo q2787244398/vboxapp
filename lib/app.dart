@@ -25,6 +25,7 @@ import 'data/datasources/remote/remote.dart';
 import 'data/repositories/repositories.dart';
 import 'domain/entities/remote_source/remote_source.dart';
 import 'domain/usecases/usecases.dart';
+import 'platform/system/system.dart';
 import 'presentation/desktop/desktop_home_page.dart';
 import 'presentation/phone/home_shelf_page.dart';
 import 'presentation/tv/tv_home_page.dart';
@@ -134,7 +135,15 @@ class _VBoxAppState extends State<VBoxApp> {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<UiModeController>(
-          create: (_) => UiModeController()..resolve(),
+          create: (_) {
+            final UiModeController c = UiModeController()..resolve();
+            // G-02-C：Android 真机接线 —— 平台通道三重判定覆盖占位结果；
+            // 桌面 / 测试环境不触碰通道（保持编译期常量兜底）。
+            if (Platform.isAndroid) {
+              c.resolveWithBridge(MethodChannelSystemBridge());
+            }
+            return c;
+          },
         ),
         Provider<FavoriteUseCases>.value(value: _favoriteUseCases),
         Provider<HistoryUseCases>.value(value: _historyUseCases),

@@ -44,10 +44,12 @@ kotlin {
 
 // G-02-A：播放器插件依赖（纯 Gradle 依赖，零 NDK）。
 //   · androidx.media3: Media3 主后端（ExoPlayer + HLS）
+//   · androidx.media3:media3-session: MediaSessionService 宿主（G-02-C 前台媒体服务）
 //   · org.videolan.android:libvlc-all: libVLC 回退（aar 自带原生库，minSdk 21+；实现在 G-02-B/C）
 dependencies {
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
+    implementation("androidx.media3:media3-session:1.5.1")
     implementation("org.videolan.android:libvlc-all:3.6.0")
 }
 

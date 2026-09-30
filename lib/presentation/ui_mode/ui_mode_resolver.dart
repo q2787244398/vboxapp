@@ -1,21 +1,22 @@
 /// 形态判定（UI Mode Resolver）。
 ///
-/// ⚠️ **占位实现**：权威设计口径见方案 §T.1（Android 侧经平台通道
-/// `getUiModeType` / `hasLeanbackFeature` / `hasTouchscreen` 三重判定；
-/// 桌面端为编译期常量）。本文件当前**未调用任何平台通道**，
-/// [UiModeController.resolve] 的 `screenSize/hasTouch/hasRemote` 参数
-/// 尚无调用方提供（见 app.dart），故真机 Android TV 现状会落到 `phone`。
-/// 接线须等 `platform/system` 的 `SystemPlugin` 落地。
-///
-/// 判定优先级（目标态，对齐方案 T.1）：
-///   ① 系统 UI Mode（Android 官方标准，经平台通道）
-///   ② PackageManager 设备特征（Leanback / 触屏）
+/// 目标态对齐方案 §T.1 三重判定（Android 真机经平台通道）：
+///   ① 系统 UI Mode（`getUiModeType`）
+///   ② PackageManager 设备特征（`hasLeanbackFeature` / `hasTouchscreen`）
 ///   ③ 屏幕尺寸 + 输入设备（山寨盒子 ROM 兜底）
 ///   ④ 编译期平台常量（桌面端）
+///
+/// [UiModeController.resolve] 保留同步占位判定（无平台通道，供测试与桌面端）；
+/// [UiModeController.resolveWithBridge] 为真机接线入口（Android 平台通道三重判定，
+/// 由 app.dart 在启动时调用）。
 library;
+
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../../platform/system/system_bridge.dart';
 
 /// UI 形态。
 enum UiMode {
@@ -49,6 +50,62 @@ class UiModeController extends ChangeNotifier {
       userPrefersTv: userPrefersTv,
     );
     notifyListeners();
+  }
+
+  /// 真机接线入口（G-02-C）：经平台通道三重判定（方案 §T.1）。
+  ///
+  /// 仅在 Android 平台有意义；[screenSize] 为第 ③ 重兜底的可选尺寸
+  /// （null 时跳过尺寸判定，依赖调用方注入，避免 resolver 耦合 WidgetsBinding）；
+  /// [judge] 可注入判定器（默认 [resolveModeWithBridge]），单测借此隔离平台分支。
+  Future<void> resolveWithBridge(
+    SystemBridge bridge, {
+    Size? screenSize,
+    Future<UiMode> Function(SystemBridge bridge, {Size? screenSize})? judge,
+  }) async {
+    _mode = await (judge ?? resolveModeWithBridge)(bridge, screenSize: screenSize);
+    notifyListeners();
+  }
+
+  /// 静态判定（可单测）：平台通道三重判定 + 桌面编译期常量。
+  static Future<UiMode> resolveModeWithBridge(
+    SystemBridge bridge, {
+    Size? screenSize,
+  }) async {
+    // ④ 编译期平台常量（桌面端）
+    if (kIsWeb || isDesktopPlatform) return UiMode.desktop;
+
+    if (Platform.isAndroid) {
+      // ① 系统 UI Mode（官方标准，最可靠）
+      final bool isTelevision = await bridge.getUiModeType();
+      // ② PackageManager 特性（兜底）
+      final bool hasLeanback = await bridge.hasLeanbackFeature();
+      final bool hasTouch = await bridge.hasTouchscreen();
+      return resolveAndroidMode(
+        isTelevision: isTelevision,
+        hasLeanback: hasLeanback,
+        hasTouch: hasTouch,
+        screenSize: screenSize,
+      );
+    }
+
+    return UiMode.phone;
+  }
+
+  /// 纯逻辑（可单测）：Android 三重判定（方案 §T.1 ①–③）。
+  static UiMode resolveAndroidMode({
+    required bool isTelevision,
+    required bool hasLeanback,
+    required bool hasTouch,
+    Size? screenSize,
+  }) {
+    // ① 系统 UI Mode（官方标准，最可靠）
+    if (isTelevision) return UiMode.tv;
+    // ② PackageManager 特性（兜底）
+    if (hasLeanback && !hasTouch) return UiMode.tv;
+    // ③ 屏幕尺寸 + 输入设备（山寨盒子 ROM 兜底）
+    final Size? s = screenSize;
+    if (s != null && s.shortestSide >= 720 && !hasTouch) return UiMode.tv;
+    return UiMode.phone;
   }
 
   /// 静态判定（可单测）。
