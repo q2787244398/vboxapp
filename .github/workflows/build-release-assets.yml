@@ -12,8 +12,9 @@
 # iOS 构建失败时本工作流整体跳过，绝不产出残包。
 #
 # 分发决策（D28）：libmpv 原生二进制不入 git 仓库，由 scripts/fetch_libmpv.sh 从
-# q2787244398/vbox-deps 的 Release 资产下载并随 DMG / EXE 分发；访问私有仓库需配置
-# secrets.LIBMPV_DEPS_TOKEN（或该仓库为公开则无需）。可配 secrets.LIBMPV_DEPS_URL 直链覆盖。
+# q2787244398/vbox-deps 的 Release 资产下载并随 DMG / EXE 分发（该仓库公开，无需 secret；
+# 亦可配 secrets.LIBMPV_DEPS_TOKEN / LIBMPV_DEPS_URL 覆盖）。Windows 资产为单一自包含
+# libmpv-*.dll；macOS 为动态库集合 libmpv-macos-*.tar.gz（libmpv.dylib + @rpath 依赖 dylib）。
 #
 # 签名（S.6）：Android 自签名即可但更新必须同签名。签名密钥以 secrets 注入：
 #   ANDROID_KEYSTORE_BASE64（vbox-release.jks 的 base64）、ANDROID_KEYSTORE_PASSWORD、
@@ -129,7 +130,9 @@ jobs:
       - name: Fetch libmpv dll (D28)
         shell: bash
         env:
-          LIBMPV_DEPS_TOKEN: ${{ secrets.LIBMPV_DEPS_TOKEN || secrets.GITHUB_TOKEN }}
+          # 不对 vbox-deps 传送 GITHUB_TOKEN：它仅限本仓库（跨仓库读取会 404）。
+          # vbox-deps 为公开仓库，留空即匿名读取；若改为私有，再配 secrets.LIBMPV_DEPS_TOKEN。
+          LIBMPV_DEPS_TOKEN: ${{ secrets.LIBMPV_DEPS_TOKEN }}
           LIBMPV_DEPS_URL: ${{ secrets.LIBMPV_DEPS_URL }}
         run: |
           bash scripts/fetch_libmpv.sh --os windows --arch x86_64 --cache-dir .mpv-cache
@@ -178,7 +181,9 @@ jobs:
 
       - name: Fetch libmpv dylib (D28)
         env:
-          LIBMPV_DEPS_TOKEN: ${{ secrets.LIBMPV_DEPS_TOKEN || secrets.GITHUB_TOKEN }}
+          # 不对 vbox-deps 传送 GITHUB_TOKEN：它仅限本仓库（跨仓库读取会 404）。
+          # vbox-deps 为公开仓库，留空即匿名读取；若改为私有，再配 secrets.LIBMPV_DEPS_TOKEN。
+          LIBMPV_DEPS_TOKEN: ${{ secrets.LIBMPV_DEPS_TOKEN }}
           LIBMPV_DEPS_URL: ${{ secrets.LIBMPV_DEPS_URL }}
         run: |
           ARCH="$(uname -m)"
@@ -187,12 +192,22 @@ jobs:
       - name: Build macOS release
         run: flutter build macos --release
 
-      - name: Bundle libmpv dylib into app Frameworks
+      - name: Bundle libmpv dylib set into app Frameworks
         run: |
           APP="$(ls -d build/macos/Build/Products/Release/*.app | head -1)"
           mkdir -p "$APP/Contents/Frameworks"
-          cp .mpv-cache/libmpv-macos-*.dylib "$APP/Contents/Frameworks/"
+          # D28：macOS 为动态库集合（libmpv.dylib + @rpath/libav*.dylib 等同组依赖），
+          # 整组拷入 Frameworks，由 App 主二进制的 @executable_path/../Frameworks rpath 解析。
+          cp .mpv-cache/*.dylib "$APP/Contents/Frameworks/"
           ls -lh "$APP/Contents/Frameworks/"
+
+      - name: Ad-hoc re-sign app (S.6 侧载，未公证)
+        run: |
+          APP="$(ls -d build/macos/Build/Products/Release/*.app | head -1)"
+          # 向 Frameworks 追加 dylib 会使 Flutter 的 ad-hoc 签名失效 → 先签嵌套 dylib 再签 App 本体。
+          codesign --force --sign - "$APP/Contents/Frameworks/"*.dylib
+          codesign --force --sign - --entitlements macos/Runner/Release.entitlements "$APP"
+          codesign --verify --verbose=2 "$APP"
 
       - name: Create DMG
         run: |

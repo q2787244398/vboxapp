@@ -1,24 +1,24 @@
 {
-  "description": "libmpv 桌面端原生二进制资产清单（D28）。资产命名 libmpv-{os}-{arch}-{ver}.{dylib|dll}，由 scripts/fetch_libmpv.sh 从 GitHub Release 下载（不入 git 仓库，随 DMG/EXE 侧载产物分发）。sha256 由同名 .sha256 资产提供；未发布前留空。",
+  "description": "libmpv 桌面端原生二进制资产清单（D28）。Windows 资产命名 libmpv-{os}-{arch}-{ver}.dll（单一自包含）；macOS 为动态库集合 libmpv-{os}-{arch}-{ver}.tar.gz（libmpv.dylib + @rpath 依赖 dylib，整组随 App Frameworks 分发）。由 scripts/fetch_libmpv.sh 从 GitHub Release 下载（不入 git 仓库，随 DMG/EXE 侧载产物分发）。sha256 由同名 .sha256 资产提供；未发布前留空。",
   "version": "0.0.1",
   "assets": [
     {
       "os": "macos",
       "arch": "arm64",
-      "file": "libmpv-macos-arm64-0.0.1.dylib",
-      "sha256": ""
+      "file": "libmpv-macos-arm64-0.0.1.tar.gz",
+      "sha256": "60aab9f020cbe406c8ec6c88c36132acc463eb8e5e4074e2b0c64b8faa83e497"
     },
     {
       "os": "macos",
       "arch": "x86_64",
-      "file": "libmpv-macos-x86_64-0.0.1.dylib",
+      "file": "libmpv-macos-x86_64-0.0.1.tar.gz",
       "sha256": ""
     },
     {
       "os": "windows",
       "arch": "x86_64",
       "file": "libmpv-windows-x86_64-0.0.1.dll",
-      "sha256": ""
+      "sha256": "0d5b9dbecb73e179ef39dc94314ff8905fab926a80f8d60a2367d824b7254e2e"
     }
   ]
 }

@@ -4,9 +4,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # G-02-C（D28）：libmpv 原生二进制分发 —— 不入 git 仓库，
-# 由本脚本从 GitHub Release 资产下载（libmpv-{os}-{arch}-{ver}.{dylib|dll} + sha256），
-# 随侧载产物（DMG / EXE）分发。沿用 iOS mpvkit-deps 模式（fetch_mpv_dependencies.sh）：
+# 由本脚本从 GitHub Release 资产下载（Windows：libmpv-{os}-{arch}-{ver}.dll 单一自包含；
+# macOS：libmpv-{os}-{arch}-{ver}.tar.gz 动态库集合），随侧载产物（DMG / EXE）分发。
+# 沿用 iOS mpvkit-deps 模式（fetch_mpv_dependencies.sh）：
 # 私有仓库 release 资产走 GitHub API 资产端点（releases/assets/{id} + octet-stream）。
+#
+# macOS 为何是「集合」：libmpv.dylib 的 LC_LOAD_DYLIB 为 @rpath/libass.dylib、
+# @rpath/libavcodec.dylib 等同组依赖，公开源自包含 FFmpeg 的自包含单文件不可得，
+# 故整组 dylib 随 App 的 Contents/Frameworks 分发（与 media_kit / Flutter 生态同款）。
 
 # ─────────────── 参数 / 环境变量（带默认） ───────────────
 LIBMPV_DEPS_REPO="${LIBMPV_DEPS_REPO:-q2787244398/vbox-deps}"
@@ -37,9 +42,9 @@ usage() {
   --cache-dir <dir>    输出/缓存目录（默认 .mpv-cache，也可用 LIBMPV_DEPS_CACHE_DIR）
   -h, --help           打印帮助
 
-资产命名（D28）：libmpv-{os}-{arch}-{ver}.{ext}
-  macos   → libmpv-macos-{arch}-{ver}.dylib
-  windows → libmpv-windows-{arch}-{ver}.dll
+资产命名（D28）：
+  macos   → libmpv-macos-{arch}-{ver}.tar.gz（动态库集合：libmpv.dylib + 依赖 dylib）
+  windows → libmpv-windows-{arch}-{ver}.dll（单一自包含）
 USAGE
 }
 
@@ -65,28 +70,55 @@ case "$LIBMPV_DEPS_ARCH" in
     aarch64|arm64) LIBMPV_DEPS_ARCH="arm64" ;;
 esac
 
-# 扩展名（D28：dylib / dll）
+# 系统归一（uname -s 的 darwin → macos）
 case "$LIBMPV_DEPS_OS" in
-    macos) LIBMPV_DEPS_EXT="dylib" ;;
-    windows) LIBMPV_DEPS_EXT="dll" ;;
+    darwin) LIBMPV_DEPS_OS="macos" ;;
+esac
+
+# 资产名（D28）：Windows 单一自包含 dll；macOS 为动态库集合 tar。
+case "$LIBMPV_DEPS_OS" in
+    macos)
+        ASSET_NAME="libmpv-${LIBMPV_DEPS_OS}-${LIBMPV_DEPS_ARCH}-${LIBMPV_DEPS_VERSION}.tar.gz"
+        IS_TARBALL=1
+        ;;
+    windows)
+        ASSET_NAME="libmpv-${LIBMPV_DEPS_OS}-${LIBMPV_DEPS_ARCH}-${LIBMPV_DEPS_VERSION}.dll"
+        IS_TARBALL=0
+        ;;
     *) echo "不支持的 os: $LIBMPV_DEPS_OS（仅 macos / windows）" >&2; exit 1 ;;
 esac
 
-ASSET_NAME="libmpv-${LIBMPV_DEPS_OS}-${LIBMPV_DEPS_ARCH}-${LIBMPV_DEPS_VERSION}.${LIBMPV_DEPS_EXT}"
 DEST_DIR="${LIBMPV_DEPS_CACHE_DIR}"
 mkdir -p "${DEST_DIR}"
 DEST="${DEST_DIR}/${ASSET_NAME}"
 
-# 若已下载且校验通过 → 直接复用
+# 若已下载且校验通过 → 直接复用（macOS 集合还需确认已解包到缓存目录）
 if [ -f "${DEST}" ] && [ -f "${DEST}.sha256" ] && \
-   [ "$(cat "${DEST}.sha256")" = "$(shasum -a 256 "${DEST}" | awk '{print $1}')" ]; then
+   [ "$(cat "${DEST}.sha256")" = "$(shasum -a 256 "${DEST}" | awk '{print $1}')" ] && \
+   { [ "${IS_TARBALL}" = "0" ] || [ -f "${DEST_DIR}/libmpv.dylib" ]; }; then
     echo "✅ 已缓存并校验通过: ${DEST}"
     exit 0
 fi
 
+# macOS 集合资产：下载校验后解包出 *.dylib 到缓存目录（供工作流整组拷入 App Frameworks）
+extract_if_needed() {
+    if [ "${IS_TARBALL}" = "1" ]; then
+        echo "📦 解包动态库集合 → ${DEST_DIR}/"
+        TMP_EXTRACT="${DEST_DIR}/.extract-$$"
+        rm -rf "${TMP_EXTRACT}"
+        mkdir -p "${TMP_EXTRACT}"
+        tar -xzf "${DEST}" -C "${TMP_EXTRACT}"
+        find "${TMP_EXTRACT}" -name '*.dylib' -exec cp -f {} "${DEST_DIR}/" \;
+        rm -rf "${TMP_EXTRACT}"
+        ls -1 "${DEST_DIR}"/*.dylib
+    fi
+}
+
+# 无 token / 无显式直链时：vbox-deps 为公开仓库，改走 Release 直链
+# （`releases/download/{tag}/{asset}`，免 API 鉴权与 60 次/时匿名速率限制）。
 if [ -z "${LIBMPV_DEPS_TOKEN}" ] && [ -z "${LIBMPV_DEPS_URL}" ]; then
-    echo "⚠️ 未提供 LIBMPV_DEPS_TOKEN / GITHUB_TOKEN 且未指定 --url；私有仓库资产下载需认证。" >&2
-    echo "   （本地可先 gh auth login，脚本会自动尝试复用 gh CLI 的 token）" >&2
+    LIBMPV_DEPS_URL="https://github.com/${LIBMPV_DEPS_REPO}/releases/download/${LIBMPV_DEPS_TAG}/${ASSET_NAME}"
+    echo "ℹ️ 未提供 token → 按公开仓库直链下载（如需私有仓库请配 LIBMPV_DEPS_TOKEN）"
 fi
 
 # 直链模式
@@ -95,11 +127,12 @@ if [ -n "${LIBMPV_DEPS_URL}" ]; then
     echo "⬇️  直链下载 ${LIBMPV_DEPS_URL}"
     curl -fL --retry 3 -o "${DEST}" "${LIBMPV_DEPS_URL}"
     curl -fsL --retry 3 -o "${DEST}.sha256" "${SHA_URL}" || echo "(sha256 直链不可得，跳过)"
-    EXPECTED="$(cat "${DEST}.sha256")"
+    EXPECTED="$(cat "${DEST}.sha256" 2>/dev/null || true)"
     ACTUAL="$(shasum -a 256 "${DEST}" | awk '{print $1}')"
     if [ -n "$EXPECTED" ] && [ "$EXPECTED" != "$ACTUAL" ]; then
         echo "❌ sha256 校验失败" >&2; exit 1
     fi
+    extract_if_needed
     echo "✅ 下载完成（sha256 ${ACTUAL}）: ${DEST}"
     exit 0
 fi
@@ -141,4 +174,5 @@ if [ -n "$EXPECTED" ] && [ "$EXPECTED" != "$ACTUAL" ]; then
     echo "❌ sha256 校验失败（期望 ${EXPECTED}，实际 ${ACTUAL}）" >&2; exit 1
 fi
 
+extract_if_needed
 echo "✅ 下载完成（sha256 ${ACTUAL}）: ${DEST}"

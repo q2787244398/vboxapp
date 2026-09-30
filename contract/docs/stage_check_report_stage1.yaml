@@ -60,9 +60,9 @@ checks:
   # ⑤ 质量基线
   quality_gate:
     status: partial
-    details: "覆盖率 76.1%（v6.26 本机 lcov 实测）达标；506 用例（静态声明）过，零触达 27/100 全分类排除（G-05 收尾，v6.26）；Python 守卫 11/11 本地实测"
+    details: "覆盖率 76.1%（v6.26 本机 lcov 实测）达标；504 用例（静态声明）过，零触达 27/100 全分类排除（G-05 收尾，v6.26）；Python 守卫 11/11 本地实测"
     items:
-      - { name: "单测覆盖率 ≥ 70%", status: pass, detail: "v6.26 本机 flutter test --coverage 实测全 lib 整体 76.1%（触达 84.2%）；506 用例（静态声明）过；零触达 27/100 已全分类排除（G-05，v6.26）" }
+      - { name: "单测覆盖率 ≥ 70%", status: pass, detail: "v6.26 本机 flutter test --coverage 实测全 lib 整体 76.1%（触达 84.2%）；504 用例（静态声明）过；零触达 27/100 已全分类排除（G-05，v6.26）" }
       - { name: "静态分析无 error", status: pass, detail: "CI flutter-analyze 通道就绪（G-07/G-08 已解除）；本地 Python 守卫 11/11 通过" }
       - { name: "无 blocker/critical Bug", status: pass, detail: "无；P.32 §5 导入包名编译级问题已修复闭环" }
       - { name: "三端编译通过", status: pass, detail: "CI build-android / build-macos / build-windows / build-native-quickjs jobs 全绿（G-07 解除）" }

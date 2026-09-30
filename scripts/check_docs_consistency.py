@@ -18,6 +18,8 @@
   7. 决策编号在决策表内唯一 + 全文 `D<编号>` 引用无悬空（v6.9 新增）
   8. `pubspec.yaml` 的 `version`（`X.Y.Z+N`）↔ `AppInfo.version` / `buildNumber` 必须一致（v6.10 新增）
   9. 现行文档不得出现「空目录」声明：git 不跟踪空目录，此类声明无法验证，须改用「未创建 / 待填充」（v6.10 新增）
+  10. `docs/*.md` 的引用必须真实存在：按字面量 DEAD_DOCS 防回流只覆盖主方案文档旧名，
+      其他 docs 文档改名/删除后（如检查报告 `_v6.25.md`）残留引用无法被发现（v6.27 新增）
 
 v6.9 补丁：D24/D25 把「文档版本」升级为强制治理 —— 此前版本只活在正文里，文件名可长期停在
 `VBOX_PLAN_v6.md`，且「（本版）」标记曾同时出现在两处（v6.6/v6.7）。故新增规则 6/7，
@@ -101,7 +103,27 @@ DEAD_DOCS = ("PROJECT_LAYOUT.md", "PROGRESS.md", "KNOWN_GAPS.md")
 # v6.24：追加 v6.23 —— 本轮把文件名升到 v6.24（G-02-B / G-03-B 平台插件与运行时交付批次），v6.23 成为旧名，纳入防回流。
 # v6.25：追加 v6.24 —— 本轮把文件名升到 v6.25（详情页·播放入口接线交付批次），v6.24 成为旧名，纳入防回流。
 # v6.26：追加 v6.25 —— 本轮把文件名升到 v6.26（G-02-C / G-05 / 真机验收清单批次），v6.25 成为旧名，纳入防回流。
-DEAD_DOCS += ("VBOX_PLAN_v6.25.md", "VBOX_PLAN_v6.24.md", "VBOX_PLAN_v6.23.md", "VBOX_PLAN_v6.22.md", "VBOX_PLAN_v6.21.md", "VBOX_PLAN_v6.20.md", "VBOX_PLAN_v6.19.md", "VBOX_PLAN_v6.18.md", "VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
+# v6.27：追加 v6.26 —— 本轮把文件名升到 v6.27（P2 遗留清理批次），v6.26 成为旧名，纳入防回流。
+DEAD_DOCS += ("VBOX_PLAN_v6.26.md", "VBOX_PLAN_v6.25.md", "VBOX_PLAN_v6.24.md", "VBOX_PLAN_v6.23.md", "VBOX_PLAN_v6.22.md", "VBOX_PLAN_v6.21.md", "VBOX_PLAN_v6.20.md", "VBOX_PLAN_v6.19.md", "VBOX_PLAN_v6.18.md", "VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
+
+# v6.27 新增：规则 10 —— 捕获任意「引用 docs/ 下已不存在的 .md」的残留
+# （DEAD_DOCS 只按字面量匹配主方案旧名；检查报告等文档改名后引用同样会失效）
+# （负向断言排除 contract/docs/，避免误伤契约文档引用）
+DOC_REF_PAT = re.compile(r"(?<!contract/)docs/([\w\u4e00-\u9fff-]+\.md)")
+
+# 规则 10 的「自我解决」豁免标记：引用所在行同时说明该文档实际位置/命名差异
+# （如 ~~`docs/android-min-sdk21-compat.md`~~ ✅ 已生成（`contract/docs/android-compat.md`）），
+# 这类行是交付核验表的有意记载，不应误判为失效引用。
+SELF_RESOLVED_MARKS = ("已生成", "实际为", "命名差异")
+
+# 规则 10 扫描范围：凡可能以文本形式引用 docs/ 文档的现行文件
+REF_GLOBS = (
+    "docs/*.md", "contract/docs/*.md", "*.md",
+    "lib/**/*.dart", "test/**/*.dart",
+    ".github/workflows/*.yml", "scripts/*.py", "scripts/*.sh",
+    "android/**/*.kt", "android/**/*.kts", "macos/**/*.swift",
+    "windows/**/*.iss", "quickjs/*.c", "quickjs/*.h",
+)
 
 # v6.10 新增：现行契约校验套件（check_*.py）总数，供规则 2 使用
 APP_CONSTANTS = ROOT / "lib" / "core" / "constants" / "app_constants.dart"
@@ -265,6 +287,44 @@ def check_empty_dir_words(docs: Iterable[pathlib.Path]) -> int:
     return errs
 
 
+def check_doc_refs() -> int:
+    """规则 10：`docs/*.md` 的引用必须真实存在（v6.27 新增）。
+
+    与规则 1/3/9 相同的豁免口径：历史记录文档（is_historical_doc）、
+    块级历史标记、is_history 行、以及引用行自带「已生成/实际为/命名差异」
+    等自我解决说明（交付核验表的有意记载）。
+    """
+    errs = 0
+    n_hits = 0
+    for g in REF_GLOBS:
+        for p in sorted(ROOT.glob(g)):
+            if not p.is_file() or is_historical_doc(p):
+                continue
+            rel = p.relative_to(ROOT)
+            in_block = False
+            for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                if BLOCK_OFF in line:
+                    in_block = False
+                    continue
+                if BLOCK_ON in line:
+                    in_block = True
+                    continue
+                if in_block or is_history(line):
+                    continue
+                if "~~" in line or any(m in line for m in SELF_RESOLVED_MARKS):
+                    continue
+                for m in DOC_REF_PAT.finditer(line):
+                    n_hits += 1
+                    name = m.group(1)
+                    if not (ROOT / "docs" / name).exists():
+                        print(f"  ❌ {rel}:{i} 引用 docs/ 下不存在的文档 {name}")
+                        print(f"      {line.strip()[:100]}")
+                        errs += 1
+    if not errs:
+        print(f"  ✅ docs/*.md 引用全部存在（规则 10，共核对 {n_hits} 处）")
+    return errs
+
+
 def main() -> int:
     errors = 0
     d = json.loads(CONTRACT.read_text(encoding="utf-8"))
@@ -394,6 +454,9 @@ def main() -> int:
     errors += check_version_sync()
     print()
     errors += check_empty_dir_words(docs)
+
+    print()
+    errors += check_doc_refs()
 
     print()
     if errors:

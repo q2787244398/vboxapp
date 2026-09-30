@@ -248,7 +248,7 @@
 >
 > **v6.26 变更**：**G-02-C Android 平台补全 + G-05 零触达收尾 + G-09/G-10 真机验收清单交付（第 1 轮 E.10b 余项最后一批可落地代码）** ——
 > ① **G-02-C Android 代码交付**：`android/.../com/vbox/player/SystemPlugin.kt`（UiMode 三重判定通道 `com.vbox.system/system`：`getUiModeType` / `hasLeanbackFeature` / `hasTouchscreen`，对齐方案 §T.1）；`android/.../player/MediaPlaybackService.kt`（Media3 `MediaSessionService` 前台媒体服务：后台 / 锁屏保活 + 任务移除停止）；`AndroidManifest.xml` 双形态特性声明（touchscreen / leanback 均非必需）+ 前台服务注册 + TV LEANBACK_LAUNCHER 入口；`build.gradle.kts` 加 `media3-session`；Dart 侧 `lib/platform/system/system_bridge.dart`（`SystemBridge` 抽象 + `MethodChannelSystemBridge`，异常安全回退 false 不抛）+ `ui_mode_resolver.dart` 增 `resolveModeWithBridge` / `resolveAndroidMode` 纯逻辑 + `app.dart` 注入接线；`scripts/fetch_libmpv.sh` + `scripts/libmpv_external_dependencies.json`（D28 落地：GitHub Release 资产下载 + SHA256 校验）；
-> ② **G-05 零触达收尾**：零触达 **29 → 27**（补测 `test/platform/system/system_bridge_test.dart` 7 用例 / `test/core/network/network_info_test.dart` 2 用例 / `test/core/constants/app_constants_test.dart` 15 用例）；**修复缺陷**：`MethodChannelSystemBridge._invoke` 补 `TypeError` 兜底（原生回传非布尔值时 `invokeMethod<bool>` 类型转换抛错，违反「异常安全回退不抛」契约——由补测暴露）；静态用例 **482 → 506**、测试文件 **43 → 46**；剩余 **27 个零触达全部登记排除**：20 barrel + 4 领域仓储接口（纯抽象）+ 2 入口（`main.dart` / `app.dart`）+ 1 纯常量（`app_constants.dart`，编译期内联 lcov 无法记录命中，已有单测验证值）；
+> ② **G-05 零触达收尾**：零触达 **29 → 27**（补测 `test/platform/system/system_bridge_test.dart` 7 用例 / `test/core/network/network_info_test.dart` 2 用例 / `test/core/constants/app_constants_test.dart` 6 用例 / `test/presentation/ui_mode/ui_mode_resolver_test.dart` 7 用例）；**修复缺陷**：`MethodChannelSystemBridge._invoke` 补 `TypeError` 兜底（原生回传非布尔值时 `invokeMethod<bool>` 类型转换抛错，违反「异常安全回退不抛」契约——由补测暴露）；静态用例 **482 → 504**、测试文件 **43 → 46**；剩余 **27 个零触达全部登记排除**：20 barrel + 4 领域仓储接口（纯抽象）+ 2 入口（`main.dart` / `app.dart`）+ 1 纯常量（`app_constants.dart`，编译期内联 lcov 无法记录命中，已有单测验证值）；
 > ③ **G-09/G-10 真机验收清单**：新增 `docs/真机验收清单_G09_G10.md` —— G-09 侧载链路 24 项（安装链路 9-1~9-7 / 自更新 9-8~9-14 / 播放器端到端回退 9-15~9-24）+ G-10 TV 焦点与遥控 17 项（焦点 5 铁律 / 按键映射 / D-pad 全流程），含前置物料 P1~P8 与执行记录表；人测职责（D8），解除条件对照 E.10b；
 > ④ 门禁（E.10b）：**G-02-C 代码交付**（端到端回退真机验收并入 G-09 清单）；**G-05 收尾交付**（零触达 27/100 全分类排除，整体覆盖 **76.1%** ≥ 70%）；E.10b 余项 = **G-09 / G-10（真机人测）**；
 > 新增 **P.36（G-02-C 代码批次 + G-05 收尾 + 真机清单交付复核）**；文档更名 `VBOX_PLAN_v6.25.md` → **`VBOX_PLAN_v6.26.md`**（D25）。
@@ -331,7 +331,7 @@
 | **v6.23** | 2026-09-30：**第 1 轮（核心骨架）全面检查报告交付** —— ① 新增 `contract/docs/stage_check_report_stage1.yaml`（E.10b.2 六类扫描逐项：契约 ✅ / 数据 ✅ / 平台差异 ⚠️ / 功能 ⚠️ / 质量 ✅ / 交付 ✅）；② **verdict: blocked**（第 1 轮 70% 进行中，D20 不得标记完成、不得进入第 2 轮；阻断 G-02-B/C / G-03-B / G-05 / G-09 / G-10 / 详情页·播放入口接线）；③ 计数不变（90 / 39 / 438（静态声明））；conformance 45/45 + 守卫 10/10 本地实测；④ 文档更名 `VBOX_PLAN_v6.22.md` → `VBOX_PLAN_v6.23.md`；下一批 = G-02-B |
 | **v6.24** | 2026-09-30：**G-02-B / G-03-B 平台插件与 Spider 运行时交付（三端决策 D28/D29 定稿）** —— ① **G-02-B-1 macOS AVPlayer 接线交付**：`macos/Runner/PlayerPlugin.swift`（AVFoundation 主后端，MethodChannel `com.vbox.player/player` + EventChannel `.../player/events`，open/play/pause/seekTo/setVolume/setSpeed/dispose + state/progress/error 事件流，A21.5 复杂封装（MKV/FLV/TS/RMVB/AVI/WMV/M2TS）返回 `E_BACKEND_UNAVAILABLE` 供降级链捕获）+ `MainFlutterWindow.swift` 手动注册 + `project.pbxproj` 纳入 Swift 编译；② **D28 libmpv 原生二进制分发决策**：**原生二进制不入 git 仓库**，由构建脚本从 GitHub Release 资产下载（沿用 iOS `mpvkit-deps-0.0.1` 模式，新增 `libmpv-{os}-{arch}-{ver}` 资产），随 DMG/EXE 侧载产物分发（D11）；CI 仅验证下载 + 链接（smoke），端到端回退真机验收归 G-02-C；③ **G-03-B-1 QuickJS FFI 绑定交付**：`quickjs/wrapper.{h,c}`（纯 C 封装 `vq_create_runtime/vq_create_context/vq_eval/...`，三端可编译）+ `scripts/build_quickjs_wrapper.sh`（产物 `libvbox_quickjs.{so,dylib,dll}`）+ CI 新增 `build-native-quickjs` job（ubuntu gcc 实测编译通过）；④ **G-03-B-2 QuickJS 引擎交付**：`lib/platform/runtime/` **3 文件**（`quickjs_ffi.dart` / `quickjs_bridge_engine.dart` / barrel `runtime.dart`）+ `spider_engine_factory.dart` quickJS 分派接入（javaScriptCore 仍抛 unimplemented，iOS 原生保留）；⑤ **D29 Node/Python 运行时分发决策**：**Python 三端内置 + 桌面系统探测**（Android 用 Chaquopy Gradle 依赖零 NDK / iOS 原生 python-stdlib 3.14 / 桌面探测系统 python3，缺失 → `E_BACKEND_UNAVAILABLE`）；**Node 仅桌面系统探测 + iOS 原生常驻**（Android NodeMobile 嵌入成本高，登记待评估）；**不采用首次下载**（D11 侧载无商店更新通道，运行时网络依赖与校验不可控）；⑥ 测试：新增 `test/platform/runtime/quickjs_bridge_engine_test.dart`（**13 用例**）+ 工厂测试更新（5 → 6 用例）；静态用例 **436 → 450**、测试文件 **39 → 40**、lib 文件 **90 → 93**；⑦ E.10b：**G-02 继续解除**（余 G-02-C 需真机）、**G-03 继续解除**（QuickJS 顶替 JSC 落地）；余项 = **G-02-C / G-05 / G-09 / G-10 / 详情页·播放入口接线**；新增 **P.33（G-02-B 交付复核）/ P.34（G-03-B 交付复核）**；文档更名 `VBOX_PLAN_v6.23.md` → `VBOX_PLAN_v6.24.md`；下一批 = G-02-C（真机前置）或 G-05（零触达收尾） |
 | **v6.27（现行）** | 2026-09-30：**P2 遗留清理全批次闭环（A4/B2/B3/D1/D2）+ E.10b 代码侧收口（第 1 轮只剩真机验收）** —— ① **A4** 移除 `DbModel` 抽象基类（死代码裁定，保留读写辅助函数）；② **D1** 移除 `pubspec.yaml` 零引用 `dev_dependencies.test`；③ **D2** 归并 `api_push.py`（以 api_push2 为基底，删除 api_push2，引用统一）；④ **B2** `prefs_manager._isSecure` 纳入 `credentialExtra`（PG 凭据 extra 字段改走安全存储）；⑤ **B3** 契约升 **v1.3**：`sensitiveKeys` 5 → **7**（新增 baidu_local_pcs_device_id / saved_drive_tokens），Dart 镜像逐键同步；⑥ 测试：`prefs_manager_test` 安全键口径 **11 键**（7 敏感 + 2 keychain + 2 credential_extra）；⑦ E.10b：第 1 轮**代码侧全部交付**，余项 = **G-09 / G-10（真机人测）**，`stage_check_report_stage1.yaml` verdict 仍 blocked（D20）；新增 **P.37**；文档更名 `VBOX_PLAN_v6.26.md` → `VBOX_PLAN_v6.27.md`；下一批 = 真机验收（人工，清单已就绪） |
-| **v6.26** | 2026-09-30：**G-02-C Android 平台补全 + G-05 零触达收尾 + G-09/G-10 真机验收清单交付** —— ① **G-02-C Android 代码**：`SystemPlugin.kt`（UiMode 三重判定通道 `com.vbox.system/system`）/ `MediaPlaybackService.kt`（Media3 前台媒体服务）/ Manifest 双形态声明 + 前台服务 + TV 入口 / `media3-session` 依赖 / Dart 侧 `system_bridge.dart` + `resolveModeWithBridge` 接线 / `fetch_libmpv.sh` + `libmpv_external_dependencies.json`（D28 落地）；② **G-05 零触达收尾**：补测 3 文件 24 用例（system_bridge 7 / network_info 2 / app_constants 15），零触达 **29 → 27**，修复 `_invoke` 缺 `TypeError` 兜底缺陷，剩余 27 零触达全登记排除（20 barrel + 4 接口 + 2 入口 + 1 纯常量）；静态用例 **482 → 506**、测试文件 **43 → 46**、lib 文件 **98 → 100**、整体覆盖 **76.1%**（≥70%）、触达口径 **84.2%**；③ **G-09/G-10 真机验收清单**：新增 `docs/真机验收清单_G09_G10.md`（G-09 侧载 24 项 + G-10 TV 焦点 17 项，人测职责 D8）；④ E.10b：**G-02-C 代码交付**（真机验收并入 G-09）、**G-05 收尾交付**；余项 = **G-09 / G-10（真机人测）**；新增 **P.36**；文档更名 `VBOX_PLAN_v6.25.md` → `VBOX_PLAN_v6.26.md`；下一批 = G-05 守卫全量验证 + 推送（本批收口） |
+| **v6.26** | 2026-09-30：**G-02-C Android 平台补全 + G-05 零触达收尾 + G-09/G-10 真机验收清单交付** —— ① **G-02-C Android 代码**：`SystemPlugin.kt`（UiMode 三重判定通道 `com.vbox.system/system`）/ `MediaPlaybackService.kt`（Media3 前台媒体服务）/ Manifest 双形态声明 + 前台服务 + TV 入口 / `media3-session` 依赖 / Dart 侧 `system_bridge.dart` + `resolveModeWithBridge` 接线 / `fetch_libmpv.sh` + `libmpv_external_dependencies.json`（D28 落地）；② **G-05 零触达收尾**：补测 4 文件 22 用例（system_bridge 7 / network_info 2 / app_constants 6 / ui_mode_resolver 7），零触达 **29 → 27**，修复 `_invoke` 缺 `TypeError` 兜底缺陷，剩余 27 零触达全登记排除（20 barrel + 4 接口 + 2 入口 + 1 纯常量）；静态用例 **482 → 504**、测试文件 **43 → 46**、lib 文件 **98 → 100**、整体覆盖 **76.1%**（≥70%）、触达口径 **84.2%**；③ **G-09/G-10 真机验收清单**：新增 `docs/真机验收清单_G09_G10.md`（G-09 侧载 24 项 + G-10 TV 焦点 17 项，人测职责 D8）；④ E.10b：**G-02-C 代码交付**（真机验收并入 G-09）、**G-05 收尾交付**；余项 = **G-09 / G-10（真机人测）**；新增 **P.36**；文档更名 `VBOX_PLAN_v6.25.md` → `VBOX_PLAN_v6.26.md`；下一批 = G-05 守卫全量验证 + 推送（本批收口） |
 | **v6.25** | 2026-09-30：**详情页·播放入口接线交付（第 1 轮 E.10b 余项最后一块 UI / 播放数据链路）** —— ① 交付 **5 个 lib 文件**：`lib/domain/entities/playback/`（`playback_detail.dart`：`PlaybackDetail` / `PlaybackEpisode` / `PlaybackUrlParser`（契约 §3.4 `vod_play_from` / `vod_play_url` 解析 + 直链判定）+ barrel）；`lib/data/datasources/remote/all_sources_datasource.dart`（allSources 代理降级链拉取 + `findSite`）；`lib/domain/usecases/detail_playback_usecases.dart`（站点 → 模式 → CMS V10 / Spider 引擎（QuickJS 顶替 JSC）→ 详情 → `resolvePlayUrl` 三分支）；`lib/presentation/widgets/detail_page.dart`（详情页：线路 ChoiceChip / 剧集 ActionChip / 播放按钮 / 续播钳制 / 失败重试）；② 接线：`library_views.dart` 收藏/历史 onTap → `DetailPage`（siteKey=laiyuan / vodId=detailurl / initialIndex=jishu）；`app.dart` 装配 `AllSourcesDatasource` / `CmsV10Datasource` / `DetailPlaybackUseCases` + Provider；③ 测试：新增 **3 文件 / 32 用例**（playback_detail 9 / detail_playback_usecases 15 / detail_page 8）；静态用例 **450 → 482**、测试文件 **40 → 43**、lib 文件 **93 → 98**；④ E.10b：**详情页·播放入口接线解除**；余项 = **G-02-C / G-05 / G-09 / G-10**；新增 **P.35（交付复核）**；文档更名 `VBOX_PLAN_v6.24.md` → `VBOX_PLAN_v6.25.md`；下一批 = G-02-C（真机前置）或 G-05（零触达收尾） |
 
 <!-- /docs-guard:history -->
@@ -4788,6 +4788,14 @@ E.10b 余项（v6.22）：**G-02（G-02-B/C 余项）/ G-03（G-03-B 余项）/ 
 | CI 验证边界 | 仅「下载 + 链接 smoke」；**端到端回退真机验收归 G-02-C** | 桌面真机不可得（本沙箱），避免 CI 假绿 |
 | 交付时机 | G-02-C 接入 libmpv 回退实现时落地下载脚本 | 本批不引入原生二进制 |
 
+> **v6.27 修订（D28 资产形态）**：macOS 资产改为**动态库集合** —— 公开源（MPVKit / karelrooted）仅提供静态 `libmpv.a`
+> 无法作 dylib 分发，而自包含单文件动态 `libmpv.dylib`（含 FFmpeg）公开源不可得；故采用 media_kit
+> `libmpv-darwin-build` 的 macOS 动态库集合（`libmpv.dylib` + `@rpath/libav*.dylib` 等 **18 个 dylib**），
+> 资产名 `libmpv-macos-{arch}-0.0.1.tar.gz`，`fetch_libmpv.sh` 下载校验后解包，整组随 App `Contents/Frameworks`
+> 分发（依赖由主二进制 `@executable_path/../Frameworks` rpath 解析），并在打包后 ad-hoc 重签。Windows 仍为
+> 单一自包含 `libmpv-windows-x86_64-0.0.1.dll`。两资产已发布于公开仓库 `q2787244398/vbox-deps`
+> （Release `libmpv-deps-0.0.1`），SHA256 登记于 `scripts/libmpv_external_dependencies.json`。
+
 #### 4. 事实计数（v6.24）
 
 | 指标 | 值 |
@@ -4901,7 +4909,7 @@ E.10b 余项（v6.25）：**G-02-C / G-05 / G-09 / G-10**。
 ### P.36 二十四轮复核：G-02-C Android 平台补全 + G-05 零触达收尾 + G-09/G-10 真机验收清单（v6.26 新增）
 
 > 复核方法：源码审读（G-02-C Android 原生 3 文件 + Dart 桥 2 文件 + 下载脚本）+ 本机实测
-> （`flutter analyze` 0 issues · `flutter test --coverage` **506 用例全通过** · `check_coverage.py` 整体 **76.1%** 达标）+
+> （`flutter analyze` 0 issues · `flutter test --coverage` **504 用例全通过** · `check_coverage.py` 整体 **76.1%** 达标）+
 > 零触达逐文件分类 + 真机清单与方案 §S / §T.4 / §A21.5 逐条对照。
 
 #### 1. 交付内容（G-02-C Android 平台补全）
@@ -4919,10 +4927,10 @@ E.10b 余项（v6.25）：**G-02-C / G-05 / G-09 / G-10**。
 
 | 项 | 值 |
 |----|-----|
-| 补测 | `test/platform/system/system_bridge_test.dart` **7 用例** / `test/core/network/network_info_test.dart` **2 用例** / `test/core/constants/app_constants_test.dart` **15 用例** |
+| 补测 | `test/platform/system/system_bridge_test.dart` **7 用例** / `test/core/network/network_info_test.dart` **2 用例** / `test/core/constants/app_constants_test.dart` **6 用例** / `test/presentation/ui_mode/ui_mode_resolver_test.dart` **7 用例** |
 | 零触达 | **29 → 27**（`system_bridge.dart` / `network_info.dart` 转触达；`app_constants.dart` 仍零触达但登记排除） |
 | 排除登记（27 个） | **20 barrel**（纯导出，A5 属预期）+ **4 领域仓储接口**（纯抽象，无运行代码）+ **2 入口**（`main.dart` / `app.dart`，根组件由集成冒烟覆盖）+ **1 纯常量**（`app_constants.dart`，编译期内联 lcov 无法记录命中，已有单测验证值） |
-| 计数 | lib **98 → 100**、测试文件 **43 → 46**、静态用例 **482 → 506**、整体覆盖 **76.1%**（≥70%）、触达口径 **84.2%** |
+| 计数 | lib **98 → 100**、测试文件 **43 → 46**、静态用例 **482 → 504**、整体覆盖 **76.1%**（≥70%）、触达口径 **84.2%** |
 
 #### 3. 交付内容（G-09/G-10 真机验收清单）
 
