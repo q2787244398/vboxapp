@@ -6,8 +6,14 @@ import 'package:vbox/core/constants/app_constants.dart';
 import 'package:vbox/core/utils/logger.dart';
 
 void main() {
-  setUp(AppLog.clear);
-  tearDown(AppLog.clear);
+  // 闸门在测试间必须复位（闸门是全局静态状态）
+  void resetGate() {
+    AppLog.clear();
+    AppLog.configure(enabled: true, minLevel: LogLevel.debug);
+  }
+
+  setUp(resetGate);
+  tearDown(resetGate);
 
   test('基础写入与级别', () {
     AppLog.info('T', 'hello');
@@ -67,5 +73,32 @@ void main() {
     AppLog.clear();
     expect(AppLog.length, 0);
     expect(AppLog.dump(), '');
+  });
+
+  test('闸门：关闭时不记录', () {
+    AppLog.configure(enabled: false);
+    AppLog.error('T', 'x');
+    expect(AppLog.length, 0);
+    expect(AppLog.enabled, isFalse);
+  });
+
+  test('闸门：低于最低级别直接丢弃', () {
+    AppLog.configure(minLevel: LogLevel.warn);
+    AppLog.debug('T', 'd');
+    AppLog.info('T', 'i');
+    AppLog.warn('T', 'w');
+    AppLog.error('T', 'e');
+    expect(AppLog.minLevel, LogLevel.warn);
+    expect(AppLog.length, 2);
+    expect(AppLog.entries.first.level, LogLevel.warn);
+  });
+
+  test('LogLevel.fromValue 映射与越界钳制', () {
+    expect(LogLevel.fromValue(0), LogLevel.debug);
+    expect(LogLevel.fromValue(1), LogLevel.info);
+    expect(LogLevel.fromValue(2), LogLevel.warn);
+    expect(LogLevel.fromValue(3), LogLevel.error);
+    expect(LogLevel.fromValue(-1), LogLevel.debug);
+    expect(LogLevel.fromValue(99), LogLevel.error);
   });
 }

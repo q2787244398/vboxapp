@@ -25,6 +25,10 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOC = ROOT / "contract/docs/backup_v1.md"
 DART = ROOT / "lib/data/datasources/local/backup_manager.dart"
+# B4（备份采集 / 还原）新增产物
+SERVICE = ROOT / "lib/data/datasources/local/backup_service.dart"
+PAYLOAD = ROOT / "lib/data/datasources/local/backup_payload.dart"
+APP_CONSTANTS = ROOT / "lib/core/constants/app_constants.dart"
 
 # 契约要求的参数
 EXPECT = {
@@ -36,6 +40,160 @@ EXPECT = {
     "cipherName": "AES-256-GCM",
     "kdfName": "PBKDF2-HMAC-SHA256",
 }
+
+
+def _section(text: str, start: str, end: str) -> str:
+    """截取 `start` 与 `end` 之间的文本（不含端点）。"""
+    i = text.find(start)
+    if i < 0:
+        return ""
+    j = text.find(end, i + len(start))
+    return text[i: j if j >= 0 else len(text)]
+
+
+def _dart_getter_switch(src: str, getter: str) -> dict[str, str]:
+    """解析 `String get <getter> => switch (this) { BackupCategory.x => '...' };`。"""
+    m = re.search(rf"String get {getter} => switch \(this\) \{{(.*?)\}};", src, re.S)
+    if not m:
+        return {}
+    return dict(re.findall(r"BackupCategory\.(\w+)\s*=>\s*'([^']+)'", m.group(1)))
+
+
+def _doc_categories(doc: str) -> dict[str, tuple[str, str]]:
+    """从契约 §3 表格解析 `rawValue → (中文名, 副标题)`。"""
+    out: dict[str, tuple[str, str]] = {}
+    sec = _section(doc, "## 3. 备份类目", "\n## 4.")
+    for line in sec.splitlines():
+        m = re.match(
+            r"\|\s*\d+\s*\|\s*`(\w+)`\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|", line)
+        if m:
+            out[m.group(1)] = (m.group(2).strip(), m.group(3).strip())
+    return out
+
+
+def check_b4(errors: int) -> int:
+    """§6：B4 备份采集（dump）/ 还原（restore）与契约逐项核对。"""
+    print("== 6. B4 备份采集 / 还原契约核对 ==")
+    before = errors
+    missing = [p for p in (SERVICE, PAYLOAD) if not p.exists()]
+    if missing:
+        for p in missing:
+            print(f"  ❌ 缺少 B4 产物：{p.relative_to(ROOT)}")
+            errors += 1
+        return errors
+
+    service = SERVICE.read_text()
+    payload = PAYLOAD.read_text()
+    enum_src = DART.read_text()
+
+    # 6a. 9 个类目：中文名 / 副标题 ↔ 契约 §3 逐项一致
+    doc_cats = _doc_categories(doc_ := DOC.read_text())
+    dart_labels = _dart_getter_switch(enum_src, "label")
+    dart_subs = _dart_getter_switch(enum_src, "subtitle")
+    if len(doc_cats) != 9:
+        print(f"  ❌ 契约 §3 应含 9 个类目，实为 {len(doc_cats)}")
+        errors += 1
+    if len(dart_labels) != 9 or len(dart_subs) != 9:
+        print(f"  ❌ Dart `label`/`subtitle` 应各含 9 项，实为 "
+              f"{len(dart_labels)}/{len(dart_subs)}")
+        errors += 1
+    for rw, (label, sub) in doc_cats.items():
+        if dart_labels.get(rw) != label:
+            print(f"  ❌ {rw} 中文名不一致：Dart {dart_labels.get(rw)!r} ≠ 契约 {label!r}")
+            errors += 1
+        if dart_subs.get(rw) != sub:
+            print(f"  ❌ {rw} 副标题不一致：Dart {dart_subs.get(rw)!r} ≠ 契约 {sub!r}")
+            errors += 1
+    for rw in dart_labels:
+        if rw not in doc_cats:
+            print(f"  ❌ Dart 类目 {rw} 未登记于契约 §3")
+            errors += 1
+    if errors == before:
+        print("  ✅ 9 个类目中文名 / 副标题与契约 §3 逐项一致")
+
+    # 6b. 敏感性与默认勾选（仅网盘凭据敏感 / 默认不勾选）
+    if (re.search(r"isSensitive => this == BackupCategory\.cloudCredentials", enum_src)
+            and re.search(r"defaultOn => !isSensitive", enum_src)):
+        print("  ✅ isSensitive / defaultOn 规则对齐契约 §3（仅 cloudCredentials）")
+    else:
+        print("  ❌ isSensitive / defaultOn 规则偏离契约 §3")
+        errors += 1
+
+    # 6c. 冲突策略 merge / overwrite
+    if "enum ConflictStrategy" in enum_src and re.search(
+            r"\bmerge\b", enum_src) and re.search(r"\boverwrite\b", enum_src) \
+            and "fromName" in enum_src:
+        print("  ✅ ConflictStrategy：merge / overwrite + fromName（契约 §8）")
+    else:
+        print("  ❌ ConflictStrategy 缺失或偏离契约 §8")
+        errors += 1
+
+    # 6d. dump / restore 两向能力齐备
+    if re.search(r"Future<BackupPayload> dump\(", service) and re.search(
+            r"Future<BackupRestoreReport> restore\(", service):
+        print("  ✅ BackupService：dump / restore 两向齐备（契约 §5 / §8）")
+    else:
+        print("  ❌ BackupService 缺 dump 或 restore")
+        errors += 1
+
+    # 6e. 个人设置白名单 11 + 福利 3（契约 §7）
+    keys = re.findall(r"'(\w+)'", _section(service, "kPersonalSettingKeys", ";"))
+    welfare = re.findall(r"'(\w+)'", _section(service, "kWelfareSettingKeys", ";"))
+    # 仅取 §7 表格中「键」列（形如 `| 1 | `app_skin_mode` | string | — |`），
+    # 避免把正文「来源：`settingsDefaultKeys`」之类的行内代码一并抓进来。
+    doc_keys = re.findall(
+        r"^\|\s*\d+\s*\|\s*`(\w+)`",
+        _section(doc_, "## 7. 个人设置白名单", "\n## 8."),
+        re.M,
+    )
+    if len(keys) == 11 and len(welfare) == 3:
+        print("  ✅ 白名单：常态 11 键 + 福利 3 键（契约 §7）")
+    else:
+        print(f"  ❌ 白名单应为 11 + 3，实为 {len(keys)} + {len(welfare)}")
+        errors += 1
+    if doc_keys and doc_keys[:11] != keys:
+        print(f"  ❌ 常态白名单与契约 §7 顺序/内容不一致：{keys} ≠ {doc_keys[:11]}")
+        errors += 1
+    if doc_keys and doc_keys[11:14] != welfare:
+        print(f"  ❌ 福利白名单与契约 §7 不一致：{welfare} ≠ {doc_keys[11:14]}")
+        errors += 1
+
+    # 6f. 表类目映射（5 表直映 + siteConfigs 三表）
+    tables = re.findall(r"BackupCategory\.(\w+): <String>\['(\w+)'\]",
+                        _section(service, "kCategoryTables", "};"))
+    expect_tables = {"watchHistory": "history", "favorites": "favorite",
+                     "downloads": "download", "subscriptions": "subscription",
+                     "searchHistory": "search_history"}
+    if dict(tables) == expect_tables:
+        print("  ✅ 表类目映射 5 项与 schema 表名一致")
+    else:
+        print(f"  ❌ 表类目映射异常：{dict(tables)}")
+        errors += 1
+    if re.search(r"kSiteConfigTables[\s\S]*?'zhanyuan'[\s\S]*?'apiyuan'[\s\S]*?'jiexisetting'",
+                 service):
+        print("  ✅ siteConfigs 三表：zhanyuan / apiyuan / jiexisetting")
+    else:
+        print("  ❌ siteConfigs 三表定义缺失")
+        errors += 1
+
+    # 6g. Payload 值按契约 §5.1 编解码为 Base64(UTF-8 JSON)
+    if re.search(r"base64\.encode\(utf8\.encode\(jsonEncode\(", payload) and \
+            re.search(r"jsonDecode\(utf8\.decode\(base64\.decode\(", payload):
+        print("  ✅ Payload categories 值 = Base64(UTF-8 JSON)（契约 §5.1）")
+    else:
+        print("  ❌ Payload 未按 Base64(UTF-8 JSON) 编解码（契约 §5.1）")
+        errors += 1
+
+    # 6h. 备份扩展名 `.vboxbak`（契约 §11 建议值）
+    m = re.search(r"backupFileExtension = '([^']+)'", APP_CONSTANTS.read_text())
+    ext = m.group(1) if m else None
+    if ext == ".vboxbak" and ".vboxbak" in doc_:
+        print("  ✅ 备份扩展名 .vboxbak 与契约 §11 建议值一致")
+    else:
+        print(f"  ❌ 备份扩展名 {ext!r} ≠ 契约 §11 建议值 .vboxbak")
+        errors += 1
+
+    return errors
 
 
 def main() -> int:
@@ -156,6 +314,9 @@ def main() -> int:
         errors += 1
     else:
         print("  ✅ 未引入压缩（符合契约）")
+
+    print()
+    errors = check_b4(errors)
 
     print()
     print("备份契约验证:", "通过 ✅" if errors == 0 else f"{errors} 项失败")

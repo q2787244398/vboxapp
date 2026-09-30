@@ -1,13 +1,16 @@
 /// desktop 形态：宽屏布局（左侧 NavigationRail + 右侧内容区）。
 ///
-/// 复用三形态共享视图（`widgets/library_views.dart` 的书架、`remote_source_page.dart` 的远程源），
-/// 形态差异仅在布局壳。G-01 desktop 块（登记见 VBOX_PLAN 附录 C）。
+/// 复用三形态共享视图（`widgets/library_views.dart` 的书架、`remote_source_page.dart` 的远程源、
+/// `log_viewer_page.dart` 的日志），形态差异仅在布局壳。
+/// G-01 desktop 块（登记见 VBOX_PLAN 附录 C）；A3 增补日志入口。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../phone/remote_source_page.dart';
+import '../widgets/backup_page.dart';
 import '../widgets/library_views.dart';
+import '../widgets/log_viewer_page.dart';
 
 /// desktop 首页。
 class DesktopHomePage extends StatefulWidget {
@@ -43,17 +46,31 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
                 selectedIcon: Icon(Icons.cloud),
                 label: Text('远程源'),
               ),
+              NavigationRailDestination(
+                icon: Icon(Icons.article_outlined),
+                selectedIcon: Icon(Icons.article),
+                label: Text('日志'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.settings_backup_restore),
+                label: Text('备份'),
+              ),
             ],
           ),
           const VerticalDivider(thickness: 1, width: 1),
-          Expanded(
-            child: _index == 0
-                ? const _DesktopShelfView()
-                : const RemoteSourcePage(),
-          ),
+          Expanded(child: _buildContent()),
         ],
       ),
     );
+  }
+
+  Widget _buildContent() {
+    return switch (_index) {
+      0 => const _DesktopShelfView(),
+      1 => const RemoteSourcePage(),
+      2 => const LogViewerPage(),
+      _ => const BackupPage(),
+    };
   }
 }
 

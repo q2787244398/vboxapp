@@ -48,6 +48,29 @@ void main() {
     });
   });
 
+  group('类目标签与冲突策略（B4 契约 §3 / §8）', () {
+    test('9 个类目均有中文名与副标题，且互不重复', () {
+      final Set<String> labels =
+          BackupCategory.values.map((BackupCategory c) => c.label).toSet();
+      final Set<String> subtitles =
+          BackupCategory.values.map((BackupCategory c) => c.subtitle).toSet();
+      expect(labels.length, 9);
+      expect(subtitles.length, 9);
+      expect(BackupCategory.watchHistory.label, '观看记录');
+      expect(BackupCategory.cloudCredentials.label, '网盘凭据');
+    });
+
+    test('ConflictStrategy 两值 + 中文名 + fromName 回退 merge', () {
+      expect(ConflictStrategy.values.length, 2);
+      expect(ConflictStrategy.merge.label, '合并');
+      expect(ConflictStrategy.overwrite.label, '覆盖');
+      expect(ConflictStrategy.fromName('overwrite'), ConflictStrategy.overwrite);
+      expect(ConflictStrategy.fromName('merge'), ConflictStrategy.merge);
+      expect(ConflictStrategy.fromName(null), ConflictStrategy.merge);
+      expect(ConflictStrategy.fromName('未知'), ConflictStrategy.merge);
+    });
+  });
+
   group('加密/解密往返', () {
     test('无口令 → 未加密信封；可还原原文', () async {
       const String plain = '{"history":[1,2,3]}';

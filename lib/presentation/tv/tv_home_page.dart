@@ -8,7 +8,9 @@ library;
 import 'package:flutter/material.dart';
 
 import '../phone/remote_source_page.dart';
+import '../widgets/backup_page.dart';
 import '../widgets/library_views.dart';
+import '../widgets/log_viewer_page.dart';
 
 /// tv 首页。
 class TvHomePage extends StatelessWidget {
@@ -20,7 +22,7 @@ class TvHomePage extends StatelessWidget {
     return FocusTraversalGroup(
       policy: WidgetOrderTraversalPolicy(),
       child: DefaultTabController(
-        length: 3,
+        length: 5,
         child: Scaffold(
           appBar: AppBar(
             title: const Text('vbox · tv'),
@@ -33,6 +35,8 @@ class TvHomePage extends StatelessWidget {
                     Tab(text: '收藏'),
                     Tab(text: '历史'),
                     Tab(text: '远程源'),
+                    Tab(text: '日志'),
+                    Tab(text: '备份'),
                   ],
                 ),
               ),
@@ -43,6 +47,8 @@ class TvHomePage extends StatelessWidget {
               FavoritesView(),
               HistoryView(),
               RemoteSourcePage(),
+              LogViewerPage(),
+              BackupPage(),
             ],
           ),
         ),

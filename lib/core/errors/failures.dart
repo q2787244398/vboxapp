@@ -6,11 +6,15 @@
 /// - 表现层只处理 [Failure]，不 catch 具体异常类型。
 library;
 
+import '../utils/logger.dart';
 import 'exceptions.dart';
 
 /// 失败基类（sealed：表现层可穷举分支）。
 sealed class Failure {
   const Failure(this.message, {this.code = ErrorCode.unknown, this.cause});
+
+  /// 日志标签。
+  static const String logTag = 'failure';
 
   /// 人类可读描述（可直接展示给用户）。
   final String message;
@@ -25,12 +29,15 @@ sealed class Failure {
   bool get isRetryable;
 
   /// 把任意异常归一为 [Failure]。
+  ///
+  /// 各仓储的 catch 边界统一走此处，故这里也是**错误日志的唯一汇聚点**。
   static Failure from(Object error, {String? message}) {
     if (error is Failure) return error;
-    if (error is VBoxException) {
-      return _fromCode(error, message);
-    }
-    return UnknownFailure(message ?? '$error', cause: error);
+    final Failure failure = error is VBoxException
+        ? _fromCode(error, message)
+        : UnknownFailure(message ?? '$error', cause: error);
+    AppLog.error(logTag, failure.toString(), error: error);
+    return failure;
   }
 
   static Failure _fromCode(VBoxException e, String? message) {

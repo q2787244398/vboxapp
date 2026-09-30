@@ -104,7 +104,8 @@ DEAD_DOCS = ("PROJECT_LAYOUT.md", "PROGRESS.md", "KNOWN_GAPS.md")
 # v6.25：追加 v6.24 —— 本轮把文件名升到 v6.25（详情页·播放入口接线交付批次），v6.24 成为旧名，纳入防回流。
 # v6.26：追加 v6.25 —— 本轮把文件名升到 v6.26（G-02-C / G-05 / 真机验收清单批次），v6.25 成为旧名，纳入防回流。
 # v6.27：追加 v6.26 —— 本轮把文件名升到 v6.27（P2 遗留清理批次），v6.26 成为旧名，纳入防回流。
-DEAD_DOCS += ("VBOX_PLAN_v6.26.md", "VBOX_PLAN_v6.25.md", "VBOX_PLAN_v6.24.md", "VBOX_PLAN_v6.23.md", "VBOX_PLAN_v6.22.md", "VBOX_PLAN_v6.21.md", "VBOX_PLAN_v6.20.md", "VBOX_PLAN_v6.19.md", "VBOX_PLAN_v6.18.md", "VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
+# v6.28：追加 v6.27 —— 本轮把文件名升到 v6.28（A2/A3/B4 接线批次），v6.27 成为旧名，纳入防回流。
+DEAD_DOCS += ("VBOX_PLAN_v6.27.md", "VBOX_PLAN_v6.26.md", "VBOX_PLAN_v6.25.md", "VBOX_PLAN_v6.24.md", "VBOX_PLAN_v6.23.md", "VBOX_PLAN_v6.22.md", "VBOX_PLAN_v6.21.md", "VBOX_PLAN_v6.20.md", "VBOX_PLAN_v6.19.md", "VBOX_PLAN_v6.18.md", "VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
 
 # v6.27 新增：规则 10 —— 捕获任意「引用 docs/ 下已不存在的 .md」的残留
 # （DEAD_DOCS 只按字面量匹配主方案旧名；检查报告等文档改名后引用同样会失效）

@@ -17,7 +17,9 @@ import 'package:http/http.dart' as http;
 
 import '../constants/app_constants.dart';
 import '../errors/exceptions.dart';
+import '../utils/logger.dart';
 import 'http_body_decoder.dart';
+import 'network_info.dart';
 
 /// 已解码的 HTTP 响应。
 class HttpClientResponse {
@@ -67,6 +69,7 @@ class HttpClient {
   /// 构造（[inner] 便于测试注入 MockClient）。
   HttpClient({
     http.Client? inner,
+    this.networkInfo,
     this.maxRetries = NetConstants.maxRetries,
     this.retryBaseDelay = NetConstants.retryBaseDelay,
     this.receiveTimeout = NetConstants.receiveTimeout,
@@ -74,6 +77,12 @@ class HttpClient {
   }) : _inner = inner ?? http.Client();
 
   final http.Client _inner;
+
+  /// 网络可达性（A2；为 null 时不做主动判断，等价于 AlwaysOnline）。
+  final NetworkInfo? networkInfo;
+
+  /// 日志标签。
+  static const String logTag = 'network';
 
   /// 最大重试次数。
   final int maxRetries;
@@ -118,15 +127,31 @@ class HttpClient {
     Map<String, String>? form,
     String? metaCharsetOverride,
   }) async {
+    // A2：离线短路 —— 探针明确报离线时不进入重试循环，直接失败，避免无谓等待。
+    final NetworkInfo? info = networkInfo;
+    if (info != null && !await info.isConnected) {
+      AppLog.warn(logTag, '设备当前离线，跳过请求：$method $uri');
+      throw NetworkException(
+        '当前无网络：$uri',
+        code: ErrorCode.networkUnreachable,
+      );
+    }
+
     Object? lastError;
+    AppLog.debug(logTag, '$method $uri');
     for (int attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         final http.Response res = await _dispatch(method, uri, headers, form)
             .timeout(receiveTimeout);
         if (res.statusCode >= 500 && attempt < maxRetries) {
+          AppLog.warn(
+            logTag,
+            'HTTP ${res.statusCode}，重试 ${attempt + 1}/$maxRetries：$method $uri',
+          );
           await Future<void>.delayed(backoff(attempt));
           continue;
         }
+        AppLog.debug(logTag, 'HTTP ${res.statusCode}：$method $uri');
         return _decode(uri, res, metaCharsetOverride);
       } on TimeoutException catch (e) {
         lastError = e;
@@ -135,10 +160,16 @@ class HttpClient {
       } on http.ClientException catch (e) {
         lastError = e;
       }
+      AppLog.warn(
+        logTag,
+        '请求异常（第 ${attempt + 1}/${maxRetries + 1} 次）：$method $uri',
+        error: lastError,
+      );
       if (attempt < maxRetries) {
         await Future<void>.delayed(backoff(attempt));
       }
     }
+    AppLog.error(logTag, '请求最终失败：$method $uri', error: lastError);
     throw NetworkException(
       '请求失败：$uri',
       code: ErrorCode.networkUnreachable,

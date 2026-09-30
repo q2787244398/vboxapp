@@ -11,8 +11,11 @@ import 'dart:async';
 import '../constants/app_constants.dart';
 
 /// 日志级别。
+///
+/// 序号与 iOS `LogLevel`（verbose=0 / info=1 / warn=2 / error=3）逐位对齐，
+/// 供契约键 `app_log_min_level` 的整数值直接映射。
 enum LogLevel {
-  /// 调试。
+  /// 调试（对应 iOS `verbose`）。
   debug,
 
   /// 常规信息。
@@ -22,7 +25,14 @@ enum LogLevel {
   warn,
 
   /// 错误。
-  error,
+  error;
+
+  /// 由契约 `app_log_min_level` 的整数值解析（越界钳制到最近端点）。
+  static LogLevel fromValue(int value) {
+    if (value <= 0) return LogLevel.debug;
+    if (value >= LogLevel.values.length - 1) return LogLevel.error;
+    return LogLevel.values[value];
+  }
 }
 
 /// 单条日志。
@@ -79,10 +89,33 @@ class LogEntry {
 }
 
 /// 全局日志器（无第三方依赖，可单测）。
+///
+/// 闸门（对齐 iOS `AppLogStore`）：
+/// - 总开关 [enabled] ← 契约键 `app_log_enabled`（iOS 缺省 false）
+/// - 最低级别 [minLevel] ← 契约键 `app_log_min_level`（整数值，缺省 verbose/0）
+///
+/// 闸门由**数据层在启动时**按契约键配置（核心层不依赖 prefs 插件）；
+/// 未配置时默认「开启 + debug 级」，使核心层作为纯工具保持可用（单测直接记录）。
+/// 生产环境启动时按契约键配置，iOS 缺省为关闭，故生产默认不产生日志。
 abstract final class AppLog {
   static final List<LogEntry> _entries = <LogEntry>[];
   static final StreamController<LogEntry> _controller =
       StreamController<LogEntry>.broadcast();
+
+  static bool _enabled = true;
+  static LogLevel _minLevel = LogLevel.debug;
+
+  /// 是否启用记录。
+  static bool get enabled => _enabled;
+
+  /// 最低记录级别（低于此级别直接丢弃）。
+  static LogLevel get minLevel => _minLevel;
+
+  /// 配置闸门（启动时由数据层按契约键调用；参数为空则保持现值）。
+  static void configure({bool? enabled, LogLevel? minLevel}) {
+    if (enabled != null) _enabled = enabled;
+    if (minLevel != null) _minLevel = minLevel;
+  }
 
   /// 当前缓冲条数。
   static int get length => _entries.length;
@@ -100,6 +133,7 @@ abstract final class AppLog {
     String message, {
     Object? error,
   }) {
+    if (!_enabled || level.index < _minLevel.index) return;
     final LogEntry entry = LogEntry(
       time: DateTime.now(),
       level: level,

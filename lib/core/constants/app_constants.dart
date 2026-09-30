@@ -2,7 +2,7 @@
 ///
 /// 唯一真相源：
 /// - 数据库文件名 / 迁移终点 → `contract/schema/schema_v1.sql`
-/// - 目录布局 → `docs/VBOX_PLAN_v6.27.md` 附录 B
+/// - 目录布局 → `docs/VBOX_PLAN_v6.28.md` 附录 B
 /// - 网络默认值 → `contract/docs/abi_v1.md` §6
 library;
 
@@ -32,8 +32,8 @@ abstract final class DbConstants {
   /// 备份文件名前缀。
   static const String backupFilePrefix = 'vbox_backup_';
 
-  /// 备份文件扩展名（对齐 `contract/docs/backup_v1.md`）。
-  static const String backupFileExtension = '.vbk';
+  /// 备份文件扩展名（对齐 `contract/docs/backup_v1.md` §11 建议值）。
+  static const String backupFileExtension = '.vboxbak';
 }
 
 /// 网络默认值（契约 §6）。

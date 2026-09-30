@@ -73,6 +73,52 @@ enum BackupCategory {
 
   /// 默认是否勾选（敏感的默认不勾选）。
   bool get defaultOn => !isSensitive;
+
+  /// 中文名（对齐契约 §3）。
+  String get label => switch (this) {
+        BackupCategory.watchHistory => '观看记录',
+        BackupCategory.favorites => '我的收藏',
+        BackupCategory.downloads => '下载记录',
+        BackupCategory.subscriptions => '订阅源',
+        BackupCategory.siteConfigs => '站点配置',
+        BackupCategory.personalSettings => '个人设置',
+        BackupCategory.remoteSources => '远程源配置',
+        BackupCategory.searchHistory => '搜索历史',
+        BackupCategory.cloudCredentials => '网盘凭据',
+      };
+
+  /// 副标题（对齐契约 §3）。
+  String get subtitle => switch (this) {
+        BackupCategory.watchHistory => '播放历史与观看进度',
+        BackupCategory.favorites => '收藏的剧集列表',
+        BackupCategory.downloads => '下载列表与进度（不含本地文件）',
+        BackupCategory.subscriptions => '订阅的源地址列表',
+        BackupCategory.siteConfigs => '站点、解析设置等配置',
+        BackupCategory.personalSettings => '用户名、头像、外观、TMDB 等',
+        BackupCategory.remoteSources => '远程源缓存配置',
+        BackupCategory.searchHistory => '搜索关键词记录',
+        BackupCategory.cloudCredentials => '网盘授权令牌',
+      };
+}
+
+/// 冲突策略（对齐契约 §8 / iOS `ConflictStrategy`）。
+enum ConflictStrategy {
+  /// 保留本机现有数据，把备份内容合并进来。
+  merge,
+
+  /// 先清空本机对应类目，再完整写入备份内容。
+  overwrite;
+
+  /// 中文名（UI 用）。
+  String get label => switch (this) {
+        ConflictStrategy.merge => '合并',
+        ConflictStrategy.overwrite => '覆盖',
+      };
+
+  static ConflictStrategy fromName(String? v) => switch (v) {
+        'overwrite' => ConflictStrategy.overwrite,
+        _ => ConflictStrategy.merge,
+      };
 }
 
 /// 备份元数据（对齐 iOS `BackupMeta`）。

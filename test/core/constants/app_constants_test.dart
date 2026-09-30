@@ -25,7 +25,7 @@ void main() {
       expect(DbConstants.fileName, 'vbox.sqlite3');
       expect(DbConstants.currentVersion, 4);
       expect(DbConstants.backupFilePrefix, 'vbox_backup_');
-      expect(DbConstants.backupFileExtension, '.vbk');
+      expect(DbConstants.backupFileExtension, '.vboxbak');
     });
   });
 

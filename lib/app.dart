@@ -9,17 +9,21 @@
 /// 唯一真相源：方案 §2.4（目录结构落地快照见附录 B）
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
+import 'core/constants/app_constants.dart';
 import 'core/errors/failures.dart';
 import 'core/network/http_client.dart';
 import 'core/storage/storage_paths.dart';
+import 'core/utils/logger.dart';
 import 'core/utils/result.dart';
 import 'data/datasources/local/database_manager.dart';
+import 'data/datasources/local/log_file_sink.dart';
 import 'data/datasources/local/prefs_manager.dart';
 import 'data/datasources/remote/remote.dart';
 import 'data/repositories/repositories.dart';
@@ -39,8 +43,14 @@ class VBoxApp extends StatefulWidget {
 }
 
 class _VBoxAppState extends State<VBoxApp> {
+  /// 日志标签。
+  static const String _logTag = 'app';
+
   bool _initialized = false;
   Object? _initError;
+
+  /// 日志落盘 sink（A3；启动成功后常驻）。
+  LogFileSink? _logSink;
 
   // 用例层实例（数据层仓储在此完成组装）
   late final FavoriteUseCases _favoriteUseCases;
@@ -74,6 +84,17 @@ class _VBoxAppState extends State<VBoxApp> {
     return _allSourcesDatasource.fetch(url);
   }
 
+  /// 初始化日志：按契约键配置闸门（`app_log_enabled` / `app_log_min_level`）
+  /// 并启动落盘 sink（A3）。
+  Future<void> _startLogging() async {
+    final PrefsManager prefs = PrefsManager.instance;
+    AppLog.configure(
+      enabled: await prefs.getBool('app_log_enabled'),
+      minLevel: LogLevel.fromValue(await prefs.getInt('app_log_min_level')),
+    );
+    _logSink = LogFileSink()..start();
+  }
+
   /// 初始化依赖。
   Future<void> _bootstrap() async {
     try {
@@ -86,30 +107,48 @@ class _VBoxAppState extends State<VBoxApp> {
       await PrefsManager.instance.init();
       await DatabaseManager.instance.database; // 触发建库/迁移
 
-      // ③ 数据层仓储 → 领域层用例
+      // ③ 日志（闸门 + 落盘）
+      await _startLogging();
+      AppLog.info(_logTag, '启动 v${AppInfo.version}+${AppInfo.buildNumber}');
+
+      // ④ 数据层仓储 → 领域层用例
+      // A2：网络可达性探针（平台层实现），注入全部 HTTP 客户端做离线短路。
+      final ConnectivityNetworkInfo networkInfo = ConnectivityNetworkInfo();
       _favoriteUseCases = FavoriteUseCases(FavoriteRepositoryImpl());
       _historyUseCases = HistoryUseCases(HistoryRepositoryImpl());
       _subscriptionUseCases = SubscriptionUseCases(SubscriptionRepositoryImpl());
       _remoteSourceUseCases = RemoteSourceUseCases(
         RemoteSourceRepositoryImpl(
-          datasource: RemoteManifestDatasource(client: HttpClient()),
+          datasource: RemoteManifestDatasource(
+            client: HttpClient(networkInfo: networkInfo),
+          ),
         ),
       );
-      _allSourcesDatasource = AllSourcesDatasource(client: HttpClient());
-      _cmsDatasource = CmsV10Datasource(client: HttpClient());
+      _allSourcesDatasource =
+          AllSourcesDatasource(client: HttpClient(networkInfo: networkInfo));
+      _cmsDatasource =
+          CmsV10Datasource(client: HttpClient(networkInfo: networkInfo));
       _detailPlaybackUseCases = DetailPlaybackUseCases(
         loadAllSources: _loadAllSources,
         cmsDatasource: _cmsDatasource,
       );
 
+      AppLog.info(_logTag, '初始化完成');
       if (mounted) {
         setState(() => _initialized = true);
       }
     } catch (e) {
+      AppLog.error(_logTag, '初始化失败', error: e);
       if (mounted) {
         setState(() => _initError = e);
       }
     }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_logSink?.stop());
+    super.dispose();
   }
 
   @override

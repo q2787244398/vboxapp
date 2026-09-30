@@ -1,7 +1,7 @@
 # 阶段遗漏检查报告 · 第 1 轮（核心骨架）（D13 / E.10b）
 # 契约层文件 · contract/docs/stage_check_report_stage1.yaml
 # 依据模板：stage_check_template.yaml（命名规范 stage_check_report_stage<N>.yaml）
-# 本报告对应的主方案文档版本：docs/VBOX_PLAN_v6.27.md（v6.27 批次交付刷新）
+# 本报告对应的主方案文档版本：docs/VBOX_PLAN_v6.28.md（v6.28 批次交付刷新）
 
 stage: 1
 stage_name: "核心骨架"
@@ -71,11 +71,11 @@ checks:
   # ⑥ 交付物与文档
   deliverables:
     status: pass
-    details: "lib 100 文件 / test 46 文件 / 契约 8 文件 / 守卫 11 脚本；文档 v6.27（本报告批次）；决策 D1-D29"
+    details: "lib 100 文件 / test 46 文件 / 契约 8 文件 / 守卫 11 脚本；文档 v6.28（本报告批次）；决策 D1-D29"
     items:
       - { name: "应产出文件齐全", status: pass, detail: "lib/ 100 + test/ 46 + contract/schema/ 8 + scripts/check_*.py 11 + conformance 全量 + 真机验收清单（G-09/G-10）" }
       - { name: "决策记录已追加", status: pass, detail: "D1-D29 全表维护，编号唯一性守卫通过" }
-      - { name: "风险清单已更新", status: pass, detail: "P.28-P.36 逐轮登记；P.35 详情页接线、P.36 遗留清理裁定" }
+      - { name: "风险清单已更新", status: pass, detail: "P.28-P.37 逐轮登记；P.36 G-05 收尾/真机清单、P.37 遗留清理裁定" }
       - { name: "已知限制已记录", status: pass, detail: "本沙箱无 Flutter SDK（P.7 环境约束），Dart 验证由 CI 承担" }
       - { name: "下阶段输入就绪", status: partial, detail: "第 1 轮未标记完成（D20，待真机验收通过后刷新 verdict）；下批输入 = G-09 / G-10 真机验收 + 第 2 轮" }
 
@@ -96,7 +96,7 @@ blockers:
 # 结论
 # ────────────────────────────────────────────────────────────
 verdict: blocked
-block_reason: "第 1 轮（核心骨架）代码侧已全部交付（v6.27：P2 遗留清理 B2/B3 裁定闭环）；E.10b 余项收敛为 G-09 / G-10 真机验收；按 D20 真机验收通过前不得标记完成、不得进入第 2 轮"
+block_reason: "第 1 轮（核心骨架）代码侧已全部交付（v6.28：A2/A3/B4 接线交付；v6.27：P2 遗留清理 B2/B3 裁定闭环）；E.10b 余项收敛为 G-09 / G-10 真机验收；按 D20 真机验收通过前不得标记完成、不得进入第 2 轮"
 next_action: "执行 G-09 / G-10 真机验收（docs/真机验收清单_G09_G10.md）→ 刷新 verdict → 解锁第 2 轮"
 
 # ────────────────────────────────────────────────────────────
@@ -109,4 +109,4 @@ human_review:
   reviewer: "q2787244398"
   timestamp: ""
   approved: false
-  comments: "待老板评审：v6.27 批次（P2 遗留清理闭环）确认后，进入 G-09/G-10 真机验收"
+  comments: "待老板评审：v6.28 批次（A2/A3/B4 接线）确认后，进入 G-09/G-10 真机验收"

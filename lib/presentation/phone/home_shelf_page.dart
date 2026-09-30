@@ -7,7 +7,9 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../widgets/backup_page.dart';
 import '../widgets/library_views.dart';
+import '../widgets/log_viewer_page.dart';
 import 'remote_source_page.dart';
 
 /// 书架首页。
@@ -29,6 +31,24 @@ class HomeShelfPage extends StatelessWidget {
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (BuildContext context) => const RemoteSourcePage(),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.article_outlined),
+              tooltip: '日志',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (BuildContext context) => const LogViewerPage(),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.settings_backup_restore),
+              tooltip: '备份与还原',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (BuildContext context) => const BackupPage(),
                 ),
               ),
             ),

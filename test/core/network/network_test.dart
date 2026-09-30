@@ -10,7 +10,18 @@ import 'package:http/testing.dart';
 import 'package:vbox/core/errors/exceptions.dart';
 import 'package:vbox/core/network/http_body_decoder.dart';
 import 'package:vbox/core/network/http_client.dart';
+import 'package:vbox/core/network/network_info.dart';
 import 'package:vbox/core/utils/charset.dart';
+
+/// 固定返回给定可达性的探针（A2 离线短路测试用）。
+class _FixedNetworkInfo implements NetworkInfo {
+  _FixedNetworkInfo(this.connected);
+
+  final bool connected;
+
+  @override
+  Future<bool> get isConnected async => connected;
+}
 
 void main() {
   setUp(() => registerCharsetTables(gbk: <int, String>{}, big5: <int, String>{}));
@@ -208,6 +219,58 @@ void main() {
       final HttpClientResponse res = await client.get(uri);
       expect(res.toString(), contains('200'));
       expect(res.toString(), contains('3B'));
+    });
+
+    test('A2：探针报离线 → 短路不发起请求，抛 NetworkException', () async {
+      int calls = 0;
+      final HttpClient client = HttpClient(
+        inner: MockClient((http.Request req) async {
+          calls++;
+          return http.Response('ok', 200);
+        }),
+        networkInfo: _FixedNetworkInfo(false),
+        retryBaseDelay: Duration.zero,
+        maxRetries: 3,
+      );
+      addTearDown(client.close);
+
+      await expectLater(
+        client.get(uri),
+        throwsA(isA<NetworkException>()),
+      );
+      expect(calls, 0, reason: '离线短路必须完全不发起网络请求');
+    });
+
+    test('A2：探针报在线 → 正常发起请求', () async {
+      int calls = 0;
+      final HttpClient client = HttpClient(
+        inner: MockClient((http.Request req) async {
+          calls++;
+          return http.Response('ok', 200);
+        }),
+        networkInfo: _FixedNetworkInfo(true),
+        retryBaseDelay: Duration.zero,
+      );
+      addTearDown(client.close);
+
+      final HttpClientResponse res = await client.get(uri);
+      expect(calls, 1);
+      expect(res.text, 'ok');
+    });
+
+    test('A2：未注入探针 → 行为不变（不做主动判断）', () async {
+      int calls = 0;
+      final HttpClient client = HttpClient(
+        inner: MockClient((http.Request req) async {
+          calls++;
+          return http.Response('ok', 200);
+        }),
+        retryBaseDelay: Duration.zero,
+      );
+      addTearDown(client.close);
+
+      await client.get(uri);
+      expect(calls, 1);
     });
   });
 }
