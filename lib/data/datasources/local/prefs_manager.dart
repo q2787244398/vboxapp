@@ -6,8 +6,10 @@
 /// - **普通键** → `SharedPreferences`（对应 iOS `UserDefaults.standard`）
 /// - **安全键** → 核心层 [SecureStore] 抽象（默认实现见 [FlutterSecureStoreAdapter]），
 ///   判定见 [_isSecure]：
-///   ① 契约敏感键（[kSensitiveKeys]，5 个，JSON `sensitive: true`）
+///   ① 契约敏感键（[kSensitiveKeys]，7 个，JSON `sensitive: true`）
 ///   ② 契约 `storage = keychain` 的键（云盘凭据）
+///   ③ 契约 `storage = credential_extra` 的键（B2：PG 凭据 extra 字典字段，iOS 侧存
+///      于 Keychain 凭据对象内；Flutter 端按安全键处理，避免明文落 SharedPreferences）
 /// - 读取安全键时若安全存储为空，**回退读 SharedPreferences 并迁移**（A1：
 ///   iOS 侧敏感键曾写 UserDefaults，见方案 P.16 第 1 项），迁移后清除明文
 /// - 读取时按契约 `type` 分派正确的 getter
@@ -72,9 +74,12 @@ class PrefsManager {
   /// 该键是否走安全存储（核心层 [SecureStore]）。
   ///
   /// 依据契约 `notes`：`sensitiveKeys` 在 Flutter 端建议迁移到安全存储
-  /// （iOS 曾写入 UserDefaults，读取需兼容）；`storage = keychain` 的云盘凭据同理。
+  /// （iOS 曾写入 UserDefaults，读取需兼容）；`storage = keychain` 的云盘凭据、
+  /// `storage = credential_extra` 的 PG 凭据 extra 字段同理（B2 裁定）。
   static bool _isSecure(PrefsKey meta) =>
-      meta.sensitive || meta.storage == PrefsStorage.keychain;
+      meta.sensitive ||
+      meta.storage == PrefsStorage.keychain ||
+      meta.storage == PrefsStorage.credentialExtra;
 
   // ─────────────────────────────────────────────────────────
   // 通用读取（按契约 type 分派；无值时回退契约默认值）

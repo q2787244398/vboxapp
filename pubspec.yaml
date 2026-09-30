@@ -19,7 +19,7 @@ dependencies:
 
   # ── 偏好存储（对齐 contract/schema/prefs_keys_v1.json）──
   shared_preferences: ^2.3.2
-  flutter_secure_storage: ^9.2.2     # 5 个敏感键（凭据类）
+  flutter_secure_storage: ^9.2.2     # 7 个敏感键 + keychain + credential_extra（v1.3，B2/B3 裁定）
 
   # ── 备份加密（对齐 contract/docs/backup_v1.md）──
   # AES-256-GCM + PBKDF2-HMAC-SHA256, iter=100000, salt=16B, iv=12B, tag=16B
@@ -44,7 +44,6 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
-  test: ^1.25.8
 
 flutter:
   uses-material-design: true

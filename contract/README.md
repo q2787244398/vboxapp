@@ -12,7 +12,7 @@
 | 文件 | 类型 | 内容 | 状态 |
 |------|------|------|------|
 | `schema/schema_v1.sql` | SQLite DDL | 9 表 + v1→v4 迁移链 | ✅ |
-| `schema/prefs_keys_v1.json` | 键名契约 | 63 键 + 5 敏感键 | ✅ |
+| `schema/prefs_keys_v1.json` | 键名契约 | 98 键 + 7 敏感键（v1.3，B3 裁定） | ✅ |
 | `schema/site_v1.json` | JSON Schema | SiteConfig（20 字段） | ✅ |
 | `schema/welfare_v1.json` | JSON Schema | 福利平台（29 字段） | ✅ |
 | `schema/manifest_v1.json` | JSON Schema | 远程源 manifest + all_sources | ✅ |

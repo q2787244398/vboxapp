@@ -1,6 +1,6 @@
 /// 契约层：Preferences 键名
 ///
-/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.2，98 键 + 5 敏感键）
+/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.3，98 键 + 7 敏感键）
 /// 本文件是该契约的 Dart 移植，**任何修改必须同步两侧**。
 ///
 /// 提取依据：iOS 源码 `vbox/` 中的 UserDefaults 调用（3 种写法穷举）
@@ -8,13 +8,15 @@
 ///
 /// v1.2 修订（2026-09-29）：补齐 44 个遗漏键（云盘/福利/直播/音乐/TG/日志/推送）。
 /// v1.1 修订（2026-09-29）：移除 10 个误抓键（播放器 KVC / CA 动画 key）。
+/// v1.3 修订（2026-09-30）：敏感键 5 → 7（B3 裁定，新增 baidu_local_pcs_device_id /
+/// saved_drive_tokens，详见契约 notes v1.3）。
 ///
 /// ⚠️ 存储方式（storage）：
 ///  · userDefaults —— 走 SharedPreferences
 ///  · keychain     —— 走 flutter_secure_storage（Keychain 语义）
 ///  · credentialExtra —— 存于凭据对象的 extra 字典，非独立键
 ///
-/// ⚠️ 安全键（sensitive）：5 个（[kSensitiveKeys]），须走安全存储
+/// ⚠️ 安全键（sensitive）：7 个（[kSensitiveKeys]），须走安全存储
 /// （其 `storage` 为 `userDefaults` 系 iOS 侧历史写法，Flutter 端读取需兼容）。
 library;
 
@@ -264,10 +266,10 @@ const List<PrefsKey> kAllPrefsKeys = <PrefsKey>[
   // ────────────── _group_cloud（16）──────────────
   PrefsKey(name: 'cloud_drive_credentials_v1', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.keychain, description: 'SecureCredentialStore.swift:6（Keychain account）'),
   PrefsKey(name: 'saved_drive_tokens_v1', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.keychain, description: 'SecureCredentialStore.swift:8（Keychain account）'),
-  PrefsKey(name: 'saved_drive_tokens', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: '网盘 token 存储键（UserDefaults，区别于 Keychain account）'),
+  PrefsKey(name: 'saved_drive_tokens', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.userDefaults, sensitive: true, description: '网盘 token 存储键（UserDefaults，区别于 Keychain account；B3 敏感键裁定）'),
   PrefsKey(name: 'cloud_drive_sort_order_v1', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'CloudDriveSortManager.swift'),
   PrefsKey(name: 'cloud_drive_cleanup_queue_v1', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'CloudDriveManager.swift'),
-  PrefsKey(name: 'baidu_local_pcs_device_id', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'CloudDriveManager.swift:5665'),
+  PrefsKey(name: 'baidu_local_pcs_device_id', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.userDefaults, sensitive: true, description: 'CloudDriveManager.swift:5665；百度 PCS 本地设备指纹（B3 敏感键裁定）'),
   PrefsKey(name: 'baidu_file_list_cache_v1', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'CloudDriveManager.swift:128'),
   PrefsKey(name: 'baidu_ibox_play_item_cache_v1', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'CloudDriveManager.swift:127'),
   PrefsKey(name: 'baidu_play_item_cache_v1', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'CloudDriveManager.swift:126'),
@@ -281,13 +283,15 @@ const List<PrefsKey> kAllPrefsKeys = <PrefsKey>[
   PrefsKey(name: 'cloud_play_item_cache_v1', group: PrefsGroup.cloud, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'CloudDriveManager.swift'),
 ];
 
-/// 敏感键名集合（5 个，严格对应契约 `sensitiveKeys`）。
+/// 敏感键名集合（7 个，严格对应契约 `sensitiveKeys`）。
 const Set<String> kSensitiveKeys = <String>{
   'app_tmdb_proxy_token',
   'one_platform_token',
   'one_platform_userkey',
   'one_platform_uuid',
   'quark_device_id',
+  'baidu_local_pcs_device_id',
+  'saved_drive_tokens',
 };
 
 /// 全部键名集合。

@@ -1,28 +1,15 @@
-/// 数据层：SQLite 行 ↔ Dart 对象 的映射基类。
+/// 数据层：SQLite 读写辅助函数。
 ///
 /// 唯一真相源：`contract/schema/schema_v1.sql`
-/// 所有模型必须与该 DDL 字段严格一致（由 `scripts/check_contract_sync.py` 校验）。
+/// 各模型（`favorite` / `history` / `setting` …）自带 `toMap()` / `fromMap()`，
+/// 列名与 Dart 字段名完全一致（不做 camelCase 转换），避免映射歧义；
+/// 时间字段统一为 **Unix 秒**（INTEGER），与 iOS 端一致；
+/// 布尔字段 SQLite 存 0/1（INTEGER）。
 ///
 /// 约定：
-/// - 列名与 Dart 字段名**完全一致**（不做 camelCase 转换），避免映射歧义；
 /// - 写入用 `toMap()`，读取用 `fromMap()`；
-/// - 时间字段统一为 **Unix 秒**（INTEGER），与 iOS 端一致；
-/// - 布尔字段 SQLite 存 0/1（INTEGER）。
+/// - 本文件只提供跨模型的读写原语（布尔 0/1、Unix 秒、可空字符串）。
 library;
-
-/// 可持久化为 SQLite 行的对象。
-abstract class DbModel {
-  /// 表名。
-  static const String? table = null;
-
-  /// 转成 SQLite 行（列名 → 值）。
-  Map<String, Object?> toMap();
-
-  /// 从 SQLite 行构造（列名 → 值）。
-  static T fromMap<T>(Map<String, Object?> map) {
-    throw UnimplementedError('子类必须实现 fromMap');
-  }
-}
 
 /// SQLite 布尔读写辅助（0/1 ↔ bool）。
 bool readBool(Object? v) {

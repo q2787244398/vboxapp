@@ -1,6 +1,6 @@
 {
   "$comment": "vbox 契约层 v1.0 · SharedPreferences / UserDefaults 键名契约。来源：iOS 端逆向提取。冻结后两端必须完全一致。",
-  "schemaVersion": "1.2",
+  "schemaVersion": "1.3",
   "frozenAt": "2026-09-29",
   "note": "iOS 使用 UserDefaults.standard，Flutter 使用 SharedPreferences。键名与类型必须 1:1 对应，否则数据无法互通。 | v1.1 修订：移除 10 个误抓的非 prefs 键（播放器 KVC 属性 / CA 动画 key）",
   "keys": {
@@ -566,7 +566,8 @@
         "type": "string",
         "storage": "userdefaults",
         "evidence": "CloudDriveManager.swift:5665",
-        "desc": "CloudDriveManager.swift:5665"
+        "desc": "CloudDriveManager.swift:5665",
+        "sensitive": true
       },
       "baidu_file_list_cache_v1": {
         "type": "string",
@@ -638,7 +639,8 @@
         "type": "string",
         "storage": "userdefaults",
         "evidence": "CloudDriveManager.swift:124  tokenKey",
-        "desc": "网盘 token 存储键（UserDefaults，区别于 Keychain 的 saved_drive_tokens_v1）"
+        "desc": "网盘 token 存储键（UserDefaults，区别于 Keychain 的 saved_drive_tokens_v1）",
+        "sensitive": true
       }
     }
   },
@@ -647,7 +649,9 @@
     "one_platform_token",
     "one_platform_userkey",
     "one_platform_uuid",
-    "quark_device_id"
+    "quark_device_id",
+    "baidu_local_pcs_device_id",
+    "saved_drive_tokens"
   ],
   "notes": [
     "sensitiveKeys 中的项在 Flutter 端建议迁移到 flutter_secure_storage，但读取时需兼容 iOS 写入的 UserDefaults 值",
@@ -657,6 +661,7 @@
     "v1.1：经逐键源码核验，移除 _group_buffer 整组及 networkTimeout/positionTimerIntervalMs/reconnect/danmaku_scroll —— 它们是 AliPlayer/IJKPlayer 的 KVC 属性名与 CoreAnimation 动画 key，并非 UserDefaults 偏好键。见 contract/docs/prefs_keys_revision_v1.1.md。",
     "v1.2：补齐 46 个遗漏键（云盘/福利/直播/音乐/TG/日志/推送）。其中 cloud_drive_credentials_v1 / saved_drive_tokens_v1 为 Keychain account，pg_source / qr_scan 为 credential.extra 字典键，均**非 UserDefaults**，已用 storage 字段标注（userdefaults|keychain|credential_extra）。",
     "v1.2 补记：saved_drive_tokens（CloudDriveManager.swift:124）为 UserDefaults 键，与 Keychain account saved_drive_tokens_v1 是两个不同对象。",
-    "v1.2 补记（结构统一，2026-09-29）：为全部 98 键显式标注 storage —— 此前前 12 组仅隐式（UserDefaults），与后 9 组 {type, storage, evidence, desc} 结构异构。现统一为「每键必含 storage」（userdefaults|keychain|credential_extra），落实 D19；校验脚本 check_contract_sync.py 新增 storage 完整性 + Dart↔JSON 逐键比对（防回归）。"
+    "v1.2 补记（结构统一，2026-09-29）：为全部 98 键显式标注 storage —— 此前前 12 组仅隐式（UserDefaults），与后 9 组 {type, storage, evidence, desc} 结构异构。现统一为「每键必含 storage」（userdefaults|keychain|credential_extra），落实 D19；校验脚本 check_contract_sync.py 新增 storage 完整性 + Dart↔JSON 逐键比对（防回归）。",
+    "v1.3 修订（B3 裁定，2026-09-30）：sensitiveKeys 5 → 7，新增 baidu_local_pcs_device_id（百度 PCS 本地设备指纹，与 quark_device_id 同类）与 saved_drive_tokens（网盘 token 存储键，iOS 侧为 UserDefaults 遗留、迁移至 Keychain 后即清除；Flutter 端按安全键处理避免明文）。对应 Dart 镜像 prefs_keys.dart 同步（kSensitiveKeys + 逐键 sensitive:true）。"
   ]
 }

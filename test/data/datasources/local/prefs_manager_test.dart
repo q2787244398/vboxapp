@@ -1,6 +1,7 @@
 /// 数据层单测：#10 —— `prefs_manager.dart`（契约分派 + 安全存储路由）。
 ///
-/// 安全重点：**敏感键（5）与 `storage=keychain` 键绝不能落明文 SharedPreferences**。
+/// 安全重点：**敏感键（7）、`storage=keychain` 与 `storage=credential_extra` 键
+/// 绝不能落明文 SharedPreferences**。
 /// 该防线由契约 `sensitive` 标志与 `storage` 字段驱动，本文件逐键实测。
 library;
 
@@ -10,11 +11,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/contract/prefs_keys.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 
-/// 应走安全存储的键：敏感键 ∪ storage=keychain。
+/// 应走安全存储的键：敏感键 ∪ storage=keychain ∪ storage=credential_extra。
 final Set<String> _secureKeys = <String>{
   ...kSensitiveKeys,
   for (final PrefsKey k in kAllPrefsKeys)
-    if (k.storage == PrefsStorage.keychain) k.name,
+    if (k.storage == PrefsStorage.keychain ||
+        k.storage == PrefsStorage.credentialExtra)
+      k.name,
 };
 
 void main() {
@@ -38,11 +41,17 @@ void main() {
       await expectLater(pm.remove('不存在的键'), completes);
     });
 
-    test('安全键集合 = 敏感键 ∪ keychain（共 7 键）', () {
-      expect(kSensitiveKeys.length, 5);
-      expect(_secureKeys.length, 7, reason: '5 敏感 + 2 keychain');
+    test('安全键集合 = 敏感键 ∪ keychain ∪ credential_extra（共 11 键）', () {
+      expect(kSensitiveKeys.length, 7);
+      expect(_secureKeys.length, 11, reason: '7 敏感 + 2 keychain + 2 credential_extra');
       expect(_secureKeys.contains('cloud_drive_credentials_v1'), isTrue);
       expect(_secureKeys.contains('saved_drive_tokens_v1'), isTrue);
+      // B2：PG 凭据 extra 字段也须走安全存储，不得明文落 SharedPreferences
+      expect(_secureKeys.contains('pg_source'), isTrue);
+      expect(_secureKeys.contains('qr_scan'), isTrue);
+      // B3：新增敏感键裁定
+      expect(_secureKeys.contains('baidu_local_pcs_device_id'), isTrue);
+      expect(_secureKeys.contains('saved_drive_tokens'), isTrue);
     });
   });
 
