@@ -24,6 +24,7 @@ import 'data/repositories/repositories.dart';
 import 'domain/usecases/usecases.dart';
 import 'presentation/desktop/desktop_home_page.dart';
 import 'presentation/phone/home_shelf_page.dart';
+import 'presentation/tv/tv_home_page.dart';
 import 'presentation/ui_mode/ui_mode_resolver.dart';
 
 class VBoxApp extends StatefulWidget {
@@ -126,22 +127,14 @@ class _RootRouter extends StatelessWidget {
     // G-01（UI 三形态）渐进交付：
     //   phone → 书架（v6.15）+ 远程源（v6.16）
     //   desktop → DesktopHomePage（v6.17，NavigationRail 宽屏布局）
-    //   tv → 仍为占位，登记于 docs/VBOX_PLAN_v6.17.md 附录 C，随 TV 形态批次交付
+    //   tv → TvHomePage（v6.18，T.7 焦点规范：TabBar 顶部导航 + FocusTraversalGroup）
     return MaterialApp(
       title: 'vbox',
       theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
       home: switch (mode.mode) {
         UiMode.phone => const HomeShelfPage(),
         UiMode.desktop => const DesktopHomePage(),
-        UiMode.tv => Scaffold(
-            appBar: AppBar(title: const Text('vbox · tv')),
-            body: const Center(
-              child: Text(
-                '形态：tv\n（UI 布局待 tv 批次补齐，焦点规范见 T.7）',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
+        UiMode.tv => const TvHomePage(),
       },
     );
   }

@@ -29,7 +29,7 @@
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名随修订版本递增（**D25**）：`VBOX_PLAN_v5.md` → `VBOX_PLAN_v6.md`（v6 系列首版，现已废弃）
-> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → **`VBOX_PLAN_v6.17.md`**（当前版）。
+> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → **`VBOX_PLAN_v6.18.md`**（当前版）。
 >
 > **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
@@ -182,7 +182,7 @@
 > ④ 门禁（E.10b）：G-01 **继续解除**（phone 书架 + 远程源列表交付，desktop / TV 与详情·播放链路仍待）；
 > 新增 **P.26 远程源复核**；文档更名 `VBOX_PLAN_v6.15.md` → **`VBOX_PLAN_v6.16.md`**（D25）。
 >
-> **v6.17 变更（本版）**：**G-01 desktop 形态交付（第 1 轮 UI 第三块）+ 三形态共享视图抽取** ——
+> **v6.17 变更**：**G-01 desktop 形态交付（第 1 轮 UI 第三块）+ 三形态共享视图抽取** ——
 > ① 新增 `lib/presentation/widgets/library_views.dart`：从书架页抽取 **FavoritesView / HistoryView** 为
 > 三形态共享组件（直连 UseCase），phone 壳与 desktop 复用同一套列表逻辑；
 > ② 新增 `lib/presentation/desktop/desktop_home_page.dart`：**NavigationRail 宽屏布局**（书架 / 远程源切换），
@@ -192,6 +192,17 @@
 > 触达口径 **87.0% → 87.1%**、全 lib 整体 **73.1% → 73.2%**、零触达 **24/77 → 24/79**（新增文件有测试触达）；
 > ⑤ 门禁（E.10b）：G-01 **继续解除**（phone 书架 + 远程源 + desktop 已交付，仅余 TV 形态与详情·播放链路）；
 > 新增 **P.27 desktop 复核**；文档更名 `VBOX_PLAN_v6.16.md` → **`VBOX_PLAN_v6.17.md`**（D25）。
+>
+> **v6.18 变更（本版）**：**G-01 tv 形态交付（第 1 轮 UI 收官）** ——
+> ① 新增 `lib/presentation/tv/tv_home_page.dart`：**T.7 焦点规范**（`FocusTraversalGroup` +
+> TabBar autofocus）+ 顶部三 Tab（收藏 / 历史 / 远程源）导航，复用三形态共享视图；
+> ② `app.dart`：`UiMode.tv → TvHomePage`（占位解除），**三形态占位全部解除**；
+> ③ 新增 widget 测试 `test/presentation/tv/tv_home_page_test.dart`（**5 用例**：三 Tab 切换 /
+> 书架展示 / T.7 焦点结构断言）；
+> ④ 计数变化：lib **79 → 80**、测试文件 **32 → 33**、单测 **391 → 396**、触达口径 **87.1% → 87.2%**、
+> 全 lib 整体 **73.2% → 73.5%**、零触达 **24/79 → 24/80**（新增文件有测试触达）；
+> ⑤ 门禁（E.10b）：**G-01 UI 三形态解除（phone + desktop + tv 均已交付）**；TV D-pad 真机行为归 **G-10**（人工验收）；
+> 新增 **P.28 tv 形态复核**；文档更名 `VBOX_PLAN_v6.17.md` → **`VBOX_PLAN_v6.18.md`**（D25）。
 
 ## 版本历史
 
@@ -220,7 +231,8 @@
 | v6.14 | 2026-09-30：**P0 前置收口批次** —— ① B1 普通分支读取防崩溃（P.16 #2 闭环：类型不符 `TypeError` → 静默回退契约默认值）；② 应用名大小写裁定**维持小写 `vbox`**（P.23 §4 #2 闭环，`app.dart` title / AppBar 对齐平台壳）；③ CmsV10 裁定「实现但未接线，暂接入待 UI 批次」+ 云盘凭据敏感标注维持现状登记（P.16 #3/#4）；④ 修正 `file_store` 已接线登记（P.13 §4 #13）；计数不变（75 / 29 / 371 / 71.1%）；新增 **P.24**；文档更名 `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` |
 | **v6.15** | 2026-09-30：**G-01 phone 形态书架交付（第 1 轮 UI 首块）** —— ① 新增 `lib/presentation/phone/home_shelf_page.dart`（收藏 / 历史双 Tab，直连 UseCase，空态 / 重试 / 移除 / 清空确认）；② `app.dart` 按 `UiMode` 分发：phone → HomeShelfPage（desktop / tv 占位渐进交付）；③ 新增 widget 测试 **7 用例**（内存仓储 fakes 走真用例链路）；lib **75 → 76**、测试 **29 → 30**、单测 **371 → 378**、整体覆盖 **71.1% → 71.8%**、零触达 **24/76**；E.10b **G-01 部分解除**；新增 **P.25**；文档更名 `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` |
 | **v6.16** | 2026-09-30：**G-01 phone 远程源列表交付（第 1 轮 UI 第二块）** —— ① 新增 `lib/presentation/phone/remote_source_page.dart`（清单状态卡 + 订阅管理：添加 / 重复拒绝 / 删除 / 强制刷新）；② 书架 AppBar 加「远程源」入口；③ 新增 widget 测试 **8 用例**；lib **76 → 77**、测试 **30 → 31**、单测 **378 → 386**、整体覆盖 **71.8% → 73.1%**、零触达 **24/77**；E.10b **G-01 继续解除**；新增 **P.26**；文档更名 `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` |
-| **v6.17（现行）** | 2026-09-30：**G-01 desktop 形态交付（第 1 轮 UI 第三块）+ 共享视图抽取** —— ① 新增 `lib/presentation/widgets/library_views.dart`（FavoritesView / HistoryView 抽取为三形态共享组件）；② 新增 `lib/presentation/desktop/desktop_home_page.dart`（NavigationRail 宽屏布局，内嵌远程源）；③ `app.dart` desktop 占位解除；④ 新增 widget 测试 **5 用例**；lib **77 → 79**、测试 **31 → 32**、单测 **386 → 391**、整体覆盖 **73.1% → 73.2%**、零触达 **24/79**；E.10b **G-01 继续解除**（仅余 TV）；新增 **P.27**；文档更名 `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` |
+| **v6.17** | 2026-09-30：**G-01 desktop 形态交付（第 1 轮 UI 第三块）+ 共享视图抽取** —— ① 新增 `lib/presentation/widgets/library_views.dart`（FavoritesView / HistoryView 抽取为三形态共享组件）；② 新增 `lib/presentation/desktop/desktop_home_page.dart`（NavigationRail 宽屏布局，内嵌远程源）；③ `app.dart` desktop 占位解除；④ 新增 widget 测试 **5 用例**；lib **77 → 79**、测试 **31 → 32**、单测 **386 → 391**、整体覆盖 **73.1% → 73.2%**、零触达 **24/79**；E.10b **G-01 继续解除**（仅余 TV）；新增 **P.27**；文档更名 `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` |
+| **v6.18（现行）** | 2026-09-30：**G-01 tv 形态交付（第 1 轮 UI 收官）** —— ① 新增 `lib/presentation/tv/tv_home_page.dart`（T.7 焦点规范：FocusTraversalGroup + TabBar autofocus，三 Tab 导航复用共享视图）；② `app.dart` tv 占位解除，**三形态全部交付**；③ 新增 widget 测试 **5 用例**；lib **79 → 80**、测试 **32 → 33**、单测 **391 → 396**、整体覆盖 **73.2% → 73.5%**、零触达 **24/80**；E.10b **G-01 UI 三形态解除**（TV D-pad 归 G-10 人工验收）；新增 **P.28**；文档更名 `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` |
 
 <!-- /docs-guard:history -->
 
@@ -258,7 +270,7 @@
 | **D22** | **Flutter 版本基线** | 以 CI 实测 **3.47.5** 为准，**修订 §2.3 的「3.24.x 锁版」**；与 D12（API 24，依据 3.47 支持矩阵）保持一致 | **已确认**（2026-09-29） |
 | **D23** | **本地持久化与模型** | Flutter 侧采用 **`sqflite` 直连 + 手写模型**，**不引入 drift / freezed 代码生成**；契约正确性由 Python 侧 `check_*` 断言，不依赖 Dart 代码生成 | **已确认**（2026-09-29） |
 | **D24** | **文档版本号递增** | **每次修改本方案文档必须先递增修订版本号**（v6.x → v6.x+1）**再交付 / 推送**；递增须同步：① 顶部「本版变更」块（旧版去掉「（本版）」标记）、② 版本历史表「（现行）」行、③ 受影响的计数与口径引用 | **已确认**（2026-09-29） |
-| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.17.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
+| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.18.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
 | **D26** | **守卫结构性漏洞须闭环** | 文档守卫的**块级豁免标记必须成对闭合**；凡「静默豁免 / 静默跳过」类设计必须自带**自检**（如块标记成对性、豁免行数上限告警）。发现「规则静默失效」类结构性漏洞时，须**先补漏洞、再用其复查全量**，并把新规则纳入 CI（本轮即由未闭合的 `docs-guard:history` 块暴露 L104–L3158 长期失守） | **已确认**（2026-09-29） |
 | **D27** | **平台壳与包名基线** | Flutter 平台壳**一律以 `flutter create` 官方模板生成**（不手写），且**非侵入落地**（临时目录生成后仅拷贝平台目录 + `.metadata`，不改 `lib/` / `test/` / `pubspec.yaml`）；Android `namespace`/`applicationId` 与 macOS `PRODUCT_BUNDLE_IDENTIFIER` 统一为 **`com.vbox.player`**（iOS 保持 `com.vbox.iosplayer`）；`minSdk` **显式写死 24**（D12），不依赖 `flutter.minSdkVersion` 隐式默认 | **已确认**（2026-09-29） |
 
@@ -2370,7 +2382,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.17.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.18.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -4366,6 +4378,49 @@ E.10b 余项：**G-01 仅余 TV 子项**；**第 1 轮仍不得标记完成**（
 
 ---
 
+### P.28 十六轮复核：tv 形态交付（G-01 收官）（v6.18 新增）
+
+> 复核方法：本机 Flutter **3.47.5** 实测 `flutter analyze`（0 issues）/ `flutter test --coverage`（**396 用例**）+
+> **11 守卫** + conformance **45/45**；widget 测试注入内存仓储 fakes 走**真用例链路**。
+
+#### 1. 交付内容
+
+| 项 | 内容 |
+|----|------|
+| G-01 tv 形态 | 新增 `lib/presentation/tv/tv_home_page.dart`：**T.7 焦点规范**（`FocusTraversalGroup` + TabBar autofocus）+ 顶部三 Tab（收藏 / 历史 / 远程源）导航，复用三形态共享视图（`library_views` / `RemoteSourcePage`） |
+| 形态路由 | `app.dart` `UiMode.tv → TvHomePage`（占位解除）—— **三形态占位全部解除**（phone v6.15 / desktop v6.17 / tv v6.18） |
+| widget 测试 | `test/presentation/tv/tv_home_page_test.dart` **5 用例**：默认收藏空态 / 书架展示 / 历史 Tab 切换 / 远程源 Tab（rail label + AppBar title 双出现断言）/ T.7 焦点结构断言（FocusTraversalGroup + 主焦点存在） |
+
+> ⚠️ 测试环境说明：TabBar 的 **D-pad 方向键切换在 widget 测试环境不可靠**（与真机焦点行为有差异），
+> 故测试采用「结构断言 + tap 切换」，真机 D-pad 行为归 **G-10**（需 Android TV 真机人工验收）。
+
+#### 2. 事实计数（v6.18）
+
+| 指标 | v6.17 | v6.18 |
+|------|-------|-------|
+| lib 文件 | 79 | **80**（+tv_home_page） |
+| 测试文件 | 32 | **33**（+tv_home_page_test） |
+| 单测用例 | 391 | **396**（+5） |
+| 触达口径 | 87.1% | **87.2%** |
+| 全 lib 整体覆盖 | 73.2% | **73.5%**（达标） |
+| 零触达文件 | 24/79 | **24/80**（新增文件有触达） |
+
+#### 3. 门禁影响（E.10b）
+
+**G-01（UI 三形态）解除**：phone（书架 + 远程源）+ desktop + tv 均已交付。
+E.10b 余项（最新）：**G-02 平台插件层 / G-03 五引擎 / G-06 播放器 / G-07 三端功能对齐 / G-09 侧载链路 / G-10 TV 真机焦点验收**。
+**第 1 轮仍不得标记完成**（D20）。
+
+#### 4. 遗留 / 下批待办（更新）
+
+| # | severity | 项 | 说明 |
+|---|----------|----|------|
+| 1 | 🟡 中 | 详情页 / 播放入口（书架·历史条目 onTap 现为 SnackBar 占位） | 依赖 G-03 Spider 引擎与 G-02 播放器接线 |
+| 2 | 🟡 中 | G-01 之后第 1 轮门禁主体：**G-03 五引擎**（Spider） | 需 QuickJS / JS 运行时，`lib/domain/entities/spider/` 已交付可编译 |
+| 3 | 🟢 低 | TV 真机焦点验收（G-10） | 需真机，登记待 TV 批次后人工测 |
+
+---
+
 # 附录部分
 
 ---
@@ -4557,14 +4612,14 @@ lib/
 
 ---
 
-## G-01 UI 三形态未实现 ⛔ 高（**v6.17 继续解除，仅余 TV**）
+## G-01 UI 三形态未实现 ⛔ 高（**v6.18 已解除**）
 
 | 项 | 内容 |
 |----|------|
-| 代码位置 | `lib/app.dart`（形态路由按 `UiMode` 分发） |
-| 影响 | **phone 书架**（v6.15）+ **phone 远程源**（v6.16）+ **desktop**（v6.17）已交付；仅 TV 形态与详情·播放链路仍无实际界面 |
-| 阻塞原因 | ~~需 Flutter SDK 编译验证~~（✅ 已解除，CI 通道已通） |
-| 解除条件 | phone 书架 ✅（v6.15）→ phone 远程源 ✅（v6.16）→ desktop ✅（v6.17）→ **TV 布局交付（焦点规范 T.7）** |
+| 代码位置 | `lib/app.dart`（形态路由按 `UiMode` 分发）+ `lib/presentation/{phone,desktop,tv}/` |
+| 影响 | ~~三形态无实际界面~~（✅ 已解除） |
+| 解除记录 | phone 书架 ✅（v6.15）→ phone 远程源 ✅（v6.16）→ desktop ✅（v6.17）→ **tv ✅（v6.18，T.7 焦点规范：FocusTraversalGroup + TabBar autofocus）** |
+| 残余 | TV D-pad 真机行为归 **G-10**（人工验收）；详情 / 播放入口依赖 G-02/G-03 |
 | 关联 | 方案 §2.4、T.7（TV 布局规范） |
 
 ## G-02 平台插件层未实现 ⛔ 高
