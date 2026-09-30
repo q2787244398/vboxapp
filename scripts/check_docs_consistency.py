@@ -93,7 +93,8 @@ DEAD_DOCS = ("PROJECT_LAYOUT.md", "PROGRESS.md", "KNOWN_GAPS.md")
 # v6.16：追加 v6.15 —— 本轮把文件名升到 v6.16（远程源列表批次），v6.15 成为旧名，纳入防回流。
 # v6.17：追加 v6.16 —— 本轮把文件名升到 v6.17（desktop 形态批次），v6.16 成为旧名，纳入防回流。
 # v6.18：追加 v6.17 —— 本轮把文件名升到 v6.18（tv 形态批次，G-01 收官），v6.17 成为旧名，纳入防回流。
-DEAD_DOCS += ("VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
+# v6.19：追加 v6.18 —— 本轮把文件名升到 v6.19（G-03 评估登记批次），v6.18 成为旧名，纳入防回流。
+DEAD_DOCS += ("VBOX_PLAN_v6.18.md", "VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
 
 # v6.10 新增：现行契约校验套件（check_*.py）总数，供规则 2 使用
 APP_CONSTANTS = ROOT / "lib" / "core" / "constants" / "app_constants.dart"
