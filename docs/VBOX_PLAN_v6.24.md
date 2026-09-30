@@ -29,7 +29,7 @@
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名随修订版本递增（**D25**）：`VBOX_PLAN_v5.md` → `VBOX_PLAN_v6.md`（v6 系列首版，现已废弃）
-> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` → `VBOX_PLAN_v6.22.md` → **`VBOX_PLAN_v6.23.md`**（当前版）。
+> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` → `VBOX_PLAN_v6.22.md` → `VBOX_PLAN_v6.23.md` → **`VBOX_PLAN_v6.24.md`**（当前版）。
 >
 > **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
@@ -235,7 +235,17 @@
 > G-03-B（QuickJS FFI + 运行时分发）**待决策**；
 > 新增 **P.31 G-03-A 交付复核**；文档更名 `VBOX_PLAN_v6.20.md` → **`VBOX_PLAN_v6.21.md`**（D25）。
 >
-> **v6.23 变更（本版）**：**第 1 轮（核心骨架）全面检查报告交付（stage_check_report_stage1.yaml + 报告文档刷新）** ——
+> **v6.24 变更（本版）**：**G-02-B / G-03-B 平台插件与 Spider 运行时交付（三端决策 D28/D29 定稿）** ——
+> ① **G-02-B-1 macOS AVPlayer 接线交付**：`macos/Runner/PlayerPlugin.swift`（AVFoundation 主后端，MethodChannel `com.vbox.player/player` + EventChannel `com.vbox.player/player/events`，open/play/pause/seekTo/setVolume/setSpeed/dispose + state/progress/error 事件流，A21.5 复杂封装（MKV/FLV）返回 `E_BACKEND_UNAVAILABLE` 供降级链捕获）；`MainFlutterWindow.swift` 手动注册插件；`project.pbxproj` 纳入 Swift 编译（CI build-macos 可验）；
+> ② **D28 libmpv 原生二进制分发决策**：**原生二进制不入 git 仓库**，由构建脚本从 GitHub Release 资产下载（沿用 iOS `mpvkit-deps-0.0.1` 模式，新增 `libmpv-{os}-{arch}-{ver}` 资产），随 DMG/EXE 侧载产物分发（D11）；CI 仅验证下载 + 链接（smoke），端到端回退真机验收归 G-02-C；
+> ③ **G-03-B-1 QuickJS FFI 绑定交付**：`quickjs/wrapper.{h,c}`（纯 C 封装 `vq_create_runtime/vq_create_context/vq_eval/...`，三端可编译）+ `scripts/build_quickjs_wrapper.sh`（产物 `libvbox_quickjs.{so,dylib,dll}`）+ CI 新增 `build-native-quickjs` job（ubuntu gcc 实测编译通过）；
+> ④ **G-03-B-2 QuickJS 引擎交付**：`lib/platform/runtime/` **3 文件**（`quickjs_ffi.dart` Dart FFI 抽象（`QuickJsNativeBridge` / `DartFfiQuickJsBridge` / `UnavailableQuickJsBridge`）/ `quickjs_bridge_engine.dart`（实现 `SpiderEngine`：loadScript / registerSpider / 5 操作，对齐 iOS `QJSSpiderEngine` 语义）/ barrel `runtime.dart`）；`spider_engine_factory.dart` quickJS 分派接入（javaScriptCore 仍抛 unimplemented，iOS 原生保留）；
+> ⑤ **D29 Node/Python 运行时分发决策**：**Python 三端内置 + 桌面系统探测**（Android 用 Chaquopy Gradle 依赖零 NDK / iOS 原生 python-stdlib 3.14 / 桌面探测系统 python3，缺失 → `E_BACKEND_UNAVAILABLE`）；**Node 仅桌面系统探测 + iOS 原生常驻**（Android NodeMobile 嵌入成本高，登记待评估）；**不采用首次下载**（D11 侧载无商店更新通道，运行时网络依赖与校验不可控）；
+> ⑥ 测试：新增 `test/platform/runtime/quickjs_bridge_engine_test.dart`（**13 用例**：FFI mock 注入，生命周期 / 错误检测 / 注册 / 5 操作双返回路径 / init 恰一次 / URL 加载（真实 HttpServer）/ dispose 幂等）；工厂测试更新（quickJS → QuickJSBridgeEngine + javaScriptCore → unimplemented，5 → 6 用例）；静态用例 **436 → 450**、测试文件 **39 → 40**、lib 文件 **90 → 93**；
+> ⑦ 门禁（E.10b）：**G-02 继续解除**（G-02-B 交付，余 G-02-C 需真机）；**G-03 继续解除**（G-03-B 交付，QuickJS 顶替 JSC 落地）；E.10b 余项 = **G-02-C / G-05 / G-09 / G-10 / 详情页·播放入口接线**；
+> 新增 **P.33（G-02-B 交付复核）/ P.34（G-03-B 交付复核）**；文档更名 `VBOX_PLAN_v6.23.md` → **`VBOX_PLAN_v6.24.md`**（D25）。
+>
+> **v6.23 变更**：**第 1 轮（核心骨架）全面检查报告交付（stage_check_report_stage1.yaml + 报告文档刷新）** ——
 > ① 按 E.10b.2 六类扫描逐项输出**第 1 轮阶段遗漏检查报告**（`contract/docs/stage_check_report_stage1.yaml`，依据模板
 > `stage_check_template.yaml`，与 `stage0` 报告同目录留档）；同步**刷新** `docs/第1轮核心骨架全面检查报告_v6.23.md`
 > （v6.13 首版 → v6.23 现版：计数 lib 75→90 / 测试 29→39 / 用例 371→436、门禁 G-01✅/G-02·G-03 部分解除、
@@ -293,7 +303,8 @@
 | v6.20 | 2026-09-30：**G-02 平台插件层可行性评估登记（含播放器插件）+ 门禁编号纠偏（不改码）** —— 三端插件矩阵（Android Media3+libVLC 纯 Gradle 零 NDK / macOS AVPlayer 零原生依赖 / Windows libmpv 需 dll）；播放器回退路径三端齐备（A21.5）；**编号纠偏**（G-06=iOS 参照已✅、G-07=编译环境已✅，播放器属 G-02；E.10b 余项 = G-02 / G-03 / G-05 / G-09 / G-10）；推荐 G-02-A（Dart PlayerController + Android 接线，CI 可验）→ G-02-B（libmpv 分发待决策）；**计数不变**（80 / 33 / 396 / 73.5% / 24/80）；新增 **P.30**；文档更名 `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` |
 | **v6.21** | 2026-09-30：**G-03-A 桥接协议层交付（G-03 从「未开始」推进到「桥接协议层交付」）** —— ① 交付 `lib/platform/spider/` **6 文件**（ABI 编解码 / Node·NodeLX HTTP 桥 / Python 子进程桥 / 引擎工厂 / Node 客户端 / barrel），引擎差异收敛到适配层，三引擎走 ABI 统一编解码；② 新增 **4 个测试文件 / 27 用例**（ABI 7 / Node 桥 7 / Python 桥 8（真实 python3 子进程）/ 工厂 5）；③ 本机全量校验：analyze 0 issues · 423 用例全通过 · conformance 45/45 · 11 守卫全绿（触达 86.9%、整体 **74.0% 达标**、零触达 25/86）；④ 计数：lib **80 → 86**、测试 **33 → 37**、单测 **396 → 423**、整体 **73.5% → 74.0%**、零触达 **24/80 → 25/86**；⑤ E.10b **G-03 部分解除**（G-03-A 交付，G-03-B 待决策）；新增 **P.31**；文档更名 `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` |
 | **v6.22** | 2026-09-30：**G-02-A 平台插件层首批交付（G-02 从「未开始」推进到「部分解除」）** —— ① 交付 `lib/platform/player/` **4 文件**（通道桥 / 通道播放器 / 统一控制层 PlayerController / barrel），对齐 iOS `PlayerEngine` 协议与契约 §2.5 / A21.5 回退策略；② Android 接线（`PlayerPlugin.kt` Media3 主后端双通道 + `CodecCapability.kt` A21.5 selectBackend + Gradle 依赖 + MainActivity 注册；libVLC 回退实现在 G-02-B/C）；③ 新增 **2 个测试文件 / 15 用例**；④ 修复 `PlayerController` 误标 `@override` 与 `CodecCapability.kt` 缺导入两处缺陷；⑤ 计数：lib **86 → 90**、测试 **37 → 39**、单测 **423 → 438**、零触达 **25/86 → 26/90**（新增 barrel `player.dart` 零触达属预期）；⑥ E.10b **G-02 部分解除**（G-02-A 交付，G-02-B/C 待决策）；新增 **P.32**；文档更名 `VBOX_PLAN_v6.21.md` → `VBOX_PLAN_v6.22.md` |
-| **v6.23（现行）** | 2026-09-30：**第 1 轮（核心骨架）全面检查报告交付** —— ① 新增 `contract/docs/stage_check_report_stage1.yaml`（E.10b.2 六类扫描逐项：契约 ✅ / 数据 ✅ / 平台差异 ⚠️ / 功能 ⚠️ / 质量 ✅ / 交付 ✅）；② **verdict: blocked**（第 1 轮 70% 进行中，D20 不得标记完成、不得进入第 2 轮；阻断 G-02-B/C / G-03-B / G-05 / G-09 / G-10 / 详情页·播放入口接线）；③ 计数不变（90 / 39 / 438（静态声明））；conformance 45/45 + 守卫 10/10 本地实测；④ 文档更名 `VBOX_PLAN_v6.22.md` → `VBOX_PLAN_v6.23.md`；下一批 = G-02-B |
+| **v6.23** | 2026-09-30：**第 1 轮（核心骨架）全面检查报告交付** —— ① 新增 `contract/docs/stage_check_report_stage1.yaml`（E.10b.2 六类扫描逐项：契约 ✅ / 数据 ✅ / 平台差异 ⚠️ / 功能 ⚠️ / 质量 ✅ / 交付 ✅）；② **verdict: blocked**（第 1 轮 70% 进行中，D20 不得标记完成、不得进入第 2 轮；阻断 G-02-B/C / G-03-B / G-05 / G-09 / G-10 / 详情页·播放入口接线）；③ 计数不变（90 / 39 / 438（静态声明））；conformance 45/45 + 守卫 10/10 本地实测；④ 文档更名 `VBOX_PLAN_v6.22.md` → `VBOX_PLAN_v6.23.md`；下一批 = G-02-B |
+| **v6.24（现行）** | 2026-09-30：**G-02-B / G-03-B 平台插件与 Spider 运行时交付（三端决策 D28/D29 定稿）** —— ① **G-02-B-1 macOS AVPlayer 接线交付**：`macos/Runner/PlayerPlugin.swift`（AVFoundation 主后端，MethodChannel `com.vbox.player/player` + EventChannel `.../player/events`，open/play/pause/seekTo/setVolume/setSpeed/dispose + state/progress/error 事件流，A21.5 复杂封装（MKV/FLV/TS/RMVB/AVI/WMV/M2TS）返回 `E_BACKEND_UNAVAILABLE` 供降级链捕获）+ `MainFlutterWindow.swift` 手动注册 + `project.pbxproj` 纳入 Swift 编译；② **D28 libmpv 原生二进制分发决策**：**原生二进制不入 git 仓库**，由构建脚本从 GitHub Release 资产下载（沿用 iOS `mpvkit-deps-0.0.1` 模式，新增 `libmpv-{os}-{arch}-{ver}` 资产），随 DMG/EXE 侧载产物分发（D11）；CI 仅验证下载 + 链接（smoke），端到端回退真机验收归 G-02-C；③ **G-03-B-1 QuickJS FFI 绑定交付**：`quickjs/wrapper.{h,c}`（纯 C 封装 `vq_create_runtime/vq_create_context/vq_eval/...`，三端可编译）+ `scripts/build_quickjs_wrapper.sh`（产物 `libvbox_quickjs.{so,dylib,dll}`）+ CI 新增 `build-native-quickjs` job（ubuntu gcc 实测编译通过）；④ **G-03-B-2 QuickJS 引擎交付**：`lib/platform/runtime/` **3 文件**（`quickjs_ffi.dart` / `quickjs_bridge_engine.dart` / barrel `runtime.dart`）+ `spider_engine_factory.dart` quickJS 分派接入（javaScriptCore 仍抛 unimplemented，iOS 原生保留）；⑤ **D29 Node/Python 运行时分发决策**：**Python 三端内置 + 桌面系统探测**（Android 用 Chaquopy Gradle 依赖零 NDK / iOS 原生 python-stdlib 3.14 / 桌面探测系统 python3，缺失 → `E_BACKEND_UNAVAILABLE`）；**Node 仅桌面系统探测 + iOS 原生常驻**（Android NodeMobile 嵌入成本高，登记待评估）；**不采用首次下载**（D11 侧载无商店更新通道，运行时网络依赖与校验不可控）；⑥ 测试：新增 `test/platform/runtime/quickjs_bridge_engine_test.dart`（**13 用例**）+ 工厂测试更新（5 → 6 用例）；静态用例 **436 → 450**、测试文件 **39 → 40**、lib 文件 **90 → 93**；⑦ E.10b：**G-02 继续解除**（余 G-02-C 需真机）、**G-03 继续解除**（QuickJS 顶替 JSC 落地）；余项 = **G-02-C / G-05 / G-09 / G-10 / 详情页·播放入口接线**；新增 **P.33（G-02-B 交付复核）/ P.34（G-03-B 交付复核）**；文档更名 `VBOX_PLAN_v6.23.md` → `VBOX_PLAN_v6.24.md`；下一批 = G-02-C（真机前置）或 G-05（零触达收尾） |
 
 <!-- /docs-guard:history -->
 
@@ -334,6 +345,8 @@
 | **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.20.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
 | **D26** | **守卫结构性漏洞须闭环** | 文档守卫的**块级豁免标记必须成对闭合**；凡「静默豁免 / 静默跳过」类设计必须自带**自检**（如块标记成对性、豁免行数上限告警）。发现「规则静默失效」类结构性漏洞时，须**先补漏洞、再用其复查全量**，并把新规则纳入 CI（本轮即由未闭合的 `docs-guard:history` 块暴露 L104–L3158 长期失守） | **已确认**（2026-09-29） |
 | **D27** | **平台壳与包名基线** | Flutter 平台壳**一律以 `flutter create` 官方模板生成**（不手写），且**非侵入落地**（临时目录生成后仅拷贝平台目录 + `.metadata`，不改 `lib/` / `test/` / `pubspec.yaml`）；Android `namespace`/`applicationId` 与 macOS `PRODUCT_BUNDLE_IDENTIFIER` 统一为 **`com.vbox.player`**（iOS 保持 `com.vbox.iosplayer`）；`minSdk` **显式写死 24**（D12），不依赖 `flutter.minSdkVersion` 隐式默认 | **已确认**（2026-09-29） |
+| **D28** | **libmpv 原生二进制分发** | **原生二进制不入 git 仓库**：由构建脚本（`scripts/fetch_mpv_dependencies.sh` 扩展）从 GitHub Release **资产**下载（沿用 iOS `mpvkit-deps-0.0.1` 模式，新增 `libmpv-{os}-{arch}-{ver}` 资产），随 DMG / EXE **侧载产物**分发（D11）；CI 仅验证「下载 + 链接（smoke）」，端到端回退验收归 G-02-C（真机）；版本与校验和由资产清单（`mpvkit_external_dependencies.json` 同款）登记 | **已确认**（2026-09-30） |
+| **D29** | **Node / Python 运行时分发** | **Python 三端内置 + 桌面系统探测**（Android：Chaquopy Gradle 依赖，纯 Gradle 零 NDK；iOS：原生 python-stdlib 3.14 常驻；桌面：探测系统 `python3`，缺失 → `E_BACKEND_UNAVAILABLE`）；**Node 仅桌面系统探测 + iOS 原生常驻**（Android NodeMobile 嵌入成本高，**登记待评估**）；**一律不采用「首次下载」**（D11 侧载无商店更新通道，运行时网络依赖与校验不可控） | **已确认**（2026-09-30） |
 
 ---
 
@@ -2443,7 +2456,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.23.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.24.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -4707,10 +4720,113 @@ E.10b 余项（v6.22）：**G-02（G-02-B/C 余项）/ G-03（G-03-B 余项）/ 
 
 | # | severity | 项 | 说明 |
 |---|----------|----|------|
-| 1 | 🟡 中 | **G-02-B**：macOS AVPlayer 接线（Swift，CI 可验）+ Windows/macOS libmpv **原生二进制分发决策** | 见 P.30 §4；libmpv dylib/dll 分发需决策 |
-| 2 | 🟡 中 | **G-03-B**：QuickJS FFI 绑定 + Node / Python 运行时分发方案 | 需决策 + 原生工具链 |
-| 3 | 🟡 中 | **G-02-C**：`SystemPlugin`（UiMode 真机判定）+ `MediaPlaybackService` + 播放真机验收 | 需真机（G-09 关联） |
-| 4 | 🟢 低 | 详情页 / 播放入口接线（Spider 内容 → 播放链路） | 依赖 G-03 引擎接线与 G-02 播放器 |
+| 1 | 🟡 中 | **G-02-C**：`SystemPlugin`（UiMode 真机判定）+ `MediaPlaybackService` + libmpv 端到端回退真机验收 | 需真机（G-09 关联） |
+| 2 | 🟡 中 | **G-05**：零触达文件收尾（覆盖率口径待 CI 复核） | 见 P.33 / P.34 §4 |
+| 3 | 🟢 低 | 详情页 / 播放入口接线（Spider 内容 → 播放链路） | 依赖 G-03 引擎接线与 G-02 播放器 |
+
+> v6.24：G-02-B（macOS AVPlayer + libmpv 分发 D28）与 G-03-B（QuickJS FFI + 运行时 D29）已交付，
+> 原清单 #1 / #2 关闭，转由 **P.33 / P.34** 复核记录。
+
+---
+
+### P.33 二十一轮复核：G-02-B macOS 播放器接线 + libmpv 分发决策（D28 定稿）（v6.24 新增）
+
+> 复核方法：Swift 源码审读（`macos/Runner/PlayerPlugin.swift`）+ Xcode 工程文件（`project.pbxproj`）PBX
+> 结构合法性检查（Python 脚本）+ `MainFlutterWindow.swift` 注册路径核对 + 与 Dart `ChannelPlayer._onEvent`
+> 事件解析面逐字段比对（契约 §2.5 wire 协议）+ CI `build-macos` job 复核。
+
+#### 1. 交付内容（macOS 播放器原生）
+
+| 文件 | 职责 | 编译要点 |
+|------|------|---------|
+| `macos/Runner/PlayerPlugin.swift` | AVFoundation 主后端：MethodChannel `com.vbox.player/player`（open / play / pause / seekTo / setVolume / setSpeed / dispose）+ EventChannel `com.vbox.player/player/events`（state / progress / error）；`timeControlStatus` 观察（buffering / playing / paused）、`currentItem.status` 观察（readyToPlay / failed）、周期 500ms 进度 + 播完 `ended` | import AVFoundation + FlutterMacOS；`FlutterPlugin` / `FlutterStreamHandler` 协议；`NSKeyValueObservation` 管理 |
+| `macos/Runner/MainFlutterWindow.swift` | `RegisterGeneratedPlugins` 后手动注册 `PlayerPlugin`（非插件工程模式，对齐 Android `MainActivity.configureFlutterEngine`） | `flutterViewController.registrar(forPlugin:)` + `PlayerPlugin.register(with:)` |
+| `macos/Runner.xcodeproj/project.pbxproj` | `PlayerPlugin.swift` 纳入 PBXSourcesBuildPhase / PBXFileReference / Runner group | ID 唯一性 + 引用一致性（脚本检查通过） |
+
+#### 2. A21.5 复杂封装判定（wire 对齐）
+
+- `needsFallback` 清单与 Dart `PlayerBackendSelector.needsFallback` **逐扩展名一致**：`.mkv / .flv / .ts / .rmvb / .avi / .wmv / .m2ts`；
+- 命中 → 返回 `FlutterError(E_BACKEND_UNAVAILABLE)`，由 Dart `PlayerController` 降级链捕获继续回退（对齐 G-02-A 已验路径）；
+- 事件键名/类型与 `ChannelPlayer._onEvent` 严格对齐：state `{type: state, value}` / progress
+  `{type: progress, positionMs, durationMs, bufferedMs, isLive}` / error `{type: error, message, fatal}`。
+
+#### 3. D28 libmpv 原生二进制分发决策（定稿）
+
+| 决策点 | 结论 | 依据 |
+|--------|------|------|
+| 二进制入不入 git | **不入仓库**：GitHub Release 资产下载（`fetch_mpv_dependencies.sh` 扩展） | 仓库体积 / 侧载产物随包分发（D11）；沿用 iOS `mpvkit-deps-0.0.1` 成熟模式 |
+| 资产命名 | `libmpv-{os}-{arch}-{ver}`（dylib / dll）+ 校验和登记 | 与 `mpvkit_external_dependencies.json` 同款资产清单 |
+| CI 验证边界 | 仅「下载 + 链接 smoke」；**端到端回退真机验收归 G-02-C** | 桌面真机不可得（本沙箱），避免 CI 假绿 |
+| 交付时机 | G-02-C 接入 libmpv 回退实现时落地下载脚本 | 本批不引入原生二进制 |
+
+#### 4. 事实计数（v6.24）
+
+| 指标 | 值 |
+|------|------|
+| macOS 新增 Swift 文件 | 1（`PlayerPlugin.swift`；`MainFlutterWindow.swift` / `project.pbxproj` 为修改） |
+| 复杂封装清单一致性 | 7/7 扩展名与 Dart 侧一致（grep 实证） |
+| PBX 结构 | 合法（Python 脚本检查：PBXBuildFile / PBXFileReference / Sources 引用一致，ID 无重复） |
+| CI | `build-macos` job 将编译 `PlayerPlugin.swift`（G-07 已解除，CI 复核） |
+
+#### 5. 门禁影响（E.10b）
+
+**G-02 继续解除（G-02-B 交付）**：macOS AVPlayer 主后端 + 双通道 wire 对齐 + libmpv 分发决策（D28）定稿；
+**余 G-02-C**（SystemPlugin / MediaPlaybackService / libmpv 端到端回退）需真机验收。E.10b 余项（v6.24）：
+**G-02-C / G-05 / G-09 / G-10 / 详情页·播放入口接线**。
+
+---
+
+### P.34 二十二轮复核：G-03-B QuickJS FFI 绑定 + Node/Python 运行时分发（D29 定稿）（v6.24 新增）
+
+> 复核方法：C wrapper 源码审读 + **本地 gcc 实测编译**（`scripts/build_quickjs_wrapper.sh`，产物
+> `libvbox_quickjs.so`）+ Dart FFI 抽象 / 引擎源码审读 + 单测静态计数（FFI mock 注入）+ 引擎工厂分派
+> 路径核对 + 与 iOS `QJSSpiderEngine` 语义逐条比对（loadScript / registerSpider / init 恰一次 / 5 操作）。
+
+#### 1. 交付内容（QuickJS FFI 绑定）
+
+| 文件 | 职责 | 验证 |
+|------|------|------|
+| `quickjs/wrapper.h` | C 接口契约：`vq_create_runtime / vq_create_context / vq_eval / vq_free_runtime / vq_free_context / vq_free_string`，`VQ_EXPORT` 跨平台导出（dll / visibility） | — |
+| `quickjs/wrapper.c` | 纯 C 封装：`vq_register_console`（console.log / print no-op 防脚本报错）、`vq_eval`（`JS_Eval` 全局求值，异常 → Error 前缀消息） | **gcc 本地实测编译通过**（ubuntu 11.4.0），产物 892KB `.so` |
+| `scripts/build_quickjs_wrapper.sh` | 三端编译脚本（.so / .dylib / .dll），含 `CONFIG_VERSION` 宏 + `-lm` 链接 | 本地跑通；CI `build-native-quickjs` job 同款命令 |
+| `lib/platform/runtime/quickjs_ffi.dart` | `QuickJsNativeBridge` 抽象 + `DartFfiQuickJsBridge`（`dart:ffi` 加载 + 指针生命周期）+ `UnavailableQuickJsBridge`（安全降级） | FFI mock 注入单测 |
+| `lib/platform/runtime/quickjs_bridge_engine.dart` | 实现 `SpiderEngine`：loadScript / loadLibrary / loadScriptFromURL（HttpClient 15s 超时）/ registerSpider（spider → `__JS_SPIDER__` 兜底 + `typeof` 检测）/ 5 操作（homeContent / searchContent / categoryContent / detailContent / playerContent，init 恰一次 + 双返回路径 JSON 包装） | 13 用例 |
+| `lib/platform/runtime/runtime.dart` | barrel | — |
+| `lib/platform/spider/spider_engine_factory.dart` | quickJS → `QuickJSBridgeEngine`；javaScriptCore → 抛 unimplemented（iOS 原生保留，Flutter 以 QuickJS 顶替） | 工厂测试更新 |
+
+#### 2. 对齐 iOS `QJSSpiderEngine` 语义（逐条核对）
+
+| iOS 语义 | QuickJS 桥实现 | 一致 |
+|----------|----------------|:---:|
+| `loadScript` → JS 异常转 `E_SCRIPT_LOAD` | `_checkScriptResult`：Error/TypeError/ReferenceError/SyntaxError 前缀 → `SpiderException(scriptLoad)` | ✅ |
+| `registerSpider` → 检测 `__JS_SPIDER__` | 注册脚本（`__jsEvalReturn` / `default` / 直赋 + `is_cat=true`）→ 单独 `typeof` 检测（修复注册脚本末表达式布尔污染） | ✅ |
+| init 恰一次 | `_inited` 标志：首次 API 调用前 `init(config)`，后续不再重复 | ✅ |
+| 返回值字符串（已是 JSON）不双重编码 | `{__type: 'string', __value}` / `{__type: 'object', __value}` 包装 + `JSON.stringify` | ✅ |
+| 引擎创建即释放顺序（ctx → rt） | `dispose`：先 `freeContext` 后 `freeRuntime` | ✅ |
+
+#### 3. D29 Node / Python 运行时分发决策（定稿）
+
+| 运行时 | 分发策略 | 依据 |
+|--------|----------|------|
+| Python | **三端内置 + 桌面系统探测**：Android Chaquopy Gradle 依赖（纯 Gradle 零 NDK）/ iOS 原生 python-stdlib 3.14 常驻 / 桌面探测系统 `python3`，缺失 → `E_BACKEND_UNAVAILABLE` | 对齐 iOS 已落地实现；桌面零打包体积 |
+| Node | **仅桌面系统探测 + iOS 原生常驻**；**Android NodeMobile 嵌入成本高 → 登记待评估** | Android 侧 Node 场景少，先不背嵌入成本 |
+| 通用 | **不采用「首次下载」运行时** | D11 侧载无商店更新通道，网络依赖与校验不可控 |
+
+#### 4. 事实计数（v6.24）
+
+| 指标 | 值 |
+|------|------|
+| lib 文件 | **90 → 93**（+`platform/runtime/` 3） |
+| 测试文件 | **39 → 40**（+`test/platform/runtime/quickjs_bridge_engine_test.dart`） |
+| 单测用例（静态声明） | **436 → 450**（+13 QuickJS 引擎 +1 工厂分派） |
+| C wrapper | 本地 gcc 实测编译通过；CI `build-native-quickjs` 复核 |
+| 决策 | **D28 / D29 定稿**（决策表 + P.33 §3 / P.34 §3） |
+
+#### 5. 门禁影响（E.10b）
+
+**G-03 继续解除（G-03-B 交付）**：QuickJS FFI 绑定（三端可编译）+ `QuickJSBridgeEngine`（对齐 iOS
+语义，13 单测）+ 引擎工厂分派接入；**JavaScriptCore 以 QuickJS 顶替落地**（JSC 仅 iOS 原生保留）。
+E.10b 余项（v6.24）：**G-02-C / G-05 / G-09 / G-10 / 详情页·播放入口接线**。
 
 ---
 
@@ -4727,23 +4843,25 @@ E.10b 余项（v6.22）：**G-02（G-02-B/C 余项）/ G-03（G-03-B 余项）/ 
 
 ```
 第 0 阶段  契约冻结        ████████████████████ 100%  ✅ 已过 D13 门禁
-第 1 轮    核心骨架        ██████████████░░░░░░  70%  🔄 进行中（E.10b 未通过）
+第 1 轮    核心骨架        ██████████████░░░░░░  72%  🔄 进行中（E.10b 未通过）
 第 2 轮    功能补全        ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 3 轮    兼容性与稳定性   ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 4 轮    数据互通与边界   ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 第 5 轮    发布准备        ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 ```
 
-**第 1 轮 70% 的依据**：9 个交付块完成 **5 个**，另 **3 项计划外交付**，单测部分达成——
+**第 1 轮 72% 的依据**：9 个交付块完成 **5 个**，另 **3 项计划外交付**，单测部分达成——
 ✅ 契约层镜像 · ✅ 数据层 · ✅ 领域层实体 · ✅ 入口与形态判定 · ✅ conformance runner
 · ✅ 核心层（`lib/core/` 21 文件，计划外，见 P.12）
 · ✅ 用例层 + 远程数据源（计划外，见 P.13）
 · ✅ Spider 引擎桥接协议层（G-03-A，计划外，见 P.31）
-· ✅ 单元测试（39 文件 / 436 用例静态声明，v6.22；覆盖率口径与 CI 复核详见 P.32）；
-🔄 平台插件层（**G-02-A 部分交付**：Dart 控制层 + Android 接线，见 P.32）· 🔄 Spider 引擎（G-03-B 余项待决策）· ⬜ UI 三形态。
+· ✅ UI 三形态（G-01 收官，见 P.28）
+· ✅ 单元测试（40 文件 / 450 用例静态声明，v6.24；覆盖率口径与 CI 复核详见 P.32）；
+🔄 平台插件层（**G-02-A/B 交付**：Dart 控制层 + Android Media3 接线 + macOS AVPlayer + libmpv 分发决策 D28，见 P.32/P.33）· 🔄 Spider 引擎（**G-03-A/B 交付**：桥接协议层 + QuickJS FFI + 运行时 D29，见 P.31/P.34）· ⬜ 详情页·播放入口接线。
 
-> 口径说明：5/9 块 + 3 项计划外交付 + 2 项部分达成（平台插件层 G-02-A / Spider 引擎 G-03-A）≈ 70%
-> （若按块数硬算为 56%，但计划外交付显著推进了「可运行骨架」的完整度，故取 70%）。
+> 口径说明：5/9 块 + 3 项计划外交付 + G-01 三形态 + 2 项部分达成推进（平台插件层 G-02-A/B /
+> Spider 引擎 G-03-A/B，v6.24 增补；余 G-02-C 真机 / G-05 收尾 / 详情页接线）≈ 72%
+> （若按块数硬算为 56%，但计划外交付显著推进了「可运行骨架」的完整度，故取 72%）。
 
 ## A.2 第 0 阶段交付产物（15 文件）
 
