@@ -134,7 +134,7 @@
 > ④ **无代码 / 契约 / 平台壳改动**，各项事实计数不变（74 lib / 28 测试 / 365 用例 / 11 脚本 / 66 平台壳文件）；
 > 文档更名 `VBOX_PLAN_v6.11.md` → **`VBOX_PLAN_v6.12.md`**（D25）。
 >
-> **v6.13 变更（本版）**：**P0 清障批次（闭环 P.13 §4 #4 / #5 / #6 与 P.16 #1）** ——
+> **v6.13 变更**：**P0 清障批次（闭环 P.13 §4 #4 / #5 / #6 与 P.16 #1）** ——
 > ① **启用 `analysis_options.yaml`**（`include: package:flutter_lints/flutter.yaml`，排除平台壳与 `build/`），
 > `flutter_lints` 由「已声明但零生效」转为**真正门禁**；`dart fix --apply` 清掉 **79 条** lint
 > （73 `prefer_const_constructors` / 5 `use_super_parameters` / 1 `prefer_const_declarations` /
@@ -150,6 +150,17 @@
 > ⑤ 计数变化：lib **74 → 75**（+adapter）、测试文件 **28 → 29**（+3 adapter 直测）、单测 **365 → 371**、
 > 触达口径 **86.4% → 86.5%**，全 lib 整体 **71.1%（不变，达标）**、零触达仍 **24/75**；新增 **P.23 清障批次复核**；
 > 文档更名 `VBOX_PLAN_v6.12.md` → **`VBOX_PLAN_v6.13.md`**（D25）。
+>
+> **v6.14 变更（本版）**：**P0 前置收口批次（闭环 P.16 #2 与 P.23 §4 #2）** ——
+> ① **B1 普通分支读取防崩溃**（P.16 #2 闭环）：`PrefsManager.get` 普通键分支捕获历史类型不符抛出的 `TypeError`，
+> **静默回退契约默认值**（此前首读即崩）；对应单测由「断言抛 TypeError」改写为「断言回退默认值」；
+> ② **应用名大小写裁定**（P.23 §4 #2 闭环）：三端平台壳实际已统一为小写 `vbox`，**裁定维持小写**，
+> `app.dart` 的 `title` / `AppBar` 对齐小写 `vbox`（此前与平台壳不一致）；
+> ③ **登记（不动代码）**：CmsV10Datasource 裁定「实现但未接线，暂接入待 UI 批次决定」、
+> 云盘凭据敏感标注（P.16 #3 / #4）裁定**维持现状**（明文），登记待 UI 批次复核；
+> ④ 修正 **P.13 §4 #13** 过期登记：`file_store` 实已被 `remote_source_repository_impl` 接线（清单缓存），移出零引用清单；
+> ⑤ 计数不变：lib **75**、测试文件 **29**、单测 **371**、零触达 **24/75**、全 lib 整体 **71.1%**；新增 **P.24 前置收口复核**；
+> 文档更名 `VBOX_PLAN_v6.13.md` → **`VBOX_PLAN_v6.14.md`**（D25）。
 
 ## 版本历史
 
@@ -174,7 +185,8 @@
 | **v6.10** | 2026-09-29：**清账批次** —— ① 修复 `docs-guard:history` 块**缺闭合**致 L104–L3158 数值 / 路径规则静默失效的结构性漏洞（闭合后再抓 2 处陈旧键数 + 1 处旧文件名并修正）；② 守卫新增**规则 8**（`pubspec` ↔ `AppInfo` 版本一致）/ **规则 9**（禁不可验证的目录声明），并从历史标记移除过泛的「遗漏 / 冗余」、补「NN 个」写法检测；③ `AppInfo` 版本对齐 `pubspec`（`3.1621.0+1621`）、`pubspec.yaml` 移除零引用依赖 `dio` / `collection`；④ 修正 `data/repositories` / `platform/*` / `presentation/*` / `android-compat.md` / `vbox_flutter/` / `flutter/` / `app.dart` 行号等目录路径漂移；⑤ 新增 **D26**、**P.21**；旧文件名入 `DEAD_DOCS` |
 | **v6.11** | 2026-09-29：**平台壳批次（三端编译门禁解锁）** —— ① 交付 `android/` `macos/` `windows/` 三端平台壳（`flutter create` 官方模板，**66 文件**，非侵入落地）；② 标识统一 **`com.vbox.player`**（Android namespace/applicationId + macOS bundle id + `MainActivity.kt` 迁移）、`minSdk` 锁 **24**；③ `flutter-check.yml` 新增 **build-android / build-macos / build-windows** 三个 build job，门禁 E.10b ③/⑤「三端编译」转为**已具备编译通道（待 CI 首跑确认）**；④ 新增 **D27**、**P.22**；文档更名 `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` |
 | **v6.12** | 2026-09-29：**CI 首跑验证** —— Flutter Check（run `36600564607`，`f59d04e`）**5 job 全绿**（`contract-checks` / `flutter-analyze` / `build-android` / `build-macos` / `build-windows`）；门禁 **③/⑤「三端编译通过」由「待首跑确认」转为「✅ 已通过」**；修正 P.14 `pubspec.lock` 状态漂移；**无代码 / 契约 / 平台壳改动**，计数不变；文档更名 `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` |
-| **v6.13（现行）** | 2026-09-29：**P0 清障批次**（闭环 P.13 §4 #4 / #5 / #6 与 P.16 #1）—— ① 启用 `analysis_options.yaml`（`flutter_lints`）并 `dart fix --apply`（80 条告警 → `flutter analyze` 0 issues）；② 消除 DB 路径双真相源（`database_manager` 统一取 `StoragePaths.databaseFile`）；③ `prefs_manager` 接入核心层 `SecureStore` 抽象（新增 `secure_store_adapter.dart`，不再直连插件）；④ 敏感键回退读取 + 迁移（修复 iOS 迁移后 5 键首读丢值）；lib **74 → 75**、测试文件 **28 → 29**、单测 **365 → 371**、全 lib 整体 **71.1%（达标）**；新增 **P.23**；文档更名 `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` |
+| v6.13 | 2026-09-29：**P0 清障批次**（闭环 P.13 §4 #4 / #5 / #6 与 P.16 #1）—— ① 启用 `analysis_options.yaml`（`flutter_lints`）并 `dart fix --apply`（80 条告警 → `flutter analyze` 0 issues）；② 消除 DB 路径双真相源（`database_manager` 统一取 `StoragePaths.databaseFile`）；③ `prefs_manager` 接入核心层 `SecureStore` 抽象（新增 `secure_store_adapter.dart`，不再直连插件）；④ 敏感键回退读取 + 迁移（修复 iOS 迁移后 5 键首读丢值）；lib **74 → 75**、测试文件 **28 → 29**、单测 **365 → 371**、全 lib 整体 **71.1%（达标）**；新增 **P.23**；文档更名 `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` |
+| **v6.14（现行）** | 2026-09-30：**P0 前置收口批次** —— ① B1 普通分支读取防崩溃（P.16 #2 闭环：类型不符 `TypeError` → 静默回退契约默认值）；② 应用名大小写裁定**维持小写 `vbox`**（P.23 §4 #2 闭环，`app.dart` title / AppBar 对齐平台壳）；③ CmsV10 裁定「实现但未接线，暂接入待 UI 批次」+ 云盘凭据敏感标注维持现状登记（P.16 #3/#4）；④ 修正 `file_store` 已接线登记（P.13 §4 #13）；计数不变（75 / 29 / 371 / 71.1%）；新增 **P.24**；文档更名 `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` |
 
 <!-- /docs-guard:history -->
 
@@ -212,7 +224,7 @@
 | **D22** | **Flutter 版本基线** | 以 CI 实测 **3.47.5** 为准，**修订 §2.3 的「3.24.x 锁版」**；与 D12（API 24，依据 3.47 支持矩阵）保持一致 | **已确认**（2026-09-29） |
 | **D23** | **本地持久化与模型** | Flutter 侧采用 **`sqflite` 直连 + 手写模型**，**不引入 drift / freezed 代码生成**；契约正确性由 Python 侧 `check_*` 断言，不依赖 Dart 代码生成 | **已确认**（2026-09-29） |
 | **D24** | **文档版本号递增** | **每次修改本方案文档必须先递增修订版本号**（v6.x → v6.x+1）**再交付 / 推送**；递增须同步：① 顶部「本版变更」块（旧版去掉「（本版）」标记）、② 版本历史表「（现行）」行、③ 受影响的计数与口径引用 | **已确认**（2026-09-29） |
-| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.13.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
+| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.14.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
 | **D26** | **守卫结构性漏洞须闭环** | 文档守卫的**块级豁免标记必须成对闭合**；凡「静默豁免 / 静默跳过」类设计必须自带**自检**（如块标记成对性、豁免行数上限告警）。发现「规则静默失效」类结构性漏洞时，须**先补漏洞、再用其复查全量**，并把新规则纳入 CI（本轮即由未闭合的 `docs-guard:history` 块暴露 L104–L3158 长期失守） | **已确认**（2026-09-29） |
 | **D27** | **平台壳与包名基线** | Flutter 平台壳**一律以 `flutter create` 官方模板生成**（不手写），且**非侵入落地**（临时目录生成后仅拷贝平台目录 + `.metadata`，不改 `lib/` / `test/` / `pubspec.yaml`）；Android `namespace`/`applicationId` 与 macOS `PRODUCT_BUNDLE_IDENTIFIER` 统一为 **`com.vbox.player`**（iOS 保持 `com.vbox.iosplayer`）；`minSdk` **显式写死 24**（D12），不依赖 `flutter.minSdkVersion` 隐式默认 | **已确认**（2026-09-29） |
 
@@ -2324,7 +2336,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.13.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.14.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -3626,7 +3638,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 10 | 🟢 低 | `.gitignore` 未忽略 `*.o` / `build/` | 与第 9 项同源；✅ **v6.1 已补 `*.o` / `build/` / `.dart_tool/`** |
 | 11 | 🟢 低 | `pre-commit.sh` 引用的 `check_braces.py` 仓库中不存在 | 钩子实际失效；✅ **v6.1 已删除**（游离脚本一并归入 `scripts/legacy/`） |
 | 12 | 🟢 低 | `lib/contract/abi/` 为空 | Spider ABI 在 Dart 侧无镜像（仅 Python runner 校验） |
-| 13 | 🟢 低 | `core.dart` / `network_info.dart` / `file_store.dart` / `logger.dart` 在 `lib` 内 **0 引用**（`secure_store.dart` / `storage_paths.dart` **v6.13 已接线**，移出本行） | 预置能力待接线，存在「写了没用」的漂移风险 |
+| 13 | 🟢 低 | `core.dart` / `network_info.dart` / `logger.dart` 在 `lib` 内 **0 引用**（`secure_store.dart` / `storage_paths.dart` **v6.13 已接线**、`file_store.dart` **v6.14 实证已接线**（`remote_source_repository_impl` 清单缓存），移出本行）；`CmsV10Datasource` 标注「实现但未接线」（**v6.14 登记**） | 预置能力待接线，存在「写了没用」的漂移风险 |
 | 14 | 🟢 低 | `LICENSE` 缺失 | 自用项目，影响低 |
 | 15 | 🟢 低 | `assets/.gitkeep` 会被打进包 | 无害 |
 
@@ -4145,7 +4157,7 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | # | severity | 项 | 说明 |
 |---|----------|----|------|
 | 1 | 🟡 中 | `dev_dependencies.test` 零引用未移除 | `flutter test` 由 SDK 提供，显式 dev 依赖 `test` 冗余；留待后续批次（对照 v6.10 移除 `dio` / `collection`） |
-| 2 | 🟡 中 | 三端 product name 未统一 | Android `android:label` / macOS `PRODUCT_NAME` / Windows 应用名未统一为 **`VBox`** |
+| 2 | 🟡 中 | ~~三端 product name 未统一~~ | ✅ **v6.14 已闭环**：裁定**维持小写 `vbox`**（三端平台壳 Android label / macOS `PRODUCT_NAME` / Windows 标题实测已一致），`app.dart` `title` / `AppBar` 由大写 `VBox` 对齐小写（见 P.24） |
 | 3 | 🟢 低 | `scripts/api_push.py` 与 `api_push2.py` 功能重复 | 与「合并重复脚本」批次一并归并 |
 
 #### 5. 收尾核对（文件名版本化 + 引用同步）
@@ -4157,6 +4169,47 @@ conformance **45/45** · iOS IPA 构建链路成功。
 | 3 | 计数口径全文同步 | 现行状态处 lib / 测试 / 用例 / 覆盖率口径统一为 75 / 29 / 371 / 86.5% / 24-75 |
 
 > 注：以上收尾为文档一致性修正，事实以本机实测为准。
+
+---
+
+### P.24 十二轮复核：前置收口批次（B1 类型回退 + 应用名裁定 + 登记）（v6.14 新增）
+
+> 复核方法：本机重装 Flutter **3.47.5** 实测 `flutter analyze` / `flutter test` + **11 守卫** + conformance **45/45**；文档↔代码逐项核对（含跨文件 grep 引用实证）。
+
+#### 1. 交付内容
+
+| 项 | 内容 |
+|----|------|
+| B1 普通分支读取防崩溃（**P.16 #2 闭环**） | `PrefsManager.get` 普通键分支 `try { switch } on TypeError` → **静默回退契约默认值**（此前历史类型不符首读即崩）；单测「读取时类型不符 → TypeError」改写为「→ 回退默认值，不崩溃」 |
+| 应用名大小写裁定（**P.23 §4 #2 闭环**） | 三端平台壳（Android `android:label` / macOS `PRODUCT_NAME` / Windows 窗口标题）实测已统一为小写 `vbox`；**裁定维持小写**，`app.dart` `title` / `AppBar` 由大写 `VBox` 对齐小写 |
+| CmsV10Datasource 裁定登记 | 「**实现但未接线**」：接入作回退源 or 删除，**待 UI 批次**决定（本轮不动代码）；文档 P.13 §4 #13 表述同步 |
+| 云盘凭据敏感标注登记（P.16 #3 / #4） | `pg_source` / `qr_scan`（`credential_extra`）、`baidu_local_pcs_device_id` / `saved_drive_tokens`（未标敏感）**维持现状（明文）**，登记待 UI 批次对照 iOS 源复核后裁定 |
+| 修正过期登记（P.13 §4 #13） | `file_store.dart` 经 grep 实证**已被接线**（`remote_source_repository_impl` 清单缓存：`FileStore.join` / `readJsonMap` / `writeJson`），移出「0 引用」清单 |
+
+#### 2. 事实计数（v6.14）
+
+| 指标 | v6.13 | v6.14 |
+|------|-------|-------|
+| lib 文件 | 75 | **75**（不变） |
+| 测试文件 | 29 | **29**（不变） |
+| 单测用例 | 371 | **371**（不变；B1 测试改写断言、不加用例） |
+| 触达口径 | 86.5% | **86.5%** |
+| 全 lib 整体覆盖 | 71.1% | **71.1%**（达标） |
+| 零触达文件 | 24/75 | **24/75** |
+
+#### 3. 门禁影响（E.10b）
+
+**无变化**：本轮为收口与裁定，不触碰 G-01 / G-02 / G-03；**第 1 轮仍不得标记完成**（D20）。
+
+#### 4. 遗留 / 下批待办（更新）
+
+| # | severity | 项 | 说明 |
+|---|----------|----|------|
+| 1 | 🟡 中 | `dev_dependencies.test` 零引用未移除 | `flutter test` 由 SDK 提供，显式 dev 依赖 `test` 冗余；留待后续批次 |
+| 2 | 🟡 中 | **CmsV10Datasource 去留** | 已裁定「暂不动」：接入作回退源 or 删除，待 UI 批次（接线远程源链路时）决定 |
+| 3 | 🟡 中 | **云盘凭据敏感标注** | P.16 #3 / #4 维持现状（明文），待 UI 批次对照 iOS 源复核后裁定 |
+| 4 | 🟢 低 | `scripts/api_push.py` 与 `api_push2.py` 功能重复 | 与「合并重复脚本」批次一并归并 |
+| 5 | 🟢 低 | 零触达 24/75 中有逻辑文件（`network_info.dart` 等）无测试 | 待接线或删除（随 G-01 / 第 2 轮） |
 
 ---
 

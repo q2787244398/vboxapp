@@ -122,13 +122,13 @@ class _RootRouter extends StatelessWidget {
   Widget build(BuildContext context) {
     final UiModeController mode = context.watch<UiModeController>();
     // TODO(G-01/stage-1): 接入 presentation/{phone,tv,desktop} 三套布局
-    //   登记于 docs/VBOX_PLAN_v6.13.md 附录 C（缺口登记表），阻塞项：UI 三形态未实现
+    //   登记于 docs/VBOX_PLAN_v6.14.md 附录 C（缺口登记表），阻塞项：UI 三形态未实现
     //   解除条件：presentation 层布局文件交付
     return MaterialApp(
-      title: 'VBox',
+      title: 'vbox',
       theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
       home: Scaffold(
-        appBar: AppBar(title: Text('VBox · ${mode.mode.name}')),
+        appBar: AppBar(title: Text('vbox · ${mode.mode.name}')),
         body: Center(
           child: Text(
             '形态：${mode.mode.name}\n（UI 布局待第 1 轮补齐）',

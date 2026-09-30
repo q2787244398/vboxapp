@@ -147,16 +147,13 @@ void main() {
       );
     });
 
-    test('读取时类型不符 → TypeError（遗留数据兼容风险，见文档登记）', () async {
+    test('B1：读取时类型不符 → 静默回退契约默认值，不崩溃', () async {
       // 模拟历史数据以错误类型落库（绕过 set 的类型校验）
       final SharedPreferences sp = await SharedPreferences.getInstance();
       await sp.setString('active_subscription_index', 'legacy-string');
-      // 注意：SharedPreferences.getInt 对 String 值 `as int?` 直接抛，
-      // 不会回退契约默认值 —— 契约 type 与历史存储类型不一致时读取即崩。
-      await expectLater(
-        pm.getInt('active_subscription_index'),
-        throwsA(isA<TypeError>()),
-      );
+      // B1 闭环（P.16 #2）：契约 type 与历史存储类型不一致时，读取不再抛
+      // TypeError，而是静默回退契约默认值，避免首读崩溃。
+      expect(await pm.getInt('active_subscription_index'), 0);
       await pm.remove('active_subscription_index');
     });
   });

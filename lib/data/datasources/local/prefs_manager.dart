@@ -99,15 +99,22 @@ class PrefsManager {
       }
       return meta.defaultValue;
     }
-    return switch (meta.type) {
-      PrefsType.bool => _p.getBool(name) ?? meta.defaultValue,
-      PrefsType.int => _p.getInt(name) ?? meta.defaultValue,
-      PrefsType.long => _p.getInt(name) ?? meta.defaultValue,
-      PrefsType.float => _p.getDouble(name) ?? meta.defaultValue,
-      PrefsType.string => _p.getString(name) ?? meta.defaultValue,
-      PrefsType.stringArray =>
-        _p.getStringList(name) ?? (meta.defaultValue as List<String>?),
-    };
+    try {
+      return switch (meta.type) {
+        PrefsType.bool => _p.getBool(name) ?? meta.defaultValue,
+        PrefsType.int => _p.getInt(name) ?? meta.defaultValue,
+        PrefsType.long => _p.getInt(name) ?? meta.defaultValue,
+        PrefsType.float => _p.getDouble(name) ?? meta.defaultValue,
+        PrefsType.string => _p.getString(name) ?? meta.defaultValue,
+        PrefsType.stringArray =>
+          _p.getStringList(name) ?? (meta.defaultValue as List<String>?),
+      };
+    } on TypeError {
+      // B1：历史数据可能以与契约不符的类型落盘（如 bool 键存了 String），
+      // shared_preferences 的 getter 对类型不符直接抛 TypeError，首读即崩。
+      // 此处捕获并静默回退契约默认值（P.16 #2 闭环）。
+      return meta.defaultValue;
+    }
   }
 
   /// 按键名写入任意类型值（敏感键走 secure storage）。
