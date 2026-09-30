@@ -12,6 +12,7 @@ import '../../core/utils/result.dart';
 import '../../core/utils/time_utils.dart';
 import '../../domain/entities/library/library.dart';
 import '../../domain/usecases/usecases.dart';
+import 'remote_source_page.dart';
 
 /// 书架首页。
 class HomeShelfPage extends StatelessWidget {
@@ -25,6 +26,17 @@ class HomeShelfPage extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('vbox 书架'),
+          actions: <Widget>[
+            IconButton(
+              icon: const Icon(Icons.cloud_outlined),
+              tooltip: '远程源',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (BuildContext context) => const RemoteSourcePage(),
+                ),
+              ),
+            ),
+          ],
           bottom: const TabBar(
             tabs: <Widget>[Tab(text: '收藏'), Tab(text: '历史')],
           ),

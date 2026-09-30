@@ -2,7 +2,7 @@
 ///
 /// 唯一真相源：
 /// - 数据库文件名 / 迁移终点 → `contract/schema/schema_v1.sql`
-/// - 目录布局 → `docs/VBOX_PLAN_v6.15.md` 附录 B
+/// - 目录布局 → `docs/VBOX_PLAN_v6.16.md` 附录 B
 /// - 网络默认值 → `contract/docs/abi_v1.md` §6
 library;
 

@@ -123,8 +123,8 @@ class _RootRouter extends StatelessWidget {
   Widget build(BuildContext context) {
     final UiModeController mode = context.watch<UiModeController>();
     // G-01（UI 三形态）渐进交付：
-    //   phone → HomeShelfPage（v6.15 交付，收藏/历史双 Tab，直连 UseCase）
-    //   desktop / tv → 仍为占位，登记于 docs/VBOX_PLAN_v6.15.md 附录 C，随各形态批次交付
+    //   phone → 书架（v6.15）+ 远程源（v6.16），直连 UseCase
+    //   desktop / tv → 仍为占位，登记于 docs/VBOX_PLAN_v6.16.md 附录 C，随各形态批次交付
     return MaterialApp(
       title: 'vbox',
       theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
