@@ -163,7 +163,9 @@ class PlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChanne
         val dataSourceFactory = DefaultHttpDataSource.Factory()
             .setDefaultRequestProperties(headers)
         val p = ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(context, dataSourceFactory))
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory)
+            )
             .build()
         p.setMediaItem(MediaItem.fromUri(Uri.parse(url)))
         p.prepare()
