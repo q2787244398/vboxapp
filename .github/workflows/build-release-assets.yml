@@ -1,0 +1,238 @@
+# 三端发布打包（G-09 前置物料 P4/P5，S.6/S.7）
+#
+# 背景：flutter-check 的三端 job 只做 `--debug` 编译验证（解锁 E.10b 门禁「三端编译」），
+# 产物不保留；build-ipa 管道只产出 iOS IPA。真机验收清单（docs/真机验收清单_G09_G10.md）
+# P5 要求的 GitHub Release 资产（vbox-arm64.apk / vbox-v7a.apk / vbox-setup.exe / vbox.dmg）
+# 此前无任何工作流产出 → 本工作流补齐。
+#
+# 触发方式：仅 workflow_dispatch（手动）。手动触发时机：IPA 所在 Release（v{版本}，由
+# build-ipa 管道在 q2787244398/vboxapp 创建）已存在或即将发布时，把平台安装包追加到
+# 同一个 Release（同名资产带 vbox.ipa，`releases/latest/download/` 口径即与 S.7 一致）。
+#
+# 分发决策（D28）：libmpv 原生二进制不入 git 仓库，由 scripts/fetch_libmpv.sh 从
+# q2787244398/vbox-deps 的 Release 资产下载并随 DMG / EXE 分发；访问私有仓库需配置
+# secrets.LIBMPV_DEPS_TOKEN（或该仓库为公开则无需）。可配 secrets.LIBMPV_DEPS_URL 直链覆盖。
+#
+# 签名（S.6）：Android 自签名即可但更新必须同签名。签名密钥以 secrets 注入：
+#   ANDROID_KEYSTORE_BASE64（vbox-release.jks 的 base64）、ANDROID_KEYSTORE_PASSWORD、
+#   ANDROID_KEY_ALIAS、ANDROID_KEY_PASSWORD
+# 未配置时回退 debug 签名 APK（可安装，P4 同签名覆盖验证待配置后重跑）。
+# Windows 代码签名 / macOS 公证均为可选（S.6：侧载可接受）。
+
+name: Build Release Assets (APK / EXE / DMG)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          目标 Release tag。缺省取 pubspec.yaml 的 version 前缀（如 v3.1621.0）。
+          若要与 iOS IPA 同 Release（build-ipa 管道创建，tag 来自 iOS Info.plist
+          MARKETING_VERSION，例如 v6.27.0），请填该 tag。
+        required: false
+        type: string
+
+jobs:
+  # ── Android：release APK（arm64 + v7a）+ S.6 自签名 ────────────────
+  build-android:
+    name: Build Android APK (arm64 + v7a)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5"
+
+      - run: flutter pub get
+
+      - name: Build release APKs (split-per-abi)
+        run: flutter build apk --release --split-per-abi
+
+      - name: Sign with release keystore (S.6, P4)
+        env:
+          KS_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          OUT=build/app/outputs/flutter-apk
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          BT="$(ls "$SDK_ROOT"/build-tools | sort -V | tail -1)"
+          APKSIGNER="$SDK_ROOT/build-tools/$BT/apksigner"
+          if [ -n "$KS_BASE64" ] && [ -n "$KS_PASS" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASS" ]; then
+            echo "$KS_BASE64" | base64 -d > vbox-release.jks
+            "$APKSIGNER" sign --ks vbox-release.jks \
+              --ks-pass "env:KS_PASS" --ks-key-alias "$KEY_ALIAS" --key-pass "env:KEY_PASS" \
+              --out vbox-arm64.apk "$OUT/app-arm64-v8a-release.apk"
+            "$APKSIGNER" sign --ks vbox-release.jks \
+              --ks-pass "env:KS_PASS" --ks-key-alias "$KEY_ALIAS" --key-pass "env:KEY_PASS" \
+              --out vbox-v7a.apk "$OUT/app-armeabi-v7a-release.apk"
+            "$APKSIGNER" verify --print-certs vbox-arm64.apk | head -3
+            echo "✅ 已用 release 密钥签名"
+          else
+            echo "⚠️ 未配置 ANDROID_KEYSTORE_* secrets，产出 debug 签名 APK（可安装；"
+            echo "   P4 同签名覆盖更新验证需配置密钥后重跑本工作流）"
+            cp "$OUT/app-arm64-v8a-release.apk" vbox-arm64.apk
+            cp "$OUT/app-armeabi-v7a-release.apk" vbox-v7a.apk
+          fi
+          ls -lh vbox-*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vbox-apk
+          path: |
+            vbox-arm64.apk
+            vbox-v7a.apk
+          retention-days: 14
+
+  # ── Windows：release 构建 + libmpv dll + Inno Setup → vbox-setup.exe ──
+  build-windows:
+    name: Build Windows installer (vbox-setup.exe)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5"
+
+      - run: flutter pub get
+
+      - name: Fetch libmpv dll (D28)
+        shell: bash
+        env:
+          LIBMPV_DEPS_TOKEN: ${{ secrets.LIBMPV_DEPS_TOKEN || secrets.GITHUB_TOKEN }}
+          LIBMPV_DEPS_URL: ${{ secrets.LIBMPV_DEPS_URL }}
+        run: |
+          bash scripts/fetch_libmpv.sh --os windows --arch x86_64 --cache-dir .mpv-cache
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Bundle libmpv dll into release dir
+        shell: bash
+        run: |
+          cp .mpv-cache/libmpv-windows-*.dll build/windows/x64/runner/Release/
+
+      - name: Compile installer with Inno Setup
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc "windows/installer/installer.iss"
+
+      - name: Rename to S.7 name (vbox-setup.exe)
+        shell: bash
+        run: |
+          mv windows/installer/Output/vbox-setup.exe vbox-setup.exe
+          ls -lh vbox-setup.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vbox-windows
+          path: vbox-setup.exe
+          retention-days: 14
+
+  # ── macOS：release 构建 + libmpv dylib + hdiutil → vbox.dmg ─────────
+  build-macos:
+    name: Build macOS DMG (vbox.dmg)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5"
+
+      - run: flutter pub get
+
+      - name: Fetch libmpv dylib (D28)
+        env:
+          LIBMPV_DEPS_TOKEN: ${{ secrets.LIBMPV_DEPS_TOKEN || secrets.GITHUB_TOKEN }}
+          LIBMPV_DEPS_URL: ${{ secrets.LIBMPV_DEPS_URL }}
+        run: |
+          ARCH="$(uname -m)"
+          bash scripts/fetch_libmpv.sh --os macos --arch "$ARCH" --cache-dir .mpv-cache
+
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      - name: Bundle libmpv dylib into app Frameworks
+        run: |
+          APP="$(ls -d build/macos/Build/Products/Release/*.app | head -1)"
+          mkdir -p "$APP/Contents/Frameworks"
+          cp .mpv-cache/libmpv-macos-*.dylib "$APP/Contents/Frameworks/"
+          ls -lh "$APP/Contents/Frameworks/"
+
+      - name: Create DMG
+        run: |
+          APP="$(ls -d build/macos/Build/Products/Release/*.app | head -1)"
+          hdiutil create -volname vbox -srcfolder "$APP" -ov -format UDZO vbox.dmg
+          ls -lh vbox.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vbox-macos
+          path: vbox.dmg
+          retention-days: 14
+
+  # ── 汇总：下载三端产物，挂到 Release（同一 vbox.ipa 所在 tag）────────
+  attach-to-release:
+    name: Attach assets to Release
+    needs: [build-android, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          else
+            VER="$(grep '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([0-9.]+).*/\1/')"
+            echo "tag=v${VER}" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+
+      - name: Upload assets to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          cd assets
+          ls -lh
+          FILES=(vbox-arm64.apk vbox-v7a.apk vbox-setup.exe vbox.dmg)
+          for f in "${FILES[@]}"; do
+            test -f "$f" || { echo "❌ 缺少资产 $f"; exit 1; }
+          done
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "✅ Release $TAG 已存在，追加资产（与 vbox.ipa 同 Release）"
+            gh release upload "$TAG" "${FILES[@]}" --clobber
+          else
+            echo "Release $TAG 不存在，创建并上传资产"
+            gh release create "$TAG" "${FILES[@]}" --title "$TAG" \
+              --notes "vbox 平台安装包（Android APK / Windows EXE / macOS DMG），由 build-release-assets 工作流产出"
+          fi
+          echo "=== Release $TAG 当前资产 ==="
+          gh release view "$TAG" --json assets -q '.assets[].name'
