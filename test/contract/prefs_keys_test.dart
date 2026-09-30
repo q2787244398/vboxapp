@@ -99,7 +99,7 @@ void main() {
           (contract['sensitiveKeys']! as List<Object?>).cast<String>().toSet();
       expect(flags, jsonSensitive);
       expect(kSensitiveKeys, jsonSensitive);
-      expect(jsonSensitive.length, 5);
+      expect(jsonSensitive.length, 7);
     });
 
     test('JSON 标 sensitive 的键，Dart 标志必须为真（防既有缺陷回归）', () {

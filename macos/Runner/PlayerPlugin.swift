@@ -103,7 +103,8 @@ public class PlayerPlugin: NSObject, FlutterPlugin {
     let asset = AVURLAsset(url: url, options: assetOptions)
     let item = AVPlayerItem(asset: asset)
     let newPlayer = AVPlayer(playerItem: item)
-    newPlayer.automaticallyWaitsForMinimizeStallingPlayback = true
+    // 注：iOS 的 AVPlayer.automaticallyWaitsForMinimizeStallingPlayback 为 iOS-only 属性，
+    // macOS 不存在该成员（CI Xcode 16.4 / macOS SDK 15.5 编译实证），默认策略即等待最小化卡顿，无需设置。
     player = newPlayer
 
     observe(newPlayer)

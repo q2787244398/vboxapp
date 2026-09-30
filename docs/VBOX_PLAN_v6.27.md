@@ -242,6 +242,7 @@
 > ④ **B2 存储策略裁定**：`prefs_manager.dart` `_isSecure` 纳入 `storage == PrefsStorage.credentialExtra` —— PG 凭据 extra 字段（`pg_source` / `qr_scan`）由明文 SharedPreferences 改为经核心层 SecureStore 抽象走安全存储（与 keychain 键同级），契约 §2.5 与 `check_prefs_manager.py` 同步；
 > ⑤ **B3 敏感键复核裁定**：契约 `prefs_keys_v1.json` 升 **v1.3** —— `sensitiveKeys` 5 → **7**（新增 `baidu_local_pcs_device_id` 百度 PCS 本地设备指纹 / `saved_drive_tokens` 网盘 token 存储键），Dart 镜像 `prefs_keys.dart` 逐键同步 `sensitive: true`；
 > ⑥ 测试：`prefs_manager_test.dart` 更新安全键集合口径（**11 键** = 7 敏感 + 2 keychain + 2 credential_extra），新增断言覆盖 B2/B3 裁定键；`check_prefs_manager.py` 静态检查同步收紧；
+> ⑥' CI 反馈修复（推送后 Flutter Check 暴露 2 处）：**build-macos** —— `PlayerPlugin.swift` 使用 iOS-only 属性 `AVPlayer.automaticallyWaitsForMinimizeStallingPlayback`，macOS 无该成员 → 移除并注释（默认策略即等待最小化卡顿）；**flutter test** —— `prefs_keys_test.dart` 仍断言 `jsonSensitive.length == 5`，未随 B3 同步 → 改为 7（505 通过 + 1 失败 → 修复）；
 > ⑦ 门禁（E.10b）：P2 遗留清理闭环后，第 1 轮（核心骨架）**代码侧已全部交付**；E.10b 余项收敛为 **G-09 / G-10（真机人测）**；`stage_check_report_stage1.yaml` verdict 仍 **blocked**（D20：真机验收通过前不得标记完成、不得进入第 2 轮）；
 > 新增 **P.37（P2 遗留清理全批次复核）**；文档更名 `VBOX_PLAN_v6.26.md` → **`VBOX_PLAN_v6.27.md`**（D25）。
 >
