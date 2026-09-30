@@ -89,7 +89,8 @@ DEAD_DOCS = ("PROJECT_LAYOUT.md", "PROGRESS.md", "KNOWN_GAPS.md")
 # v6.12：追加 v6.11 —— 本轮把文件名升到 v6.12（CI 首跑验证），v6.11 成为旧名，纳入防回流。
 # v6.13：追加 v6.12 —— 本轮把文件名升到 v6.13（P0 清障批次），v6.12 成为旧名，纳入防回流。
 # v6.14：追加 v6.13 —— 本轮把文件名升到 v6.14（前置收口批次），v6.13 成为旧名，纳入防回流。
-DEAD_DOCS += ("VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
+# v6.15：追加 v6.14 —— 本轮把文件名升到 v6.15（phone 书架批次），v6.14 成为旧名，纳入防回流。
+DEAD_DOCS += ("VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
 
 # v6.10 新增：现行契约校验套件（check_*.py）总数，供规则 2 使用
 APP_CONSTANTS = ROOT / "lib" / "core" / "constants" / "app_constants.dart"

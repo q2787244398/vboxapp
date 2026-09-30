@@ -22,6 +22,7 @@ import 'data/datasources/local/prefs_manager.dart';
 import 'data/datasources/remote/remote_manifest_datasource.dart';
 import 'data/repositories/repositories.dart';
 import 'domain/usecases/usecases.dart';
+import 'presentation/phone/home_shelf_page.dart';
 import 'presentation/ui_mode/ui_mode_resolver.dart';
 
 class VBoxApp extends StatefulWidget {
@@ -121,21 +122,24 @@ class _RootRouter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final UiModeController mode = context.watch<UiModeController>();
-    // TODO(G-01/stage-1): 接入 presentation/{phone,tv,desktop} 三套布局
-    //   登记于 docs/VBOX_PLAN_v6.14.md 附录 C（缺口登记表），阻塞项：UI 三形态未实现
-    //   解除条件：presentation 层布局文件交付
+    // G-01（UI 三形态）渐进交付：
+    //   phone → HomeShelfPage（v6.15 交付，收藏/历史双 Tab，直连 UseCase）
+    //   desktop / tv → 仍为占位，登记于 docs/VBOX_PLAN_v6.15.md 附录 C，随各形态批次交付
     return MaterialApp(
       title: 'vbox',
       theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
-      home: Scaffold(
-        appBar: AppBar(title: Text('vbox · ${mode.mode.name}')),
-        body: Center(
-          child: Text(
-            '形态：${mode.mode.name}\n（UI 布局待第 1 轮补齐）',
-            textAlign: TextAlign.center,
+      home: switch (mode.mode) {
+        UiMode.phone => const HomeShelfPage(),
+        UiMode.desktop || UiMode.tv => Scaffold(
+            appBar: AppBar(title: Text('vbox · ${mode.mode.name}')),
+            body: Center(
+              child: Text(
+                '形态：${mode.mode.name}\n（UI 布局待 ${mode.mode.name} 批次补齐）',
+                textAlign: TextAlign.center,
+              ),
+            ),
           ),
-        ),
-      ),
+      },
     );
   }
 }

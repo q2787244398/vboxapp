@@ -29,7 +29,7 @@
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名随修订版本递增（**D25**）：`VBOX_PLAN_v5.md` → `VBOX_PLAN_v6.md`（v6 系列首版，现已废弃）
-> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → **`VBOX_PLAN_v6.13.md`**（当前版）。
+> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → **`VBOX_PLAN_v6.15.md`**（当前版）。
 >
 > **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
@@ -151,7 +151,7 @@
 > 触达口径 **86.4% → 86.5%**，全 lib 整体 **71.1%（不变，达标）**、零触达仍 **24/75**；新增 **P.23 清障批次复核**；
 > 文档更名 `VBOX_PLAN_v6.12.md` → **`VBOX_PLAN_v6.13.md`**（D25）。
 >
-> **v6.14 变更（本版）**：**P0 前置收口批次（闭环 P.16 #2 与 P.23 §4 #2）** ——
+> **v6.14 变更**：**P0 前置收口批次（闭环 P.16 #2 与 P.23 §4 #2）** ——
 > ① **B1 普通分支读取防崩溃**（P.16 #2 闭环）：`PrefsManager.get` 普通键分支捕获历史类型不符抛出的 `TypeError`，
 > **静默回退契约默认值**（此前首读即崩）；对应单测由「断言抛 TypeError」改写为「断言回退默认值」；
 > ② **应用名大小写裁定**（P.23 §4 #2 闭环）：三端平台壳实际已统一为小写 `vbox`，**裁定维持小写**，
@@ -161,6 +161,16 @@
 > ④ 修正 **P.13 §4 #13** 过期登记：`file_store` 实已被 `remote_source_repository_impl` 接线（清单缓存），移出零引用清单；
 > ⑤ 计数不变：lib **75**、测试文件 **29**、单测 **371**、零触达 **24/75**、全 lib 整体 **71.1%**；新增 **P.24 前置收口复核**；
 > 文档更名 `VBOX_PLAN_v6.13.md` → **`VBOX_PLAN_v6.14.md`**（D25）。
+>
+> **v6.15 变更（本版）**：**G-01 phone 形态书架交付（第 1 轮 UI 首块）** ——
+> ① 新增 `lib/presentation/phone/home_shelf_page.dart`：**收藏 / 历史双 Tab**，状态接入**直连 UseCase**
+> （D21 轻量路线），覆盖空态 / 错误重试 / 移除 / 清空确认，条目展示来源 · 相对时间 · 集数 · 进度条；
+> ② `app.dart` 形态路由按 `UiMode` 分发：**phone → HomeShelfPage**，desktop / tv 保持占位（渐进交付，随各形态批次）；
+> ③ 新增 widget 测试 `test/presentation/phone/home_shelf_page_test.dart`（**7 用例**，注入内存仓储 fakes 走真用例链路）；
+> ④ 计数变化：lib **75 → 76**、测试文件 **29 → 30**、单测 **371 → 378**、触达口径 **86.5% → 86.3%**、
+> 全 lib 整体 **71.1% → 71.8%**、零触达 **24/75 → 24/76**（新增文件有测试触达）；
+> ⑤ 门禁（E.10b）：G-01 **部分解除**（phone 书架块交付，TV / desktop 形态与详情·播放链路仍待）；
+> 新增 **P.25 书架复核**；文档更名 `VBOX_PLAN_v6.14.md` → **`VBOX_PLAN_v6.15.md`**（D25）。
 
 ## 版本历史
 
@@ -186,7 +196,8 @@
 | **v6.11** | 2026-09-29：**平台壳批次（三端编译门禁解锁）** —— ① 交付 `android/` `macos/` `windows/` 三端平台壳（`flutter create` 官方模板，**66 文件**，非侵入落地）；② 标识统一 **`com.vbox.player`**（Android namespace/applicationId + macOS bundle id + `MainActivity.kt` 迁移）、`minSdk` 锁 **24**；③ `flutter-check.yml` 新增 **build-android / build-macos / build-windows** 三个 build job，门禁 E.10b ③/⑤「三端编译」转为**已具备编译通道（待 CI 首跑确认）**；④ 新增 **D27**、**P.22**；文档更名 `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` |
 | **v6.12** | 2026-09-29：**CI 首跑验证** —— Flutter Check（run `36600564607`，`f59d04e`）**5 job 全绿**（`contract-checks` / `flutter-analyze` / `build-android` / `build-macos` / `build-windows`）；门禁 **③/⑤「三端编译通过」由「待首跑确认」转为「✅ 已通过」**；修正 P.14 `pubspec.lock` 状态漂移；**无代码 / 契约 / 平台壳改动**，计数不变；文档更名 `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` |
 | v6.13 | 2026-09-29：**P0 清障批次**（闭环 P.13 §4 #4 / #5 / #6 与 P.16 #1）—— ① 启用 `analysis_options.yaml`（`flutter_lints`）并 `dart fix --apply`（80 条告警 → `flutter analyze` 0 issues）；② 消除 DB 路径双真相源（`database_manager` 统一取 `StoragePaths.databaseFile`）；③ `prefs_manager` 接入核心层 `SecureStore` 抽象（新增 `secure_store_adapter.dart`，不再直连插件）；④ 敏感键回退读取 + 迁移（修复 iOS 迁移后 5 键首读丢值）；lib **74 → 75**、测试文件 **28 → 29**、单测 **365 → 371**、全 lib 整体 **71.1%（达标）**；新增 **P.23**；文档更名 `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` |
-| **v6.14（现行）** | 2026-09-30：**P0 前置收口批次** —— ① B1 普通分支读取防崩溃（P.16 #2 闭环：类型不符 `TypeError` → 静默回退契约默认值）；② 应用名大小写裁定**维持小写 `vbox`**（P.23 §4 #2 闭环，`app.dart` title / AppBar 对齐平台壳）；③ CmsV10 裁定「实现但未接线，暂接入待 UI 批次」+ 云盘凭据敏感标注维持现状登记（P.16 #3/#4）；④ 修正 `file_store` 已接线登记（P.13 §4 #13）；计数不变（75 / 29 / 371 / 71.1%）；新增 **P.24**；文档更名 `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` |
+| v6.14 | 2026-09-30：**P0 前置收口批次** —— ① B1 普通分支读取防崩溃（P.16 #2 闭环：类型不符 `TypeError` → 静默回退契约默认值）；② 应用名大小写裁定**维持小写 `vbox`**（P.23 §4 #2 闭环，`app.dart` title / AppBar 对齐平台壳）；③ CmsV10 裁定「实现但未接线，暂接入待 UI 批次」+ 云盘凭据敏感标注维持现状登记（P.16 #3/#4）；④ 修正 `file_store` 已接线登记（P.13 §4 #13）；计数不变（75 / 29 / 371 / 71.1%）；新增 **P.24**；文档更名 `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` |
+| **v6.15（现行）** | 2026-09-30：**G-01 phone 形态书架交付（第 1 轮 UI 首块）** —— ① 新增 `lib/presentation/phone/home_shelf_page.dart`（收藏 / 历史双 Tab，直连 UseCase，空态 / 重试 / 移除 / 清空确认）；② `app.dart` 按 `UiMode` 分发：phone → HomeShelfPage（desktop / tv 占位渐进交付）；③ 新增 widget 测试 **7 用例**（内存仓储 fakes 走真用例链路）；lib **75 → 76**、测试 **29 → 30**、单测 **371 → 378**、整体覆盖 **71.1% → 71.8%**、零触达 **24/76**；E.10b **G-01 部分解除**；新增 **P.25**；文档更名 `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` |
 
 <!-- /docs-guard:history -->
 
@@ -224,7 +235,7 @@
 | **D22** | **Flutter 版本基线** | 以 CI 实测 **3.47.5** 为准，**修订 §2.3 的「3.24.x 锁版」**；与 D12（API 24，依据 3.47 支持矩阵）保持一致 | **已确认**（2026-09-29） |
 | **D23** | **本地持久化与模型** | Flutter 侧采用 **`sqflite` 直连 + 手写模型**，**不引入 drift / freezed 代码生成**；契约正确性由 Python 侧 `check_*` 断言，不依赖 Dart 代码生成 | **已确认**（2026-09-29） |
 | **D24** | **文档版本号递增** | **每次修改本方案文档必须先递增修订版本号**（v6.x → v6.x+1）**再交付 / 推送**；递增须同步：① 顶部「本版变更」块（旧版去掉「（本版）」标记）、② 版本历史表「（现行）」行、③ 受影响的计数与口径引用 | **已确认**（2026-09-29） |
-| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.14.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
+| **D25** | **文档文件名版本号** | 本方案文档**文件名须携带现行修订版本号**（`docs/VBOX_PLAN_v6.15.md`），且与「（现行）」行、顶部「本版变更」块**三处一致**；递增修订版本号须**同步重命名文件并更新全部引用**（含 README / 源码注释 / CI / 守卫），守卫规则 6 强制 | **已确认**（2026-09-29） |
 | **D26** | **守卫结构性漏洞须闭环** | 文档守卫的**块级豁免标记必须成对闭合**；凡「静默豁免 / 静默跳过」类设计必须自带**自检**（如块标记成对性、豁免行数上限告警）。发现「规则静默失效」类结构性漏洞时，须**先补漏洞、再用其复查全量**，并把新规则纳入 CI（本轮即由未闭合的 `docs-guard:history` 块暴露 L104–L3158 长期失守） | **已确认**（2026-09-29） |
 | **D27** | **平台壳与包名基线** | Flutter 平台壳**一律以 `flutter create` 官方模板生成**（不手写），且**非侵入落地**（临时目录生成后仅拷贝平台目录 + `.metadata`，不改 `lib/` / `test/` / `pubspec.yaml`）；Android `namespace`/`applicationId` 与 macOS `PRODUCT_BUNDLE_IDENTIFIER` 统一为 **`com.vbox.player`**（iOS 保持 `com.vbox.iosplayer`）；`minSdk` **显式写死 24**（D12），不依赖 `flutter.minSdkVersion` 隐式默认 | **已确认**（2026-09-29） |
 
@@ -2336,7 +2347,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.14.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.15.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -4213,6 +4224,46 @@ conformance **45/45** · iOS IPA 构建链路成功。
 
 ---
 
+### P.25 十三轮复核：phone 形态书架交付（G-01 首块）（v6.15 新增）
+
+> 复核方法：本机 Flutter **3.47.5** 实测 `flutter analyze`（0 issues）/ `flutter test --coverage`（**378 用例**）+
+> **11 守卫** + conformance **45/45**；widget 测试注入内存仓储 fakes 走**真用例链路**（非 mock 页面）。
+
+#### 1. 交付内容
+
+| 项 | 内容 |
+|----|------|
+| G-01 phone 形态书架 | 新增 `lib/presentation/phone/home_shelf_page.dart`：收藏 / 历史双 Tab；**直连 UseCase**（D21 轻量路线，`initState` 缓存用例引用规避 async-gap context lint）；覆盖空态引导 / 错误重试 / 单条移除 / 清空确认框；条目展示来源 · 相对时间（`TimeUtils.relative`）· 集数 · 进度条（`LinearProgressIndicator`） |
+| 形态路由接线 | `app.dart` `_RootRouter` 按 `UiMode` 分发：`phone → HomeShelfPage`，`desktop / tv` 保留占位（渐进交付）；原 `TODO(G-01/stage-1)` 移除，改为分形态注释 |
+| widget 测试 | `test/presentation/phone/home_shelf_page_test.dart` **7 用例**：收藏空态 / 列表展示 / 移除→空态 / 清空确认 / 历史空态 / 历史进度展示 / 历史清空 |
+
+#### 2. 事实计数（v6.15）
+
+| 指标 | v6.14 | v6.15 |
+|------|-------|-------|
+| lib 文件 | 75 | **76**（+home_shelf_page.dart） |
+| 测试文件 | 29 | **30**（+home_shelf_page_test.dart） |
+| 单测用例 | 371 | **378**（+7） |
+| 触达口径 | 86.5% | **86.3%** |
+| 全 lib 整体覆盖 | 71.1% | **71.8%**（达标） |
+| 零触达文件 | 24/75 | **24/76**（新增文件有触达） |
+
+#### 3. 门禁影响（E.10b）
+
+**G-01（UI 三形态）部分解除**：phone 书架块交付；仍待 —— TV 形态、desktop 形态、详情页 / 播放链路（依赖 G-02/G-03）。
+E.10b 余项由 **6 → 5 + G-01 部分解除**；**第 1 轮仍不得标记完成**（D20）。
+
+#### 4. 遗留 / 下批待办（更新）
+
+| # | severity | 项 | 说明 |
+|---|----------|----|------|
+| 1 | 🟡 中 | phone 形态下一块：**远程源列表**（订阅 / 清单） | 远程源用例已接线，UI 待书架验收后开工 |
+| 2 | 🟡 中 | desktop / tv 形态（G-01 余项） | 待 phone 形态齐整后依次开工 |
+| 3 | 🟡 中 | 详情页 / 播放入口（书架条目 onTap 现为 SnackBar 占位） | 依赖 G-02（播放器插件层） |
+| 4 | 🟢 低 | `dev_dependencies.test` 零引用 / api_push 脚本重复 | 沿用登记，随工程批次 |
+
+---
+
 # 附录部分
 
 ---
@@ -4404,14 +4455,14 @@ lib/
 
 ---
 
-## G-01 UI 三形态未实现 ⛔ 高
+## G-01 UI 三形态未实现 ⛔ 高（**v6.15 部分解除**）
 
 | 项 | 内容 |
 |----|------|
-| 代码位置 | `lib/app.dart:124`（`TODO(G-01/stage-1)`） |
-| 影响 | 应用无法呈现实际界面，仅有占位 Scaffold |
-| 阻塞原因 | 需 Flutter SDK 编译验证（见 G-07） |
-| 解除条件 | `lib/presentation/{phone,tv,desktop}/` 布局交付 |
+| 代码位置 | `lib/app.dart`（形态路由按 `UiMode` 分发） |
+| 影响 | **phone 书架块已交付**（`lib/presentation/phone/home_shelf_page.dart`，v6.15）；TV / desktop 形态与详情·播放链路仍无实际界面 |
+| 阻塞原因 | ~~需 Flutter SDK 编译验证~~（✅ 已解除，CI 通道已通） |
+| 解除条件 | phone 书架 ✅（v6.15）→ phone 远程源列表 → desktop → TV 布局交付 |
 | 关联 | 方案 §2.4、T.7（TV 布局规范） |
 
 ## G-02 平台插件层未实现 ⛔ 高
