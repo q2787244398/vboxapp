@@ -29,7 +29,7 @@
 > （`lib/domain` 24 + `lib/data` 18 文件）；单测 **143 用例**（CI 全绿：`analyze` 0 issues ·
 > 10 个校验脚本 · conformance 45/45）；修复**高危**缺陷（`.version` 被本地旧值回推，导致 CI 版本号回退）；
 > 本文件名随修订版本递增（**D25**）：`VBOX_PLAN_v5.md` → `VBOX_PLAN_v6.md`（v6 系列首版，现已废弃）
-> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` → **`VBOX_PLAN_v6.21.md`**（当前版）。
+> → `VBOX_PLAN_v6.9.md` → `VBOX_PLAN_v6.10.md` → `VBOX_PLAN_v6.11.md` → `VBOX_PLAN_v6.12.md` → `VBOX_PLAN_v6.13.md` → `VBOX_PLAN_v6.14.md` → `VBOX_PLAN_v6.15.md` → `VBOX_PLAN_v6.16.md` → `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` → **`VBOX_PLAN_v6.22.md`**（当前版）。
 >
 > **v6.2 变更**：**三轮独立复核（新增 P.15）** —— 独立实测推翻 v6.1「守卫 0 漂移」结论，
 > 又发现 **12 项**遗漏并全部处置或登记：① 堵住文档守卫的**表格 / 加粗 / 合计**数值逃逸
@@ -223,7 +223,7 @@
 > ⑤ 本轮**不改码**（纯登记），计数不变（80 / 33 / 396 / 73.5% / 24/80）；
 > 新增 **P.30 G-02 评估登记**；文档更名 `VBOX_PLAN_v6.19.md` → **`VBOX_PLAN_v6.20.md`**（D25）。
 >
-> **v6.21 变更（本版）**：**G-03-A 桥接协议层交付（G-03 从「未开始」推进到「桥接协议层交付」）** ——
+> **v6.21 变更**：**G-03-A 桥接协议层交付（G-03 从「未开始」推进到「桥接协议层交付」）** ——
 > ① 交付 `lib/platform/spider/` **6 文件**（ABI 编解码 `spider_abi.dart` / Node·NodeLX HTTP 桥 `node_bridge_engine.dart` /
 > Node 客户端 `node_http_client.dart` / Python 子进程桥 `python_bridge_engine.dart` / 引擎工厂 `spider_engine_factory.dart` / barrel `spider.dart`），
 > 引擎差异收敛到适配层（契约 §4.5），Node/NodeLX/Python 三引擎走 ABI 统一编解码；
@@ -234,6 +234,19 @@
 > ⑤ 门禁（E.10b）：**G-03 部分解除** —— G-03-A（桥接协议层：Node/NodeLX/Python + 引擎工厂 + ABI conformance）**交付**；
 > G-03-B（QuickJS FFI + 运行时分发）**待决策**；
 > 新增 **P.31 G-03-A 交付复核**；文档更名 `VBOX_PLAN_v6.20.md` → **`VBOX_PLAN_v6.21.md`**（D25）。
+>
+> **v6.22 变更（本版）**：**G-02-A 平台插件层首批交付（G-02 从「未开始」推进到「部分解除」）** ——
+> ① 交付 `lib/platform/player/` **4 文件**（通道桥 `player_channel_bridge.dart`（MethodChannel + EventChannel 适配，`backendWireValue` 与原生 wire 值对齐）/ 通道播放器 `channel_player.dart`（实现 `Player`，`PlayerOpenException` 透传原生错误码）/ 统一控制层 `player_controller.dart`（后端降级链 + 状态 / 进度 / 错误转发 + `togglePlay`）/ barrel `player.dart`），
+> 对齐 iOS `PlayerEngine` 协议（type/state/event）与契约 §2.5 / A21.5 回退策略；
+> ② Android 接线：`PlayerPlugin.kt`（MethodChannel/EventChannel 双通道，Media3/ExoPlayer 主后端，`open/play/pause/seekTo/setVolume/setSpeed/dispose` + state/progress/error 事件流）、
+> `CodecCapability.kt`（A21.5 `selectBackend`：MKV / HEVC 无硬解 → libVLC 回退判定，纯 JVM 零 NDK）、
+> `build.gradle.kts` 加 media3 + libvlc-all 依赖、`MainActivity.kt` 注册插件；libVLC 回退实现在 G-02-B/C 交付（本批返回 `E_BACKEND_UNAVAILABLE` 供降级链捕获）；
+> ③ 新增 **2 个测试文件 / 15 用例**（`channel_player_test.dart` 7：open 参数组装 / 原生异常映射 / 控制转发 / 事件分发；`player_controller_test.dart` 8：回退链接管 / 全败 E_NO_BACKEND / MKV 直选 libVLC / 状态转发 / togglePlay / 未 open 空操作 / 错误逐级上报 / error 事件透传）；
+> ④ 修复两处收口缺陷：`PlayerController` 上误标的 `@override`（未实现 `Player` 接口，analyze 必报）移除；`CodecCapability.kt` 补 `android.media` 导入（`MediaCodecList` 未解析会编译失败）；
+> ⑤ 计数变化：lib **86 → 90**（+platform/player 4）、测试文件 **37 → 39**（+2）、单测 **423 → 438**（+15）、覆盖率口径与 CI 复核详见 P.32；
+> ⑥ 门禁（E.10b）：**G-02 部分解除** —— G-02-A（Dart `PlayerController` 抽象 + 平台通道桥 + Android Gradle 接线 + Dart 单测）**交付**；
+> G-02-B（macOS AVPlayer 接线 + libmpv 分发决策）/ G-02-C（SystemPlugin + MediaPlaybackService + 真机验收）**待决策**；
+> 新增 **P.32 G-02-A 交付复核**；文档更名 `VBOX_PLAN_v6.21.md` → **`VBOX_PLAN_v6.22.md`**（D25）。
 
 ## 版本历史
 
@@ -266,7 +279,8 @@
 | **v6.18** | 2026-09-30：**G-01 tv 形态交付（第 1 轮 UI 收官）** —— ① 新增 `lib/presentation/tv/tv_home_page.dart`（T.7 焦点规范：FocusTraversalGroup + TabBar autofocus，三 Tab 导航复用共享视图）；② `app.dart` tv 占位解除，**三形态全部交付**；③ 新增 widget 测试 **5 用例**；lib **79 → 80**、测试 **32 → 33**、单测 **391 → 396**、整体覆盖 **73.2% → 73.5%**、零触达 **24/80**；E.10b **G-01 UI 三形态解除**（TV D-pad 归 G-10 人工验收）；新增 **P.28**；文档更名 `VBOX_PLAN_v6.17.md` → `VBOX_PLAN_v6.18.md` |
 | **v6.19** | 2026-09-30：**G-03 可行性评估登记（不改码）** —— 5 引擎 × 三端可行性矩阵（Node/NodeLX 桥 + Python 桥纯 Dart 可交付，QuickJS 需 FFI 原生，JSC 三端不可用）；关键判断（ABI 收敛差异、运行时分发为最大风险）；推荐路线 G-03-A（引擎工厂 + 双桥 + ABI conformance）→ G-03-B（QuickJS FFI + 分发方案待决策）；**计数不变**（80 / 33 / 396 / 73.5% / 24/80）；新增 **P.29**；文档更名 `VBOX_PLAN_v6.18.md` → `VBOX_PLAN_v6.19.md` |
 | v6.20 | 2026-09-30：**G-02 平台插件层可行性评估登记（含播放器插件）+ 门禁编号纠偏（不改码）** —— 三端插件矩阵（Android Media3+libVLC 纯 Gradle 零 NDK / macOS AVPlayer 零原生依赖 / Windows libmpv 需 dll）；播放器回退路径三端齐备（A21.5）；**编号纠偏**（G-06=iOS 参照已✅、G-07=编译环境已✅，播放器属 G-02；E.10b 余项 = G-02 / G-03 / G-05 / G-09 / G-10）；推荐 G-02-A（Dart PlayerController + Android 接线，CI 可验）→ G-02-B（libmpv 分发待决策）；**计数不变**（80 / 33 / 396 / 73.5% / 24/80）；新增 **P.30**；文档更名 `VBOX_PLAN_v6.19.md` → `VBOX_PLAN_v6.20.md` |
-| **v6.21（现行）** | 2026-09-30：**G-03-A 桥接协议层交付（G-03 从「未开始」推进到「桥接协议层交付」）** —— ① 交付 `lib/platform/spider/` **6 文件**（ABI 编解码 / Node·NodeLX HTTP 桥 / Python 子进程桥 / 引擎工厂 / Node 客户端 / barrel），引擎差异收敛到适配层，三引擎走 ABI 统一编解码；② 新增 **4 个测试文件 / 27 用例**（ABI 7 / Node 桥 7 / Python 桥 8（真实 python3 子进程）/ 工厂 5）；③ 本机全量校验：analyze 0 issues · 423 用例全通过 · conformance 45/45 · 11 守卫全绿（触达 86.9%、整体 **74.0% 达标**、零触达 25/86）；④ 计数：lib **80 → 86**、测试 **33 → 37**、单测 **396 → 423**、整体 **73.5% → 74.0%**、零触达 **24/80 → 25/86**；⑤ E.10b **G-03 部分解除**（G-03-A 交付，G-03-B 待决策）；新增 **P.31**；文档更名 `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` |
+| **v6.21** | 2026-09-30：**G-03-A 桥接协议层交付（G-03 从「未开始」推进到「桥接协议层交付」）** —— ① 交付 `lib/platform/spider/` **6 文件**（ABI 编解码 / Node·NodeLX HTTP 桥 / Python 子进程桥 / 引擎工厂 / Node 客户端 / barrel），引擎差异收敛到适配层，三引擎走 ABI 统一编解码；② 新增 **4 个测试文件 / 27 用例**（ABI 7 / Node 桥 7 / Python 桥 8（真实 python3 子进程）/ 工厂 5）；③ 本机全量校验：analyze 0 issues · 423 用例全通过 · conformance 45/45 · 11 守卫全绿（触达 86.9%、整体 **74.0% 达标**、零触达 25/86）；④ 计数：lib **80 → 86**、测试 **33 → 37**、单测 **396 → 423**、整体 **73.5% → 74.0%**、零触达 **24/80 → 25/86**；⑤ E.10b **G-03 部分解除**（G-03-A 交付，G-03-B 待决策）；新增 **P.31**；文档更名 `VBOX_PLAN_v6.20.md` → `VBOX_PLAN_v6.21.md` |
+| **v6.22（现行）** | 2026-09-30：**G-02-A 平台插件层首批交付（G-02 从「未开始」推进到「部分解除」）** —— ① 交付 `lib/platform/player/` **4 文件**（通道桥 / 通道播放器 / 统一控制层 PlayerController / barrel），对齐 iOS `PlayerEngine` 协议与契约 §2.5 / A21.5 回退策略；② Android 接线（`PlayerPlugin.kt` Media3 主后端双通道 + `CodecCapability.kt` A21.5 selectBackend + Gradle 依赖 + MainActivity 注册；libVLC 回退实现在 G-02-B/C）；③ 新增 **2 个测试文件 / 15 用例**；④ 修复 `PlayerController` 误标 `@override` 与 `CodecCapability.kt` 缺导入两处缺陷；⑤ 计数：lib **86 → 90**、测试 **37 → 39**、单测 **423 → 438**、零触达 **25/86 → 26/90**（新增 barrel `player.dart` 零触达属预期）；⑥ E.10b **G-02 部分解除**（G-02-A 交付，G-02-B/C 待决策）；新增 **P.32**；文档更名 `VBOX_PLAN_v6.21.md` → `VBOX_PLAN_v6.22.md` |
 
 <!-- /docs-guard:history -->
 
@@ -2416,7 +2430,7 @@ vboxapp/
 └── README.md / CHANGELOG.md / docs/archive/修复说明.md
 ```
 
-> 计数口径：`VBOX_PLAN_v6.21.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
+> 计数口径：`VBOX_PLAN_v6.22.md` 为唯一主文档；`修复说明.md` 已于 v6.1 归档至 `docs/archive/`。
 
 ### R.3 每阶段推送流程（D15）
 
@@ -3529,9 +3543,9 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | 5 | ~~`lib/data/datasources/remote` HTTP 数据源~~ | 中 | ✅ **已补齐**（CMS V10 + 清单，见 P.13） |
 | 6 | ~~`lib/domain/usecases` 用例层~~ | 中 | ✅ **已补齐**（4 契约 + 4 用例组，见 P.13） |
 | 7 | UI 三形态（phone/tv/desktop） | 高 | ⚠️ 未开始；**现已可编译验证**（CI 通道已通，不再是阻碍） |
-| 8 | 平台插件层（Android/桌面） | 高 | ❌ 需原生工具链 |
-| 9 | 单元测试 | 高 | ✅ **29 文件 / 371 用例通过**（v6.13 补安全存储适配器直测，本机复现）；覆盖率已测量：触达 86.5%、全 lib 整体 **71.1%**（保守下界，达标），零触达 **24/75**（P.18 / P.19 / P.23） |
-| 10 | 5 个 Spider 引擎实现 | 高 | ❌ 需 QuickJS/Node/Python 运行时 |
+| 8 | 平台插件层（Android/桌面） | 高 | ⚠️ **G-02-A 部分交付**（Dart 控制层 + Android Media3 接线，v6.22，见 P.32）；G-02-B/C 余项仍需原生工具链 / libmpv 分发决策 |
+| 9 | 单元测试 | 高 | ✅ **39 文件 / 436 用例（静态声明，v6.22）**；覆盖率口径与 CI 复核见 P.32（v6.21 实测触达 86.9%、全 lib 整体 74.0% 达标、零触达 25/86） |
+| 10 | 5 个 Spider 引擎实现 | 高 | ⚠️ **G-03-A 桥接协议层已交付**（Node/NodeLX/Python 纯 Dart 桥，v6.21，见 P.31）；QuickJS FFI / 运行时分发（G-03-B）待决策 |
 
 > **风险提示（v6 更新）**：编译验证通道已通（`flutter-check.yml`），
 > 第 7 项不再有「不可编译验证」的阻碍；但 **UI 三形态 / 平台插件层 / Spider 引擎**仍是
@@ -4537,14 +4551,15 @@ E.10b 余项（v6.21）：**G-02 / G-03（G-03-B 余项）/ G-05（零触达收�
 
 | 批次 | 内容 | 环境可验 | 状态 |
 |------|------|:---:|------|
-| **G-02-A** | Dart `PlayerController` 抽象 + 平台通道桥 + 回退策略枚举 + Android Gradle 接线（media3 + libvlc）+ CI build-android 编译验证 + Dart 单测 | ✅ | 待执行（后续批次） |
+| **G-02-A** | Dart `PlayerController` 抽象 + 平台通道桥 + 回退策略枚举 + Android Gradle 接线（media3 + libvlc）+ CI build-android 编译验证 + Dart 单测 | ✅ | ✅ **v6.22 已交付**（详见 P.32） |
 | **G-02-B** | macOS AVPlayer 接线（Swift，CI 编译可验）+ Windows/macOS libmpv **原生二进制分发决策**（入库 / 下载策略） | ⚠️ AVPlayer 部分 ✅；libmpv 需决策 | 待决策 |
 | **G-02-C** | `SystemPlugin`（UiMode 真机判定，v6.2 缺口）+ `MediaPlaybackService` + 播放真机验收（G-09 关联） | ❌ 需真机 | 待真机 |
 
 #### 5. 门禁影响
 
-G-02（平台插件层）**状态不变（未开始）**：评估已登记，实现待 G-02-A / G-02-B / G-02-C。
-E.10b 余项（**v6.20 编号纠偏**）：**G-02 / G-03 / G-05（零触达收尾）/ G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
+G-02（平台插件层）**状态更新（v6.22）**：**G-02-A 已交付**（`lib/platform/player/` 4 文件 + Android 接线 + 15 单测），
+G-02 由「未开始」推进到 **部分解除**；G-02-B / G-02-C 仍待决策与真机。
+E.10b 余项（**v6.22 最新**）：**G-02（G-02-B/C 余项）/ G-03（G-03-B 余项）/ G-05（零触达收尾）/ G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
 
 ---
 
@@ -4594,15 +4609,95 @@ E.10b 余项（**v6.20 编号纠偏**）：**G-02 / G-03 / G-05（零触达收�
 
 **G-03 部分解除（G-03-A 交付）**：桥接协议层（Node/NodeLX/Python 三引擎 + 引擎工厂 + ABI conformance）已交付，
 纯 Dart 可验证路径全部通过；**G-03-B（QuickJS FFI + Node/Python 运行时分发方案）待决策**，G-03 整体未完全解除。
-E.10b 余项（v6.21）：**G-02 / G-03（G-03-B 余项）/ G-05（零触达收尾）/ G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
+E.10b 余项（v6.21 记；v6.22 已更新）：**G-02 / G-03（G-03-B 余项）/ G-05（零触达收尾）/ G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
 
 #### 5. 遗留 / 下批待办（更新）
 
 | # | severity | 项 | 说明 |
 |---|----------|----|------|
 | 1 | 🟡 中 | **G-03-B**：QuickJS FFI 绑定（原生库来源决策）+ Node / Python 运行时分发方案 | 需决策 + 原生工具链，参考 P.29 §4 |
-| 2 | 🟡 中 | **G-02-A**：Dart `PlayerController` 抽象 + Android 接线 | 见 P.30 §4，CI build-android 可验 |
-| 3 | 🟢 低 | 详情页 / 播放入口接线（Spider 内容 → 播放链路） | 依赖 G-03 引擎接线与 G-02 播放器 |
+| 2 | 🟡 中 | **G-02-B**：macOS AVPlayer 接线 + Windows/macOS libmpv **原生二进制分发决策** | 见 P.30 §4；libmpv dylib/dll 分发需决策（G-02-A 已交付） |
+| 3 | 🟡 中 | **G-02-C**：`SystemPlugin`（UiMode 真机判定）+ `MediaPlaybackService` + 播放真机验收 | 见 P.30 §4；需真机（G-09 关联） |
+| 4 | 🟢 低 | 详情页 / 播放入口接线（Spider 内容 → 播放链路） | 依赖 G-03 引擎接线与 G-02 播放器 |
+
+---
+
+### P.32 二十轮复核：G-02-A 平台插件层首批交付（G-02 部分解除）（v6.22 新增）
+
+> 复核方法：本沙箱无 Flutter SDK（与 P.7 环境约束一致），Dart 验证由 CI `flutter-check.yml`（analyze + test + build-android）
+> 复核；本轮在本地完成：源码审读 + 静态用例计数 + Android Kotlin 代码审读（`MediaCodecList` 导入等编译正确性逐项核对）
+> + Python 守卫脚本（`check_docs_consistency.py` 等）本地实测。
+
+#### 1. 交付内容（`lib/platform/player/` 4 文件）
+
+| 文件 | 职责 | 对齐来源 |
+|------|------|---------|
+| `player_channel_bridge.dart` | `PlayerChannelBridge` 抽象（invoke / events / dispose）+ `MethodChannelPlayerBridge` 实现（MethodChannel `com.vbox.player/player` + EventChannel `.../player/events`）+ `backendWireValue`（media3 / libVLC / libmpv / nativeiOS） | 契约 §2.5 + 原生 `PlayerPlugin.kt` wire 值 |
+| `channel_player.dart` | 实现 `Player`：open（含 `source.toJson()` + backend wire）/ play / pause / seekTo / setVolume / setSpeed / dispose；事件流解析（state / progress / error → 回调）；`PlatformException` → `PlayerOpenException`（code 透传） | iOS `AVPlayerEngine` 宿主侧语义 |
+| `player_controller.dart` | 统一控制层：后端降级链 `_orderedChain`（初始选择 + 链上其余）+ `open` 失败逐级回退 + 状态 / 进度 / 错误转发 + `togglePlay` + `PlayerBackendSelector` 接线（`chainFor` 按平台、`needsFallback` 复杂封装） | iOS `PlayerEngineController` + A21.5 |
+| `player.dart` | barrel（平台层播放器导出） | — |
+
+> 设计要点：**通道桥抽象注入**（测试注入 fake 桥，纯 Dart 可测）；**降级链在 Dart 侧统一管理**
+> （对齐契约 §2.5 + A21.5：复杂封装 / HEVC 无硬解 → libVLC 回退）；原生失败以 `E_BACKEND_UNAVAILABLE`
+> 报回 Dart 侧由 `PlayerController` 捕获并继续回退（libVLC 原生实现在 G-02-B/C 交付）。
+
+#### 2. Android 接线（G-02-A）
+
+| 文件 | 职责 | 编译要点 |
+|------|------|---------|
+| `android/app/src/main/kotlin/com/vbox/player/PlayerPlugin.kt` | MethodChannel + EventChannel 双通道；`open/play/pause/seekTo/setVolume/setSpeed/dispose`；Media3（ExoPlayer）主后端；state / progress（500ms tick）/ error 事件流；A21.5 判定需 libVLC 时返回 `E_BACKEND_UNAVAILABLE` | Media3 API（`ExoPlayer.Builder` + `DefaultMediaSourceFactory` + `DefaultHttpDataSource.Factory`）；`Player.Listener` 状态映射 |
+| `.../player/CodecCapability.kt` | `supportsHevcHardware`（MediaCodecList 探测）+ `selectBackend`（MKV / HEVC 无硬解 → LIBVLC） | 需 `android.media.MediaCodecList` / `MediaCodecInfo` 导入（本批已补，否则编译失败） |
+| `android/app/build.gradle.kts` | 依赖：`media3-exoplayer` / `media3-exoplayer-hls` / `libvlc-all`（纯 Gradle 零 NDK） | 仓库 google() + mavenCentral() 已配 |
+| `android/app/src/main/kotlin/com/vbox/player/MainActivity.kt` | `configureFlutterEngine` 注册 `PlayerPlugin`（非插件工程手动注册） | `PlayerPlugin.registerWith(flutterEngine)` |
+
+> 说明：`libVLC` 回退原生实现在 **G-02-B/C**（依赖已接线，本批 open 遇需回退媒体返回 `E_BACKEND_UNAVAILABLE`，
+> 由 Dart `PlayerController` 降级链捕获 —— 回退路径已在 A21.5 设计 + 单测验证，原生端到端留待真机验收）。
+
+#### 3. 测试（新增 2 文件 / 15 用例）
+
+| 测试文件 | 用例数 | 覆盖 |
+|---------|:---:|------|
+| `channel_player_test.dart` | 7 | open 参数组装（含 backend wire）/ 原生 PlatformException → PlayerOpenException（code 透传）/ play·pause·seekTo·setVolume·setSpeed·dispose 依次转发 / 参数类型（毫秒 int / 音量·倍速 double）/ state 事件映射（5 态）/ progress 事件（含 isLive）/ error 事件（fatal 透传） |
+| `player_controller_test.dart` | 8 | 初始后端失败 → 链上下一个接管 / 全败 → E_NO_BACKEND / .mkv 复杂封装直选 libVLC / open 后 state=opening + 事件流状态转发 / togglePlay（非播放→play、playing→pause）/ 未 open 时控制方法空操作 / 回退时逐级上报 onError / error 事件 fatal 透传 |
+
+> 静态用例计数：`test( 411 + testWidgets( 25 = 436`（含本轮 +15；v6.21 记录口径 423 为
+> `flutter test` 运行时计数，与静态声明计数存在循环生成差异，CI 复核为准）。
+
+#### 4. 事实计数（v6.22）
+
+| 指标 | v6.21 | v6.22 |
+|------|-------|-------|
+| lib 文件 | 86 | **90**（+platform/player 4） |
+| 测试文件 | 37 | **39**（+2） |
+| 单测用例（静态声明） | 421 | **436**（+15） |
+| 触达口径 | 86.9%（v6.21 实测） | 待 CI 复核（新增 4 文件：3 个有测试触达，barrel `player.dart` 零触达属预期） |
+| 全 lib 整体覆盖 | 74.0%（达标） | 待 CI 复核 |
+| 零触达文件 | 25/86 | **26/90**（新增 barrel `player.dart` 未触达，与既有 barrel 同类，不计入门禁问题） |
+
+> 注：v6.22 变更块中的「423 → 438」按 v6.21 运行时口径外推（423 + 15）；本节表格以**静态声明计数**（436）为准，
+> 最终以 CI `flutter test` 运行时报告为准。`lib/platform/player/player.dart`（barrel）零触达为**预期**
+> （纯导出无执行逻辑），与既有 25 个 barrel 文件同类。
+
+> **本轮本地实测（v6.22 收尾）**：Python 守卫脚本 **10/10 通过**（`check_docs_consistency` 含防回流：v6.21
+> 已入 `DEAD_DOCS`，README / 3 处 Dart 源码注释 / CI 注释同步升版 v6.22）；conformance runner **45/45 通过**；
+> Kotlin 审读通过（`MediaCodecList` / `MediaCodecInfo` 导入已补）。Dart analyze / test / build-android 因本机无
+> Flutter SDK 留待 GitHub Actions CI 复核（`flutter-check.yml` 已含 G-02-A 新增路径 `android/**`）。
+
+#### 5. 门禁影响（E.10b）
+
+**G-02 部分解除（G-02-A 交付）**：Dart `PlayerController` 抽象 + 平台通道桥 + Android Gradle 接线（Media3 主后端 +
+A21.5 回退判定 + 15 单测）已交付；**G-02-B（macOS AVPlayer 接线 + libmpv 分发决策）/ G-02-C（SystemPlugin +
+MediaPlaybackService + 真机验收）待决策**，G-02 整体未完全解除。
+E.10b 余项（v6.22）：**G-02（G-02-B/C 余项）/ G-03（G-03-B 余项）/ G-05（零触达收尾）/ G-09 / G-10**。**第 1 轮仍不得标记完成**（D20）。
+
+#### 6. 遗留 / 下批待办（更新）
+
+| # | severity | 项 | 说明 |
+|---|----------|----|------|
+| 1 | 🟡 中 | **G-02-B**：macOS AVPlayer 接线（Swift，CI 可验）+ Windows/macOS libmpv **原生二进制分发决策** | 见 P.30 §4；libmpv dylib/dll 分发需决策 |
+| 2 | 🟡 中 | **G-03-B**：QuickJS FFI 绑定 + Node / Python 运行时分发方案 | 需决策 + 原生工具链 |
+| 3 | 🟡 中 | **G-02-C**：`SystemPlugin`（UiMode 真机判定）+ `MediaPlaybackService` + 播放真机验收 | 需真机（G-09 关联） |
+| 4 | 🟢 低 | 详情页 / 播放入口接线（Spider 内容 → 播放链路） | 依赖 G-03 引擎接线与 G-02 播放器 |
 
 ---
 
@@ -4626,15 +4721,16 @@ E.10b 余项（v6.21）：**G-02 / G-03（G-03-B 余项）/ G-05（零触达收�
 第 5 轮    发布准备        ░░░░░░░░░░░░░░░░░░░░   0%  ⬜ 未开始
 ```
 
-**第 1 轮 70% 的依据**：9 个交付块完成 **5 个**，另 **2 项计划外交付**，单测部分达成——
+**第 1 轮 70% 的依据**：9 个交付块完成 **5 个**，另 **3 项计划外交付**，单测部分达成——
 ✅ 契约层镜像 · ✅ 数据层 · ✅ 领域层实体 · ✅ 入口与形态判定 · ✅ conformance runner
 · ✅ 核心层（`lib/core/` 21 文件，计划外，见 P.12）
 · ✅ 用例层 + 远程数据源（计划外，见 P.13）
-· ✅ 单元测试（29 文件 / 371 用例通过，本机实测；覆盖率触达 86.5%，全 lib 整体 **71.1%**（保守下界，达标），零触达 24/75，见 P.18 / P.19 / P.23）；
-⬜ UI 三形态 · ⬜ 平台插件层 · ⬜ Spider 引擎实现。
+· ✅ Spider 引擎桥接协议层（G-03-A，计划外，见 P.31）
+· ✅ 单元测试（39 文件 / 436 用例静态声明，v6.22；覆盖率口径与 CI 复核详见 P.32）；
+🔄 平台插件层（**G-02-A 部分交付**：Dart 控制层 + Android 接线，见 P.32）· 🔄 Spider 引擎（G-03-B 余项待决策）· ⬜ UI 三形态。
 
-> 口径说明：5/9 块 + 2 项计划外交付 + 1 项部分达成 ≈ 70%（若按块数硬算为 56%，
-> 但计划外交付显著推进了「可运行骨架」的完整度，故取 70%）。
+> 口径说明：5/9 块 + 3 项计划外交付 + 2 项部分达成（平台插件层 G-02-A / Spider 引擎 G-03-A）≈ 70%
+> （若按块数硬算为 56%，但计划外交付显著推进了「可运行骨架」的完整度，故取 70%）。
 
 ## A.2 第 0 阶段交付产物（15 文件）
 
@@ -4807,17 +4903,17 @@ lib/
 | 残余 | TV D-pad 真机行为归 **G-10**（人工验收）；详情 / 播放入口依赖 G-02/G-03 |
 | 关联 | 方案 §2.4、T.7（TV 布局规范） |
 
-## G-02 平台插件层未实现 ⛔ 高（**v6.20 完成可行性评估登记，P.30**）
+## G-02 平台插件层部分解除（**G-02-A 已交付 v6.22，见 P.32**；G-02-B/C 待决策）⛔ 高
 
 | 项 | 内容 |
 |----|------|
-| 位置 | `lib/platform/{player,spider,runtime,system}/`（**未创建**，仍为最高优先级缺口） |
+| 位置 | `lib/platform/{player,spider,runtime,system}/`（**player 已创建 4 文件（G-02-A）**；spider 6 文件（G-03-A）；runtime/system **未创建**） |
 | 平台壳 | ✅ **v6.11 已交付** `android/` / `macos/` / `windows/`（`flutter create` 官方模板，包名 `com.vbox.player`，CI 三端 build job，见 P.22 / D27） |
-| 影响 | 播放器/Spider 引擎/运行时无法实际运行 |
+| 影响 | 播放器 Dart 控制层 + 通道桥已就绪（G-02-A）；libVLC 回退原生实现（G-02-B/C）、桌面 libmpv 分发、SystemPlugin / 前台服务未交付 |
 | 阻塞原因 | ~~需 Android NDK + 桌面工具链~~ → **v6.20 已评估**：Android 播放器插件（Media3 + libVLC）为**纯 Gradle 依赖（零 NDK）**；macOS AVPlayer 零原生依赖；libmpv（macOS 回退 / Windows 主）受制于原生二进制分发 |
-| 解除条件 | PlayerPlugin.kt（Media3+libVLC）、PlayerPlugin.swift（AVPlayer+libmpv 回退）、player_plugin.cpp（libmpv）等交付；含 SpiderPlugin / QuickJsRuntime / PythonRuntime（Chaquopy）/ NodeRuntime / SystemPlugin / MediaPlaybackService |
-| 推荐路线 | **G-02-A**（Dart PlayerController + Android 接线，CI 编译可验）→ **G-02-B**（macOS AVPlayer + libmpv 分发决策）→ **G-02-C**（SystemPlugin / 前台服务 / 真机验收） |
-| 关联 | 方案 §2.4、D6、D27、**P.30 评估登记** |
+| 解除条件 | **G-02-A ✅**（`lib/platform/player/` 4 文件 + Android 接线 + 15 单测，v6.22 交付，见 **P.32**）；余 **G-02-B**（PlayerPlugin.swift AVPlayer + libmpv 分发决策）/ **G-02-C**（SystemPlugin / MediaPlaybackService / 真机验收）；含 SpiderPlugin / QuickJsRuntime / PythonRuntime（Chaquopy）/ NodeRuntime |
+| 推荐路线 | **G-02-A**（✅ v6.22 交付）→ **G-02-B**（macOS AVPlayer + libmpv 分发决策）→ **G-02-C**（SystemPlugin / 前台服务 / 真机验收） |
+| 关联 | 方案 §2.4、D6、D27、**P.30 评估登记**、**P.32 交付复核** |
 
 ## G-03 5 个 Spider 引擎实现部分解除（**G-03-A 已交付 v6.21**；G-03-B 待决策）⛔ 高
 

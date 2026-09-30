@@ -42,6 +42,15 @@ kotlin {
     }
 }
 
+// G-02-A：播放器插件依赖（纯 Gradle 依赖，零 NDK）。
+//   · androidx.media3: Media3 主后端（ExoPlayer + HLS）
+//   · org.videolan.android:libvlc-all: libVLC 回退（aar 自带原生库，minSdk 21+；实现在 G-02-B/C）
+dependencies {
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
+    implementation("org.videolan.android:libvlc-all:3.6.0")
+}
+
 flutter {
     source = "../.."
 }
