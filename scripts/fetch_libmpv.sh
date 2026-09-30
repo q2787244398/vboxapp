@@ -3,6 +3,18 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# SHA256 跨平台取值：Linux/Windows(git-bash) 有 sha256sum，macOS 只有 shasum，
+# 兜底 openssl（Windows git-bash 无 shasum，直接用会 exit 127）。
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    else
+        openssl dgst -sha256 "$1" | awk '{print $NF}'
+    fi
+}
+
 # G-02-C（D28）：libmpv 原生二进制分发 —— 不入 git 仓库，
 # 由本脚本从 GitHub Release 资产下载（Windows：libmpv-{os}-{arch}-{ver}.dll 单一自包含；
 # macOS：libmpv-{os}-{arch}-{ver}.tar.gz 动态库集合），随侧载产物（DMG / EXE）分发。
@@ -94,7 +106,7 @@ DEST="${DEST_DIR}/${ASSET_NAME}"
 
 # 若已下载且校验通过 → 直接复用（macOS 集合还需确认已解包到缓存目录）
 if [ -f "${DEST}" ] && [ -f "${DEST}.sha256" ] && \
-   [ "$(cat "${DEST}.sha256")" = "$(shasum -a 256 "${DEST}" | awk '{print $1}')" ] && \
+   [ "$(cat "${DEST}.sha256")" = "$(sha256_of "${DEST}")" ] && \
    { [ "${IS_TARBALL}" = "0" ] || [ -f "${DEST_DIR}/libmpv.dylib" ]; }; then
     echo "✅ 已缓存并校验通过: ${DEST}"
     exit 0
@@ -128,7 +140,7 @@ if [ -n "${LIBMPV_DEPS_URL}" ]; then
     curl -fL --retry 3 -o "${DEST}" "${LIBMPV_DEPS_URL}"
     curl -fsL --retry 3 -o "${DEST}.sha256" "${SHA_URL}" || echo "(sha256 直链不可得，跳过)"
     EXPECTED="$(cat "${DEST}.sha256" 2>/dev/null || true)"
-    ACTUAL="$(shasum -a 256 "${DEST}" | awk '{print $1}')"
+    ACTUAL="$(sha256_of "${DEST}")"
     if [ -n "$EXPECTED" ] && [ "$EXPECTED" != "$ACTUAL" ]; then
         echo "❌ sha256 校验失败" >&2; exit 1
     fi
@@ -169,7 +181,7 @@ if [ -n "${SHA_ASSET_ID}" ]; then
         "https://api.github.com/repos/${LIBMPV_DEPS_REPO}/releases/assets/${SHA_ASSET_ID}"
     EXPECTED="$(cat "${DEST}.sha256")"
 fi
-ACTUAL="$(shasum -a 256 "${DEST}" | awk '{print $1}')"
+ACTUAL="$(sha256_of "${DEST}")"
 if [ -n "$EXPECTED" ] && [ "$EXPECTED" != "$ACTUAL" ]; then
     echo "❌ sha256 校验失败（期望 ${EXPECTED}，实际 ${ACTUAL}）" >&2; exit 1
 fi
