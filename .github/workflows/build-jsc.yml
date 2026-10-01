@@ -1,15 +1,23 @@
-name: Build JSC (macOS dylib + smoke)
+name: Build JSC (macOS dylib + Android 4-ABI + smoke)
 
-# 批次 Q · Q-04 原生腿：jsc/wrapper.c 链接系统 JavaScriptCore.framework
-# 产出 libvbox_jsc.dylib（Dart 侧 lib/platform/runtime/jsc_ffi.dart 加载）。
-# Q-02（Android 四 ABI）/ Q-03（Windows MSVC + WinCairo）见
-# docs/评估_JSC_Windows可行性.md 方案 A，待 NDK/MSVC 构建管线任务启动。
+# 批次 Q 原生构建管线：
+#   · build-macos  （Q-04）：jsc/wrapper.c 链接系统 JavaScriptCore.framework
+#                  → libvbox_jsc.dylib（Dart 侧 jsc_ffi.dart 加载）
+#   · build-android（Q-02）：NDK 交叉编译 wrapper + 预编译 libjsc.so（RN 生态
+#                  jsc-android r250231，scripts/fetch-jsc-android.sh 就位）
+#                  → libvbox_jsc.so 四 ABI + 符号级 smoke（DT_NEEDED / vj_* 导出）
+#   · Q-03（Windows MSVC + WinCairo）：见 docs/评估_JSC_Windows可行性.md 方案 A，
+#     待对应任务启动。
+# 运行时加载链（Android）：MainActivity System.loadLibrary("vbox_jsc") →
+# linker 按 SONAME 解析 APK lib/<abi>/ 内 libjsc.so → Dart FFI 命中已加载实例。
 
 on:
   workflow_dispatch:
   push:
     paths:
       - 'jsc/**'
+      - 'scripts/fetch-jsc-android.sh'
+      - 'android/app/src/main/jni/**'
       - '.github/workflows/build-jsc.yml'
 
 jobs:
@@ -60,3 +68,67 @@ jobs:
         with:
           name: libvbox-jsc-macos
           path: libvbox_jsc.dylib
+
+  # ── Q-02：Android 四 ABI（NDK 交叉编译 + 预编译 libjsc.so） ──────────────
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 🥥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 📥 Fetch 四 ABI libjsc.so（RN 生态 jsc-android r250231）
+        run: bash scripts/fetch-jsc-android.sh
+
+      - name: 🏗️ NDK 交叉编译 libvbox_jsc.so（四 ABI）
+        run: |
+          set -euo pipefail
+          NDK="$(ls -d "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"/ndk/* | sort -V | tail -1)"
+          echo "NDK: $NDK"
+          for ABI in armeabi-v7a arm64-v8a x86 x86_64; do
+            BUILD="build/vbox-jsc/$ABI"
+            cmake -G Ninja -S android/app/src/main/jni -B "$BUILD" \
+              -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI="$ABI" \
+              -DANDROID_PLATFORM=android-24 \
+              -DCMAKE_BUILD_TYPE=MinSizeRel
+            cmake --build "$BUILD"
+            cp "$BUILD/libvbox_jsc.so" "libvbox_jsc-$ABI.so"
+            ls -lh "libvbox_jsc-$ABI.so"
+          done
+
+      - name: 🧪 Smoke：四 ABI 符号级验证（NDK llvm 工具链）
+        run: |
+          set -euo pipefail
+          NDK="$(ls -d "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"/ndk/* | sort -V | tail -1)"
+          LLVM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for ABI in armeabi-v7a arm64-v8a x86 x86_64; do
+            SO="libvbox_jsc-$ABI.so"
+            echo "── $ABI ──"
+            file "$SO"
+            # 1) 依赖完整性：DT_NEEDED 须含 libjsc.so（SONAME 解析前提）
+            "$LLVM/llvm-readelf" -d "$SO" | grep -q 'NEEDED.*\[libjsc.so\]' \
+              || { echo "❌ $ABI 缺 DT_NEEDED libjsc.so"; exit 1; }
+            # 2) ABI 形状：vj_* 六符号须全部 default 导出（与 vq_* 对齐）
+            MISSING=0
+            for SYM in vj_create_runtime vj_create_context vj_free_runtime \
+                        vj_free_context vj_eval vj_free_string; do
+              "$LLVM/llvm-nm" -D --defined-only "$SO" | grep -q " T $SYM\$" \
+                || { echo "❌ $ABI 缺导出符号 $SYM"; MISSING=1; }
+            done
+            [ $MISSING -eq 0 ] || exit 1
+            # 3) 无符号泄漏：除 vj_* 外不得有其他 default 导出
+            EXTRA="$("$LLVM/llvm-nm" -D --defined-only "$SO" | grep ' T ' | grep -v ' T vj_' || true)"
+            [ -z "$EXTRA" ] || { echo "❌ $ABI 泄漏非 vj_* 符号: $EXTRA"; exit 1; }
+            echo "✅ $ABI：NEEDED/libjsc.so ✓ vj_* 六符号 ✓ 无泄漏"
+          done
+          echo "✅ 四 ABI 符号级 smoke 全部通过（真机加载由 APK 构建产物验证，"
+          echo "   运行时失败走 D6 降级 QuickJS 兜底）"
+
+      - name: 📤 Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvbox-jsc-android
+          path: libvbox_jsc-*.so
+          retention-days: 14

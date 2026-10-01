@@ -61,6 +61,16 @@ android {
             }
         }
     }
+
+    // 批次 Q · Q-02：JSC 引擎原生模块（NDK + CMake）。
+    // 编译 jsc/wrapper.c → libvbox_jsc.so（ABI 形状对齐 libvbox_quickjs 的 vq_*）。
+    // 前置：scripts/fetch-jsc-android.sh 就位四 ABI libjsc.so（jniLibs，AGP 随 APK 打包）。
+    // 构建的 ABI 由 Flutter 侧管理（--target-platform / split-per-abi），此处不设 abiFilters。
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/jni/CMakeLists.txt")
+        }
+    }
 }
 
 kotlin {

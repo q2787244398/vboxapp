@@ -16,7 +16,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <JavaScriptCore/JavaScriptCore.h>
+/*
+ * 注意：include 的是 C API 主头 `JavaScript.h` 而非伞头 `JavaScriptCore.h` ——
+ * 后者拉入 `JSStringRefCF.h`（依赖 CoreFoundation，Android/Windows 无该框架）。
+ * 三端头文件来源：
+ *   · macOS：系统 `JavaScriptCore.framework/Headers`（自带 JavaScript.h）
+ *   · Android：`jsc/include/JavaScriptCore/`（Q-02 vendor，源自 jsc-android
+ *     r250231 的 dist/include，Apple BSD-2 声明保留）
+ *   · Windows：WinCairo JSC-only 产物自带（Q-03）
+ */
+#include <JavaScriptCore/JavaScript.h>
 
 #include "wrapper.h"
 

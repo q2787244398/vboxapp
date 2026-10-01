@@ -7,13 +7,15 @@
  *   3. 空结果（undefined 字符串化）不崩溃
  *   4. 生命周期：freeContext → freeRuntime 无泄漏崩溃
  *
- * 编译（macOS）：
+ * 编译（macOS，repo 根目录）：
  *   clang -O2 jsc/smoke_test.c jsc/wrapper.c -framework JavaScriptCore -o /tmp/smoke
+ * 编译（Linux host 语法验证，无需 JSC 运行库）：
+ *   gcc -std=c99 -fsyntax-only -I jsc/include jsc/smoke_test.c
  */
 #include <stdio.h>
 #include <string.h>
 
-#include "jsc/wrapper.h"
+#include "wrapper.h"
 
 static int failures = 0;
 

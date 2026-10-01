@@ -70,6 +70,10 @@ jobs:
 
       - run: flutter pub get
 
+      # 批次 Q · Q-02：就位四 ABI libjsc.so（JSC 主引擎，AGP externalNativeBuild 前置）
+      - name: Fetch Android JSC prebuilt libs (Q-02)
+        run: bash scripts/fetch-jsc-android.sh
+
       - name: Build release APKs (split-per-abi)
         run: flutter build apk --release --split-per-abi
 

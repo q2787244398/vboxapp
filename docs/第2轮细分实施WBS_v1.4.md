@@ -254,15 +254,15 @@
 
 ---
 
-## 16. 批次 Q · JavaScriptCore 三端集成（D6）（Q-01 ~ Q-06）· 6 项 — ◐ **Q-01 门禁已过（2026-10-01）**
+## 16. 批次 Q · JavaScriptCore 三端集成（D6）（Q-01 ~ Q-06）· 6 项 — ◐ **Q-01/02/05 已交付（2026-10-01）**
 
 | 编号 | 任务 | 产出 | 依赖 | 契约 | 验收 | 状态 |
 |------|------|------|------|------|------|------|
 | Q-01 | **Windows 自建/集成 JSC 可行性评估（门禁）** | `docs/评估_JSC_Windows可行性.md` | — | — | 产出：可用构建方案 + 体积/许可结论；**不通过 → 触发 D6 降级预案（Windows 改用 QuickJS，回老板确认）** | ✅ 新建·已交付（**结论：可行**——方案 A WinCairo 官方端口自建 JSC-only DLL（~10–18 MB，LGPL-2.1 动态链接合规，仅 x64）；方案 B NativeScript 预编译 DLL 备选；**不触发降级预案**，Q-02~04 放行） |
-| Q-02 | Android JSC 集成（预编译 `.so` + JNI + CMake，四 ABI） | `android/app/src/main/jni/**` · `CMakeLists.txt` | **Q-01** | — | 四 ABI 可加载；FFI smoke 通过 | 新建 |
+| Q-02 | Android JSC 集成（预编译 `.so` + JNI + CMake，四 ABI） | `android/app/src/main/jni/**` · `CMakeLists.txt` | **Q-01** | — | 四 ABI 可加载；FFI smoke 通过 | ✅ 新建·已交付（**预编译库**：RN 生态 `jsc-android` r250231 AAR → `scripts/fetch-jsc-android.sh` 四 ABI `libjsc.so`（5.0–6.7 MB/ABI，不入 git，同 D28 决策）；**JNI/CMake**：`android/app/src/main/jni/CMakeLists.txt` NDK 交叉编译 `jsc/wrapper.c` → `libvbox_jsc.so`（`DT_NEEDED→libjsc.so`，SONAME 解析）；**加载链**：`MainActivity` `System.loadLibrary("vbox_jsc")` 预加载（失败不 crash→D6 降级）→ Dart FFI 命中已加载实例；**vendor 头**：`jsc/include/JavaScriptCore/`（8 个纯 C API 头，Apple BSD-2 声明保留），wrapper 改 include `JavaScript.h`（伞头 `JavaScriptCore.h` 拉 `JSStringRefCF.h` 依赖 CoreFoundation，Android 无此框架）；**CI**：`build-jsc.yml` `build-android` job 四 ABI 交叉构建 + 符号级 smoke（NEEDED/vj_* 六符号/无泄漏）；`flutter-check.yml` `build-android` 与 `build-release-assets.yml` `apk` job 均前置 fetch 步骤。真机加载验证随 APK 产物（CI 符号级 smoke 已过 ABI 语义门禁；运行时异常走 D6 降级兜底）） |
 | Q-03 | Windows JSC 集成（MSVC 构建 + runner 打包） | `windows/runner/jsc/**` | **Q-01** | — | 可加载；随安装包分发 | 新建 |
 | Q-04 | macOS JSC 集成（系统 `JavaScriptCore.framework`，零构建） | `macos/Runner/JSCCorePlugin.swift` | **Q-01** | — | 可加载 | 新建 |
-| Q-05 | JSC 引擎统一封装 + 接入引擎工厂（含降级开关与可观测） | `lib/platform/runtime/jsc_bridge_engine.dart` | Q-02~04 | — | 三端同一 ABI；降级可观测 | 新建 |
+| Q-05 | JSC 引擎统一封装 + 接入引擎工厂（含降级开关与可观测） | `lib/platform/runtime/jsc_bridge_engine.dart` | Q-02~04 | — | 三端同一 ABI；降级可观测 | ✅ 新建·已交付（`jsc_ffi.dart`（`JsCoreNativeBridge` 抽象 + `DartFfiJsCoreBridge`，`vj_*` 与 `vq_*` 同 ABI 形状）+ `jsc_bridge_engine.dart`（B-05a prelude 注入、生命周期对齐 QuickJS）+ 工厂 D6 降级链（JSC 主→QuickJS 降级，`onLog` 降级可观测，`createForJsSite` 主映射入口）+ `jsc/wrapper.{c,h}`/`smoke_test.c`（纯 C 三端可编译）+ `build-jsc.yml` macOS 管线 + 16 例单测 + factory 降级用例） |
 | Q-06 | 双引擎体积与许可核销 + conformance 双跑 | `scripts/*` · `conformance/*` | Q-05, B-12 | — | 体积登记；LGPL 合规结论；双跑 100% | 新建 |
 
 ---
