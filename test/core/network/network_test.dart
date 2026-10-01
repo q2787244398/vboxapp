@@ -81,6 +81,36 @@ void main() {
       expect(b64, isFalse);
     });
 
+    test('② UTF-8 成功后 meta 自探非 UTF-8 → 按 meta 重解码（B-09 对齐 iOS）',
+        () {
+      registerCharsetTables(gbk: <int, String>{0xC2A9: '商'});
+      // '©' 的 UTF-8 字节恰为 C2 A9（UTF-8 合法）→ ② 成功后自探 meta=gbk
+      // → 用 GBK 码表重解同一字节（对齐 iOS decodeText ② 级语义）
+      final List<int> raw = utf8.encode('<meta charset="gbk">©');
+      final (String text, bool b64) =
+          decodeResponseBody(Uint8List.fromList(raw));
+      expect(text, '<meta charset="gbk">商');
+      expect(b64, isFalse);
+    });
+
+    test('④ 严格负向：GBK 码表外的双字节对回退 latin1（不吞字节、B-09）',
+        () {
+      registerCharsetTables(gbk: <int, String>{0xC4E3: '你'});
+      // 0xFF 超出 GBK lead 定义域（0x81–0xFE）→ 严格失败 → 链回退 latin1
+      final (String text, bool b64) =
+          decodeResponseBody(Uint8List.fromList(<int>[0xFF, 0xFE]));
+      expect(text, 'ÿþ');
+      expect(b64, isFalse);
+    });
+
+    test('④ 严格负向：悬空高位字节回退 latin1（B-09）', () {
+      registerCharsetTables(gbk: <int, String>{0xC4E3: '你'});
+      final (String text, bool b64) =
+          decodeResponseBody(Uint8List.fromList(<int>[0xC4]));
+      expect(text, 'Ä');
+      expect(b64, isFalse);
+    });
+
     test('兜底链顺序与契约一致', () {
       expect(kDecoderFallbackChain, <String>['gbk', 'gb2312', 'big5', 'latin1']);
     });

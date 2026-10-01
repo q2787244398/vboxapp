@@ -22,7 +22,8 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
-import '../utils/charset.dart';
+import '../utils/charset.dart'
+    show decodeBytesWith, normalizeCharset, sniffMetaCharset, sniffMetaCharsetFromText;
 
 /// ④ 兜底链顺序（契约 §4.2）。
 const List<String> kDecoderFallbackChain = <String>[
@@ -47,11 +48,15 @@ const List<String> kDecoderFallbackChain = <String>[
     if (out != null) return (out, false);
   }
 
-  // ② UTF-8 尝试；若 meta 声明非 UTF-8，用 meta charset 重新解码
+  // ② UTF-8 尝试；若 meta 声明非 UTF-8，用 meta charset 重新解码。
+  //    meta 来源：调用方显式 [metaCharsetOverride] 优先，
+  //    否则从 UTF-8 解码文本自探（对齐 iOS decodeText ② 级语义）
   final String? utf8Out = decodeBytesWith(bytes, 'utf-8');
   if (utf8Out != null) {
-    if (metaCharsetOverride != null) {
-      final String meta = normalizeCharset(metaCharsetOverride);
+    final String? override =
+        metaCharsetOverride ?? sniffMetaCharsetFromText(utf8Out);
+    if (override != null) {
+      final String meta = normalizeCharset(override);
       if (meta != 'utf-8') {
         final String? re = decodeBytesWith(bytes, meta);
         if (re != null) return (re, false);

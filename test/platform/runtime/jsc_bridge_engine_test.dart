@@ -7,7 +7,7 @@
 /// - registerSpider 的 `typeof globalThis.__JS_SPIDER__` 检测（含 spider 兜底）
 /// - 5 个操作（init 一次 + 字符串 / 对象双返回路径 + JSON 解析）
 /// - 原生库不可用 → E_UNIMPLEMENTED（未打包环境安全降级）
-/// - loadScriptFromURL（真实本地 HttpServer）
+/// - loadScriptFromURL（真实本地 HttpServer + B-09 注入 SpiderHttpBridge 离线用例）
 library;
 
 import 'dart:convert';
@@ -18,7 +18,26 @@ import 'package:vbox/domain/entities/spider/engine_type.dart';
 import 'package:vbox/domain/entities/spider/spider_engine.dart';
 import 'package:vbox/platform/runtime/jsc_bridge_engine.dart';
 import 'package:vbox/platform/runtime/jsc_ffi.dart';
+import 'package:vbox/platform/spider/spider_http_bridge.dart';
 import 'package:vbox/platform/spider/spider_js_globals.dart';
+
+/// 记录请求并固定返回 200 + UTF-8 脚本正文的 fake 传输层（B-09 注入用例）。
+class _ScriptTransport implements SpiderHttpTransport {
+  final List<SpiderTransportRequest> requests = <SpiderTransportRequest>[];
+
+  @override
+  Future<SpiderTransportResponse> send(SpiderTransportRequest request) async {
+    requests.add(request);
+    return SpiderTransportResponse(
+      status: 200,
+      headers: const <String, String>{
+        'content-type': 'application/javascript; charset=utf-8',
+      },
+      bodyBytes: 'var spider = {homeContent: function(){return {};}};'
+          .codeUnits,
+    );
+  }
+}
 
 /// 记录脚本并按规则返回 canned 结果的 FFI mock。
 ///
@@ -500,6 +519,30 @@ void main() {
               ),
         ),
       );
+    });
+
+    test('loadScriptFromURL：注入 SpiderHttpBridge（fake transport）→ 离线加载',
+        () async {
+      final _ScriptTransport transport = _ScriptTransport();
+      final SpiderHttpBridge http = SpiderHttpBridge(transport: transport);
+      final JsCoreBridgeEngine engine = JsCoreBridgeEngine(
+        bridge: _FakeJsCoreBridge(
+          byExact: <String, String>{
+            'typeof globalThis.__JS_SPIDER__': 'object',
+          },
+        ),
+        httpBridge: http,
+      );
+      await engine.loadScriptFromURL('https://example.com/spider.js');
+      expect(engine.isSpiderReady, isFalse); // 仅加载，未注册
+      await engine.registerSpider();
+      expect(engine.isSpiderReady, isTrue);
+      // B-09：脚本拉取经 HTTP 桥 → iOS 默认 UA 面向蜘蛛站点
+      expect(
+        transport.requests.single.headers['User-Agent'],
+        SpiderHttpBridge.defaultUserAgent,
+      );
+      await engine.dispose();
     });
 
     test('loadScript 前 dispose 幂等；dispose 后 isSpiderReady=false', () async {

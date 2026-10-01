@@ -7,7 +7,12 @@
 /// 平台适配层（`lib/platform/spider/`）在启动时注入码表；
 /// **未注入时 `gbk` / `big5` 解码返回 null**（不静默产出乱码），
 /// 由探测链继续下探或走 base64 兜底。
-/// 码表注入属 G-03（见 `docs/VBOX_PLAN_v6.34.md` 附录 C）。
+/// 码表注入属 G-03（见 `docs/VBOX_PLAN_v6.34.md` 附录 C）；
+/// B-09 由平台层 `SpiderCharsetTables` 注入真实码表（enough_convert 转译）。
+///
+/// **严格语义**（B-09 对齐 iOS `String(data:encoding:)`）：
+/// 注册码表后，码表未覆盖的双字节对 / 悬空高位字节 → 返回 null
+/// （该级解码失败，探测链继续下探），不静默替换、不吞字节。
 library;
 
 import 'dart:convert';
@@ -40,6 +45,19 @@ String? charsetFromContentType(String? contentType) {
   return m?.group(1);
 }
 
+/// meta charset 探测正则（对齐 iOS `detectMetaCharset`：
+/// `(?i)<meta[^>]+charset=["']?\s*([a-zA-Z0-9_\-]+)`）。
+final RegExp _metaCharsetRe = RegExp(
+  r'<meta[^>]+charset\s*=\s*["' "'" r']?\s*([a-zA-Z0-9_\-]+)',
+  caseSensitive: false,
+);
+
+/// 从**已解码文本**探测 meta charset（② 级 UTF-8 成功后自探用）。
+String? sniffMetaCharsetFromText(String text) {
+  final RegExpMatch? m = _metaCharsetRe.firstMatch(text);
+  return m?.group(1);
+}
+
 /// 从 HTML 前 [limit] 字节的 ASCII 区域探测 meta charset。
 String? sniffMetaCharset(
   Uint8List bytes, {
@@ -49,18 +67,14 @@ String? sniffMetaCharset(
   // 只取 ASCII 可打印区域做探测（中文字节会干扰正则）
   final String head =
       String.fromCharCodes(bytes.sublist(0, window).where((int b) => b < 128));
-  final RegExp re = RegExp(
-    r'<meta[^>]+charset\s*=\s*["' "'" r']?\s*([a-zA-Z0-9_\-]+)',
-    caseSensitive: false,
-  );
-  final RegExpMatch? m = re.firstMatch(head);
-  return m?.group(1);
+  return sniffMetaCharsetFromText(head);
 }
 
 /// 用指定编码解码字节。
 ///
 /// 返回 null 表示**该编码不可用或解码失败**（调用方应继续下探）：
-/// - `gbk` / `big5`：未注册码表时返回 null；
+/// - `gbk` / `big5`：未注册码表时返回 null；注册后按严格语义
+///   （未覆盖对 / 悬空高位字节 → null）；
 /// - `utf-8`：字节非法时返回 null（`allowMalformed: false`）；
 /// - `latin1`：恒成功（单字节全映射）。
 String? decodeBytesWith(Uint8List bytes, String charset) {
@@ -107,7 +121,11 @@ void registerCharsetTables({
   if (big5 != null) _big5Table = big5;
 }
 
-String _decodeMultiByte(Uint8List bytes, Map<int, String> table) {
+/// 严格双字节解码（GBK / Big5 共用）。
+///
+/// ASCII 区直通；双字节对须命中码表，否则整体失败返回 null
+/// （对齐 iOS 严格解码语义，不产出替换字符、不吞字节）。
+String? _decodeMultiByte(Uint8List bytes, Map<int, String> table) {
   final StringBuffer sb = StringBuffer();
   int i = 0;
   while (i < bytes.length) {
@@ -117,11 +135,12 @@ String _decodeMultiByte(Uint8List bytes, Map<int, String> table) {
       i += 1;
     } else if (i + 1 < bytes.length) {
       final int code = (b << 8) | bytes[i + 1];
-      sb.write(table[code] ?? String.fromCharCode(b));
+      final String? ch = table[code];
+      if (ch == null) return null; // 未覆盖对 → 该级失败
+      sb.write(ch);
       i += 2;
     } else {
-      sb.writeCharCode(b);
-      i += 1;
+      return null; // 悬空高位字节 → 该级失败
     }
   }
   return sb.toString();

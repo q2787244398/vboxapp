@@ -119,6 +119,17 @@ void main() {
       expect(decodeBytesWith(Uint8List.fromList('ok'.codeUnits), 'gbk'), 'ok');
     });
 
+    test('注册码表后严格语义：未覆盖对 / 悬空高位字节 → null（B-09）', () {
+      registerCharsetTables(gbk: <int, String>{0xC4E3: '你'});
+      addTearDown(() => registerCharsetTables(gbk: <int, String>{}));
+      // 未覆盖双字节对：不静默替换、不吞字节 → 该级失败（链式回退前提）
+      expect(decodeBytesWith(Uint8List.fromList(<int>[0xC4, 0xE4]), 'gbk'), isNull);
+      // 悬空高位字节
+      expect(decodeBytesWith(Uint8List.fromList(<int>[0xC4]), 'gbk'), isNull);
+      // 已覆盖对不受影响
+      expect(decodeBytesWith(Uint8List.fromList(<int>[0xC4, 0xE3]), 'gbk'), '你');
+    });
+
     test('未知编码名返回 null', () {
       expect(decodeBytesWith(Uint8List.fromList(<int>[1, 2, 3]), 'shift_jis'), isNull);
     });

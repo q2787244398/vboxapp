@@ -6,18 +6,18 @@
 /// - 5 个操作：`__JS_SPIDER__.init(config)` 后调用 `__JS_SPIDER__.<op>(args)`，
 ///   返回值为字符串（JSON）或对象时分别处理（避免双重 JSON 编码，对齐 iOS 修复）
 /// - 原生库不可用（`isAvailable == false`）→ `E_UNIMPLEMENTED`，未打包环境安全降级
+/// - B-09：`loadScriptFromURL` 走 [SpiderHttpBridge]（5 级编码链 + iOS 默认 UA + cookie）
 ///
 /// 测试：注入 fake [QuickJsNativeBridge]（FFI mock），无需真实动态库。
 library;
 
-import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import '../../domain/entities/spider/engine_type.dart';
 import '../../domain/entities/spider/spider_engine.dart';
 import '../../domain/entities/spider/spider_models.dart';
 import '../spider/spider_abi.dart';
+import '../spider/spider_http_bridge.dart';
 import '../spider/spider_js_globals.dart';
 import 'quickjs_ffi.dart';
 
@@ -30,6 +30,7 @@ class QuickJSBridgeEngine implements SpiderEngine {
     this.siteKey,
     this.baseUrl,
     this.requestId,
+    this.httpBridge,
   })  : _bridge = bridge ?? DartFfiQuickJsBridge(),
         _codec = codec ?? const SpiderAbiCodec();
 
@@ -45,8 +46,10 @@ class QuickJSBridgeEngine implements SpiderEngine {
   /// 请求追踪号（init 配置 ctx.requestId）。
   final String? requestId;
 
-  /// 契约默认超时 15s（loadScriptFromURL / 无事件等待场景）。
-  static const Duration defaultTimeout = Duration(seconds: 15);
+  /// HTTP 桥（B-09：loadScriptFromURL 脚本拉取走 5 级编码链 + iOS 默认 UA + cookie）。
+  ///
+  /// 注入实例生命周期归调用方；缺省按需临时创建、用后即关（不泄漏 HttpClient）。
+  final SpiderHttpBridge? httpBridge;
 
   int _runtime = 0;
   int _context = 0;
@@ -95,33 +98,30 @@ class QuickJSBridgeEngine implements SpiderEngine {
   @override
   Future<void> loadScriptFromURL(String urlString) async {
     _ensureAvailable();
-    final HttpClient client = HttpClient()..connectionTimeout = defaultTimeout;
+    // B-09：脚本拉取走 HTTP 桥（契约 §4.2 编码链 + iOS 默认 UA + cookie）。
+    // 注入桥生命周期归调用方；缺省临时创建、用后即关（不泄漏 HttpClient）。
+    final SpiderHttpBridge bridge = httpBridge ?? SpiderHttpBridge();
+    final bool owned = httpBridge == null;
     try {
-      final HttpClientRequest req =
-          await client.getUrl(Uri.parse(urlString)).timeout(defaultTimeout);
-      final HttpClientResponse resp =
-          await req.close().timeout(defaultTimeout);
-      if (resp.statusCode != 200) {
+      final SpiderHttpResult res = await bridge.request(urlString);
+      if (res.status == 0) {
+        // 网络失败 / 超时（content 为原因描述：请求超时 / socket 错误）
         throw SpiderException(
           SpiderErrorCode.scriptLoad,
-          '无法从 URL 加载脚本（HTTP ${resp.statusCode}）: $urlString',
+          '从 URL 加载脚本失败（${res.content}）: $urlString',
         );
       }
-      final String body =
-          await resp.transform(utf8.decoder).join().timeout(defaultTimeout);
-      await loadScript(body);
-    } on TimeoutException {
-      throw SpiderException(
-        SpiderErrorCode.scriptLoad,
-        '从 URL 加载脚本超时（${defaultTimeout.inSeconds}s）: $urlString',
-      );
-    } on IOException {
-      throw SpiderException(
-        SpiderErrorCode.scriptLoad,
-        '从 URL 加载脚本失败（网络错误）: $urlString',
-      );
+      if (res.status != 200) {
+        throw SpiderException(
+          SpiderErrorCode.scriptLoad,
+          '无法从 URL 加载脚本（HTTP ${res.status}）: $urlString',
+        );
+      }
+      await loadScript(res.content);
     } finally {
-      client.close(force: true);
+      if (owned) {
+        await bridge.close();
+      }
     }
   }
 
