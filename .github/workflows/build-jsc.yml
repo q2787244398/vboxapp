@@ -1,0 +1,62 @@
+name: Build JSC (macOS dylib + smoke)
+
+# 批次 Q · Q-04 原生腿：jsc/wrapper.c 链接系统 JavaScriptCore.framework
+# 产出 libvbox_jsc.dylib（Dart 侧 lib/platform/runtime/jsc_ffi.dart 加载）。
+# Q-02（Android 四 ABI）/ Q-03（Windows MSVC + WinCairo）见
+# docs/评估_JSC_Windows可行性.md 方案 A，待 NDK/MSVC 构建管线任务启动。
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'jsc/**'
+      - '.github/workflows/build-jsc.yml'
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🏗️ Build libvbox_jsc.dylib（系统 JavaScriptCore.framework）
+        run: |
+          clang -shared -fPIC -O2 \
+            -framework JavaScriptCore \
+            jsc/wrapper.c -o libvbox_jsc.dylib
+          ls -lh libvbox_jsc.dylib
+          file libvbox_jsc.dylib
+
+      - name: 🧪 Smoke：vj_* ABI 语义（eval / 异常前缀 / 生命周期）
+        run: |
+          clang -O2 jsc/smoke_test.c jsc/wrapper.c \
+            -framework JavaScriptCore -o /tmp/jsc_smoke
+          /tmp/jsc_smoke
+
+      - name: 🧪 Smoke：dylib 动态加载（等价 Dart FFI 路径）
+        run: |
+          cat > /tmp/dylib_check.c <<'EOF'
+          #include <dlfcn.h>
+          #include <stdio.h>
+          int main(void) {
+              void *h = dlopen("libvbox_jsc.dylib", RTLD_NOW);
+              if (!h) { printf("❌ dlopen: %s\n", dlerror()); return 1; }
+              void *(*create_ctx)(void *) = dlsym(h, "vj_create_context");
+              const char *(*eval)(void *, const char *) = dlsym(h, "vj_eval");
+              if (!create_ctx || !eval) { printf("❌ dlsym\n"); return 1; }
+              void *ctx = create_ctx(0);
+              const char *r = eval(ctx, "21*2");
+              int ok = r && r[0] == '4' && r[1] == '2' && r[2] == '\0';
+              printf("%s dylib eval 21*2 → %s\n", ok ? "✅" : "❌", r ? r : "(null)");
+              return ok ? 0 : 1;
+          }
+          EOF
+          clang -O2 /tmp/dylib_check.c -o /tmp/dylib_check
+          /tmp/dylib_check
+
+      - name: 📤 Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvbox-jsc-macos
+          path: libvbox_jsc.dylib

@@ -17,6 +17,7 @@ import 'package:vbox/domain/entities/playback/playback.dart';
 import 'package:vbox/domain/entities/remote_source/remote_source.dart';
 import 'package:vbox/domain/entities/spider/spider.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/platform/runtime/jsc_ffi.dart';
 import 'package:vbox/platform/runtime/quickjs_ffi.dart';
 import 'package:vbox/platform/spider/node_http_client.dart';
 import 'package:vbox/platform/spider/spider_engine_factory.dart';
@@ -100,9 +101,11 @@ class _FakeSpiderEngineFactory extends SpiderEngineFactory {
     SpiderEngineType type, {
     NodeHttpClient? nodeClient,
     QuickJsNativeBridge? quickJsBridge,
+    JsCoreNativeBridge? jsCoreBridge,
     String? siteKey,
     String? baseUrl,
     String? requestId,
+    void Function(String)? onLog,
   }) {
     createdTypes.add(type);
     return engine;
