@@ -3782,7 +3782,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 | job | runner | 内容 | 结果 |
 |-----|--------|------|------|
 | `contract-checks` | ubuntu-latest | 9 个契约校验脚本 + conformance runner（45 项） | ✅ |
-| `flutter-analyze` | macos-15 | Flutter 3.47.5 → `pub get` → `flutter analyze` → `flutter test` | ✅ |
+| `flutter-analyze` | ubuntu-latest（x86-64；与 golden 基线生成环境一致，防跨平台伪 diff） | Flutter 3.47.5 → `pub get` → `flutter analyze` → `flutter test` | ✅ |
 
 - **首跑即抓到 28 errors + 8 warnings**（相对路径写错、record 返回类型不符、`kIsWeb` 未导入、未使用导入、`assets/` 缺目录），全部修复后 **analyze 0 issues**——证明此前「未编译验证」的代码确实藏有缺陷。
 - `flutter test` 由空跑转为真实执行：**78 用例全部通过**（G-05 起步；v6 已扩展至 **143 用例**）。

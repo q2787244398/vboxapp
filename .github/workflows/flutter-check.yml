@@ -3,7 +3,7 @@
 # 背景：本机 iSH aarch64 无法运行 Flutter（官方 Linux 包仅 x86-64），
 # 所有 Dart 代码未经编译验证。本 workflow 在 GitHub Actions 上补齐验证闭环：
 #   1. contract-checks   10 个纯 Python 校验脚本（不含需 lcov 的 check_coverage）+ conformance runner（ubuntu）
-#   2. flutter-analyze   flutter analyze + flutter test --coverage + 覆盖率门槛（macos-15）
+#   2. flutter-analyze   flutter analyze + flutter test --coverage + 覆盖率门槛（ubuntu-latest，见 job 注释）
 #   3. build-android     flutter build apk --debug（ubuntu，解锁 E.10b 门禁 ③/⑤「三端编译」）
 #   4. build-macos       flutter build macos --debug（macos-15）
 #   5. build-windows     flutter build windows --debug（windows-latest）
@@ -91,8 +91,11 @@ jobs:
           test -f "$RUNNER_TEMP/vbox_quickjs/libvbox_quickjs.so" && echo "✅ libvbox_quickjs.so built"
 
   # ── Flutter 编译验证（对全部 Dart 文件（当前 74 个）做编译器级静态检查）─────
+  # runner 选 ubuntu-latest（x86-64 Linux）：golden 基线（test/golden/goldens/*.png，
+  # A-12 像素锁）在 Linux x64 环境生成，Skia 光栅化随平台/CPU 架构存在亚像素差异，
+  # macOS/ARM 校验必产生 0.07%–0.81% 伪 diff；基线生成与 CI 校验必须同环境。
   flutter-analyze:
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
