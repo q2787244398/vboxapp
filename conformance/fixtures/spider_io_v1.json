@@ -154,5 +154,26 @@
       { "name": "latin1", "charset": "iso-8859-1", "expectedDecode": "ISO Latin1" },
       { "name": "fallback_all_fail", "charset": "unknown-xyz", "expectedDecode": "base64" }
     ]
+  },
+
+  "$comment_siteMode": {
+    "desc": "站点模式判定（契约 §1.1 resolveSiteMode）—— 三端须判定一致",
+    "cases": [
+      { "name": "groupNode", "site": { "key": "a", "type": 3, "group": "node" }, "mode": "node", "isNodeHosted": true },
+      { "name": "keyNodejs", "site": { "key": "nodejs_x", "type": 3 }, "mode": "node", "isNodeHosted": true },
+      { "name": "keyCspType3", "site": { "key": "csp_abc", "type": 3 }, "mode": "node", "isNodeHosted": true },
+      { "name": "apiLoopbackSpider", "site": { "key": "a", "type": 3, "api": "http://127.0.0.1:58080/spider/x" }, "mode": "node", "isNodeHosted": true },
+      { "name": "type0", "site": { "key": "a", "type": 0, "api": "http://api/x" }, "mode": "apiEndpoint", "isNodeHosted": false },
+      { "name": "type1", "site": { "key": "a", "type": 1, "api": "http://api/x" }, "mode": "apiEndpoint", "isNodeHosted": false },
+      { "name": "type2Zhanyuan", "site": { "key": "a", "type": 2, "api": "http://site" }, "mode": "zhanyuan", "isNodeHosted": false },
+      { "name": "relativeJs", "site": { "key": "a", "type": 3, "api": "./local.js" }, "mode": "jsSpider", "isNodeHosted": false },
+      { "name": "httpJs", "site": { "key": "a", "type": 3, "api": "http://cdn/x.js" }, "mode": "jsSpider", "isNodeHosted": false },
+      { "name": "httpApi", "site": { "key": "a", "type": 3, "api": "http://api/vod" }, "mode": "apiEndpoint", "isNodeHosted": false },
+      { "name": "cspPyPriority", "site": { "key": "a", "type": 3, "api": "csp_js_x.py" }, "mode": "node", "isNodeHosted": true },
+      { "name": "pythonSpider", "site": { "key": "a", "type": 3, "api": "./spider.py" }, "mode": "pythonSpider", "isNodeHosted": false },
+      { "name": "jarUnsupported", "site": { "key": "a", "type": 3, "api": "http://x/a.jar" }, "mode": "unsupported", "isNodeHosted": false },
+      { "name": "classNameUnsupported", "site": { "key": "a", "type": 3, "api": "com.example.Spider" }, "mode": "unsupported", "isNodeHosted": false },
+      { "name": "unknownType", "site": { "key": "a", "type": 9 }, "mode": "unsupported", "isNodeHosted": false }
+    ]
   }
 }

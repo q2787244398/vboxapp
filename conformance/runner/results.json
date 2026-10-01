@@ -1,6 +1,6 @@
 {
- "total": 48,
- "passed": 48,
+ "total": 83,
+ "passed": 83,
  "failed": 0,
  "results": [
   {
@@ -138,6 +138,18 @@
   {
    "suite": "spider",
    "name": "big5 / latin1 映射齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "五操作 data 字段形状齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "站点模式判定一致（15 例）",
    "ok": true,
    "detail": ""
   },
@@ -288,6 +300,204 @@
   {
    "suite": "backup",
    "name": "风险清单已声明",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "schemaVersion 为 1",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "configVersion 格式 = YYYY.MM.DD.N",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "默认 TTL = 21600（6h）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "必需文件条目 = allSources",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "已知文件键 10 个（实为 10）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "用例[validFull]",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "用例[missingAllSources]",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "用例[badConfigVersion]",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "用例[defaultsApplied]",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "用例[minAppVersionOptional]",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "全部用例通过（5 例）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "schemaVersion 为 1.0",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "引擎 javaScriptCore rawValue=JavaScriptCore",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "引擎 quickJS rawValue=QuickJS",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "引擎 node rawValue=Node",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "引擎 nodeLX rawValue=NodeLX",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "引擎 python rawValue=python",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 isAvailable 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 createRuntime 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 createContext 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 freeContext 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 freeRuntime 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 eval 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_create_runtime' / 'vj_create_runtime'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_create_context' / 'vj_create_context'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_free_runtime' / 'vj_free_runtime'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_free_context' / 'vj_free_context'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_eval' / 'vj_eval'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_free_string' / 'vj_free_string'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "free_string 双端 2 参（ctx + str）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "降级可观测标记 'JSC 引擎不可用'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "降级可观测标记 '自动降级 QuickJS'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "降级可观测标记 '已降级为 QuickJS 引擎'",
    "ok": true,
    "detail": ""
   }

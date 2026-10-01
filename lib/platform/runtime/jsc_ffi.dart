@@ -81,9 +81,9 @@ class DartFfiJsCoreBridge implements JsCoreNativeBridge {
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _eval = _lib!
       .lookupFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
           Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>('vj_eval');
-  late final void Function(Pointer<Utf8>) _freeString = _lib!
-      .lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>(
-          'vj_free_string');
+  late final void Function(Pointer<Void>, Pointer<Utf8>) _freeString = _lib!
+      .lookupFunction<Void Function(Pointer<Void>, Pointer<Utf8>),
+          void Function(Pointer<Void>, Pointer<Utf8>)>('vj_free_string');
 
   @override
   bool get isAvailable => _lib != null;
@@ -123,7 +123,7 @@ class DartFfiJsCoreBridge implements JsCoreNativeBridge {
     malloc.free(scriptPtr); // toNativeUtf8 默认用 malloc 分配，立即释放
     if (resultPtr == nullptr) return null;
     final String result = resultPtr.toDartString();
-    _freeString(resultPtr); // 原生侧 free(malloc 缓冲)
+    _freeString(ctxPtr, resultPtr); // 原生侧 free(malloc 缓冲)
     return result;
   }
 }

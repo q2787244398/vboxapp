@@ -3,10 +3,12 @@
 
 用途
 ----
-消费 conformance/fixtures/ 下的三类样本，验证契约可执行性：
-  ① spider_io_v1.json   —— Spider ABI v1.0 的 5 个操作 + 容错解码 + 错误规则 + 编码链
-  ② sample_v4.sqlite3   —— v4 schema 结构 + 数据可读回
-  ③ backup_v1.json      —— 备份格式 + 加密参数 + 白名单 + 遗留字段容错
+消费 conformance/fixtures/ 下的样本，验证契约可执行性：
+  ① spider_io_v1.json    —— Spider ABI v1.0 的 5 个操作 + 容错解码 + 错误规则 + 编码链 + 站点模式
+  ② sample_v4.sqlite3    —— v4 schema 结构 + 数据可读回
+  ③ backup_v1.json       —— 备份格式 + 加密参数 + 白名单 + 遗留字段容错
+  ④ manifest_v1.json     —— 远程源 manifest 契约（版本探测 + 必需文件 + 默认值）
+  ⑤ engine_abi_v1.json   —— 双引擎 ABI 一致性（JSC 主 / QuickJS 降级）
 
 退出码
 ------
@@ -103,6 +105,55 @@ def normalize_container(d: dict[str, Any]) -> dict[str, Any]:
             normalize_item(i) if isinstance(i, dict) else i for i in out["class"]
         ]
     return out
+
+
+def resolve_site_mode(site: dict[str, Any]) -> str:
+    """镜像 Dart `SiteConfig.resolveSiteMode`（契约 abi_v1.md §1.1）。"""
+    key = site.get("key", "")
+    typ = site.get("type", 0)
+    api = site.get("api", "") or ""
+    group = site.get("group")
+    if (group == "node" or key.startswith("nodejs_")
+            or (key.startswith("csp_") and typ == 3)
+            or api.startswith("nodejs_")
+            or (api.startswith("csp_") and typ == 3)
+            or ("://127.0.0.1" in api and "/spider/" in api)):
+        return "node"
+    if typ in (0, 1):
+        return "apiEndpoint"
+    if typ == 2:
+        return "zhanyuan"
+    if typ == 3:
+        if ".jar" in api:
+            return "unsupported"
+        if api.endswith(".py"):
+            return "pythonSpider"
+        is_http = api.startswith("http://") or api.startswith("https://")
+        if is_http and api.endswith(".js"):
+            return "jsSpider"
+        if is_http and not api.endswith(".js"):
+            return "apiEndpoint"
+        if api.endswith(".js") or api.startswith("./"):
+            return "jsSpider"
+        return "unsupported"
+    return "unsupported"
+
+
+def normalize_manifest(m: dict[str, Any]) -> dict[str, Any]:
+    """镜像 Dart `RemoteManifest.fromJson` + `RemoteManifestDatasource` 校验链。"""
+    cfg = str(m.get("configVersion", "") or "")
+    files = m.get("files") or {}
+    return {
+        "schemaVersion": m.get("schemaVersion", 1),
+        "configVersion": cfg,
+        "hasValidConfigVersion":
+            re.match(r"^\d{4}\.\d{2}\.\d{2}\.\d+$", cfg) is not None,
+        "hasAllSources": "allSources" in files,
+        "ttlSeconds": m.get("ttlSeconds", 21600),
+        "forceRefresh": m.get("forceRefresh", True),
+        "disabledKeys": list(m.get("disabledKeys", []) or []),
+        "minAppVersion": m.get("minAppVersion"),
+    }
 
 
 def subset(expected: Any, actual: Any) -> tuple[bool, str]:
@@ -209,6 +260,55 @@ def suite_spider_io() -> None:
           fam.get("unknown-xyz") == "base64", f"实为 {fam.get('unknown-xyz')}")
     check("spider", "big5 / latin1 映射齐备",
           fam.get("big5") == "Big5" and fam.get("iso-8859-1") == "ISO Latin1")
+
+    # —— 扩五操作：data 字段形状（镜像 SpiderModels 各 Result）——
+    op_fields = {
+        "homeContent": {"class": list, "list": list},
+        "searchContent": {"page": int, "pagecount": int, "list": list},
+        "categoryContent": {"page": int, "pagecount": int, "limit": int,
+                            "total": int, "list": list},
+        "detailContent": {"list": list},
+        "playerContent": {"parse": int, "url": (str, list), "urls": list,
+                          "header": dict},
+    }
+
+    def _shape_ok(v: Any, want: Any) -> bool:
+        if isinstance(want, tuple):
+            return any(isinstance(v, w) for w in want)
+        if want is list:
+            return isinstance(v, list)
+        if want is dict:
+            return isinstance(v, dict)
+        if want is int:
+            return isinstance(v, int) and not isinstance(v, bool)
+        if want is str:
+            return isinstance(v, str)
+        return False
+
+    shape_ok = True
+    for op, fields in op_fields.items():
+        data = d.get(op, {}).get("expectedResponse", {}).get("data", {})
+        missing = [f for f in fields if f not in data]
+        bad = [f for f in fields if f in data and not _shape_ok(data[f], fields[f])]
+        if missing or bad:
+            shape_ok = False
+            check("spider", f"{op} data 字段形状", False, f"缺 {missing} 类型错 {bad}")
+    if shape_ok:
+        check("spider", "五操作 data 字段形状齐备", True)
+
+    # —— 站点模式（契约 §1.1）——
+    site_modes = d.get("$comment_siteMode", {}).get("cases", [])
+    sm_ok = True
+    for i, case in enumerate(site_modes):
+        site = case.get("site", {})
+        want = case.get("mode")
+        got = resolve_site_mode(site)
+        if got != want:
+            sm_ok = False
+            check("spider", f"站点模式[{case.get('name', i)}]", False,
+                  f"期望 {want} 实为 {got}")
+    if sm_ok and site_modes:
+        check("spider", f"站点模式判定一致（{len(site_modes)} 例）", True)
 
 
 # ------------------------------------------------------------------- 套件 ②
@@ -351,6 +451,83 @@ def suite_backup() -> None:
     check("backup", "风险清单已声明", bool(d.get("knownRisks")))
 
 
+# ------------------------------------------------------------------- 套件 ④
+def suite_manifest() -> None:
+    print("\n【套件 ④】远程源 manifest v1.0（manifest_v1.json）")
+    d = json.loads((FIX / "manifest_v1.json").read_text(encoding="utf-8"))
+    check("manifest", "schemaVersion 为 1", d.get("schemaVersion") == 1)
+    check("manifest", "configVersion 格式 = YYYY.MM.DD.N",
+          d.get("configVersionPattern") == r"^\d{4}\.\d{2}\.\d{2}\.\d+$")
+    check("manifest", "默认 TTL = 21600（6h）", d.get("defaultTtlSeconds") == 21600)
+    check("manifest", "必需文件条目 = allSources",
+          d.get("requiredFiles") == ["allSources"])
+    known = d.get("knownFileKeys", [])
+    check("manifest", f"已知文件键 10 个（实为 {len(known)}）", len(known) == 10)
+
+    cases = d.get("cases", [])
+    all_ok = True
+    for case in cases:
+        norm = normalize_manifest(case.get("input", {}))
+        valid = bool(norm["hasAllSources"] and norm["hasValidConfigVersion"])
+        name = case.get("name", "?")
+        if valid != case.get("valid"):
+            all_ok = False
+            check("manifest", f"用例[{name}] 有效性", False,
+                  f"期望 {case.get('valid')} 实为 {valid}")
+            continue
+        exp = case.get("expected", {})
+        ok, why = subset(exp, norm)
+        if not ok:
+            all_ok = False
+            check("manifest", f"用例[{name}] 字段", False, why)
+        else:
+            check("manifest", f"用例[{name}]", True)
+    if all_ok:
+        check("manifest", f"全部用例通过（{len(cases)} 例）", True)
+
+
+# ------------------------------------------------------------------- 套件 ⑤
+def suite_engine_abi() -> None:
+    print("\n【套件 ⑤】双引擎 ABI 一致性（engine_abi_v1.json）")
+    d = json.loads((FIX / "engine_abi_v1.json").read_text(encoding="utf-8"))
+    check("engine", "schemaVersion 为 1.0", d.get("schemaVersion") == "1.0")
+
+    et = (ROOT / "lib/domain/entities/spider/engine_type.dart").read_text()
+    for e in d.get("engines", []):
+        name, raw = e["type"], e["rawValue"]
+        check("engine", f"引擎 {name} rawValue={raw}",
+              re.search(rf"{name} => '{raw}'", et) is not None)
+
+    qjs = (ROOT / "lib/platform/runtime/quickjs_ffi.dart").read_text()
+    jsc = (ROOT / "lib/platform/runtime/jsc_ffi.dart").read_text()
+    frag = {
+        "isAvailable": "bool get isAvailable",
+        "createRuntime": "int createRuntime()",
+        "createContext": "int createContext(int runtime)",
+        "freeContext": "void freeContext(int context)",
+        "freeRuntime": "void freeRuntime(int runtime)",
+        "eval": "String? eval(int context, String script)",
+    }
+    for m in d.get("bridgeMethods", []):
+        present = frag.get(m, m) in qjs and frag.get(m, m) in jsc
+        check("engine", f"bridge 方法 {m} 双端齐备", present)
+
+    pre = d.get("cSymbols", {}).get("prefixes", {})
+    for s in d.get("cSymbols", {}).get("suffixes", []):
+        vq = f"'{pre.get('quickjs')}_{s}'"
+        vj = f"'{pre.get('jsCore')}_{s}'"
+        check("engine", f"C 符号 {vq} / {vj}", vq in qjs and vj in jsc)
+
+    if d.get("cSymbols", {}).get("freeStringArgs") == 2:
+        two_arg = "Void Function(Pointer<Void>, Pointer<Utf8>)"
+        check("engine", "free_string 双端 2 参（ctx + str）",
+              two_arg in qjs and two_arg in jsc)
+
+    fac = (ROOT / "lib/platform/spider/spider_engine_factory.dart").read_text()
+    for m in d.get("fallback", {}).get("markers", []):
+        check("engine", f"降级可观测标记 {m!r}", m in fac)
+
+
 def main() -> int:
     print("=" * 62)
     print("VBox 一致性测试运行器 (conformance runner)")
@@ -359,6 +536,8 @@ def main() -> int:
     suite_spider_io()
     suite_sqlite()
     suite_backup()
+    suite_manifest()
+    suite_engine_abi()
 
     passed = sum(1 for r in RESULTS if r["ok"])
     failed = [r for r in RESULTS if not r["ok"]]
