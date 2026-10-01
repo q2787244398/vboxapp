@@ -28,13 +28,13 @@ jobs:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: 🏗️ Build libvbox_jsc.dylib（系统 JavaScriptCore.framework）
+      - name: 🏗️ Build libvbox_jsc.dylib（系统 JavaScriptCore.framework，@rpath id）
         run: |
-          clang -shared -fPIC -O2 \
-            -framework JavaScriptCore \
-            jsc/wrapper.c -o libvbox_jsc.dylib
-          ls -lh libvbox_jsc.dylib
-          file libvbox_jsc.dylib
+          bash scripts/build-jsc-macos.sh
+          DYLIB="build/vbox-jsc/macos/libvbox_jsc.dylib"
+          ls -lh "$DYLIB"
+          file "$DYLIB"
+          otool -L "$DYLIB"
 
       - name: 🧪 Smoke：vj_* ABI 语义（eval / 异常前缀 / 生命周期）
         run: |
@@ -48,7 +48,7 @@ jobs:
           #include <dlfcn.h>
           #include <stdio.h>
           int main(void) {
-              void *h = dlopen("libvbox_jsc.dylib", RTLD_NOW);
+              void *h = dlopen("build/vbox-jsc/macos/libvbox_jsc.dylib", RTLD_NOW);
               if (!h) { printf("❌ dlopen: %s\n", dlerror()); return 1; }
               void *(*create_ctx)(void *) = dlsym(h, "vj_create_context");
               const char *(*eval)(void *, const char *) = dlsym(h, "vj_eval");
@@ -67,7 +67,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: libvbox-jsc-macos
-          path: libvbox_jsc.dylib
+          path: build/vbox-jsc/macos/libvbox_jsc.dylib
 
   # ── Q-02：Android 四 ABI（NDK 交叉编译 + 预编译 libjsc.so） ──────────────
   build-android:

@@ -196,6 +196,11 @@ jobs:
       - name: Build macOS release
         run: flutter build macos --release
 
+      # 批次 Q · Q-04：JSC dylib 随 App 分发（Contents/Frameworks，rpath 解析）。
+      # 先于 libmpv 段执行：libmpv 段的 re-sign 已覆盖追加 dylib 后的签名失效问题。
+      - name: Bundle JSC dylib into app (Q-04)
+        run: bash scripts/bundle-jsc-macos.sh --config Release
+
       - name: Bundle libmpv dylib set into app Frameworks
         run: |
           APP="$(ls -d build/macos/Build/Products/Release/*.app | head -1)"

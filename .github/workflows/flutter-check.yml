@@ -175,6 +175,11 @@ jobs:
       - name: Build macOS app (debug)
         run: flutter build macos --debug
 
+      # 批次 Q · Q-04：JSC dylib 打入 debug App（编译→拷入 Frameworks→re-sign→dlopen 冒烟）
+      # —— Q-04 验收「可加载」的 CI 闭环（运行链 = MainFlutterWindow dlopen / Dart FFI 的前置）
+      - name: Bundle JSC dylib into app (Q-04)
+        run: bash scripts/bundle-jsc-macos.sh --config Debug
+
   build-windows:
     runs-on: windows-latest
     timeout-minutes: 45
