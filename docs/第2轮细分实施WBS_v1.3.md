@@ -1,4 +1,4 @@
-# vbox 第 2 轮细分实施 WBS · v1.2（任务级）
+# vbox 第 2 轮细分实施 WBS · v1.3（任务级）
 
 > **定位**：把 [第2轮开发计划_功能补全_v2.5.md](computer:///workspace/vboxapp/docs/第2轮开发计划_功能补全_v2.5.md) 的**批次级方案**下沉为**任务级可执行清单**（可直接开工/派工/验收）。不替代方案文档。
 > **事实依据**：[第2轮开发方案_iOS全量复核_v1.3.md](computer:///workspace/vboxapp/docs/第2轮开发方案_iOS全量复核_v1.3.md) 四轮复核（185/185 文件枚举 + 契约/数据层真值）。
@@ -6,8 +6,10 @@
 > **任务编号**：`批次-序号`（如 `A-03`）；共 **128 个任务条目**。
 > **v1.1 变更**：① 落定 **D6**（三端均集成 JSC）→ 改写 B-05、新增 **B-05a**、新增 **批次 Q（JSC 三端集成）**；② 修正 v1.0 的任务计数（原写 131，实测 **121**；加 B-05a 与批次 Q 后为 **128**）。
 > **v1.2 变更（D24/D25，2026-10-01）**：**批次 A（设计基座 A-01 ~ A-13）代码侧全量交付** → 写入交付记录与全量自检结果；补齐 A-12 遗漏项「35 张 iOS UI 图归档」至 `docs/ui_baseline/ios_ref/`（35 文件 + manifest.json 页面族映射，19 族全中）。文件名升版 v1.1 → v1.2（旧名 `第2轮细分实施WBS_v1.1.md` 仅存于各文档历史沿革行——`is_history` 豁免口径；**现行**引用已全部改指 v1.2）。
+> **v1.3 变更（D26/D27，2026-10-01）**：**批次 B 首段（B-01 ~ B-06 + B-05a）代码侧交付**（远程源配置管理器状态机 / 代理降级链 / 6 合 1 聚合 / 站点模式判定 / JS 全局桥 prelude + QuickJS 引擎集成）→ 写入交付记录与自检结果（709 用例全绿 + 11 守卫全绿）；**Q-01 门禁完成**（`docs/评估_JSC_Windows可行性.md`：✅ 可行——WinCairo 官方端口自建 JSC-only DLL，体积 ~10–18 MB LGPL 动态链接合规，**不触发 D6 降级预案**，B-05 维持 JSC 主 / QuickJS 降级原案）。文件名升版 v1.2 → v1.3（现行引用同步改指 v1.3）。
 > **完成判定**：每批次任务全 Green + 批次自检（analyze 0 / 单测 / 守卫 / Golden）通过。
 > **批次 A 交付记录（2026-10-01，遗漏核查后终版）**：A-01 ~ A-13 代码侧全部交付。全量自检：`flutter analyze` 0 issues · `flutter test --coverage` **658 用例全通过** · 整体覆盖率 **75.6% ≥ 70%** · **11 个守卫脚本全绿**（含 `check_ui_tokens --selftest` 负向自测）· conformance **45/45** · Golden 基线 **4 张**像素锁定（home_portrait / home_landscape / grid_landscape / **story_page 组件画廊**）· **35 张 iOS UI 图已归档** `docs/ui_baseline/ios_ref/`（manifest.json 19 页面族映射全中）。**本轮遗漏核查补齐 2 项**：① A-12「35 图归档」（原只建机制未归档）；② A-04「组件 Story 页」（`vbox_story_page.dart`，9 区块全组件陈列 + 4 单测 + Golden）。A-12「逐页 SSIM ≥0.95」机制（`scripts/visual_regression.py`）已就绪，**逐页相似度分在后续批次页面族完善后按 manifest 配对产出**（当前 Flutter 侧仅首页 / 书架成形，无同名页对可比）；A-09「D-pad 焦点全程可见」已达框架层（FocusRing + 焦点遍历组 + 自动聚焦），页面级焦点环铺设随各页面族落地。
+> **批次 B 交付记录（2026-10-01，首段 B-01 ~ B-06 + B-05a）**：远程源配置管理器（`remote_source_config_manager.dart`：开关→空地址→从未同步→App 升级→force→版本探测→TTL 的七出口状态机，`/manifest.version` 约 30 字节轻量探测，`minAppVersion` 兼容门控，契约同步键 `remote_default_*` 镜像，`RemoteSourceSyncResult.fullSync` 保留触发原因）· 代理降级链（`remote_strategy.dart`：仅 GitHub 域名走 主代理→备用→直连）· 6 合 1 聚合解析（`aggregateSites`：空 key 剔除 / disabledKeys 剔除 / key 去重首见优先）· 站点模式判定（`resolve_site_mode.dart`：Node 站点优先分流 + LX 识别 + 双模式开关）· JS 全局桥（`spider_js_globals.dart`：console/print 双通道日志 + atob/btoa Latin-1 语义 + req 别名 + 对象式 options 归一，prelude 幂等可重入）· QuickJS 引擎集成 prelude（`quickjs_bridge_engine.dart` 注入 + 日志取回接 `onLog`）。自检：`flutter analyze` 0 issues · **709 用例全通过**（新增 51：状态机/聚合/门控 21 + 站点模式 17 + JS 桥 13，JS 桥含 **Node 子进程真实执行 prelude** 验证「与引擎无关」）· 守卫脚本全绿 · B 批次无 UI 任务（**90% UI 还原度红线不涉及本批次**；后续 C/D/E… 各 UI 批次仍按 A-12 SSIM ≥0.95 门禁执行）。**Q-01 门禁完成**（见 §16）→ B-05 待 Q-05 后定稿，B-07/B-08（Node/Python 引擎复用件）已在库但五操作 conformance 随 B-12 收口，B-09 ~ B-12 未启动。
 
 ---
 
@@ -48,17 +50,17 @@
 
 ---
 
-## 2. 批次 B · 远程源与 Spider（B-01 ~ B-12，含 B-05a）· 13 项
+## 2. 批次 B · 远程源与 Spider（B-01 ~ B-12，含 B-05a）· 13 项 — ◐ **首段已交付（B-01 ~ B-06 + B-05a，2026-10-01）**
 
 | 编号 | 任务 | 产出 | 依赖 | 契约 | 验收 | 状态 |
 |------|------|------|------|------|------|------|
-| B-01 | manifest 探测 / 缓存（版本→TTL→强制刷新→兼容门控） | `lib/data/datasources/remote/remote_source_config_manager.dart` | A-06 | `remote_default_*` 9 键 | 版本未变不进全量 | 改造 |
-| B-02 | 代理降级链（可配置常量） | 同上 | B-01 | — | 主通道失败自动切换 | 新建 |
-| B-03 | 6 合 1 聚合解析 | 同上 | B-01 | — | 站点聚合正确 | 新建 |
-| B-04 | 站点模式判定 + Node 站点识别 | `lib/domain/usecases/resolve_site_mode.dart` | B-03 | — | 全分支用例 | 新建 |
-| B-05 | **引擎映射（D6）**：JS 站点脚本 → **JSC 为主引擎**、**QuickJS 为降级备份**；Node / NodeLX / Python 分流 | `lib/platform/spider/spider_engine_factory.dart` | B-04, **Q-05** | — | 映射表用例；**JSC 不可用时自动降级 QuickJS 且降级可观测**；5 类引擎均有五操作用例 | **改造** |
-| B-05a | **JS 全局 API 桥补齐（6 项，与引擎无关）**：`console`/`print` 真实输出（接日志）· `atob`/`btoa` · `req` 别名 · **对象式 `options` 归一** | `lib/platform/spider/spider_js_globals.dart` | B-04 | — | 6 项逐项单测；内置脚本零改动可跑 | 新建 |
-| B-06 | QuickJS 引擎接入（**降级备份**位） | `lib/platform/runtime/quickjs_bridge_engine.dart` | B-05 | — | 五操作跑通 | 复用 |
+| B-01 | manifest 探测 / 缓存（版本→TTL→强制刷新→兼容门控） | `lib/data/datasources/remote/remote_source_config_manager.dart` | A-06 | `remote_default_*` 9 键 | 版本未变不进全量 | ✅ 改造·已交付 |
+| B-02 | 代理降级链（可配置常量） | 同上 | B-01 | — | 主通道失败自动切换 | ✅ 新建·已交付 |
+| B-03 | 6 合 1 聚合解析 | 同上 | B-01 | — | 站点聚合正确 | ✅ 新建·已交付 |
+| B-04 | 站点模式判定 + Node 站点识别 | `lib/domain/usecases/resolve_site_mode.dart` | B-03 | — | 全分支用例 | ✅ 新建·已交付 |
+| B-05 | **引擎映射（D6）**：JS 站点脚本 → **JSC 为主引擎**、**QuickJS 为降级备份**；Node / NodeLX / Python 分流 | `lib/platform/spider/spider_engine_factory.dart` | B-04, **Q-05** | — | 映射表用例；**JSC 不可用时自动降级 QuickJS 且降级可观测**；5 类引擎均有五操作用例 | 改造（**待 Q-05 后定稿**；Q-01 已过 → 不触发降级预案） |
+| B-05a | **JS 全局 API 桥补齐（6 项，与引擎无关）**：`console`/`print` 真实输出（接日志）· `atob`/`btoa` · `req` 别名 · **对象式 `options` 归一** | `lib/platform/spider/spider_js_globals.dart` | B-04 | — | 6 项逐项单测；内置脚本零改动可跑 | ✅ 新建·已交付（**Node 子进程真实执行 prelude 逐项验证**） |
+| B-06 | QuickJS 引擎接入（**降级备份**位） | `lib/platform/runtime/quickjs_bridge_engine.dart` | B-05 | — | 五操作跑通 | ✅ 复用·已交付（prelude 注入 + 日志取回集成） |
 | B-07 | Node / NodeLX 引擎接入（`nodejs_` / lx） | `lib/platform/spider/node_bridge_engine.dart` | B-05 | `remote_node_bundle_url` `remote_node_bundle_ver` | 五操作跑通 | 复用 |
 | B-08 | Python 引擎接入（`csp_`） | `lib/platform/spider/python_bridge_engine.dart` | B-05 | — | 五操作跑通 | 复用 |
 | B-09 | HTTP 桥：超时 + **5 级编码链（GBK/GB2312/GB18030/Big5/UTF-8）** + `sslBypass`(仅福利) + cookie（**JSC 侧已有现成实现，直接移植**） | `lib/platform/spider/spider_abi.dart` 等 | B-05 | — | GBK/Big5 负向用例 | 改造 |
@@ -250,11 +252,11 @@
 
 ---
 
-## 16. 批次 Q · JavaScriptCore 三端集成（D6）（Q-01 ~ Q-06）· 6 项
+## 16. 批次 Q · JavaScriptCore 三端集成（D6）（Q-01 ~ Q-06）· 6 项 — ◐ **Q-01 门禁已过（2026-10-01）**
 
 | 编号 | 任务 | 产出 | 依赖 | 契约 | 验收 | 状态 |
 |------|------|------|------|------|------|------|
-| Q-01 | **Windows 自建/集成 JSC 可行性评估（门禁）** | `docs/评估_JSC_Windows可行性.md` | — | — | 产出：可用构建方案 + 体积/许可结论；**不通过 → 触发 D6 降级预案（Windows 改用 QuickJS，回老板确认）** | 新建 |
+| Q-01 | **Windows 自建/集成 JSC 可行性评估（门禁）** | `docs/评估_JSC_Windows可行性.md` | — | — | 产出：可用构建方案 + 体积/许可结论；**不通过 → 触发 D6 降级预案（Windows 改用 QuickJS，回老板确认）** | ✅ 新建·已交付（**结论：可行**——方案 A WinCairo 官方端口自建 JSC-only DLL（~10–18 MB，LGPL-2.1 动态链接合规，仅 x64）；方案 B NativeScript 预编译 DLL 备选；**不触发降级预案**，Q-02~04 放行） |
 | Q-02 | Android JSC 集成（预编译 `.so` + JNI + CMake，四 ABI） | `android/app/src/main/jni/**` · `CMakeLists.txt` | **Q-01** | — | 四 ABI 可加载；FFI smoke 通过 | 新建 |
 | Q-03 | Windows JSC 集成（MSVC 构建 + runner 打包） | `windows/runner/jsc/**` | **Q-01** | — | 可加载；随安装包分发 | 新建 |
 | Q-04 | macOS JSC 集成（系统 `JavaScriptCore.framework`，零构建） | `macos/Runner/JSCCorePlugin.swift` | **Q-01** | — | 可加载 | 新建 |
@@ -345,3 +347,5 @@ O(5) ─(依赖 B)  P(5) ─(依赖 A)                     ┘
 > |---|---|---|
 > | v1.0 | 2026-10-01 | 首版：基于四轮复核事实基线，把 A–P 批次下沉为任务级条目（含产出/依赖/契约/验收/状态五分） |
 > | v1.1 | 2026-10-01 | ① 落定 **D6**（三端均集成 JSC）→ 改写 `B-05`、新增 `B-05a`（JS 桥 6 项能力）、新增**批次 Q（JSC 三端集成，Q-01 为门禁）**；② `B-12` 增列**双引擎双跑**、`B-09` 明确 5 级编码链、`H-03` 注明走 JSC 主引擎；③ **修正 v1.0 任务计数**（原写 131，实测 121；现为 **128**）；④ 关键路径纳入 Q，风险表替换第 2 项并新增包体/许可、双引擎差异两项；⑤ §19 补「主方案登记号为 D31」 |
+> | v1.2 | 2026-10-01 | **批次 A（设计基座 A-01 ~ A-13）代码侧全量交付** → 状态列与交付记录（658 用例全绿 / 覆盖率 75.6% / 11 守卫全绿 / conformance 45/45 / Golden 4 张）；补齐 A-12「35 张 iOS UI 图归档」与 A-04「组件 Story 页」两项遗漏；文件名升版 v1.1 → v1.2 |
+> | v1.3 | 2026-10-01 | ① **批次 B 首段交付**（B-01 ~ B-06 + B-05a）→ 状态列与交付记录（709 用例 + 51 新增 / 守卫全绿）；② **Q-01 门禁完成**：结论**可行**（WinCairo JSC-only 自建，~10–18 MB / LGPL 动态链接 / 仅 x64），**不触发 D6 降级预案**，B-05 维持 JSC 主 / QuickJS 降级原案；③ 注明批次 B 无 UI 任务（90% UI 还原度红线适用于后续 UI 批次） |

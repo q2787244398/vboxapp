@@ -18,6 +18,7 @@ import '../../domain/entities/spider/engine_type.dart';
 import '../../domain/entities/spider/spider_engine.dart';
 import '../../domain/entities/spider/spider_models.dart';
 import '../spider/spider_abi.dart';
+import '../spider/spider_js_globals.dart';
 import 'quickjs_ffi.dart';
 
 /// QuickJS 桥接引擎（实现 [SpiderEngine]）。
@@ -72,8 +73,14 @@ class QuickJSBridgeEngine implements SpiderEngine {
         'QuickJS 运行时初始化失败（createRuntime/createContext 返回 0）',
       );
     }
+    // B-05a：JS 全局桥 prelude（console/print/atob/btoa/req/options 归一），
+    // 先于用户脚本注入 —— 内置脚本零改动可跑。
+    final String? preludeResult = _bridge.eval(_context, SpiderJsGlobals.prelude());
+    _checkScriptResult(preludeResult);
     final String? result = _bridge.eval(_context, script);
     _checkScriptResult(result);
+    // B-05a：console/print 真实输出 —— 顶层脚本日志取回接 onLog
+    await _drainAndEmitLogs();
     onLog?.call('✅ QuickJS 脚本加载完成（${script.length} 字符）');
   }
 
@@ -291,6 +298,8 @@ class QuickJSBridgeEngine implements SpiderEngine {
         "return {__type: 'object', __value: __r};"
         '})())';
     final String? raw = _bridge.eval(_context, script);
+    // B-05a：本次操作期间脚本 console/print 输出接日志
+    await _drainAndEmitLogs();
     if (raw == null || raw.isEmpty) {
       throw SpiderException(
         SpiderErrorCode.protocol,
@@ -348,4 +357,25 @@ class QuickJSBridgeEngine implements SpiderEngine {
     }
     return parse(data);
   }
+
+  // ─────────────── B-05a：JS 全局桥 + 日志取回 ───────────────
+
+  /// 取回 JS 缓冲日志（`console`/`print` 真实输出，经 `__vboxLogs` 缓冲）
+  /// 并逐条转发到 [onLog]。
+  ///
+  /// 无上下文（未 loadScript / 已 dispose）时安全返回空列表；
+  /// `loadScript` / 5 个操作内部已自动调用，本方法供调用方按需手动取回。
+  Future<List<String>> drainJsLogs() async {
+    _ensureAvailable();
+    if (_context == 0) return const <String>[];
+    final String? raw =
+        _bridge.eval(_context, SpiderJsGlobals.drainLogsScript());
+    final List<String> logs = SpiderJsGlobals.parseLogs(raw ?? '');
+    for (final String line in logs) {
+      onLog?.call('JS $line');
+    }
+    return logs;
+  }
+
+  Future<void> _drainAndEmitLogs() => drainJsLogs();
 }

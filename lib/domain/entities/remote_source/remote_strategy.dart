@@ -76,17 +76,34 @@ class RemoteSourceStrategy {
       'https://vbox-ai.github.io/api/sources/manifest.json';
 
   /// 代理降级链：主代理 → 备用代理 → 直连（对齐 iOS `proxyHosts`）。
+  ///
+  /// B-02：以构造/参数注入实现「可配置常量」——调用方（如
+  /// `RemoteSourceConfigManager`）可按环境覆盖；缺省对齐 iOS。
   static const List<ProxyHost> proxyHosts = <ProxyHost>[
     ProxyHost(name: 'ghfast', host: 'https://ghfast.top'),
     ProxyHost(name: 'gh-proxy', host: 'https://gh-proxy.com'),
   ];
 
+  /// 是否为 GitHub 域名（对齐 iOS `isGitHubDomain`）：
+  /// 仅 GitHub 系域名走代理链，其余直连。
+  static bool isGithubHost(String host) =>
+      host == 'raw.githubusercontent.com' ||
+      host.endsWith('.github.io') ||
+      host == 'github.com';
+
   /// 为原始 URL 生成候选地址列表（降级顺序）。
   ///
-  /// 顺序：主代理 → 备用代理 → 直连。
-  static List<String> candidates(String rawUrl) {
+  /// 顺序：主代理 → 备用代理 → 直连；**仅 GitHub 域名**套代理
+  /// （对齐 iOS `buildProxyURLs` 的 `isGitHubDomain` 门控），
+  /// 非 GitHub URL 直接返回 `[rawUrl]`（直连）。
+  static List<String> candidates(
+    String rawUrl, {
+    List<ProxyHost> proxies = proxyHosts,
+  }) {
+    final Uri? uri = Uri.tryParse(rawUrl);
+    if (uri == null || !isGithubHost(uri.host)) return <String>[rawUrl];
     final List<String> out = <String>[];
-    for (final ProxyHost p in proxyHosts) {
+    for (final ProxyHost p in proxies) {
       out.add('${p.host}/$rawUrl');
     }
     out.add(rawUrl);
