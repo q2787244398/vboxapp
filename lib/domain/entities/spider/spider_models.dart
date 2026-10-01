@@ -9,6 +9,8 @@
 /// - 其余字段缺失时用 `null`
 /// - `availQualities` 缺省为 `[]`
 /// - `PlayerContentResult.urls` = `urls ?? (url 非空 ? [url] : null)`
+/// - `PlayerContentResult.url` 兼容 **String / 数组**（多线路蜘蛛）：
+///   数组形态下 `urls`=全列表、`url`=首元素（对齐 iOS `init(from:)`）
 library;
 
 /// 宽松转字符串：支持 String / Int / Double / bool。
@@ -293,14 +295,24 @@ class PlayerContentResult {
   final Map<String, String>? header;
 
   factory PlayerContentResult.fromJson(Map<String, Object?> j) {
-    final String? url = asLooseString(j['url']);
+    // 容错（对齐 iOS init(from:)）：`url` 兼容字符串与数组两种形态——
+    // 蜘蛛 play 常返回多线路/多音质数组（酷狗/酷我/网易/QQ），单独按字符串
+    // 解码会失败/产出垃圾串。数组形态：urls=全列表、url=首元素（iOS 语义：
+    // 此形态下 `urls` 键不再参与）；字符串形态：`urls` 键优先，缺省回填。
+    final Object? rawUrl = j['url'];
+    final List<String>? urlAsArray =
+        rawUrl is List ? rawUrl.map((Object? e) => e.toString()).toList() : null;
+    final String? url = urlAsArray != null
+        ? (urlAsArray.isNotEmpty ? urlAsArray.first : null)
+        : asLooseString(rawUrl);
     return PlayerContentResult(
       parse: _asInt(j['parse']),
       playUrl: asLooseString(j['playUrl']),
       url: url,
-      urls: (j['urls'] as List?)?.map((e) => e.toString()).toList(),
+      urls: urlAsArray ??
+          (j['urls'] as List?)?.map((Object? e) => e.toString()).toList(),
       header: (j['header'] as Map?)
-          ?.map((k, v) => MapEntry(k.toString(), v.toString())),
+          ?.map((Object? k, Object? v) => MapEntry(k.toString(), v.toString())),
     );
   }
 

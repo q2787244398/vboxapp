@@ -367,6 +367,68 @@ void main() {
       expect(r.urls, <String>['u1', 'u2']);
     });
 
+    test('fromJson url 为数组（多线路蜘蛛：酷狗/酷我/网易/QQ）→ urls=全列表、url=首元素',
+        () {
+      final PlayerContentResult r =
+          PlayerContentResult.fromJson(<String, Object?>{
+        'url': <Object?>['http://l1.m3u8', 'http://l2.m3u8'],
+      });
+      expect(r.url, 'http://l1.m3u8');
+      expect(r.urls, <String>['http://l1.m3u8', 'http://l2.m3u8']);
+    });
+
+    test('fromJson url 为数组时 urls 键不再参与（对齐 iOS init(from:) 优先级）', () {
+      final PlayerContentResult r =
+          PlayerContentResult.fromJson(<String, Object?>{
+        'url': <Object?>['http://l1', 'http://l2'],
+        'urls': <Object?>['http://stale'],
+      });
+      expect(r.urls, <String>['http://l1', 'http://l2']);
+      expect(r.url, 'http://l1');
+    });
+
+    test('fromJson url 数组元素宽松归一（数字/混合类型 toString）', () {
+      final PlayerContentResult r =
+          PlayerContentResult.fromJson(<String, Object?>{
+        'url': <Object?>[123, 'http://l2'],
+      });
+      expect(r.url, '123');
+      expect(r.urls, <String>['123', 'http://l2']);
+    });
+
+    test('fromJson url 为空数组 → urls=[]（非 null）、url=null', () {
+      final PlayerContentResult r =
+          PlayerContentResult.fromJson(<String, Object?>{
+        'url': <Object?>[],
+      });
+      expect(r.url, isNull);
+      expect(r.urls, isNotNull);
+      expect(r.urls, isEmpty);
+    });
+
+    test('fromJson 负向：header 非对象 → null；parse 字符串数字 → int', () {
+      final PlayerContentResult r =
+          PlayerContentResult.fromJson(<String, Object?>{
+        'parse': '1',
+        'header': 'not-a-map',
+        'url': 'http://a',
+      });
+      expect(r.parse, 1);
+      expect(r.header, isNull);
+      expect(r.urls, <String>['http://a']);
+    });
+
+    test('fromJson 负向：parse 非数字字符串 → null；urls 键含类型混杂 → toString 归一',
+        () {
+      final PlayerContentResult r =
+          PlayerContentResult.fromJson(<String, Object?>{
+        'parse': 'fast',
+        'urls': <Object?>[1, 'u', true],
+      });
+      expect(r.parse, isNull);
+      expect(r.urls, <String>['1', 'u', 'true']);
+    });
+
     test('toJson 仅输出非空字段', () {
       expect(PlayerContentResult().toJson(), isEmpty);
       final PlayerContentResult r =

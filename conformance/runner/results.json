@@ -1,6 +1,6 @@
 {
- "total": 45,
- "passed": 45,
+ "total": 48,
+ "passed": 48,
  "failed": 0,
  "results": [
   {
@@ -60,6 +60,24 @@
   {
    "suite": "spider",
    "name": "容错[urlsBackfillEmpty] url 为空 → urls 保持 null",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "容错[urlAsArray] url 数组形态（多线路/多音质蜘蛛）→ urls=全列表、url=首元素",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "容错[urlAsArrayBeatsUrlsKey] url 数组形态下 urls 键不再参与（iOS init(from:) 优先级）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "容错[urlAsArrayEmpty] url 空数组 → urls=[]（非 null）、url=null",
    "ok": true,
    "detail": ""
   },

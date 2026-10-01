@@ -104,6 +104,21 @@
       "expected": { "urls": null },
       "rule": "url 为空 → urls 保持 null"
     },
+    "urlAsArray": {
+      "input": { "parse": 0, "url": ["https://x.com/l1.m3u8", "https://x.com/l2.m3u8"] },
+      "expected": { "url": "https://x.com/l1.m3u8", "urls": ["https://x.com/l1.m3u8", "https://x.com/l2.m3u8"] },
+      "rule": "url 数组形态（多线路/多音质蜘蛛）→ urls=全列表、url=首元素"
+    },
+    "urlAsArrayBeatsUrlsKey": {
+      "input": { "url": ["https://x.com/l1"], "urls": ["https://x.com/stale"] },
+      "expected": { "url": "https://x.com/l1", "urls": ["https://x.com/l1"] },
+      "rule": "url 数组形态下 urls 键不再参与（iOS init(from:) 优先级）"
+    },
+    "urlAsArrayEmpty": {
+      "input": { "parse": 0, "url": [] },
+      "expected": { "url": null, "urls": [] },
+      "rule": "url 空数组 → urls=[]（非 null）、url=null"
+    },
     "availQualitiesDefault": {
       "input": { "list": [{ "vod_id": "1", "vod_name": "x", "vod_pic": "y" }] },
       "expected": { "list": [{ "availQualities": [] }] },

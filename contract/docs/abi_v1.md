@@ -196,6 +196,18 @@ self.urls = urls ?? url.flatMap { $0.isEmpty ? nil : [$0] }
 ```
 即：若 `urls` 为 nil 且 `url` 非空，则 `urls = [url]`。
 
+**url 数组形态**（源码 `init(from:)` 中，B-10 三端对齐）：
+```swift
+if let arr = try? c.decode([String].self, forKey: .url) {
+    urls = arr; url = arr.first
+} else if let s = try? c.decode(String.self, forKey: .url) {
+    url = s; urls = s.isEmpty ? nil : [s]
+}
+```
+即：蜘蛛 play 可能返回 `url` 为**字符串数组**（多线路/多音质：酷狗/酷我/网易/QQ）。
+数组形态下 `urls` = 全列表、`url` = 首元素，且 `urls` 键不再参与；
+空数组 → `urls = []`、`url = nil`。
+
 ### 3.6 VodCategory
 
 ```swift
@@ -474,6 +486,7 @@ let result = evaluateJS("typeof globalThis.__JS_SPIDER__")
 | 容错解码 | `vod_id`/`vod_name`/`vod_pic`/`type_id`/`type_name` 必须支持 String/Int/Double |
 | 编码处理 | 复刻 5 级解码链（含 GBK/Big5 兜底） |
 | `urls` 回填 | `urls ?? [url]`（url 非空时） |
+| `url` 数组形态 | `url` 兼容 String / `[String]`（数组 → urls=全列表、url=首元素，`urls` 键不再参与） |
 | 错误检测 | 检查返回字符串前缀 `Error`/`TypeError`/`ReferenceError`/`SyntaxError` |
 | 注册检测 | 检查 `typeof globalThis.__JS_SPIDER__` == object |
 | HTTP 超时 | 默认 15s |

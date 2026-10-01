@@ -83,10 +83,16 @@ def normalize_item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_container(d: dict[str, Any]) -> dict[str, Any]:
-    """镜像 playContentInner 的 urls 回填规则。"""
+    """镜像 PlayerContentResult 的容错规则（urls 回填 + url 数组形态）。"""
     out = dict(d)
-    if "urls" not in out:
-        url = out.get("url")
+    url = out.get("url")
+    if isinstance(url, list):
+        # url 数组形态（多线路/多音质蜘蛛，对齐 iOS init(from:)）：
+        # urls = 全列表、url = 首元素；此形态下 urls 键不再参与。
+        items = [str(i) for i in url]
+        out["url"] = items[0] if items else None
+        out["urls"] = items
+    elif "urls" not in out:
         out["urls"] = [url] if isinstance(url, str) and url else None
     if isinstance(out.get("list"), list):
         out["list"] = [
