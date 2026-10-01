@@ -13,7 +13,7 @@ class Zhanyuan {
     this.id,
     required this.name,
     required this.searchUrl,
-    this.searchUA = _kDefaultUA,
+    this.searchUA = defaultUA,
     this.playUA = '',
     this.websearchurl = '',
     this.searchname = '',
@@ -29,8 +29,8 @@ class Zhanyuan {
     this.dyurl = '',
   });
 
-  /// v1 默认 UA（与 DDL DEFAULT 一致）。
-  static const String _kDefaultUA =
+  /// v1 默认 UA（与 DDL DEFAULT 一致；公开供 B-11 站源搜索服务复用）。
+  static const String defaultUA =
       'Mozilla/5.0 (Linux; Android 12; Redmi K30 Pro Build/SKQ1.220303.001; wv) '
       'AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/99.0.4844.88 '
       'Mobile Safari/537.36';

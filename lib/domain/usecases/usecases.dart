@@ -7,3 +7,4 @@ export 'history_usecases.dart';
 export 'remote_source_usecases.dart';
 export 'resolve_site_mode.dart';
 export 'subscription_usecases.dart';
+export 'zhanyuan_search_usecases.dart';
