@@ -1,0 +1,133 @@
+/// 视觉回归 Golden 基线（批次 A · A-12）。
+///
+/// 唯一真相源：`docs/第2轮开发计划_功能补全_v2.5.md` §3.7（视觉回归与守卫）。
+/// 机制：真实页面渲染 → `matchesGoldenFile` 像素锁定（防布局/令牌漂移）；
+/// 与 iOS 参考图的 SSIM 相似度由 `scripts/visual_regression.py` 产出（§3.6）。
+///
+/// 生成基线：`flutter test test/golden --update-goldens`
+/// CI 校验：`flutter test test/golden`（像素不一致即失败）
+library;
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:vbox/domain/entities/library/library.dart';
+import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/presentation/shell/home_shell_page.dart';
+import 'package:vbox/presentation/ui_mode/ui_mode_resolver.dart';
+import 'package:vbox/presentation/widgets/adaptive/adaptive.dart';
+import 'package:vbox/presentation/widgets/vbox/vbox.dart';
+
+import '../support/fakes.dart';
+
+Widget _app({UiFormOverride override = UiFormOverride.portrait}) {
+  return MultiProvider(
+    providers: [
+      ChangeNotifierProvider<UiFormController>.value(
+        value: UiFormController(
+          env: UiFormEnv(
+            override: override,
+            hasTouch: true,
+          ),
+        ),
+      ),
+      Provider<FavoriteUseCases>.value(
+        value: FavoriteUseCases(InMemoryFavoriteRepository(const <FavoriteItem>[])),
+      ),
+      Provider<HistoryUseCases>.value(
+        value: HistoryUseCases(InMemoryHistoryRepository(const <HistoryItem>[])),
+      ),
+      Provider<SubscriptionUseCases>.value(
+        value: SubscriptionUseCases(InMemorySubscriptionRepository()),
+      ),
+      Provider<RemoteSourceUseCases>.value(
+        value: RemoteSourceUseCases(InMemoryRemoteSourceRepository()),
+      ),
+    ],
+    child: const MaterialApp(debugShowCheckedModeBanner: false, home: HomeShellPage()),
+  );
+}
+
+Future<void> _shot(
+  WidgetTester tester,
+  String name,
+  Size size,
+  Widget app,
+) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+  final GlobalKey key = GlobalKey();
+  await tester.pumpWidget(RepaintBoundary(key: key, child: app));
+  await tester.pumpAndSettle();
+  await expectLater(find.byKey(key), matchesGoldenFile('goldens/$name.png'));
+}
+
+void main() {
+  testWidgets('home_portrait（竖屏：底部胶囊 TabBar）', (WidgetTester tester) async {
+    await _shot(
+      tester,
+      'home_portrait',
+      const Size(390, 844),
+      _app(override: UiFormOverride.portrait),
+    );
+  });
+
+  testWidgets('home_landscape（横屏：左侧 NavigationRail）', (WidgetTester tester) async {
+    await _shot(
+      tester,
+      'home_landscape',
+      const Size(1280, 800),
+      _app(override: UiFormOverride.landscape),
+    );
+  });
+
+  testWidgets('grid_landscape（响应式网格横屏排布）', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final GlobalKey key = GlobalKey();
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: key,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: Scaffold(
+            body: ResponsiveGrid(
+              form: UiForm.landscape,
+              childAspectRatio: 0.7,
+              children: List<Widget>.generate(
+                12,
+                (int i) => ColoredBox(
+                  color: HSLColor.fromAHSL(1.0, (i * 30.0) % 360, 0.5, 0.6).toColor(),
+                  child: Center(child: Text('$i')),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await expectLater(find.byKey(key), matchesGoldenFile('goldens/grid_landscape.png'));
+  });
+
+  testWidgets('story_page（A-04 组件画廊全量像素锁）', (WidgetTester tester) async {
+    // 大视口一次性构建全部组件区块（懒加载 ListView）。
+    tester.view.physicalSize = const Size(800, 4000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final GlobalKey key = GlobalKey();
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: key,
+        child: const MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: VboxStoryPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await expectLater(find.byKey(key), matchesGoldenFile('goldens/story_page.png'));
+  });
+}

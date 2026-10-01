@@ -1,7 +1,7 @@
-/// 三形态共享视图：收藏列表 / 历史列表（直连 UseCase）。
+/// 全端共享视图：收藏列表 / 历史列表（直连 UseCase）。
 ///
-/// phone（HomeShelfPage）/ desktop（DesktopHomePage）共用同一套列表逻辑与展示，
-/// TV 形态后续复用。状态接入直连领域层 UseCase（D21 轻量路线）。
+/// 单一页树（`shell/HomeShellPage` 的 `ShelfView`）在竖/横双排布下共用同一套
+/// 列表逻辑与展示。状态接入直连领域层 UseCase（D21 轻量路线）。
 library;
 
 import 'package:flutter/material.dart';

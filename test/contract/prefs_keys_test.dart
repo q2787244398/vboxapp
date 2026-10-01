@@ -50,12 +50,12 @@ void main() {
   });
 
   group('键名 / 分组', () {
-    test('98 键与 JSON 完全一致且无重复', () {
+    test('99 键与 JSON 完全一致且无重复', () {
       final Set<String> dartNames =
           kAllPrefsKeys.map((PrefsKey k) => k.name).toSet();
       expect(kAllPrefsKeys.length, dartNames.length, reason: 'Dart 侧键名重复');
       expect(dartNames, json.keys.toSet());
-      expect(dartNames.length, 98);
+      expect(dartNames.length, 99);
       expect(kAllKeyNames, dartNames);
     });
 
@@ -76,7 +76,7 @@ void main() {
       }
     });
 
-    test('storage 与 JSON 一致（D19：98/98 键均标注）', () {
+    test('storage 与 JSON 一致（D19：99/99 键均标注）', () {
       for (final PrefsKey k in kAllPrefsKeys) {
         final Object? raw = json[k.name]!.meta['storage'];
         expect(raw, isNotNull, reason: '${k.name} 缺 storage（违反 D19）');
@@ -128,7 +128,7 @@ void main() {
         for (final PrefsGroup g in PrefsGroup.values) ...keysOfGroup(g),
       ];
       expect(all.length, kAllPrefsKeys.length);
-      expect(all.map((PrefsKey k) => k.name).toSet().length, 98);
+      expect(all.map((PrefsKey k) => k.name).toSet().length, 99);
     });
 
     test('PrefsType.fromJson 未知类型抛 ArgumentError', () {

@@ -50,3 +50,9 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/splash/vbox_letter.png
+  fonts:
+    # 品牌字体（A-13）：启动页字母图 + 品牌字标用；正文走系统字体（令牌口径「字体族不强制」）。
+    - family: VboxBrand
+      fonts:
+        - asset: assets/fonts/VboxBrand-Bold.otf

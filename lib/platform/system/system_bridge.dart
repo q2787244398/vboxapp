@@ -1,9 +1,9 @@
-/// 平台层：系统信息桥（G-02-C：UiMode 真机判定）。
+/// 平台层：系统信息桥（G-02-C：UiForm 真机判定）。
 ///
 /// 对应原生侧：Android `SystemPlugin.kt`（MethodChannel `com.vbox.system/system`，
 /// 方法 `getUiModeType` / `hasLeanbackFeature` / `hasTouchscreen`，对齐方案 §T.1）。
 /// 非 Android 平台 / 测试环境：通道不可用 → 三方法均返回 false（非 TV），
-/// 上层按编译期平台常量兜底（桌面端 → `UiMode.desktop`）。
+/// 上层按编译期平台常量兜底（桌面端 → 横屏形态，A-05 形态模型）。
 ///
 /// 设计：`SystemBridge` 抽象可注入 —— 单测使用 fake 实现，运行环境使用
 /// [MethodChannelSystemBridge]（异常时安全回退 false，不抛）。

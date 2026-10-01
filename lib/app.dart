@@ -3,7 +3,7 @@
 /// 职责：
 /// - 初始化依赖（StoragePaths / PrefsManager / DatabaseManager）
 /// - 组装数据层仓储实现 → 注入领域层用例
-/// - 形态判定（手机 / TV / 桌面）→ 选择对应 UI 布局
+/// - 形态判定（竖屏 / 横屏 + 输入模态）→ 选择对应 UI 布局
 /// - 全局 Provider 注入
 ///
 /// 唯一真相源：方案 §2.4（目录结构落地快照见附录 B）
@@ -30,9 +30,8 @@ import 'data/repositories/repositories.dart';
 import 'domain/entities/remote_source/remote_source.dart';
 import 'domain/usecases/usecases.dart';
 import 'platform/system/system.dart';
-import 'presentation/desktop/desktop_home_page.dart';
-import 'presentation/phone/home_shelf_page.dart';
-import 'presentation/tv/tv_home_page.dart';
+import 'presentation/shell/home_shell_page.dart';
+import 'presentation/theme/theme.dart';
 import 'presentation/ui_mode/ui_mode_resolver.dart';
 
 class VBoxApp extends StatefulWidget {
@@ -60,6 +59,12 @@ class _VBoxAppState extends State<VBoxApp> {
   late final DetailPlaybackUseCases _detailPlaybackUseCases;
   late final AllSourcesDatasource _allSourcesDatasource;
   late final CmsV10Datasource _cmsDatasource;
+
+  /// 皮肤控制器（A-03：消费 `app_skin_mode` / `app_skin_follows_system`）。
+  late final VboxSkinController _skinController;
+
+  /// 形态控制器（A-05：消费 `app_ui_form_override` + 平台通道三重判定）。
+  late final UiFormController _uiFormController;
 
   @override
   void initState() {
@@ -106,6 +111,21 @@ class _VBoxAppState extends State<VBoxApp> {
       // ② 存储层
       await PrefsManager.instance.init();
       await DatabaseManager.instance.database; // 触发建库/迁移
+
+      // ②' 皮肤（A-03：读契约键 → 主题工厂据此构建四皮肤）
+      _skinController = VboxSkinController();
+      await _skinController.load(PrefsManager.instance);
+
+      // ②'' 形态（A-05：读契约键 `app_ui_form_override` → 用户显示模式覆盖；
+      //      平台通道三重判定 TV / 触屏；桌面端走编译期常量兜底，不触碰通道）
+      _uiFormController = UiFormController();
+      final UiFormOverride formOverride = UiFormOverride.fromId(
+        await PrefsManager.instance.uiFormOverride(),
+      );
+      await _uiFormController.resolveWithBridge(
+        MethodChannelSystemBridge(),
+        override: formOverride,
+      );
 
       // ③ 日志（闸门 + 落盘）
       await _startLogging();
@@ -173,17 +193,8 @@ class _VBoxAppState extends State<VBoxApp> {
 
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider<UiModeController>(
-          create: (_) {
-            final UiModeController c = UiModeController()..resolve();
-            // G-02-C：Android 真机接线 —— 平台通道三重判定覆盖占位结果；
-            // 桌面 / 测试环境不触碰通道（保持编译期常量兜底）。
-            if (Platform.isAndroid) {
-              c.resolveWithBridge(MethodChannelSystemBridge());
-            }
-            return c;
-          },
-        ),
+        ChangeNotifierProvider<UiFormController>.value(value: _uiFormController),
+        ChangeNotifierProvider<VboxSkinController>.value(value: _skinController),
         Provider<FavoriteUseCases>.value(value: _favoriteUseCases),
         Provider<HistoryUseCases>.value(value: _historyUseCases),
         Provider<SubscriptionUseCases>.value(value: _subscriptionUseCases),
@@ -195,25 +206,31 @@ class _VBoxAppState extends State<VBoxApp> {
   }
 }
 
-/// 根据形态路由到对应布局。
+/// 应用根路由。
+///
+/// A-08「页面树收敛」后：**单一页树** [HomeShellPage]（内部按 `UiForm` 产出双排布），
+/// 本路由只负责主题装配；形态判定（竖/横 + 输入模态）下移到页树内部。
 class _RootRouter extends StatelessWidget {
   const _RootRouter();
 
   @override
   Widget build(BuildContext context) {
-    final UiModeController mode = context.watch<UiModeController>();
-    // G-01（UI 三形态）渐进交付：
-    //   phone → 书架（v6.15）+ 远程源（v6.16）
-    //   desktop → DesktopHomePage（v6.17，NavigationRail 宽屏布局）
-    //   tv → TvHomePage（v6.18，T.7 焦点规范：TabBar 顶部导航 + FocusTraversalGroup）
+    final VboxSkinController skin = context.watch<VboxSkinController>();
+    // A-03：皮肤 → 主题。`themeMode` 由 iOS 等价口径 `preferredColorScheme` 决定：
+    //   非 null → 强制该亮/暗；null → 跟随系统（themeMode.system）。
+    final Brightness? forced =
+        VboxTheme.preferredBrightness(skin.skin, skin.followsSystem);
+    final ThemeMode themeMode = switch (forced) {
+      Brightness.light => ThemeMode.light,
+      Brightness.dark => ThemeMode.dark,
+      null => ThemeMode.system,
+    };
     return MaterialApp(
       title: 'vbox',
-      theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
-      home: switch (mode.mode) {
-        UiMode.phone => const HomeShelfPage(),
-        UiMode.desktop => const DesktopHomePage(),
-        UiMode.tv => const TvHomePage(),
-      },
+      theme: VboxTheme.build(skin: skin.skin, brightness: Brightness.light),
+      darkTheme: VboxTheme.build(skin: skin.skin, brightness: Brightness.dark),
+      themeMode: themeMode,
+      home: const HomeShellPage(),
     );
   }
 }

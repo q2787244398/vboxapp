@@ -1,6 +1,6 @@
 /// 数据层：偏好管理器（Preferences Manager）。
 ///
-/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.2，98 键）
+/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.4，99 键）
 ///
 /// 设计要点：
 /// - **普通键** → `SharedPreferences`（对应 iOS `UserDefaults.standard`）
@@ -227,6 +227,13 @@ class PrefsManager {
   /// 远程 manifest 地址（可被用户覆盖）。
   Future<String> remoteManifestUrl() async =>
       await getString('remote_default_manifest_url');
+
+  /// 显示模式覆盖档（`app_ui_form_override`，`auto|portrait|landscape`，默认 `auto`）。
+  ///
+  /// 批次 A · A-06：形态判定最高优先开关（方案 §3.2 ①）；
+  /// 字符串→枚举解析由呈现层 `UiFormOverride.fromId` 负责（数据层不依赖呈现层）。
+  Future<String> uiFormOverride() async =>
+      await getString('app_ui_form_override');
 
   // ─────────────────────────────────────────────────────────
   // 诊断：列出全部键的当前值（敏感键脱敏）

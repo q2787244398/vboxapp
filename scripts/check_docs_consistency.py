@@ -8,6 +8,10 @@
   · 目录重构后仍引用已删除路径（lib/contract/schema.dart 等）
   · 校验脚本数量 6 / 8 / 9 并存
 
+v6.34 补丁（第 2 轮批次 A · A-06）：契约新增 `app_ui_form_override`，键数 **98 → 99**。
+按 v6.2 建立的「陈旧口径入 STALE」惯例，把 **98** 纳入 STALE_KEY_COUNTS，
+使残留的「98 键」现行写法当场失败（历史语境仍由 is_history / 块级标记豁免）。
+
 本脚本把「文档漂移」转为可自动检测，规则如下：
   1. 现行键数/组数必须与契约唯一真相源一致（含表格/加粗/合计三种写法，v6.2 起）
   2. 校验脚本数量必须与 scripts/ 目录实际数量一致（含 conformance runner 时 +1）
@@ -66,7 +70,8 @@ BLOCK_ON = "<!-- docs-guard:history -->"
 BLOCK_OFF = "<!-- /docs-guard:history -->"
 
 # 已知的陈旧总数（曾出现过的错误口径）——仅这些值触发失败
-STALE_KEY_COUNTS = {44, 53, 57, 63}
+# v6.34：98 入列（A-06 契约扩键 98 → 99 后成为陈旧口径）。
+STALE_KEY_COUNTS = {44, 53, 57, 63, 98}
 STALE_GROUP_COUNTS = {12, 13}
 
 # 目录重构后已失效的路径（不得作为现行路径引用）
@@ -107,7 +112,11 @@ DEAD_DOCS = ("PROJECT_LAYOUT.md", "PROGRESS.md", "KNOWN_GAPS.md")
 # v6.28：追加 v6.27 —— 本轮把文件名升到 v6.28（A2/A3/B4 接线批次），v6.27 成为旧名，纳入防回流。
 # v6.29：追加 v6.28 —— 本轮把文件名升到 v6.29（推送 + CI 反馈修复批次），v6.28 成为旧名，纳入防回流。
 # v6.30：追加 v6.29 —— 本轮把文件名升到 v6.30（CI 反馈修复第二轮批次），v6.29 成为旧名，纳入防回流。
-DEAD_DOCS += ("VBOX_PLAN_v6.29.md", "VBOX_PLAN_v6.28.md", "VBOX_PLAN_v6.27.md", "VBOX_PLAN_v6.26.md", "VBOX_PLAN_v6.25.md", "VBOX_PLAN_v6.24.md", "VBOX_PLAN_v6.23.md", "VBOX_PLAN_v6.22.md", "VBOX_PLAN_v6.21.md", "VBOX_PLAN_v6.20.md", "VBOX_PLAN_v6.19.md", "VBOX_PLAN_v6.18.md", "VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
+# v6.31：追加 v6.30 —— 本轮把文件名升到 v6.31（真机验收排期修订批次，D30），v6.30 成为旧名，纳入防回流。
+# v6.32：追加 v6.31 —— 本轮把文件名升到 v6.32（Spider 引擎口径 D31 + 残留漂移订正批次），v6.31 成为旧名，纳入防回流。
+# v6.33：追加 v6.32 —— 本轮把文件名升到 v6.33（第 2 轮批次 A「设计基座」首批交付），v6.32 成为旧名，纳入防回流。
+# v6.34：追加 v6.33 —— 本轮把文件名升到 v6.34（第 2 轮批次 A「设计基座」续交付 A-05 形态模型 / A-06 契约扩键），v6.33 成为旧名，纳入防回流。
+DEAD_DOCS += ("VBOX_PLAN_v6.33.md", "VBOX_PLAN_v6.32.md", "VBOX_PLAN_v6.31.md", "VBOX_PLAN_v6.30.md", "VBOX_PLAN_v6.29.md", "VBOX_PLAN_v6.28.md", "VBOX_PLAN_v6.27.md", "VBOX_PLAN_v6.26.md", "VBOX_PLAN_v6.25.md", "VBOX_PLAN_v6.24.md", "VBOX_PLAN_v6.23.md", "VBOX_PLAN_v6.22.md", "VBOX_PLAN_v6.21.md", "VBOX_PLAN_v6.20.md", "VBOX_PLAN_v6.19.md", "VBOX_PLAN_v6.18.md", "VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
 
 # v6.27 新增：规则 10 —— 捕获任意「引用 docs/ 下已不存在的 .md」的残留
 # （DEAD_DOCS 只按字面量匹配主方案旧名；检查报告等文档改名后引用同样会失效）

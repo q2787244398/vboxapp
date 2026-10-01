@@ -2,7 +2,7 @@
 """契约一致性校验：lib/contract/*.dart  vs  contract/schema/*
 
 校验项：
-  1. prefs_keys.dart 的键名集合 == prefs_keys_v1.json 的 98 键
+  1. prefs_keys.dart 的键名集合 == prefs_keys_v1.json 的 99 键
   2. prefs_keys.dart 的敏感键集合 == JSON 的 sensitiveKeys
      （声明集 kSensitiveKeys 与逐键 sensitive:true 标志**各自**都要一致）
   3. prefs_keys.dart 的分组枚举数 == JSON 的 _group_* 分组数（21 组）

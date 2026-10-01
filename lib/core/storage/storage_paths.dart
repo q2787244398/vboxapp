@@ -3,7 +3,7 @@
 /// 分层约束：核心层不依赖 `path_provider` 插件，根目录由**平台层在启动时注入**
 /// （`StoragePaths.configure(...)`），从而保证核心层纯 Dart、可单测。
 ///
-/// 目录布局见 `docs/VBOX_PLAN_v6.30.md` 附录 B。
+/// 目录布局见 `docs/VBOX_PLAN_v6.34.md` 附录 B。
 library;
 
 import 'dart:io';

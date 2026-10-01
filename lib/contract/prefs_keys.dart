@@ -1,15 +1,17 @@
 /// 契约层：Preferences 键名
 ///
-/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.3，98 键 + 7 敏感键）
+/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.4，99 键 + 7 敏感键）
 /// 本文件是该契约的 Dart 移植，**任何修改必须同步两侧**。
 ///
 /// 提取依据：iOS 源码 `vbox/` 中的 UserDefaults 调用（3 种写法穷举）
 ///  ① `defaults.xxx(forKey:"k")`  ② `let xKey = "k"`  ③ `enum XXXKeys`
 ///
-/// v1.2 修订（2026-09-29）：补齐 44 个遗漏键（云盘/福利/直播/音乐/TG/日志/推送）。
 /// v1.1 修订（2026-09-29）：移除 10 个误抓键（播放器 KVC / CA 动画 key）。
+/// v1.2 修订（2026-09-29）：补齐 44 个遗漏键（云盘/福利/直播/音乐/TG/日志/推送）。
 /// v1.3 修订（2026-09-30）：敏感键 5 → 7（B3 裁定，新增 baidu_local_pcs_device_id /
 /// saved_drive_tokens，详见契约 notes v1.3）。
+/// v1.4 修订（2026-10-01）：新增 `app_ui_form_override`（显示模式覆盖，string，
+/// 默认 `auto`）—— 第 2 轮批次 A 依据 D17 契约变更门禁主动扩键（非 iOS 来源）。
 ///
 /// ⚠️ 存储方式（storage）：
 ///  · userDefaults —— 走 SharedPreferences
@@ -160,7 +162,7 @@ class PrefsKey {
   final String description;
 }
 
-/// 全部 Prefs 键（98 个）。
+/// 全部 Prefs 键（99 个）。
 const List<PrefsKey> kAllPrefsKeys = <PrefsKey>[
   // ────────────── _group_subscription（3）──────────────
   PrefsKey(name: 'subscribed_config_urls', group: PrefsGroup.subscription, type: PrefsType.stringArray, storage: PrefsStorage.userDefaults, description: '订阅源 URL 列表'),
@@ -236,11 +238,12 @@ const List<PrefsKey> kAllPrefsKeys = <PrefsKey>[
   PrefsKey(name: 'app_log_enabled', group: PrefsGroup.log, type: PrefsType.bool, storage: PrefsStorage.userDefaults, description: 'AppLogStore.swift:254'),
   PrefsKey(name: 'app_log_min_level', group: PrefsGroup.log, type: PrefsType.int, storage: PrefsStorage.userDefaults, description: 'AppLogStore.swift:255'),
   PrefsKey(name: 'app_log_crash_marker', group: PrefsGroup.log, type: PrefsType.bool, storage: PrefsStorage.userDefaults, description: 'AppLogStore.swift:259'),
-  // ────────────── _group_app_settings（4）──────────────
+  // ────────────── _group_app_settings（5）──────────────
   PrefsKey(name: 'app_enable_tmdb', group: PrefsGroup.appSettings, type: PrefsType.bool, storage: PrefsStorage.userDefaults, description: 'AppSettings.swift:159'),
   PrefsKey(name: 'app_welfare_unlocked', group: PrefsGroup.appSettings, type: PrefsType.bool, storage: PrefsStorage.userDefaults, description: 'AppSettings.swift:163'),
   PrefsKey(name: 'app_welfare_password', group: PrefsGroup.appSettings, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'AppSettings.swift:164'),
   PrefsKey(name: 'app_welfare_enabled', group: PrefsGroup.appSettings, type: PrefsType.bool, storage: PrefsStorage.userDefaults, description: 'AppSettings.swift:165'),
+  PrefsKey(name: 'app_ui_form_override', group: PrefsGroup.appSettings, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: '显示模式覆盖 auto|portrait|landscape（默认 auto）：第 2 轮新增（D17，非 iOS 来源，方案 §3.2）'),
   // ────────────── _group_welfare_ext（6）──────────────
   PrefsKey(name: 'fuli_remote_source_enabled', group: PrefsGroup.welfareExt, type: PrefsType.bool, storage: PrefsStorage.userDefaults, description: 'WelfarePlatformConfigStore.swift:47'),
   PrefsKey(name: 'fuli_remote_source_last_success_time', group: PrefsGroup.welfareExt, type: PrefsType.long, storage: PrefsStorage.userDefaults, description: 'WelfarePlatformConfigStore.swift:49'),

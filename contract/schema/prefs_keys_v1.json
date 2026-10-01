@@ -1,7 +1,7 @@
 {
   "$comment": "vbox 契约层 v1.0 · SharedPreferences / UserDefaults 键名契约。来源：iOS 端逆向提取。冻结后两端必须完全一致。",
-  "schemaVersion": "1.3",
-  "frozenAt": "2026-09-29",
+  "schemaVersion": "1.4",
+  "frozenAt": "2026-10-01",
   "note": "iOS 使用 UserDefaults.standard，Flutter 使用 SharedPreferences。键名与类型必须 1:1 对应，否则数据无法互通。 | v1.1 修订：移除 10 个误抓的非 prefs 键（播放器 KVC 属性 / CA 动画 key）",
   "keys": {
     "_group_subscription": {
@@ -427,6 +427,12 @@
         "storage": "userdefaults",
         "evidence": "AppSettings.swift:165",
         "desc": "AppSettings.swift:165"
+      },
+      "app_ui_form_override": {
+        "type": "string",
+        "storage": "userdefaults",
+        "evidence": "第 2 轮新增（无 iOS 来源）：docs/第2轮开发计划_功能补全_v2.5.md §3.2 / D17 契约变更门禁",
+        "desc": "显示模式覆盖：auto|portrait|landscape（默认 auto）；四端统一 UI 的横竖双形态判定最高优先开关"
       }
     },
     "_group_welfare_ext": {
@@ -662,6 +668,7 @@
     "v1.2：补齐 46 个遗漏键（云盘/福利/直播/音乐/TG/日志/推送）。其中 cloud_drive_credentials_v1 / saved_drive_tokens_v1 为 Keychain account，pg_source / qr_scan 为 credential.extra 字典键，均**非 UserDefaults**，已用 storage 字段标注（userdefaults|keychain|credential_extra）。",
     "v1.2 补记：saved_drive_tokens（CloudDriveManager.swift:124）为 UserDefaults 键，与 Keychain account saved_drive_tokens_v1 是两个不同对象。",
     "v1.2 补记（结构统一，2026-09-29）：为全部 98 键显式标注 storage —— 此前前 12 组仅隐式（UserDefaults），与后 9 组 {type, storage, evidence, desc} 结构异构。现统一为「每键必含 storage」（userdefaults|keychain|credential_extra），落实 D19；校验脚本 check_contract_sync.py 新增 storage 完整性 + Dart↔JSON 逐键比对（防回归）。",
-    "v1.3 修订（B3 裁定，2026-09-30）：sensitiveKeys 5 → 7，新增 baidu_local_pcs_device_id（百度 PCS 本地设备指纹，与 quark_device_id 同类）与 saved_drive_tokens（网盘 token 存储键，iOS 侧为 UserDefaults 遗留、迁移至 Keychain 后即清除；Flutter 端按安全键处理避免明文）。对应 Dart 镜像 prefs_keys.dart 同步（kSensitiveKeys + 逐键 sensitive:true）。"
+    "v1.3 修订（B3 裁定，2026-09-30）：sensitiveKeys 5 → 7，新增 baidu_local_pcs_device_id（百度 PCS 本地设备指纹，与 quark_device_id 同类）与 saved_drive_tokens（网盘 token 存储键，iOS 侧为 UserDefaults 遗留、迁移至 Keychain 后即清除；Flutter 端按安全键处理避免明文）。对应 Dart 镜像 prefs_keys.dart 同步（kSensitiveKeys + 逐键 sensitive:true）。",
+    "v1.4 修订（D17 契约变更，2026-10-01）：新增 app_ui_form_override（_group_app_settings，string，默认 auto）—— 第 2 轮批次 A「设计基座」交付「四端统一 UI + 横竖双形态自适应」所需的**用户功能开关**（方案 §3.2 判定优先级 ①，取值 auto|portrait|landscape）。该键**非 iOS 逆向来源**（iOS 侧无此设置），系本轮按 D17 门禁主动扩键：契约 JSON + Dart 镜像 prefs_keys.dart + prefs_manager 便捷方法 + check_contract_sync 同步，键总数 98 → 99。"
   ]
 }

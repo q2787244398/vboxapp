@@ -1,138 +1,91 @@
-/// 形态判定层单测：#10 —— `ui_mode_resolver.dart`。
+/// 形态模型单测：`ui_mode_resolver.dart` 的枚举与输入结构（批次 A · A-05）。
 ///
-/// ⚠️ `resolveMode` 依赖编译期平台常量；VM 测试下通过
-/// `debugDefaultTargetPlatformOverride` 切换平台以覆盖各分支。
-/// （`kIsWeb` 无法在 VM 测试中置真，其分支与桌面端等价，未单列。）
+/// 覆盖：`UiForm` 便捷谓词、`UiFormOverride` 契约字符串解析（含未知值兜底）、
+/// `UiFormEnv.withViewport` 的视口注入语义。纯数据，无 IO。
 library;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vbox/presentation/ui_mode/ui_mode_resolver.dart';
 
 void main() {
-  tearDown(() {
-    debugDefaultTargetPlatformOverride = null;
-  });
-
-  group('优先级 ①：用户显式偏好 TV（最高，先于平台常量）', () {
-    test('userPrefersTv=true → tv（即使在桌面平台/小屏）', () {
-      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-      expect(
-        UiModeController.resolveMode(
-          userPrefersTv: true,
-          screenSize: const Size(320, 480),
-          hasTouch: true,
-        ),
-        UiMode.tv,
-      );
-    });
-
-    test('userPrefersTv=false 不强制，走后续判定', () {
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-      expect(UiModeController.resolveMode(userPrefersTv: false), UiMode.phone);
+  group('UiForm 便捷谓词', () {
+    test('isPortrait / isLandscape 互斥且完备', () {
+      expect(UiForm.portrait.isPortrait, isTrue);
+      expect(UiForm.portrait.isLandscape, isFalse);
+      expect(UiForm.landscape.isLandscape, isTrue);
+      expect(UiForm.landscape.isPortrait, isFalse);
+      expect(UiForm.values.length, 2, reason: '本轮收敛为双形态');
     });
   });
 
-  group('优先级 ③：编译期平台常量（桌面端）', () {
-    for (final TargetPlatform tp in <TargetPlatform>[
-      TargetPlatform.windows,
-      TargetPlatform.macOS,
-      TargetPlatform.linux,
-    ]) {
-      test('$tp → desktop（无视设备特征）', () {
-        debugDefaultTargetPlatformOverride = tp;
-        expect(
-          UiModeController.resolveMode(
-            screenSize: const Size(3840, 2160),
-            hasTouch: false,
-            hasRemote: true,
-          ),
-          UiMode.desktop,
-        );
-        expect(UiModeController.resolveMode(), UiMode.desktop);
-      });
-    }
-  });
-
-  group('优先级 ②：设备特征（以 Android 为目标平台）', () {
-    setUp(() {
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    });
-
-    test('有遥控器 + 非触屏 → tv', () {
-      expect(UiModeController.resolveMode(hasRemote: true, hasTouch: false),
-          UiMode.tv);
-      expect(UiModeController.resolveMode(hasRemote: true), UiMode.tv,
-          reason: 'hasTouch 未知（null）≠ true，仍判 tv');
-    });
-
-    test('有遥控器但也是触屏 → 不因此判 tv', () {
-      expect(
-        UiModeController.resolveMode(
-            hasRemote: true, hasTouch: true, screenSize: const Size(1080, 1920)),
-        UiMode.phone,
-      );
-    });
-
-    test('大屏 + 无触屏 → tv（十英尺 1280 阈值）', () {
-      expect(
-        UiModeController.resolveMode(
-            screenSize: const Size(1920, 1080), hasTouch: false),
-        UiMode.tv,
-      );
-      // 边界：恰好 1280 → tv
-      expect(
-        UiModeController.resolveMode(
-            screenSize: const Size(1280, 720), hasTouch: false),
-        UiMode.tv,
-      );
-      // 边界：1279 → phone
-      expect(
-        UiModeController.resolveMode(
-            screenSize: const Size(1279, 720), hasTouch: false),
-        UiMode.phone,
-      );
-    });
-
-    test('大屏但触屏未知 / 触屏为真 → phone', () {
-      expect(UiModeController.resolveMode(screenSize: const Size(1920, 1080)),
-          UiMode.phone);
-      expect(
-        UiModeController.resolveMode(
-            screenSize: const Size(1920, 1080), hasTouch: true),
-        UiMode.phone,
-      );
-    });
-
-    test('小屏 + 无触屏 + 无遥控 → phone', () {
-      expect(
-        UiModeController.resolveMode(
-            screenSize: const Size(1080, 1920), hasTouch: false),
-        UiMode.phone,
-      );
-    });
-
-    test('无任何信号 → 兜底 phone', () {
-      expect(UiModeController.resolveMode(), UiMode.phone);
+  group('InputModality 取值', () {
+    test('三模态齐备（触摸 / 遥控 / 鼠标键盘）', () {
+      expect(InputModality.values, <InputModality>[
+        InputModality.touch,
+        InputModality.remote,
+        InputModality.mouseKeyboard,
+      ]);
     });
   });
 
-  group('UiModeController（ChangeNotifier 接线）', () {
-    test('初始为 phone；resolve 更新并通知监听者一次', () {
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-      final UiModeController c = UiModeController();
-      int notified = 0;
-      c.addListener(() => notified++);
-      expect(c.mode, UiMode.phone);
+  group('UiFormOverride.fromId（契约键 app_ui_form_override 解析）', () {
+    test('三个合法档位逐一解析', () {
+      expect(UiFormOverride.fromId('auto'), UiFormOverride.auto);
+      expect(UiFormOverride.fromId('portrait'), UiFormOverride.portrait);
+      expect(UiFormOverride.fromId('landscape'), UiFormOverride.landscape);
+    });
 
-      c.resolve(hasRemote: true, hasTouch: false);
-      expect(c.mode, UiMode.tv);
-      expect(notified, 1);
+    test('未知值 / null / 空串 → 回退 auto（契约默认）', () {
+      expect(UiFormOverride.fromId('tablet'), UiFormOverride.auto);
+      expect(UiFormOverride.fromId(''), UiFormOverride.auto);
+      expect(UiFormOverride.fromId(null), UiFormOverride.auto);
+      expect(UiFormOverride.fallback, UiFormOverride.auto);
+    });
 
-      c.resolve(screenSize: const Size(1080, 1920), hasTouch: true);
-      expect(c.mode, UiMode.phone);
-      expect(notified, 2);
+    test('id 与 title 齐备（设置项显示名）', () {
+      for (final UiFormOverride o in UiFormOverride.values) {
+        expect(o.id, isNotEmpty);
+        expect(o.title, isNotEmpty);
+      }
+      expect(UiFormOverride.portrait.title, '手机（竖屏）');
+      expect(UiFormOverride.landscape.title, '大屏（横屏）');
+    });
+  });
+
+  group('UiFormEnv.withViewport（视口注入语义）', () {
+    test('更新最短边与方向，保留设备能力与用户覆盖', () {
+      const UiFormEnv base = UiFormEnv(
+        override: UiFormOverride.landscape,
+        isTv: true,
+        isDesktop: false,
+        hasTouch: false,
+        hasDpad: true,
+        hasPointer: false,
+        shortestSide: 0,
+        orientation: Orientation.portrait,
+      );
+
+      final UiFormEnv v = base.withViewport(
+        size: const Size(1920, 1080),
+        orientation: Orientation.landscape,
+      );
+
+      expect(v.shortestSide, 1080);
+      expect(v.orientation, Orientation.landscape);
+      // 基底字段保持不变
+      expect(v.override, UiFormOverride.landscape);
+      expect(v.isTv, isTrue);
+      expect(v.hasDpad, isTrue);
+      expect(v.hasTouch, isFalse);
+    });
+
+    test('默认基底最短边为 0、方向竖屏（未注入视口）', () {
+      const UiFormEnv e = UiFormEnv();
+      expect(e.shortestSide, 0);
+      expect(e.orientation, Orientation.portrait);
+      expect(e.override, UiFormOverride.auto);
+      expect(e.hasTouch, isTrue);
     });
   });
 }
