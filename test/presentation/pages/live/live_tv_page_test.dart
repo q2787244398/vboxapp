@@ -75,6 +75,43 @@ void main() {
     expect(find.text('默认源2 (运营商IPTV)'), findsOneWidget);
   });
 
+  testWidgets('点击频道卡弹出播放接入 Sheet（E-02）', (WidgetTester tester) async {
+    final LiveTvController controller = _loadedController();
+    addTearDown(controller.dispose);
+    await controller.fetchSubscribeChannels('http://example.com/tv.m3u');
+
+    final List<String> played = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LiveTVPage(
+          controller: controller,
+          onPlayRoute: (String url) async => played.add(url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('CCTV-1'));
+    await tester.pumpAndSettle();
+
+    // 播放 Sheet 标题（频道名）+ 单线路 + 自动连接首线路。
+    expect(find.text('共 1 条线路'), findsOneWidget);
+    expect(find.text('线路 1'), findsOneWidget);
+    expect(played, <String>['http://stream/cctv1.m3u8']);
+  });
+
+  testWidgets('长按频道卡弹出节目单 Sheet（E-03）', (WidgetTester tester) async {
+    await _preload(tester);
+
+    await tester.longPress(find.text('CCTV-1'));
+    await tester.pumpAndSettle();
+
+    // 节目单 Sheet 标题 + 三档日期 + 空态（对齐 iOS 接口失效）。
+    expect(find.text('CCTV-1 节目单'), findsOneWidget);
+    expect(find.text('今天'), findsOneWidget);
+    expect(find.text('暂无节目单'), findsOneWidget);
+  });
+
   testWidgets('订阅源为空时展示空态提示', (WidgetTester tester) async {
     final LiveTvController controller = LiveTvController(
       client: HttpClient(

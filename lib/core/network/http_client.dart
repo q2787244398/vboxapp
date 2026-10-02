@@ -10,6 +10,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -119,12 +120,28 @@ class HttpClient {
         metaCharsetOverride: metaCharsetOverride,
       );
 
+  /// POST JSON（原始 JSON 字符串 body，供 MDTV 等加密协议使用）。
+  Future<HttpClientResponse> postJson(
+    Uri uri, {
+    Object? json,
+    Map<String, String>? headers,
+    String? metaCharsetOverride,
+  }) =>
+      send(
+        'POST',
+        uri,
+        headers: headers,
+        body: json == null ? null : jsonEncode(json),
+        metaCharsetOverride: metaCharsetOverride,
+      );
+
   /// 通用发送（带重试）。
   Future<HttpClientResponse> send(
     String method,
     Uri uri, {
     Map<String, String>? headers,
     Map<String, String>? form,
+    String? body,
     String? metaCharsetOverride,
   }) async {
     // A2：离线短路 —— 探针明确报离线时不进入重试循环，直接失败，避免无谓等待。
@@ -141,8 +158,9 @@ class HttpClient {
     AppLog.debug(logTag, '$method $uri');
     for (int attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        final http.Response res = await _dispatch(method, uri, headers, form)
-            .timeout(receiveTimeout);
+        final http.Response res =
+            await _dispatch(method, uri, headers, form, body)
+                .timeout(receiveTimeout);
         if (res.statusCode >= 500 && attempt < maxRetries) {
           AppLog.warn(
             logTag,
@@ -188,6 +206,7 @@ class HttpClient {
     Uri uri,
     Map<String, String>? headers,
     Map<String, String>? form,
+    String? body,
   ) {
     final Map<String, String> h = <String, String>{
       'user-agent': userAgent,
@@ -196,6 +215,10 @@ class HttpClient {
     };
     switch (method.toUpperCase()) {
       case 'POST':
+        if (body != null) {
+          h['content-type'] = 'application/json; charset=utf-8';
+          return _inner.post(uri, headers: h, body: body);
+        }
         h['content-type'] = 'application/x-www-form-urlencoded; charset=utf-8';
         return _inner.post(uri, headers: h, body: form ?? const <String, String>{});
       case 'GET':

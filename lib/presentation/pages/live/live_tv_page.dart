@@ -1,8 +1,10 @@
-/// 直播页（批次 E · E-01）。
+/// 直播页（批次 E · E-01 / E-02 / E-03）。
 ///
 /// 对齐 iOS `LiveTVView`：顶部**频道源胶囊**（当前源 + 切换源浮层）、
 /// **分类胶囊**（横向滚动，按 `cat_N` 取循环调色板）、**双列频道卡**
-/// （16:9 台标封面 + 频道名 + 线路数）。数据由 [LiveTvController] 提供
+/// （16:9 台标封面 + 频道名 + 线路数）。点击频道卡弹出 [LivePlayerSheet]
+/// 接入播放（线路解析 + 切换，见 E-02）；长按弹出 [EpgSheet] 节目单
+/// （日期切换 + 节目列表，见 E-03）。数据由 [LiveTvController] 提供
 /// （源持久化 + 订阅源拉取/解析 + 动态分类 + 分组合并多线路）。
 ///
 /// 契约键：`live_tv_current_source`（LiveTvController 内部读写）。
@@ -17,15 +19,29 @@ import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
+import 'epg_sheet.dart';
+import 'import_export.dart';
+import 'live_player_sheet.dart';
 import 'live_tv_controller.dart';
 
 /// 直播页（频道源胶囊 + 分类胶囊 + 双列频道卡）。
 class LiveTVPage extends StatefulWidget {
   /// 构造（[controller] 供测试注入；缺省自建并自管生命周期）。
-  const LiveTVPage({super.key, this.controller});
+  const LiveTVPage({
+    super.key,
+    this.controller,
+    this.onPlayRoute,
+    this.fileBridge,
+  });
 
   /// 外部注入的控制器（null → 页面自建）。
   final LiveTvController? controller;
+
+  /// 播放接入回调（null → 走 `PlayerController.instance`；测试注入）。
+  final LiveRoutePlayHandler? onPlayRoute;
+
+  /// 本地文件导入/导出桥（null → [MethodChannelLiveFileBridge]；测试注入）。
+  final LiveFileBridge? fileBridge;
 
   @override
   State<LiveTVPage> createState() => _LiveTVPageState();
@@ -33,6 +49,7 @@ class LiveTVPage extends StatefulWidget {
 
 class _LiveTVPageState extends State<LiveTVPage> {
   late final LiveTvController _controller;
+  late final LiveFileBridge _fileBridge;
   late final bool _ownsController;
 
   /// 当前选中分类（tid）与首帧加载中标记。
@@ -44,6 +61,7 @@ class _LiveTVPageState extends State<LiveTVPage> {
     super.initState();
     _ownsController = widget.controller == null;
     _controller = widget.controller ?? LiveTvController();
+    _fileBridge = widget.fileBridge ?? MethodChannelLiveFileBridge();
     _bootstrap();
   }
 
@@ -85,12 +103,34 @@ class _LiveTVPageState extends State<LiveTVPage> {
     final LiveSourceType? picked = await showModalBottomSheet<LiveSourceType>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (BuildContext context) => _SourceSheet(
-        sources: _controller.availableSources,
-        currentId: _controller.currentSource.id,
+        controller: _controller,
+        fileBridge: _fileBridge,
       ),
     );
     if (picked != null) await _selectSource(picked);
+  }
+
+  /// 点击频道卡：弹出播放接入 Sheet（线路自动解析 + 连接首线路）。
+  Future<void> _openChannel(LiveChannel channel) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (BuildContext context) =>
+          LivePlayerSheet(channel: channel, onPlayRoute: widget.onPlayRoute),
+    );
+  }
+
+  /// 长按频道卡：弹出节目单 Sheet（EPG，见 E-03）。
+  Future<void> _openEpg(LiveChannel channel) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (BuildContext context) => EpgSheet(channel: channel),
+    );
   }
 
   @override
@@ -216,8 +256,13 @@ class _LiveTVPageState extends State<LiveTVPage> {
         childAspectRatio: 16 / 11,
       ),
       itemCount: channels.length,
-      itemBuilder: (BuildContext context, int index) =>
-          _ChannelCard(channel: channels[index]),
+      itemBuilder: (BuildContext context, int index) => GestureDetector(
+        onLongPress: () => _openEpg(channels[index]),
+        child: _ChannelCard(
+          channel: channels[index],
+          onTap: () => _openChannel(channels[index]),
+        ),
+      ),
     );
   }
 }
@@ -296,9 +341,10 @@ class _CategoryCapsule extends StatelessWidget {
 
 /// 频道卡（对齐 iOS `ChannelGridItem`：16:9 台标封面 + 线路数 + 频道名）。
 class _ChannelCard extends StatelessWidget {
-  const _ChannelCard({required this.channel});
+  const _ChannelCard({required this.channel, required this.onTap});
 
   final LiveChannel channel;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -306,6 +352,7 @@ class _ChannelCard extends StatelessWidget {
     return VboxCard(
       padding: EdgeInsets.zero,
       radius: VboxRadii.r12,
+      onTap: onTap,
       child: Column(
         children: <Widget>[
           ClipRRect(
@@ -371,12 +418,102 @@ class _ChannelCard extends StatelessWidget {
   }
 }
 
-/// 切换源浮层（列出全部可用源，选中项勾选）。
-class _SourceSheet extends StatelessWidget {
-  const _SourceSheet({required this.sources, required this.currentId});
+/// 切换源浮层（列出全部可用源 + 添加/删除/导入/导出，对齐 iOS
+/// `LiveSourcePickerView`）。
+class _SourceSheet extends StatefulWidget {
+  const _SourceSheet({required this.controller, required this.fileBridge});
 
-  final List<LiveSourceType> sources;
-  final String currentId;
+  final LiveTvController controller;
+  final LiveFileBridge fileBridge;
+
+  @override
+  State<_SourceSheet> createState() => _SourceSheetState();
+}
+
+class _SourceSheetState extends State<_SourceSheet> {
+  LiveTvController get _controller => widget.controller;
+
+  Future<void> _addCustom(String name, String url) =>
+      _controller.addCustomSource(name, url);
+
+  Future<void> _removeCustom(LiveSourceType source) async {
+    final int index = _customIndex(source);
+    if (index >= 0) await _controller.removeCustomSourceAt(index);
+  }
+
+  int _customIndex(LiveSourceType source) => _controller.customSources
+      .indexWhere((LiveSourceType s) => s.id == source.id);
+
+  void _showAddDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext context) => _AddSourceDialog(onSubmit: _addCustom),
+    );
+  }
+
+  Future<void> _importLocal() async {
+    final SelectedLiveFile? file = await widget.fileBridge.pickTextFile();
+    if (file == null || !mounted) return;
+    final List<SubscribeChannel> channels =
+        LiveSourceImportExport.parseContent(file.content);
+    if (channels.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('文件内容解析为空')),
+      );
+      return;
+    }
+    await _controller.addLocalChannels(file.name, channels);
+    await _controller.switchSource(LiveSourceType(
+      kind: LiveSourceKind.custom,
+      name: file.name,
+      url: 'local://${file.name}',
+    ));
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _exportCustom(LiveSourceType source) async {
+    final String name = source.name ?? 'custom';
+    final String? url = source.url;
+    if (url == null) return;
+    try {
+      String content;
+      String fileName;
+      if (url.startsWith('local://')) {
+        final String localName = url.substring('local://'.length);
+        final List<SubscribeChannel> channels = _controller
+                .localChannelsMap[localName] ??
+            const <SubscribeChannel>[];
+        if (channels.isEmpty) {
+          _toast('本地源已失效，请重新导入');
+          return;
+        }
+        content = _controller.exportM3U(channels);
+        fileName = LiveSourceImportExport.exportFileName(localName, isM3U: true);
+      } else {
+        final String? raw = await _controller.fetchRawContent(url);
+        if (raw == null || raw.trim().isEmpty) {
+          _toast('无法获取直播源内容');
+          return;
+        }
+        content = raw;
+        fileName = LiveSourceImportExport.exportFileName(
+          name,
+          isM3U: raw.trim().startsWith('#EXTM3U'),
+        );
+      }
+      final String path =
+          await LiveSourceImportExport.writeExportFile(fileName, content);
+      await widget.fileBridge.shareFile(path);
+      _toast('已导出：$fileName');
+    } catch (e) {
+      _toast('导出失败：$e');
+    }
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -384,63 +521,177 @@ class _SourceSheet extends StatelessWidget {
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.8,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: Text(
-                '选择直播源 ${sources.length}',
-                style: TextStyle(
-                  fontSize: VboxTypography.s18,
-                  fontWeight: FontWeight.w600,
-                  color: scheme.onSurface,
+        child: ListenableBuilder(
+          listenable: _controller,
+          builder: (BuildContext context, Widget? _) {
+            final List<LiveSourceType> sources = _controller.availableSources;
+            final String currentId = _controller.currentSource.id;
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: Text(
+                    '选择直播源 ${sources.length}',
+                    style: TextStyle(
+                      fontSize: VboxTypography.s18,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: sources.length,
-                separatorBuilder: (BuildContext context, int index) =>
-                    const Divider(height: 1),
-                itemBuilder: (BuildContext context, int index) {
-                  final LiveSourceType source = sources[index];
-                  final bool selected = source.id == currentId;
-                  return ListTile(
-                    leading: Container(
-                      width: 36,
-                      height: 36,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: scheme.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.settings_input_antenna,
-                        size: 20,
-                        color: scheme.primary,
-                      ),
+                Flexible(child: _sourceList(context, scheme, sources, currentId)),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(Icons.add_circle_outline,
+                      color: Colors.orange.shade600),
+                  title: const Text('添加自定义源'),
+                  onTap: _showAddDialog,
+                ),
+                ListTile(
+                  leading: Icon(Icons.folder_open, color: scheme.primary),
+                  title: const Text('导入本地直播文件'),
+                  onTap: _importLocal,
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: Text(
+                    '支持导入 M3U、TXT 等格式的直播源文件',
+                    style: TextStyle(
+                      fontSize: VboxTypography.s11,
+                      color: scheme.onSurfaceVariant,
                     ),
-                    title: Text(
-                      source.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: selected
-                        ? Icon(Icons.check_circle, color: scheme.primary)
-                        : null,
-                    onTap: () => Navigator.of(context).pop(source),
-                  );
-                },
-              ),
-            ),
-          ],
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
+    );
+  }
+
+  Widget _sourceList(
+    BuildContext context,
+    ColorScheme scheme,
+    List<LiveSourceType> sources,
+    String currentId,
+  ) {
+    return ListView.separated(
+      shrinkWrap: true,
+      itemCount: sources.length,
+      separatorBuilder: (BuildContext context, int index) =>
+          const Divider(height: 1),
+      itemBuilder: (BuildContext context, int index) {
+        final LiveSourceType source = sources[index];
+        final bool selected = source.id == currentId;
+        final bool isCustom = source.isCustom;
+        return ListTile(
+          leading: Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              isCustom ? Icons.link : Icons.settings_input_antenna,
+              size: 20,
+              color: scheme.primary,
+            ),
+          ),
+          title: Text(
+            source.displayName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: isCustom
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    IconButton(
+                      icon: Icon(Icons.ios_share, color: scheme.primary),
+                      onPressed: () => _exportCustom(source),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.delete_outline,
+                          color: scheme.error),
+                      onPressed: () => _removeCustom(source),
+                    ),
+                  ],
+                )
+              : (selected
+                  ? Icon(Icons.check_circle, color: scheme.primary)
+                  : null),
+          onTap: () => Navigator.of(context).pop(source),
+        );
+      },
+    );
+  }
+}
+
+/// 添加自定义源对话框（对齐 iOS `showAddAlert`：源名称 + M3U/TXT URL）。
+class _AddSourceDialog extends StatefulWidget {
+  const _AddSourceDialog({required this.onSubmit});
+
+  final Future<void> Function(String name, String url) onSubmit;
+
+  @override
+  State<_AddSourceDialog> createState() => _AddSourceDialogState();
+}
+
+class _AddSourceDialogState extends State<_AddSourceDialog> {
+  final TextEditingController _name = TextEditingController();
+  final TextEditingController _url = TextEditingController();
+
+  bool get _valid =>
+      _name.text.trim().isNotEmpty && _url.text.trim().isNotEmpty;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _url.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_valid) return;
+    await widget.onSubmit(_name.text.trim(), _url.text.trim());
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('添加自定义源'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          TextField(
+            controller: _name,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: '源名称'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _url,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            decoration: const InputDecoration(labelText: 'M3U/TXT URL'),
+          ),
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        TextButton(onPressed: _submit, child: const Text('添加')),
+      ],
     );
   }
 }

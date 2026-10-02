@@ -88,6 +88,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     implementation("androidx.media3:media3-session:1.5.1")
     implementation("org.videolan.android:libvlc-all:3.6.0")
+    // E-04：直播源导出分享 FileProvider（androidx.core.content.FileProvider）。
+    implementation("androidx.core:core-ktx:1.13.1")
 }
 
 flutter {

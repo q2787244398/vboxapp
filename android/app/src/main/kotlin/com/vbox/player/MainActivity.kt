@@ -27,5 +27,7 @@ class MainActivity : FlutterActivity() {
         flutterEngine.plugins.add(PipPlugin())
         // C-05：注册后台播放平台通道（启动/停止前台媒体服务）
         BackgroundPlayPlugin.registerWith(flutterEngine)
+        // E-04：注册直播本地文件导入/导出/分享通道（ActivityAware，需 plugins.add 挂 Activity 生命周期）
+        flutterEngine.plugins.add(LiveFilePlugin())
     }
 }
