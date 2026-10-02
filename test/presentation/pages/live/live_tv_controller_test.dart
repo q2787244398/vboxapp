@@ -4,6 +4,8 @@
 /// `SharedPreferences.setMockInitialValues`。
 library;
 
+import 'dart:convert';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -119,7 +121,7 @@ void main() {
     test('TXT 源自动判定（非 EXTM3U 前缀）', () async {
       final LiveTvController c = buildController(
         handler: (http.Request _) async =>
-            http.Response('央视,CCTV-1,http://a.m3u8\n', 200),
+            http.Response.bytes(utf8.encode('央视,CCTV-1,http://a.m3u8\n'), 200),
       );
       await c.init();
       await c.fetchSubscribeChannels('http://example.com/tv.txt');

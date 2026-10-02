@@ -21,46 +21,51 @@ class LiveTvParser {
     int i = 0;
     while (i < lines.length) {
       final String line = lines[i].trim();
-      if (line.startsWith('#EXTINF:')) {
-        String name = '';
-        String? group;
-        String? logo;
-
-        final RegExpMatch? groupMatch = _groupTitleRe.firstMatch(line);
-        if (groupMatch != null) group = groupMatch.group(1);
-
-        final RegExpMatch? logoMatch = _tvgLogoRe.firstMatch(line);
-        if (logoMatch != null) logo = logoMatch.group(1);
-
-        final int commaIndex = line.lastIndexOf(',');
-        if (commaIndex >= 0) {
-          name = line.substring(commaIndex + 1).trim();
-        }
-        if (name.isEmpty) {
-          final RegExpMatch? nameMatch = _tvgNameRe.firstMatch(line);
-          if (nameMatch != null) name = (nameMatch.group(1) ?? '').trim();
-        }
-
-        // 跳过分组标记（以 ** 开头的名称，如 **NOTÍCIAS**）。
-        if (name.startsWith('**')) {
-          i += 1;
-          continue;
-        }
-
+      if (!line.startsWith('#EXTINF:')) {
         i += 1;
-        if (i < lines.length) {
-          final String urlLine = lines[i].trim();
-          if (urlLine.isNotEmpty && !urlLine.startsWith('#')) {
-            channels.add(SubscribeChannel(
-              name: name.isEmpty ? '未知频道' : name,
-              url: urlLine,
-              group: group,
-              logo: logo,
-            ));
-          }
-        }
+        continue;
       }
+
+      String name = '';
+      String? group;
+      String? logo;
+
+      final RegExpMatch? groupMatch = _groupTitleRe.firstMatch(line);
+      if (groupMatch != null) group = groupMatch.group(1);
+
+      final RegExpMatch? logoMatch = _tvgLogoRe.firstMatch(line);
+      if (logoMatch != null) logo = logoMatch.group(1);
+
+      final int commaIndex = line.lastIndexOf(',');
+      if (commaIndex >= 0) {
+        name = line.substring(commaIndex + 1).trim();
+      }
+      if (name.isEmpty) {
+        final RegExpMatch? nameMatch = _tvgNameRe.firstMatch(line);
+        if (nameMatch != null) name = (nameMatch.group(1) ?? '').trim();
+      }
+
+      // 跳过分组标记（以 ** 开头的名称，如 **NOTÍCIAS**）。
       i += 1;
+      if (name.startsWith('**')) {
+        continue;
+      }
+
+      // 定位紧邻 URL：跳过 EXTINF 之后的空行与其他 `#` 注释行
+      // （如 #EXTVLCOPT:...），对齐 iOS 解析语义。
+      while (i < lines.length) {
+        final String urlLine = lines[i].trim();
+        if (urlLine.isNotEmpty && !urlLine.startsWith('#')) {
+          channels.add(SubscribeChannel(
+            name: name.isEmpty ? '未知频道' : name,
+            url: urlLine,
+            group: group,
+            logo: logo,
+          ));
+          break;
+        }
+        i += 1;
+      }
     }
     return channels;
   }
