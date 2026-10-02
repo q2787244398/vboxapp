@@ -431,7 +431,7 @@
       "app_ui_form_override": {
         "type": "string",
         "storage": "userdefaults",
-        "evidence": "第 2 轮新增（无 iOS 来源）：docs/第2轮开发计划_功能补全_v2.5.md §3.2 / D17 契约变更门禁",
+        "evidence": "第 2 轮新增（无 iOS 来源）：docs/第2轮开发计划_功能补全_v2.6.md §3.2 / D17 契约变更门禁",
         "desc": "显示模式覆盖：auto|portrait|landscape（默认 auto）；四端统一 UI 的横竖双形态判定最高优先开关"
       }
     },

@@ -1,6 +1,6 @@
 /// 输入适配层单测（批次 A · A-09）。
 ///
-/// 验收：`docs/第2轮开发计划_功能补全_v2.5.md` §3.4 ——
+/// 验收：`docs/第2轮开发计划_功能补全_v2.6.md` §3.4 ——
 ///   [FocusRing]（遥控：主色描边 + 放大）· [HoverAffordance]（鼠标：hover 底色）·
 ///   [InputShortcuts]（键盘：空格 / 方向键 / Esc / 回车）· [TenFootScaler]（TV：1.2–1.5×）。
 /// 原则：只加反馈层，不改版式；门控按 `UiFormController.modality`。

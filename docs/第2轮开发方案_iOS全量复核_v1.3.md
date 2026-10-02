@@ -1,6 +1,6 @@
 # vbox 第 2 轮开发方案 · iOS 全量复核与遗漏补全 · v1.3
 
-> **性质**：对 [第2轮开发计划_功能补全_v2.5.md](computer:///workspace/vboxapp/docs/第2轮开发计划_功能补全_v2.5.md) 的**独立复核补遗**，不替代该方案；结论已回流至该方案 **v2.2 / v2.3 / v2.4 / v2.5**。
+> **性质**：对 [第2轮开发计划_功能补全_v2.6.md](computer:///workspace/vboxapp/docs/第2轮开发计划_功能补全_v2.6.md) 的**独立复核补遗**，不替代该方案；结论已回流至该方案 **v2.2 / v2.3 / v2.4 / v2.5**。
 > **复核对象**：iOS 参照实现 `/workspace/vboxapp/vbox/`，共 **189 个 Swift 文件**（Views 55 · Services 73 · PlayerCore 34 · WelfareRemote 17 · Models 6 · App 3 · Bridge 1）+ `Libraries/` 原生库 + `Resources/` 资源。
 > **复核方法**：全目录盘点 → 逐文件归类 → 导航入口回溯（谁打开了这个页面）→ 与 v2.1 批次 A–K 逐条比对。
 > **结论**：v2.1 遗漏 **41 项**，需新增 **5 个批次（L–P）**，并显著扩充 4 个既有批次（B/C/F/G/H）。
