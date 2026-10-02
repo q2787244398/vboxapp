@@ -124,8 +124,8 @@ class LiveCategory {
 
   /// 调色板索引（对齐 iOS `LiveCategory.tintColor` 按 `cat_N` 取模）。
   int get paletteIndex {
-    final String? tail = id.split('_').last;
-    final int? idx = int.tryParse(tail ?? '');
+    final String tail = id.split('_').last;
+    final int? idx = int.tryParse(tail);
     return (idx == null || idx < 0) ? 0 : idx;
   }
 }
