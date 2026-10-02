@@ -11,6 +11,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../theme/tokens/colors.dart';
+import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import 'player_controls_controller.dart';
@@ -200,7 +201,7 @@ class _DanmakuInputPill extends StatelessWidget {
       alignment: Alignment.centerLeft,
       decoration: BoxDecoration(
         color: Colors.white12,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(VboxRadii.r20),
       ),
       child: const Text(
         '请文明发送弹幕',

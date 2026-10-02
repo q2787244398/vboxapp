@@ -50,7 +50,7 @@ class PlayerPanelContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: backgroundColor ?? const Color(0xE60F0F23),
+      color: backgroundColor ?? VboxColors.playerPanelBackground,
       borderRadius: VboxRadii.card,
       clipBehavior: Clip.antiAlias,
       child: Column(

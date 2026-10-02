@@ -128,6 +128,12 @@ class VboxColors {
   /// 播放器深底（播放器空 / 错态背景）。
   static const Color playerBackground = Color(0xFF0F0F23);
 
+  /// 播放器面板底色（深底 @90%，半透明覆盖层）。
+  static const Color playerPanelBackground = Color(0xE60F0F23);
+
+  /// 弹幕文字描边 / 阴影（80% 黑，提升浅底可读性）。
+  static const Color danmakuShadow = Color(0xCC000000);
+
   /// 危险操作（文字 + 背景 @10%）。
   static const Color danger = Color(0xFFEF4444);
 

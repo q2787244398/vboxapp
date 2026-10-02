@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../../../platform/player/danmaku/danmaku_lane_engine.dart';
+import '../../../theme/tokens/colors.dart';
 
 /// 弹幕覆盖层。
 class DanmakuOverlay extends StatelessWidget {
@@ -56,7 +57,7 @@ class DanmakuOverlay extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                     shadows: const <Shadow>[
                       Shadow(
-                        color: Color(0xCC000000),
+                        color: VboxColors.danmakuShadow,
                         blurRadius: 2,
                         offset: Offset(1, 1),
                       ),

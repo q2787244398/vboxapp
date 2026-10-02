@@ -48,19 +48,9 @@
    "license": "LGPL-2.1 + BSD-2-Clause（运行时）· 预编译 .so 动态链接",
    "minBytes": 4000000,
    "maxBytes": 8000000,
-   "found": [
-    "android/app/src/main/jniLibs/armeabi-v7a/libjsc.so",
-    "android/app/src/main/jniLibs/arm64-v8a/libjsc.so",
-    "android/app/src/main/jniLibs/x86/libjsc.so",
-    "android/app/src/main/jniLibs/x86_64/libjsc.so"
-   ],
-   "measuredBytes": [
-    5181472,
-    5823656,
-    5869616,
-    6957520
-   ],
-   "status": "measured"
+   "found": [],
+   "measuredBytes": [],
+   "status": "expected"
   }
  ],
  "licenseChecks": [
@@ -114,7 +104,7 @@
   },
   {
    "suite": "engine.bundle",
-   "name": "体积登记：jsc-android（实测 [5181472, 5823656, 5869616, 6957520]，LGPL-2.1 + BSD-2-Clause（…）",
+   "name": "体积登记：jsc-android（期望 4000000–8000000 bytes，本地无产物）",
    "ok": true,
    "detail": ""
   },
