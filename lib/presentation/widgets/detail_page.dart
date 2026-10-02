@@ -591,7 +591,7 @@ class _EpisodeCell extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: VboxRadii.button,
         side: selected
-            ? BorderSide(color: VboxColors.selected)
+            ? const BorderSide(color: VboxColors.selected)
             : BorderSide.none,
       ),
       clipBehavior: Clip.antiAlias,
@@ -726,7 +726,7 @@ class _DownloadSelectionSheetState extends State<_DownloadSelectionSheet> {
                     color: checked
                         ? Colors.blue.withValues(alpha: 0.15)
                         : scheme.surfaceContainerHighest,
-                    shape: RoundedRectangleBorder(
+                    shape: const RoundedRectangleBorder(
                       borderRadius: VboxRadii.button,
                     ),
                     clipBehavior: Clip.antiAlias,

@@ -464,7 +464,7 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
     if (_scanning) return const Center(child: CircularProgressIndicator());
     final Failure? error = _error;
     if (error != null) {
-      return _ErrorRetry(message: '$error', onRetry: _scan);
+      return _ErrorRetry(message: '$error', onRetry: _refresh);
     }
     if (_sources.isEmpty) {
       return const _EmptyHint(text: '未检测到短剧源\n请在设置中添加包含短剧的订阅源');

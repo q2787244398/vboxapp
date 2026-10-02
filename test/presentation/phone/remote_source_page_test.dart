@@ -61,7 +61,7 @@ Widget _page({
       ),
       ChangeNotifierProvider<UiFormController>.value(
         value: UiFormController(
-          env: UiFormEnv(override: UiFormOverride.portrait, hasTouch: true),
+          env: const UiFormEnv(override: UiFormOverride.portrait, hasTouch: true),
         ),
       ),
       Provider<ContentBrowseUseCases>.value(
@@ -220,16 +220,16 @@ void main() {
       await tester.pumpWidget(_page(
         browse: _FakeContentBrowseUseCases(
           sites: <SiteConfig>[
-            SiteConfig(
+            const SiteConfig(
               key: 's1',
               name: '站点1',
               type: 0,
               api: 'https://s1.example.com',
             ),
           ],
-          classes: <VodCategory>[VodCategory(typeId: '1', typeName: '电影')],
+          classes: <VodCategory>[const VodCategory(typeId: '1', typeName: '电影')],
           recommended: <VodItem>[
-            VodItem(vodId: '1', vodName: '推荐片', vodPic: ''),
+            const VodItem(vodId: '1', vodName: '推荐片', vodPic: ''),
           ],
         ),
       ));
