@@ -17,7 +17,11 @@ on:
     paths:
       - 'jsc/**'
       - 'scripts/fetch-jsc-android.sh'
+      - 'scripts/fetch-jsc-windows.ps1'
+      - 'scripts/build-jsc-windows.ps1'
+      - 'scripts/bundle-jsc-windows.ps1'
       - 'android/app/src/main/jni/**'
+      - 'windows/runner/**'
       - '.github/workflows/build-jsc.yml'
 
 jobs:
@@ -131,4 +135,37 @@ jobs:
         with:
           name: libvbox-jsc-android
           path: libvbox_jsc-*.so
+          retention-days: 14
+
+  # ── Q-03：Windows JSC（Playwright WebKit JSC DLL + MSVC 编译 wrapper） ──────
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup MSVC (cl/lib/dumpbin on PATH)
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: 🏗️ Fetch + build + smoke vbox_jsc.dll (Q-03)
+        shell: pwsh
+        run: .\scripts\build-jsc-windows.ps1
+
+      - name: 📊 Verify artifacts
+        shell: pwsh
+        run: |
+          Get-Item build/vbox-jsc/windows/vbox_jsc.dll | Select-Object Name, Length
+          Get-ChildItem build/vbox-jsc/windows/vendor -Filter *.dll |
+            Measure-Object -Property Length -Sum |
+            Select-Object Count, @{N="TotalMB";E={[math]::Round($_.Sum/1MB,1)}}
+
+      - name: 📤 Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvbox-jsc-windows
+          path: |
+            build/vbox-jsc/windows/vbox_jsc.dll
+            build/vbox-jsc/windows/vendor/*.dll
           retention-days: 14

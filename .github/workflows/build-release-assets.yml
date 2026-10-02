@@ -149,6 +149,14 @@ jobs:
         run: |
           cp .mpv-cache/libmpv-windows-*.dll build/windows/x64/runner/Release/
 
+      # 批次 Q · Q-03：JSC 引擎随 release 目录分发（fetch + MSVC 构建 + 拷贝 + 冒烟）
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Bundle JSC dll into release dir (Q-03)
+        shell: pwsh
+        run: .\scripts\bundle-jsc-windows.ps1 -Config Release
+
       - name: Compile installer with Inno Setup
         run: |
           choco install innosetup -y --no-progress

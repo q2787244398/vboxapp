@@ -17,6 +17,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
+  // 批次 Q · Q-03：Windows JSC 引擎预加载（与 macOS MainFlutterWindow 的 dlopen、
+  // Android MainActivity 的 System.loadLibrary 对称）。先于 Dart FFI
+  // DynamicLibrary.open("vbox_jsc.dll") 触发：vbox_jsc.dll 随安装包与
+  // runner.exe 同目录分发，Windows 默认按应用程序目录搜索 DLL，无需额外 PATH。
+  // 加载失败仅记录调试日志（OutputDebugString），不 crash —— Dart 侧
+  // jsc_ffi 的 isAvailable=false，工厂按 D6 自动降级 QuickJS（降级可观测）。
+  if (::LoadLibraryW(L"vbox_jsc.dll") == nullptr) {
+    ::OutputDebugStringW(
+        L"vbox: vbox_jsc.dll 加载失败，JSC 将按 D6 降级 QuickJS\n");
+  }
+
   flutter::DartProject project(L"data");
 
   std::vector<std::string> command_line_arguments =

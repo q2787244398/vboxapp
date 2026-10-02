@@ -60,14 +60,13 @@ ARTIFACTS: list[dict[str, Any]] = [
     {
         "id": "jsc-windows",
         "engine": "JavaScriptCore",
-        "artifact": "vbox_jsc.dll",
-        "license": "LGPL-2.1 + BSD-2-Clause（WinCairo JSC-only 自建，动态链接）",
-        "min": 5_000_000,
-        "max": 20_000_000,  # Q-01：~10–18 MB（x64, MinSizeRel）
+        "artifact": "JavaScriptCore.dll（Playwright WebKit JSC 运行时，x64；随 vbox_jsc.dll + icu*77.dll 分发）",
+        "license": "LGPL-2.1 + BSD-2-Clause（Playwright WebKit JSC-only 运行时，动态链接）",
+        "min": 25_000_000,
+        "max": 45_000_000,  # Q-03：Playwright WebKit JavaScriptCore.dll 实测 ~32 MB
         "candidates": [
-            "build/vbox-jsc/windows/vbox_jsc.dll",
-            "windows/runner/jsc/vbox_jsc.dll",
-            "vbox_jsc.dll",
+            "build/vbox-jsc/windows/vendor/JavaScriptCore.dll",
+            "windows/runner/jsc/vendor/JavaScriptCore.dll",
         ],
     },
     {

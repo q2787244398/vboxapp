@@ -33,10 +33,10 @@
   {
    "id": "jsc-windows",
    "engine": "JavaScriptCore",
-   "artifact": "vbox_jsc.dll",
-   "license": "LGPL-2.1 + BSD-2-Clause（WinCairo JSC-only 自建，动态链接）",
-   "minBytes": 5000000,
-   "maxBytes": 20000000,
+   "artifact": "JavaScriptCore.dll（Playwright WebKit JSC 运行时，x64；随 vbox_jsc.dll + icu*77.dll 分发）",
+   "license": "LGPL-2.1 + BSD-2-Clause（Playwright WebKit JSC-only 运行时，动态链接）",
+   "minBytes": 25000000,
+   "maxBytes": 45000000,
    "found": [],
    "measuredBytes": [],
    "status": "expected"
@@ -108,7 +108,7 @@
   },
   {
    "suite": "engine.bundle",
-   "name": "体积登记：jsc-windows（期望 5000000–20000000 bytes，本地无产物）",
+   "name": "体积登记：jsc-windows（期望 25000000–45000000 bytes，本地无产物）",
    "ok": true,
    "detail": ""
   },
