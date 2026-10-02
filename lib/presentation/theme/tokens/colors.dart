@@ -167,6 +167,23 @@ class VboxColors {
   /// 次级文字 · 深（`.secondaryLabel` Dark，`#EBEBF5` @ 60%）。
   static const Color secondaryLabelDark = Color(0x99EBEBF5);
 
+  // ── 直播分类调色板（12 色，按 `cat_N` 取模循环）──────────────
+  /// 直播分类胶囊调色板（对齐 iOS `LiveCategory.palette`）。
+  static const List<Color> liveCategoryPalette = <Color>[
+    Color(0xFF2196F3), // blue
+    Color(0xFF4CAF50), // green
+    Color(0xFFF44336), // red
+    Color(0xFFFF9800), // orange
+    Color(0xFF9C27B0), // purple
+    Color(0xFFE91E63), // pink
+    Color(0xFF00BCD4), // cyan
+    Color(0xFF009688), // teal
+    Color(0xFF3F51B5), // indigo
+    Color(0xFFFFC107), // yellow
+    Color(0xFF4DB6AC), // mint
+    Color(0xFF795548), // brown
+  ];
+
   // ── 分类色板（10 色，语义固定映射）──────────────────────
   /// 分类色板（用于日志分类 / 站点标签）。
   static const Map<VboxCategory, Color> categoryColors = <VboxCategory, Color>{

@@ -7,5 +7,6 @@ export 'douban/douban_home_page.dart';
 export 'douban/douban_ranking_page.dart';
 export 'home/home_page.dart';
 export 'home/source_sheet.dart';
+export 'live/live_tv_page.dart';
 export 'search/search_page.dart';
 export 'short_drama/short_drama_page.dart';
