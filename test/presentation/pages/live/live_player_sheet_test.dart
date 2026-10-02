@@ -94,7 +94,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: LivePlayerSheet(
-            channel: LiveChannel(
+            channel: const LiveChannel(
               id: 'sub_X',
               name: '无线路频道',
               tid: 'News',

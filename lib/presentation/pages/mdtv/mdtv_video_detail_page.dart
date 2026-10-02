@@ -163,6 +163,15 @@ class _MdtvVideoDetailPageState extends State<MdtvVideoDetailPage> {
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
+                ] else if (_error != null) ...<Widget>[
+                  const SizedBox(height: VboxSpacing.lg),
+                  Text(
+                    '加载失败：$_error',
+                    style: TextStyle(
+                      fontSize: VboxTypography.s14,
+                      color: scheme.error,
+                    ),
+                  ),
                 ],
               ],
             ),

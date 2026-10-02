@@ -146,7 +146,7 @@ class _EpgSheetState extends State<EpgSheet> {
                 width: 56,
                 child: Text(
                   program.time,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: VboxTypography.s15,
                     fontWeight: FontWeight.w500,
                     color: Colors.orange,

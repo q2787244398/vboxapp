@@ -11,6 +11,8 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart' as crypto;
 
+import 'mdtv_models.dart';
+
 /// 纯 AES 分组密码（含 5 种工作模式）。
 ///
 /// 密钥长度须为 16 / 24 / 32 字节，非法长度一律返回 null（对应 iOS CommonCrypto

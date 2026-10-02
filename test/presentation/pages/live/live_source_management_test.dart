@@ -119,7 +119,7 @@ void main() {
   });
 
   testWidgets('导入本地源解析并切换关闭浮层', (WidgetTester tester) async {
-    final _FakeBridge bridge = _FakeBridge(SelectedLiveFile(
+    final _FakeBridge bridge = _FakeBridge(const SelectedLiveFile(
       name: '我的本地',
       content: '央视,CCTV-1,http://a.m3u8\n',
       path: '/tmp/x.txt',
