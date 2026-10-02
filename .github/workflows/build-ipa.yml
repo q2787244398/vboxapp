@@ -3,6 +3,12 @@ name: Build IPA (巨魔安装版)
 on:
   push:
     branches: [ "main" ]
+    # 文档 / Markdown / 工作流配置变更不触发 iOS 原生构建（无安装包需要更新）。
+    # 仍触发：vbox/** · scripts/** · Podfile · vbox.xcodeproj · lib/** · pubspec.yaml 等。
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/**'
   workflow_dispatch:
     inputs:
       mobile_vlc_url:

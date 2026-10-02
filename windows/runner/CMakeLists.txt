@@ -33,7 +33,11 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
-target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
+# 注：flutter_wrapper_plugin 提供 plugin_registrar.cc（PluginRegistrarManager /
+# PluginRegistrar::AddPlugin 等符号）。flutter_window.cpp 与 player_plugin.cpp
+# 在 runner 进程中直接完成手动插件注册（对齐插件侧模式），需链接该静态库，
+# 否则链接期报 LNK2019（PluginRegistrar/PluginRegistrarManager 未解析）。
+target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app flutter_wrapper_plugin)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 

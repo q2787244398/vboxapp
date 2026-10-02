@@ -4,9 +4,9 @@
 # 所有 Dart 代码未经编译验证。本 workflow 在 GitHub Actions 上补齐验证闭环：
 #   1. contract-checks   10 个纯 Python 校验脚本（不含需 lcov 的 check_coverage）+ conformance runner（ubuntu）
 #   2. flutter-analyze   flutter analyze + flutter test --coverage + 覆盖率门槛（ubuntu-latest，见 job 注释）
-#   3. build-android     flutter build apk --debug（ubuntu，解锁 E.10b 门禁 ③/⑤「三端编译」）
-#   4. build-macos       flutter build macos --debug（macos-15）
-#   5. build-windows     flutter build windows --debug（windows-latest）
+#   3~5. 三端编译（build-android/macos/windows）—— 仅 PR 触发（合并前编译验证）。
+#        push 到 main 的编译改由 build-release-assets 直接产出 release 安装包，
+#        此处不再 debug+release 重复编译（避免每次推送三端各编两遍）。
 #
 # 对应主文档：docs/VBOX_PLAN_v6.35.md P.7（环境约束）/ P.10（未决事项 #5）
 name: Flutter Check
@@ -104,6 +104,7 @@ jobs:
         with:
           channel: stable
           flutter-version: "3.47.5" # 与本地已验证可解析的发行版一致
+          cache: true
 
       - name: Flutter version
         run: flutter --version
@@ -135,6 +136,8 @@ jobs:
 
   # ── 三端编译（解锁 E.10b 门禁 ③/⑤「三端编译通过」）──────────────
   build-android:
+    # 仅 PR 触发：push 到 main 的编译由 build-release-assets（release 产物）覆盖，避免双编译
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -160,6 +163,8 @@ jobs:
         run: flutter build apk --debug
 
   build-macos:
+    # 仅 PR 触发（推送编译走 build-release-assets）
+    if: github.event_name == 'pull_request'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -181,6 +186,8 @@ jobs:
         run: bash scripts/bundle-jsc-macos.sh --config Debug
 
   build-windows:
+    # 仅 PR 触发（推送编译走 build-release-assets）
+    if: github.event_name == 'pull_request'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
