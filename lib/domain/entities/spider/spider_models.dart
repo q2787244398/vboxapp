@@ -311,8 +311,11 @@ class PlayerContentResult {
       url: url,
       urls: urlAsArray ??
           (j['urls'] as List?)?.map((Object? e) => e.toString()).toList(),
-      header: (j['header'] as Map?)
-          ?.map((Object? k, Object? v) => MapEntry(k.toString(), v.toString())),
+      header: (j['header'] is Map)
+          ? (j['header'] as Map).map(
+              (Object? k, Object? v) => MapEntry(k.toString(), v.toString()),
+            )
+          : null,
     );
   }
 

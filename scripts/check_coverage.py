@@ -15,6 +15,10 @@
 该估计**系统性偏大**（把 class/字段/括号等非插桩行也算进去），因此算出的整体
 覆盖率是**保守下界**；真实值只会更高，不会更低。
 
+**纯 export barrel 文件（仅含 export/library/part 语句，无任何可执行代码）不进
+分母**：Dart 覆盖率只对可插桩语句计数，export 是声明而非语句，lcov 不会为其生成
+记录；若把它们算进分母，等于对「零代码文件」虚增分母，属双重高估。
+
 验证项：
   1. `coverage/lcov.info` 存在（否则提示先跑 `flutter test --coverage`）
   2. 整体覆盖率（全 lib 口径）≥ 门槛 70%
@@ -76,6 +80,38 @@ def code_lines(path: pathlib.Path) -> int:
     return n
 
 
+def is_declaration_only(path: pathlib.Path) -> bool:
+    """纯声明文件：仅含 `library;` / `export` / `part` / `import` 语句，
+    或仅含抽象接口（`abstract interface class` / `abstract class`）成员签名。
+
+    Dart 覆盖率只对可插桩语句（即具实体的可执行语句）计数：
+    - export/part/import 是声明，`library;` 是库指令，均非语句；
+    - 抽象接口方法签名以 `;` 结尾、无函数体，同样不可插桩。
+    lcov 不会为这些文件生成记录。此类文件不进分母（避免对零可执行代码文件
+    虚增分母，属双重高估）。
+    """
+    in_interface = False
+    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        s = raw.strip()
+        if not s or s.startswith("//") or s.startswith("///"):
+            continue
+        # 库指令 / 声明
+        if s == "library;" or s.startswith("library "):
+            continue
+        if s.startswith(("export ", "import ", "part ")):
+            continue
+        # 抽象接口起始（方法签名均为 `;` 结尾、无函数体）
+        if s.startswith(("abstract interface class ", "abstract class ", "abstract final class ")):
+            in_interface = True
+            continue
+        if in_interface:
+            if s == "}":
+                in_interface = False
+            continue
+        return False
+    return True
+
+
 def main() -> int:
     print("== 单测覆盖率门槛校验（全 lib 行数口径）==")
 
@@ -90,21 +126,26 @@ def main() -> int:
     touched = {k: v for k, v in recs.items() if k in all_rel}
     untouched = sorted(all_rel - set(touched))
 
+    # 纯声明文件（export barrel / 抽象接口）不进分母，也不列入补测跟踪
+    export_only = [f for f in untouched if is_declaration_only(ROOT / f)]
+    code_untouched = [f for f in untouched if not is_declaration_only(ROOT / f)]
+
     lh = sum(v[0] for v in touched.values())
     lf_touched = sum(v[1] for v in touched.values())
-    lf_untouched = sum(code_lines(ROOT / f) for f in untouched)
+    lf_untouched = sum(code_lines(ROOT / f) for f in code_untouched)
 
     denom = lf_touched + lf_untouched
     overall = 100.0 * lh / denom if denom else 0.0
     touched_pct = 100.0 * lh / lf_touched if lf_touched else 0.0
 
-    print(f"  lib 文件：{len(all_files)} 个 · 触达 {len(touched)} · 零触达 {len(untouched)}")
+    print(f"  lib 文件：{len(all_files)} 个 · 触达 {len(touched)} · 零触达 {len(untouched)}"
+          f"（纯 export {len(export_only)} 不进分母）")
     print(f"  触达口径（仅统计被触达文件）：{lh}/{lf_touched} = {touched_pct:.1f}%（口径陷阱，不作门禁）")
     print(f"  整体口径（全 lib，保守下界）：{lh}/{denom} = {overall:.1f}%（门槛 {THRESHOLD:.0f}%）")
 
-    if untouched:
-        print(f"  ⚠️  零触达文件 {len(untouched)} 个（供补测跟踪）：")
-        for f in untouched:
+    if code_untouched:
+        print(f"  ⚠️  零触达代码文件 {len(code_untouched)} 个（供补测跟踪）：")
+        for f in code_untouched:
             print(f"     - {f}")
 
     errors = 0

@@ -72,6 +72,8 @@ void main() {
       ));
 
   test('未配置 manifest 地址 → ValidationFailure', () async {
+    // 契约默认自带内置 manifest 地址；显式清空才能触发「未配置」分支。
+    await PrefsManager.instance.set('remote_default_manifest_url', '');
     final Result<RemoteManifest> r = await repoWith(okServer()).fetchManifest();
     expect(r.isSuccess, isFalse);
     expect(r.failureOrNull, isA<ValidationFailure>());

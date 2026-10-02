@@ -13,6 +13,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../pages/pages.dart';
 import '../phone/remote_source_page.dart';
 import '../ui_mode/ui_mode.dart';
 import '../widgets/adaptive/adaptive.dart';
@@ -61,6 +62,11 @@ class _HomeShellPageState extends State<HomeShellPage> {
   /// 导航项单源（图标 + 标签，全端共用）。
   static const List<VboxNavItem> _destinations = <VboxNavItem>[
     VboxNavItem(
+      icon: Icons.home_outlined,
+      selectedIcon: Icons.home,
+      label: '首页',
+    ),
+    VboxNavItem(
       icon: Icons.bookmark_outline,
       selectedIcon: Icons.bookmark,
       label: '书架',
@@ -80,9 +86,10 @@ class _HomeShellPageState extends State<HomeShellPage> {
 
   /// 内容区（全端共用）。
   Widget _content() => switch (_index) {
-        0 => const ShelfView(),
-        1 => const RemoteSourcePage(),
-        2 => const LogViewerPage(),
+        0 => const VboxHomePage(),
+        1 => const ShelfView(),
+        2 => const RemoteSourcePage(),
+        3 => const LogViewerPage(),
         _ => const BackupPage(),
       };
 

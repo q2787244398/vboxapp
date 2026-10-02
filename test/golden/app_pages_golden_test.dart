@@ -43,6 +43,12 @@ Widget _app({UiFormOverride override = UiFormOverride.portrait}) {
       Provider<RemoteSourceUseCases>.value(
         value: RemoteSourceUseCases(InMemoryRemoteSourceRepository()),
       ),
+      Provider<ContentBrowseUseCases>.value(
+        value: buildContentBrowseUseCases(),
+      ),
+      Provider<SearchHistoryUseCases>.value(
+        value: SearchHistoryUseCases(InMemorySearchHistoryRepository()),
+      ),
     ],
     child: const MaterialApp(debugShowCheckedModeBanner: false, home: HomeShellPage()),
   );

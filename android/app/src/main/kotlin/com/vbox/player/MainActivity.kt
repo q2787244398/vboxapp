@@ -20,5 +20,12 @@ class MainActivity : FlutterActivity() {
         PlayerPlugin.registerWith(flutterEngine)
         // G-02-C：注册系统信息平台通道（UiMode 三重判定）
         SystemPlugin.registerWith(flutterEngine)
+        // C-10：注册 Go 代理平台通道（经 engine.plugins.add 走 FlutterPlugin 生命周期；
+        // 遗漏核查修复——C-10 交付插件文件但未在 MainActivity 接线）
+        GoProxyPlugin.registerWith(flutterEngine)
+        // C-05：注册系统画中画平台通道（ActivityAware，需 plugins.add 挂 Activity 生命周期）
+        flutterEngine.plugins.add(PipPlugin())
+        // C-05：注册后台播放平台通道（启动/停止前台媒体服务）
+        BackgroundPlayPlugin.registerWith(flutterEngine)
     }
 }

@@ -1,0 +1,187 @@
+/// 表现层 widget 测试：搜索页（批次 D · D-02）。
+///
+/// 注入假 [ContentBrowseUseCases] + 内存 [SearchHistoryUseCases]，形态以
+/// [UiFormController] 强制；无 IO、无原生依赖。
+library;
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:vbox/core/utils/result.dart';
+import 'package:vbox/domain/entities/remote_source/remote_source.dart';
+import 'package:vbox/domain/entities/spider/spider.dart';
+import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/presentation/pages/search/search_page.dart';
+import 'package:vbox/presentation/ui_mode/ui_mode_resolver.dart';
+
+import '../../../support/fakes.dart';
+
+/// 假内容浏览用例：返回注入的站点 / 榜单 / 搜索结果，并记录搜索关键词。
+class _FakeContentBrowseUseCases extends ContentBrowseUseCases {
+  _FakeContentBrowseUseCases({
+    this.sites = const <SiteConfig>[],
+    this.home = const <VodItem>[],
+    this.results,
+  }) : super(
+          loadAllSources: () async =>
+              const Success<AllSourcesContainer>(AllSourcesContainer()),
+        );
+
+  final List<SiteConfig> sites;
+  final List<VodItem> home;
+  final List<VodItem> Function(String keyword)? results;
+  final List<String> searched = <String>[];
+
+  @override
+  Future<Result<List<SiteConfig>>> listSites() async =>
+      Success<List<SiteConfig>>(sites);
+
+  @override
+  Future<Result<HomeContentResult>> homeContent(String siteKey) async =>
+      Success<HomeContentResult>(HomeContentResult(list: home));
+
+  @override
+  Future<Result<SearchContentResult>> searchContent(
+    String siteKey,
+    String keyword, {
+    int page = 1,
+  }) async {
+    searched.add(keyword);
+    return Success<SearchContentResult>(
+      SearchContentResult(page: page, list: results?.call(keyword)),
+    );
+  }
+}
+
+SiteConfig site(String key, String name) =>
+    SiteConfig(key: key, name: name, type: 0, api: 'https://$key.example.com');
+
+VodItem vod(String id, String name) =>
+    VodItem(vodId: id, vodName: name, vodPic: '');
+
+Widget _app(
+  _FakeContentBrowseUseCases uc,
+  SearchHistoryUseCases history, {
+  UiFormOverride override = UiFormOverride.portrait,
+}) {
+  return MultiProvider(
+    providers: [
+      ChangeNotifierProvider<UiFormController>.value(
+        value: UiFormController(
+          env: UiFormEnv(override: override, hasTouch: true),
+        ),
+      ),
+      Provider<ContentBrowseUseCases>.value(value: uc),
+      Provider<SearchHistoryUseCases>.value(value: history),
+    ],
+    child: const MaterialApp(home: SearchPage()),
+  );
+}
+
+void main() {
+  testWidgets('空态：搜索历史 + 榜单渲染', (WidgetTester tester) async {
+    final _FakeContentBrowseUseCases uc = _FakeContentBrowseUseCases(
+      sites: <SiteConfig>[site('s1', '站点1')],
+      home: <VodItem>[vod('1', '热片A'), vod('2', '热片B')],
+    );
+    final SearchHistoryUseCases history =
+        SearchHistoryUseCases(InMemorySearchHistoryRepository(<String>['流浪地球', '三体']));
+
+    await tester.pumpWidget(_app(uc, history));
+    await tester.pumpAndSettle();
+
+    expect(find.text('搜索历史'), findsOneWidget);
+    expect(find.text('榜单'), findsOneWidget);
+    expect(find.text('流浪地球'), findsOneWidget);
+    expect(find.text('三体'), findsOneWidget);
+    expect(find.text('热片A'), findsOneWidget);
+    expect(find.text('热片B'), findsOneWidget);
+  });
+
+  testWidgets('提交搜索：进入结果态显示结果卡', (WidgetTester tester) async {
+    final _FakeContentBrowseUseCases uc = _FakeContentBrowseUseCases(
+      sites: <SiteConfig>[site('s1', '站点1')],
+      results: (String kw) => <VodItem>[vod('r1', '搜索结果片')],
+    );
+    final SearchHistoryUseCases history =
+        SearchHistoryUseCases(InMemorySearchHistoryRepository());
+
+    await tester.pumpWidget(_app(uc, history));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '关键词');
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pumpAndSettle();
+
+    expect(uc.searched, <String>['关键词']);
+    expect(find.text('搜索结果片'), findsOneWidget);
+    expect(find.text('取消'), findsOneWidget);
+  });
+
+  testWidgets('清空历史：历史胶囊消失', (WidgetTester tester) async {
+    final _FakeContentBrowseUseCases uc = _FakeContentBrowseUseCases(
+      sites: <SiteConfig>[site('s1', '站点1')],
+    );
+    final InMemorySearchHistoryRepository repo =
+        InMemorySearchHistoryRepository(<String>['流浪地球']);
+
+    await tester.pumpWidget(_app(uc, SearchHistoryUseCases(repo)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('流浪地球'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.delete_outline));
+    await tester.pumpAndSettle();
+
+    expect(find.text('流浪地球'), findsNothing);
+    expect(repo.length, 0);
+  });
+
+  testWidgets('结果态切换源（竖屏 chips）：同关键词重搜', (WidgetTester tester) async {
+    final _FakeContentBrowseUseCases uc = _FakeContentBrowseUseCases(
+      sites: <SiteConfig>[site('s1', '站点1'), site('s2', '站点2')],
+      results: (String kw) => <VodItem>[vod('r1', '结果$kw')],
+    );
+    final SearchHistoryUseCases history =
+        SearchHistoryUseCases(InMemorySearchHistoryRepository());
+
+    await tester.pumpWidget(_app(uc, history));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '关键词');
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pumpAndSettle();
+    expect(uc.searched, <String>['关键词']);
+
+    await tester.tap(find.text('站点2'));
+    await tester.pumpAndSettle();
+
+    expect(uc.searched, <String>['关键词', '关键词']);
+    expect(find.text('结果关键词'), findsOneWidget);
+  });
+
+  testWidgets('横屏结果态：左源列表 + 结果卡', (WidgetTester tester) async {
+    final _FakeContentBrowseUseCases uc = _FakeContentBrowseUseCases(
+      sites: <SiteConfig>[site('s1', '站点1'), site('s2', '站点2')],
+      results: (String kw) => <VodItem>[vod('r1', '结果片')],
+    );
+    final SearchHistoryUseCases history =
+        SearchHistoryUseCases(InMemorySearchHistoryRepository());
+
+    await tester.pumpWidget(_app(
+      uc,
+      history,
+      override: UiFormOverride.landscape,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '关键词');
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(VerticalDivider), findsOneWidget);
+    expect(find.text('站点1'), findsOneWidget);
+    expect(find.text('站点2'), findsOneWidget);
+    expect(find.text('结果片'), findsOneWidget);
+  });
+}

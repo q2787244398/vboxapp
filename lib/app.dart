@@ -57,6 +57,8 @@ class _VBoxAppState extends State<VBoxApp> {
   late final SubscriptionUseCases _subscriptionUseCases;
   late final RemoteSourceUseCases _remoteSourceUseCases;
   late final DetailPlaybackUseCases _detailPlaybackUseCases;
+  late final ContentBrowseUseCases _contentBrowseUseCases;
+  late final SearchHistoryUseCases _searchHistoryUseCases;
   late final AllSourcesDatasource _allSourcesDatasource;
   late final CmsV10Datasource _cmsDatasource;
 
@@ -136,6 +138,7 @@ class _VBoxAppState extends State<VBoxApp> {
       final ConnectivityNetworkInfo networkInfo = ConnectivityNetworkInfo();
       _favoriteUseCases = FavoriteUseCases(FavoriteRepositoryImpl());
       _historyUseCases = HistoryUseCases(HistoryRepositoryImpl());
+      _searchHistoryUseCases = SearchHistoryUseCases(SearchHistoryRepositoryImpl());
       _subscriptionUseCases = SubscriptionUseCases(SubscriptionRepositoryImpl());
       _remoteSourceUseCases = RemoteSourceUseCases(
         RemoteSourceRepositoryImpl(
@@ -149,6 +152,10 @@ class _VBoxAppState extends State<VBoxApp> {
       _cmsDatasource =
           CmsV10Datasource(client: HttpClient(networkInfo: networkInfo));
       _detailPlaybackUseCases = DetailPlaybackUseCases(
+        loadAllSources: _loadAllSources,
+        cmsDatasource: _cmsDatasource,
+      );
+      _contentBrowseUseCases = ContentBrowseUseCases(
         loadAllSources: _loadAllSources,
         cmsDatasource: _cmsDatasource,
       );
@@ -200,6 +207,8 @@ class _VBoxAppState extends State<VBoxApp> {
         Provider<SubscriptionUseCases>.value(value: _subscriptionUseCases),
         Provider<RemoteSourceUseCases>.value(value: _remoteSourceUseCases),
         Provider<DetailPlaybackUseCases>.value(value: _detailPlaybackUseCases),
+        Provider<ContentBrowseUseCases>.value(value: _contentBrowseUseCases),
+        Provider<SearchHistoryUseCases>.value(value: _searchHistoryUseCases),
       ],
       child: const _RootRouter(),
     );

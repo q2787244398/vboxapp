@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/platform/player/channel_player.dart';
+import 'package:vbox/platform/player/playback_route.dart';
 import 'package:vbox/platform/player/player_channel_bridge.dart';
 import 'package:vbox/platform/player/player_controller.dart';
 
@@ -54,7 +55,7 @@ void main() {
           PlayerBackend.media3,
           PlayerBackend.libVLC,
         ],
-        selectInitialBackend: (PlayerSource source) =>
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) =>
             PlayerBackendSelector.needsFallback(source.url)
                 ? PlayerBackend.libVLC
                 : PlayerBackend.media3,
@@ -76,7 +77,7 @@ void main() {
           PlayerBackend.media3,
           PlayerBackend.libVLC,
         ],
-        selectInitialBackend: (PlayerSource source) =>
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) =>
             PlayerBackendSelector.needsFallback(source.url)
                 ? PlayerBackend.libVLC
                 : PlayerBackend.media3,
@@ -98,7 +99,7 @@ void main() {
           PlayerBackend.media3,
           PlayerBackend.libVLC,
         ],
-        selectInitialBackend: (PlayerSource source) =>
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) =>
             PlayerBackendSelector.needsFallback(source.url)
                 ? PlayerBackend.libVLC
                 : PlayerBackend.media3,
@@ -115,7 +116,7 @@ void main() {
       final PlayerController ctrl = PlayerController(
         bridge: bridge,
         backendChain: const <PlayerBackend>[PlayerBackend.media3],
-        selectInitialBackend: (PlayerSource source) => PlayerBackend.media3,
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) => PlayerBackend.media3,
       );
       final List<PlayerState> states = <PlayerState>[];
       ctrl.onStateChanged = states.add;
@@ -133,7 +134,7 @@ void main() {
       final PlayerController ctrl = PlayerController(
         bridge: bridge,
         backendChain: const <PlayerBackend>[PlayerBackend.media3],
-        selectInitialBackend: (PlayerSource source) => PlayerBackend.media3,
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) => PlayerBackend.media3,
       );
       await ctrl.open(const PlayerSource(url: 'https://x/a.mp4'));
       await ctrl.togglePlay(); // state=opening → play
@@ -150,7 +151,7 @@ void main() {
       final PlayerController ctrl = PlayerController(
         bridge: bridge,
         backendChain: const <PlayerBackend>[PlayerBackend.media3],
-        selectInitialBackend: (PlayerSource source) => PlayerBackend.media3,
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) => PlayerBackend.media3,
       );
       await ctrl.play();
       await ctrl.pause();
@@ -171,7 +172,7 @@ void main() {
           PlayerBackend.media3,
           PlayerBackend.libVLC,
         ],
-        selectInitialBackend: (PlayerSource source) => PlayerBackend.media3,
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) => PlayerBackend.media3,
       );
       final List<String> errors = <String>[];
       ctrl.onError = (String message, {required bool fatal}) {
@@ -188,7 +189,7 @@ void main() {
       final PlayerController ctrl = PlayerController(
         bridge: bridge,
         backendChain: const <PlayerBackend>[PlayerBackend.media3],
-        selectInitialBackend: (PlayerSource source) => PlayerBackend.media3,
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) => PlayerBackend.media3,
       );
       await ctrl.open(const PlayerSource(url: 'https://x/a.mp4'));
       String? message;
@@ -201,6 +202,76 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(message, '解码失败');
       expect(wasFatal, true);
+      await ctrl.dispose();
+    });
+  });
+
+  group('C-01 路由 + C-06 降级可观测', () {
+    test('open 解析路由：mp4 → detail，route 对外可见', () async {
+      final _FakeBridge bridge = _FakeBridge();
+      final PlayerController ctrl = PlayerController(
+        bridge: bridge,
+        backendChain: const <PlayerBackend>[PlayerBackend.media3],
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) => PlayerBackend.media3,
+      );
+      expect(ctrl.route, isNull);
+      await ctrl.open(const PlayerSource(url: 'https://x/a.mp4'));
+      expect(ctrl.route, PlaybackRoute.detail);
+      await ctrl.dispose();
+      expect(ctrl.route, isNull);
+    });
+
+    test('直播 FLV → 路由 live', () async {
+      final _FakeBridge bridge = _FakeBridge();
+      final PlayerController ctrl = PlayerController(
+        bridge: bridge,
+        backendChain: const <PlayerBackend>[PlayerBackend.media3],
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) => PlayerBackend.media3,
+      );
+      await ctrl.open(const PlayerSource(url: 'https://x/stream.flv', isLive: true));
+      expect(ctrl.route, PlaybackRoute.live);
+      await ctrl.dispose();
+    });
+
+    test('后端回退 → onBackendFallback（from/to/reason）', () async {
+      final _FakeBridge bridge = _FakeBridge(failBackends: <String>{'media3'});
+      final PlayerController ctrl = PlayerController(
+        bridge: bridge,
+        backendChain: const <PlayerBackend>[
+          PlayerBackend.media3,
+          PlayerBackend.libVLC,
+        ],
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) => PlayerBackend.media3,
+      );
+      final List<(PlayerBackend, PlayerBackend, String)> falls = <(PlayerBackend, PlayerBackend, String)>[];
+      ctrl.onBackendFallback = (PlayerBackend from, PlayerBackend to, String reason) {
+        falls.add((from, to, reason));
+      };
+      await ctrl.open(const PlayerSource(url: 'https://x/a.mp4'));
+      expect(falls, hasLength(1));
+      expect(falls.single.$1, PlayerBackend.media3);
+      expect(falls.single.$2, PlayerBackend.libVLC);
+      expect(falls.single.$3, contains('media3'));
+      expect(ctrl.backend, PlayerBackend.libVLC);
+      await ctrl.dispose();
+    });
+
+    test('全部后端失败 → 抛 E_NO_BACKEND 且 route 清空', () async {
+      final _FakeBridge bridge =
+          _FakeBridge(failBackends: <String>{'media3', 'libVLC'});
+      final PlayerController ctrl = PlayerController(
+        bridge: bridge,
+        backendChain: const <PlayerBackend>[
+          PlayerBackend.media3,
+          PlayerBackend.libVLC,
+        ],
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) => PlayerBackend.media3,
+      );
+      await expectLater(
+        ctrl.open(const PlayerSource(url: 'https://x/a.mp4')),
+        throwsA(isA<PlayerOpenException>()),
+      );
+      expect(ctrl.route, isNull);
       await ctrl.dispose();
     });
   });

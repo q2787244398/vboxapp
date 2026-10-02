@@ -16,6 +16,7 @@ import 'package:vbox/domain/entities/playback/playback.dart';
 import 'package:vbox/domain/entities/remote_source/remote_source.dart';
 import 'package:vbox/domain/entities/spider/spider.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/platform/player/playback_route.dart';
 import 'package:vbox/platform/player/player_channel_bridge.dart';
 import 'package:vbox/platform/player/player_controller.dart';
 import 'package:vbox/presentation/widgets/detail_page.dart';
@@ -71,7 +72,7 @@ class _FakePlayerController extends PlayerController {
       : super(
           bridge: _NoopBridge(),
           backendChain: const <PlayerBackend>[PlayerBackend.media3],
-          selectInitialBackend: (_) => PlayerBackend.media3,
+          selectInitialBackend: (_, PlaybackRoute route) => PlayerBackend.media3,
         );
 
   final List<String> calls = <String>[];

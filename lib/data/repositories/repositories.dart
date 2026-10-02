@@ -7,4 +7,5 @@ library;
 export 'favorite_repository_impl.dart';
 export 'history_repository_impl.dart';
 export 'remote_source_repository_impl.dart';
+export 'search_history_repository_impl.dart';
 export 'subscription_repository_impl.dart';

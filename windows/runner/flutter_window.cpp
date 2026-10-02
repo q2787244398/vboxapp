@@ -2,7 +2,10 @@
 
 #include <optional>
 
+#include <flutter/plugin_registrar_windows.h>
+
 #include "flutter/generated_plugin_registrant.h"
+#include "player_plugin.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -25,6 +28,16 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  // 批次 C · C-11：Windows 播放器插件（libmpv 主后端）手动注册
+  // （非插件工程无 generated registrant，与 macOS MainFlutterWindow 的
+  //  PlayerPlugin.register 同模式）。
+  // 注：GetRegistrar 参数为 FlutterDesktopPluginRegistrarRef（指针），
+  // 需先经 engine()->GetRegistrarForPlugin 取 registrar，而非传插件名。
+  vbox::PlayerPlugin::RegisterWithRegistrar(
+      flutter::PluginRegistrarManager::GetInstance()
+          ->GetRegistrar<flutter::PluginRegistrarWindows>(
+              flutter_controller_->engine()->GetRegistrarForPlugin(
+                  "PlayerPlugin")));
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {

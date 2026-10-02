@@ -3,9 +3,12 @@ library;
 
 import 'package:vbox/core/errors/failures.dart';
 import 'package:vbox/core/utils/result.dart';
+import 'package:vbox/data/datasources/remote/cms_v10_datasource.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/entities/remote_source/remote_source.dart';
 import 'package:vbox/domain/repositories/repositories.dart';
+import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/platform/spider/spider_engine_factory.dart';
 
 /// 内存收藏仓储。
 class InMemoryFavoriteRepository implements FavoriteRepository {
@@ -181,6 +184,57 @@ class InMemoryHistoryRepository implements HistoryRepository {
   Future<Result<int>> count() async => Success<int>(_items.length);
 }
 
+/// 内存搜索历史仓储。
+class InMemorySearchHistoryRepository implements SearchHistoryRepository {
+  /// 构造（可注入初值，按时间倒序传入）。
+  InMemorySearchHistoryRepository([List<String>? seed])
+      : _words = <String>[...?seed];
+
+  final List<String> _words;
+  int _seq = 5000;
+
+  /// 模拟故障。
+  Failure? failWith;
+
+  /// 当前条目数。
+  int get length => _words.length;
+
+  @override
+  Future<Result<List<String>>> recent({int limit = 20}) async {
+    final Failure? f = failWith;
+    if (f != null) return Err<List<String>>(f);
+    final List<String> seen = <String>[];
+    final List<String> out = <String>[];
+    // 遍历顺序即时间倒序（最新在前）
+    for (final String w in _words.reversed) {
+      final String kw = w.trim();
+      if (kw.isEmpty || seen.contains(kw)) continue;
+      seen.add(kw);
+      out.add(kw);
+    }
+    final int n = out.length > limit ? limit : out.length;
+    return Success<List<String>>(out.sublist(0, n));
+  }
+
+  @override
+  Future<Result<int>> add(String keyword) async {
+    final Failure? f = failWith;
+    if (f != null) return Err<int>(f);
+    _seq++;
+    _words.add(keyword.trim());
+    return Success<int>(_seq);
+  }
+
+  @override
+  Future<Result<int>> clear() async {
+    final Failure? f = failWith;
+    if (f != null) return Err<int>(f);
+    final int n = _words.length;
+    _words.clear();
+    return Success<int>(n);
+  }
+}
+
 /// 内存订阅仓储。
 class InMemorySubscriptionRepository implements SubscriptionRepository {
   /// 构造。
@@ -333,3 +387,36 @@ RemoteManifest buildManifest({
             },
       if (meta != null) '_meta': meta,
     });
+
+/// 构造站点聚合（`apiSources.sites`）。
+AllSourcesContainer buildSources(List<Map<String, Object?>> sites) =>
+    AllSourcesContainer(
+      apiSources: <String, Object?>{'sites': sites},
+    );
+
+/// 单站点 JSON（缺省 key，可覆盖）。
+Map<String, Object?> siteJson({
+  required String key,
+  required int type,
+  String? api,
+  String? name,
+}) =>
+    <String, Object?>{
+      'key': key,
+      'name': name ?? key,
+      'type': type,
+      if (api != null) 'api': api,
+    };
+
+/// 构造内容浏览用例（可注入站点 + CMS 数据源 + 引擎工厂）。
+ContentBrowseUseCases buildContentBrowseUseCases({
+  List<Map<String, Object?>> sites = const <Map<String, Object?>>[],
+  CmsV10Datasource? cmsDatasource,
+  SpiderEngineFactory engineFactory = const SpiderEngineFactory(),
+}) =>
+    ContentBrowseUseCases(
+      loadAllSources: () async =>
+          Success<AllSourcesContainer>(buildSources(sites)),
+      cmsDatasource: cmsDatasource,
+      engineFactory: engineFactory,
+    );

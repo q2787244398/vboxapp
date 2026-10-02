@@ -47,6 +47,9 @@ Widget _shell({
       Provider<RemoteSourceUseCases>.value(
         value: RemoteSourceUseCases(InMemoryRemoteSourceRepository()),
       ),
+      Provider<ContentBrowseUseCases>.value(
+        value: buildContentBrowseUseCases(),
+      ),
     ],
     child: const MaterialApp(home: HomeShellPage()),
   );
@@ -54,18 +57,29 @@ Widget _shell({
 
 void main() {
   group('竖屏排布（底部胶囊 TabBar）', () {
-    testWidgets('默认书架：底栏 + 收藏/历史 Tab + 空态', (WidgetTester tester) async {
+    testWidgets('默认首页：底栏 + 五导航项 + 空态', (WidgetTester tester) async {
       await tester.pumpWidget(_shell());
       await tester.pumpAndSettle();
 
       expect(find.byType(NavigationBar), findsOneWidget);
       expect(find.byType(NavigationRail), findsNothing);
-      // 导航项单源（4 项）
+      // 导航项单源（5 项）；「首页」同时出现在底栏标签与首页 AppBar 标题
+      expect(find.text('首页'), findsNWidgets(2));
       expect(find.text('书架'), findsOneWidget);
       expect(find.text('远程源'), findsOneWidget);
       expect(find.text('日志'), findsOneWidget);
       expect(find.text('备份'), findsOneWidget);
-      // 书架内容（全端共用）
+      // 首页内容（无站点 → 空态兜底）
+      expect(find.textContaining('无可用站点'), findsOneWidget);
+    });
+
+    testWidgets('切到书架：收藏/历史 Tab + 空态', (WidgetTester tester) async {
+      await tester.pumpWidget(_shell());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('书架'));
+      await tester.pumpAndSettle();
+
       expect(find.text('vbox 书架'), findsOneWidget);
       expect(find.text('收藏'), findsOneWidget);
       expect(find.text('历史'), findsOneWidget);
@@ -76,6 +90,8 @@ void main() {
       await tester.pumpWidget(_shell());
       await tester.pumpAndSettle();
 
+      await tester.tap(find.text('书架'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('历史'));
       await tester.pumpAndSettle();
 
@@ -84,15 +100,15 @@ void main() {
   });
 
   group('横屏排布（左侧 NavigationRail）', () {
-    testWidgets('默认书架：侧栏 + 标签可见', (WidgetTester tester) async {
+    testWidgets('默认首页：侧栏 + 标签可见', (WidgetTester tester) async {
       await tester.pumpWidget(_shell(override: UiFormOverride.landscape));
       await tester.pumpAndSettle();
 
       expect(find.byType(NavigationRail), findsOneWidget);
       expect(find.byType(NavigationBar), findsNothing);
+      expect(find.text('首页'), findsNWidgets(2));
       expect(find.text('书架'), findsOneWidget);
-      expect(find.text('vbox 书架'), findsOneWidget);
-      expect(find.textContaining('暂无收藏'), findsOneWidget);
+      expect(find.textContaining('无可用站点'), findsOneWidget);
     });
 
     testWidgets('切到远程源：页标题 + 侧栏标签并存', (WidgetTester tester) async {
@@ -161,6 +177,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.text('书架'));
+      await tester.pumpAndSettle();
 
       expect(find.text('测试影片'), findsOneWidget);
       expect(find.textContaining('demo'), findsOneWidget);
@@ -180,6 +198,8 @@ void main() {
           ],
         ),
       );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('书架'));
       await tester.pumpAndSettle();
       expect(find.text('待删除影片'), findsOneWidget);
 
@@ -207,6 +227,8 @@ void main() {
           ],
         ),
       );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('书架'));
       await tester.pumpAndSettle();
       expect(find.text('片一'), findsOneWidget);
 
@@ -237,6 +259,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.tap(find.text('书架'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('历史'));
       await tester.pumpAndSettle();
 

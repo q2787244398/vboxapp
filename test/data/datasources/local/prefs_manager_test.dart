@@ -126,7 +126,8 @@ void main() {
     });
 
     test('两处皆空 → 回退契约默认值', () async {
-      expect(await pm.get('one_platform_uuid'), isNull);
+      // 契约 default：one_platform_uuid = ""（string 默认空串）
+      expect(await pm.get('one_platform_uuid'), '');
     });
   });
 

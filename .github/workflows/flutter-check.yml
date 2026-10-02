@@ -204,3 +204,10 @@ jobs:
       - name: Bundle JSC dll (Q-03)
         shell: pwsh
         run: .\scripts\bundle-jsc-windows.ps1 -Config Debug
+
+      # 批次 C · C-11：libmpv 运行时随 debug 目录分发（fetch + sha256 校验 +
+      # 改名 mpv-2.dll + 拷贝）——运行链 = player_plugin.cpp LoadLibraryW("mpv-2.dll")
+      # 的前置（D28 随包分发；加载失败上报 E_BACKEND_UNAVAILABLE 由 Dart 侧处理）
+      - name: Bundle libmpv dll (C-11)
+        shell: pwsh
+        run: .\scripts\bundle-libmpv-windows.ps1 -Config Debug

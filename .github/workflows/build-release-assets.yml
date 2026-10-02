@@ -144,10 +144,11 @@ jobs:
       - name: Build Windows release
         run: flutter build windows --release
 
-      - name: Bundle libmpv dll into release dir
-        shell: bash
-        run: |
-          cp .mpv-cache/libmpv-windows-*.dll build/windows/x64/runner/Release/
+      # 批次 C · C-11：libmpv 运行时随 release 目录分发（fetch 复用 .mpv-cache 缓存 +
+      # sha256 校验 + 改名 mpv-2.dll + 拷入 runner/Release/，与 bundle-jsc-windows.ps1 同模式）
+      - name: Bundle libmpv dll into release dir (C-11)
+        shell: pwsh
+        run: .\scripts\bundle-libmpv-windows.ps1 -Config Release
 
       # 批次 Q · Q-03：JSC 引擎随 release 目录分发（fetch + MSVC 构建 + 拷贝 + 冒烟）
       - name: Setup MSVC
