@@ -67,6 +67,11 @@ class _HomeShellPageState extends State<HomeShellPage> {
       label: '首页',
     ),
     VboxNavItem(
+      icon: Icons.smart_display_outlined,
+      selectedIcon: Icons.smart_display,
+      label: '短剧',
+    ),
+    VboxNavItem(
       icon: Icons.bookmark_outline,
       selectedIcon: Icons.bookmark,
       label: '书架',
@@ -87,9 +92,10 @@ class _HomeShellPageState extends State<HomeShellPage> {
   /// 内容区（全端共用）。
   Widget _content() => switch (_index) {
         0 => const VboxHomePage(),
-        1 => const ShelfView(),
-        2 => const RemoteSourcePage(),
-        3 => const LogViewerPage(),
+        1 => const ShortDramaPage(),
+        2 => const ShelfView(),
+        3 => const RemoteSourcePage(),
+        4 => const LogViewerPage(),
         _ => const BackupPage(),
       };
 

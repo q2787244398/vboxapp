@@ -8,3 +8,4 @@ export 'douban/douban_ranking_page.dart';
 export 'home/home_page.dart';
 export 'home/source_sheet.dart';
 export 'search/search_page.dart';
+export 'short_drama/short_drama_page.dart';

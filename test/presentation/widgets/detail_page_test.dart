@@ -191,7 +191,7 @@ void main() {
     expect(find.text('线路2'), findsOneWidget);
     expect(find.text('第1集'), findsOneWidget);
     expect(find.text('第2集'), findsOneWidget);
-    expect(find.text('播放'), findsOneWidget);
+    expect(find.text('立即播放'), findsOneWidget);
   });
 
   testWidgets('线路切换：仅显示该线路剧集', (WidgetTester tester) async {
@@ -222,7 +222,7 @@ void main() {
 
     expect(
       find.descendant(
-        of: find.widgetWithText(ActionChip, '第2集'),
+        of: find.byType(GridView),
         matching: find.byIcon(Icons.play_arrow),
       ),
       findsOneWidget,
@@ -236,7 +236,7 @@ void main() {
     await tester.pumpWidget(_app(uc));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('播放'));
+    await tester.tap(find.text('立即播放'));
     await tester.pumpAndSettle();
 
     expect(player.calls, <String>['open', 'play']);
@@ -253,7 +253,7 @@ void main() {
     await tester.pumpWidget(_app(uc));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('播放'));
+    await tester.tap(find.text('立即播放'));
     await tester.pumpAndSettle();
 
     expect(player.calls, isEmpty);
@@ -268,7 +268,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('暂无剧集'), findsOneWidget);
-    await tester.tap(find.text('播放'));
+    await tester.tap(find.text('立即播放'));
     await tester.pumpAndSettle();
     expect(player.calls, isEmpty);
   });

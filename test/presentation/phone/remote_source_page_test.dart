@@ -7,16 +7,47 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:vbox/core/utils/result.dart';
 import 'package:vbox/core/utils/time_utils.dart';
 import 'package:vbox/domain/entities/library/library.dart';
+import 'package:vbox/domain/entities/remote_source/remote_source.dart';
+import 'package:vbox/domain/entities/spider/spider.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
 import 'package:vbox/presentation/phone/remote_source_page.dart';
+import 'package:vbox/presentation/ui_mode/ui_mode_resolver.dart';
 
 import '../../support/fakes.dart';
+
+/// 假内容浏览用例：源发现页数据（站点 / 推荐 / 分类内容）。
+class _FakeContentBrowseUseCases extends ContentBrowseUseCases {
+  _FakeContentBrowseUseCases({
+    this.sites = const <SiteConfig>[],
+    this.classes = const <VodCategory>[],
+    this.recommended = const <VodItem>[],
+  }) : super(
+          loadAllSources: () async =>
+              const Success<AllSourcesContainer>(AllSourcesContainer()),
+        );
+
+  final List<SiteConfig> sites;
+  final List<VodCategory> classes;
+  final List<VodItem> recommended;
+
+  @override
+  Future<Result<List<SiteConfig>>> listSites() async =>
+      Success<List<SiteConfig>>(sites);
+
+  @override
+  Future<Result<HomeContentResult>> homeContent(String siteKey) async =>
+      Success<HomeContentResult>(
+        HomeContentResult(classes: classes, list: recommended),
+      );
+}
 
 Widget _page({
   List<SubscriptionItem> subs = const <SubscriptionItem>[],
   InMemoryRemoteSourceRepository? remote,
+  ContentBrowseUseCases? browse,
 }) {
   return MultiProvider(
     providers: [
@@ -27,6 +58,14 @@ Widget _page({
         value: RemoteSourceUseCases(
           remote ?? InMemoryRemoteSourceRepository(),
         ),
+      ),
+      ChangeNotifierProvider<UiFormController>.value(
+        value: UiFormController(
+          env: UiFormEnv(override: UiFormOverride.portrait, hasTouch: true),
+        ),
+      ),
+      Provider<ContentBrowseUseCases>.value(
+        value: browse ?? buildContentBrowseUseCases(),
       ),
     ],
     child: const MaterialApp(home: RemoteSourcePage()),
@@ -174,5 +213,48 @@ void main() {
 
     expect(find.textContaining('上次同步'), findsOneWidget);
     expect(find.textContaining('刚刚'), findsOneWidget);
+  });
+
+  group('源发现标签', () {
+    testWidgets('切到源发现：源栏 + 推荐 + 分类 + 海报', (WidgetTester tester) async {
+      await tester.pumpWidget(_page(
+        browse: _FakeContentBrowseUseCases(
+          sites: <SiteConfig>[
+            SiteConfig(
+              key: 's1',
+              name: '站点1',
+              type: 0,
+              api: 'https://s1.example.com',
+            ),
+          ],
+          classes: <VodCategory>[VodCategory(typeId: '1', typeName: '电影')],
+          recommended: <VodItem>[
+            VodItem(vodId: '1', vodName: '推荐片', vodPic: ''),
+          ],
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('源发现'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('源'), findsOneWidget);
+      expect(find.text('站点1'), findsOneWidget);
+      expect(find.text('推荐'), findsOneWidget);
+      expect(find.text('电影'), findsOneWidget);
+      expect(find.text('推荐片'), findsOneWidget);
+      // 源发现标签下不显示「订阅」FAB
+      expect(find.text('订阅'), findsNothing);
+    });
+
+    testWidgets('源发现空态：无站点引导', (WidgetTester tester) async {
+      await tester.pumpWidget(_page(browse: _FakeContentBrowseUseCases()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('源发现'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('无可用站点'), findsOneWidget);
+    });
   });
 }

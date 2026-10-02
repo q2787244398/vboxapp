@@ -14,6 +14,7 @@ import '../../core/utils/time_utils.dart';
 import '../../domain/entities/library/library.dart';
 import '../../domain/entities/remote_source/remote_source.dart';
 import '../../domain/usecases/usecases.dart';
+import '../widgets/source_discovery_view.dart';
 
 /// 远程源页面。
 class RemoteSourcePage extends StatefulWidget {
@@ -24,7 +25,8 @@ class RemoteSourcePage extends StatefulWidget {
   State<RemoteSourcePage> createState() => _RemoteSourcePageState();
 }
 
-class _RemoteSourcePageState extends State<RemoteSourcePage> {
+class _RemoteSourcePageState extends State<RemoteSourcePage>
+    with SingleTickerProviderStateMixin {
   // 用例引用在 initState 缓存，避免跨 async gap 使用 context
   late final SubscriptionUseCases _subs;
   late final RemoteSourceUseCases _remote;
@@ -36,13 +38,34 @@ class _RemoteSourcePageState extends State<RemoteSourcePage> {
   RemoteLoadStatus _status = const RemoteLoadStatus.idle();
   bool _refreshing = false;
 
+  /// 顶部标签（订阅源 / 源发现）控制器。
+  late final TabController _tabController;
+  int _tabIndex = 0;
+
   @override
   void initState() {
     super.initState();
     _subs = context.read<SubscriptionUseCases>();
     _remote = context.read<RemoteSourceUseCases>();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_onTabChanged);
     _loadSubs();
     _loadStatus();
+  }
+
+  @override
+  void dispose() {
+    _tabController
+      ..removeListener(_onTabChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    final int index = _tabController.index;
+    if (index != _tabIndex) {
+      setState(() => _tabIndex = index);
+    }
   }
 
   Future<void> _loadSubs() async {
@@ -104,23 +127,42 @@ class _RemoteSourcePageState extends State<RemoteSourcePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('远程源')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _add,
-        icon: const Icon(Icons.add),
-        label: const Text('订阅'),
+      appBar: AppBar(
+        title: const Text('远程源'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const <Widget>[Tab(text: '订阅源'), Tab(text: '源发现')],
+        ),
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      floatingActionButton: _tabIndex == 0
+          ? FloatingActionButton.extended(
+              onPressed: _add,
+              icon: const Icon(Icons.add),
+              label: const Text('订阅'),
+            )
+          : null,
+      body: TabBarView(
+        controller: _tabController,
         children: <Widget>[
-          _ManifestCard(
-            status: _status,
-            refreshing: _refreshing,
-            onRefresh: _refresh,
-          ),
-          Expanded(child: _buildSubscriptions()),
+          _buildSubscriptionsTab(),
+          const SourceDiscoveryView(),
         ],
       ),
+    );
+  }
+
+  /// 订阅源标签：清单状态卡 + 订阅列表。
+  Widget _buildSubscriptionsTab() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _ManifestCard(
+          status: _status,
+          refreshing: _refreshing,
+          onRefresh: _refresh,
+        ),
+        Expanded(child: _buildSubscriptions()),
+      ],
     );
   }
 

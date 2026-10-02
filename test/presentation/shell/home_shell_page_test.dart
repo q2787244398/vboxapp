@@ -57,14 +57,15 @@ Widget _shell({
 
 void main() {
   group('竖屏排布（底部胶囊 TabBar）', () {
-    testWidgets('默认首页：底栏 + 五导航项 + 空态', (WidgetTester tester) async {
+    testWidgets('默认首页：底栏 + 六导航项 + 空态', (WidgetTester tester) async {
       await tester.pumpWidget(_shell());
       await tester.pumpAndSettle();
 
       expect(find.byType(NavigationBar), findsOneWidget);
       expect(find.byType(NavigationRail), findsNothing);
-      // 导航项单源（5 项）；「首页」同时出现在底栏标签与首页 AppBar 标题
+      // 导航项单源（6 项）；「首页」同时出现在底栏标签与首页 AppBar 标题
       expect(find.text('首页'), findsNWidgets(2));
+      expect(find.text('短剧'), findsOneWidget);
       expect(find.text('书架'), findsOneWidget);
       expect(find.text('远程源'), findsOneWidget);
       expect(find.text('日志'), findsOneWidget);

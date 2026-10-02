@@ -1,7 +1,15 @@
-/// 详情页：详情信息 + 线路/剧集选择 + 播放入口（收藏/历史条目接线目标）。
+/// 详情页：头图 + 元信息 + 线路/剧集宫格 + 播放入口（收藏/历史/短剧选集接线目标）。
 ///
-/// 数据通路：收藏/历史条目（siteKey + vodId + initialIndex）→ [DetailPlaybackUseCases]
-/// → 详情内容（PlaybackDetail）→ 单集 `playerContent` 解析 → [PlayerController] 播放。
+/// 对齐 iOS `VideoDetailView`（`vbox/Views/PlayerViews.swift`）：
+/// - 头图封面 + 元信息（备注 / 年份 / 地区 / 导演 / 主演）；
+/// - 剧情简介（超长可展开）；
+/// - 演职人员（导演 / 主演 chips 横滑）；
+/// - 线路 chips（`vod_play_from` 拆分）横滑切源；
+/// - 剧集宫格（自适应列数 + 折叠/展开）+ 单集点击选中；
+/// - 「立即播放」解析单集播放地址（`PlayerContent` → [PlayerController]）；
+/// - 「下载」弹出选集多选 sheet（含全选），确认后回补下载提示。
+///
+/// 数据通路：[DetailPlaybackUseCases].loadDetail / resolvePlayUrl。
 library;
 
 import 'package:flutter/material.dart';
@@ -14,6 +22,12 @@ import '../../domain/entities/playback/playback.dart';
 import '../../domain/entities/spider/spider_models.dart';
 import '../../domain/usecases/usecases.dart';
 import '../../platform/player/player_controller.dart';
+import '../theme/tokens/colors.dart';
+import '../theme/tokens/radii.dart';
+import '../theme/tokens/spacing.dart';
+import '../theme/tokens/typography.dart';
+import 'platform_async_image.dart';
+import 'vbox/vbox.dart';
 
 /// 详情页。
 class DetailPage extends StatefulWidget {
@@ -50,6 +64,8 @@ class _DetailPageState extends State<DetailPage> {
   bool _playing = false;
   int _fromIndex = 0;
   int _episodeIndex = 0;
+  bool _expanded = false;
+  bool _synopsisExpanded = false;
 
   @override
   void initState() {
@@ -100,8 +116,7 @@ class _DetailPageState extends State<DetailPage> {
     final PlaybackDetail? d = _detail;
     if (d == null) return const <PlaybackEpisode>[];
     if (d.froms.isEmpty) return d.episodes;
-    final String from =
-        d.froms[lineIndex.clamp(0, d.froms.length - 1)];
+    final String from = d.froms[lineIndex.clamp(0, d.froms.length - 1)];
     final List<PlaybackEpisode> out = d.episodes
         .where((PlaybackEpisode e) => e.from == from)
         .toList();
@@ -169,6 +184,27 @@ class _DetailPageState extends State<DetailPage> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  // ─────────────── 下载选择 ───────────────
+
+  Future<void> _showDownloadSheet() async {
+    final List<PlaybackEpisode> visible = _episodesForLine(_fromIndex);
+    if (visible.isEmpty) {
+      _toast('暂无剧集，无法下载');
+      return;
+    }
+    final List<int>? picked = await showModalBottomSheet<List<int>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (BuildContext context) => _DownloadSelectionSheet(
+        episodes: visible,
+      ),
+    );
+    if (!mounted || picked == null || picked.isEmpty) return;
+    // 下载通道（DownloadManager）尚未接线（批次 F），此处保留选集回填提示。
+    _toast('已选择 ${picked.length} 集待下载');
+  }
+
   // ─────────────── UI ───────────────
 
   @override
@@ -192,15 +228,19 @@ class _DetailPageState extends State<DetailPage> {
       return const Center(child: Text('详情为空'));
     }
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: VboxSpacing.page,
       children: <Widget>[
         _buildHeader(d),
-        const SizedBox(height: 16),
-        _buildLineSelector(d),
-        const SizedBox(height: 8),
+        const SizedBox(height: VboxSpacing.lg),
+        _buildSynopsis(d),
+        const SizedBox(height: VboxSpacing.lg),
+        _buildCast(d),
+        const SizedBox(height: VboxSpacing.lg),
+        _buildLineChips(d),
+        const SizedBox(height: VboxSpacing.lg),
         _buildEpisodes(d),
-        const SizedBox(height: 16),
-        _buildPlayButton(),
+        const SizedBox(height: VboxSpacing.xl),
+        _buildButtons(),
       ],
     );
   }
@@ -216,66 +256,53 @@ class _DetailPageState extends State<DetailPage> {
 
   Widget _buildHeader(PlaybackDetail d) {
     final VodItem vod = d.vod;
+    final ColorScheme scheme = Theme.of(context).colorScheme;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         ClipRRect(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: VboxRadii.button,
           child: SizedBox(
             width: 120,
-            height: 160,
-            child: vod.vodPic.isEmpty
-                ? Container(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    child: const Icon(Icons.movie_outlined, size: 48),
-                  )
-                : Image.network(
-                    vod.vodPic,
-                    fit: BoxFit.cover,
-                    errorBuilder:
-                        (BuildContext context, Object error, StackTrace? stack) =>
-                            Container(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                      child: const Icon(Icons.movie_outlined, size: 48),
-                    ),
-                  ),
+            height: 168,
+            child: PlatformAsyncImage(
+              url: vod.vodPic,
+              fit: BoxFit.cover,
+              placeholderColor: scheme.surfaceContainerHighest,
+            ),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: VboxSpacing.md),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
                 vod.vodName,
-                style: Theme.of(context).textTheme.titleMedium,
+                style: TextStyle(
+                  fontSize: VboxTypography.s18,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface,
+                ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 4),
-              Text(
-                [
-                  if (vod.vodYear?.isNotEmpty ?? false) vod.vodYear!,
-                  if (vod.vodArea?.isNotEmpty ?? false) vod.vodArea!,
-                  if (vod.vodRemarks?.isNotEmpty ?? false) vod.vodRemarks!,
-                ].join(' / '),
-                style: Theme.of(context).textTheme.bodySmall,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
+              const SizedBox(height: VboxSpacing.sm),
+              _metaLine(scheme, <String?>[
+                if (vod.vodRemarks?.isNotEmpty ?? false) vod.vodRemarks,
+              ], Icons.schedule),
+              const SizedBox(height: VboxSpacing.xs),
+              _metaLine(scheme, <String?>[
+                if (vod.vodYear?.isNotEmpty ?? false) vod.vodYear,
+                if (vod.vodArea?.isNotEmpty ?? false) vod.vodArea,
+              ], Icons.calendar_today_outlined),
               if ((vod.vodActor?.isNotEmpty ?? false) ||
                   (vod.vodDirector?.isNotEmpty ?? false)) ...<Widget>[
-                const SizedBox(height: 4),
-                Text(
-                  [
-                    if (vod.vodDirector?.isNotEmpty ?? false)
-                      '导演：${vod.vodDirector}',
-                    if (vod.vodActor?.isNotEmpty ?? false) '主演：${vod.vodActor}',
-                  ].join('\n'),
-                  style: Theme.of(context).textTheme.bodySmall,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                const SizedBox(height: VboxSpacing.xs),
+                _metaLine(scheme, <String?>[
+                  if (vod.vodDirector?.isNotEmpty ?? false) '导演 ${vod.vodDirector}',
+                  if (vod.vodActor?.isNotEmpty ?? false) '主演 ${vod.vodActor}',
+                ], Icons.people_outline, maxLines: 3),
               ],
             ],
           ),
@@ -284,66 +311,472 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  Widget _buildLineSelector(PlaybackDetail d) {
-    if (d.froms.length <= 1) return const SizedBox.shrink();
-    return Wrap(
-      spacing: 8,
-      runSpacing: 4,
+  Widget _metaLine(ColorScheme scheme, List<String?> parts, IconData icon,
+      {int maxLines = 2}) {
+    final String text = parts.whereType<String>().join(' · ');
+    if (text.isEmpty) return const SizedBox.shrink();
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        for (int i = 0; i < d.froms.length; i++)
-          ChoiceChip(
-            label: Text(d.froms[i]),
-            selected: i == _fromIndex,
-            onSelected: (bool selected) {
-              if (!selected) return;
-              setState(() {
-                _fromIndex = i;
-                _episodeIndex = 0;
-              });
-            },
+        Icon(icon, size: VboxTypography.s12, color: scheme.onSurfaceVariant),
+        const SizedBox(width: VboxSpacing.xs),
+        Expanded(
+          child: Text(
+            text,
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: VboxTypography.s12,
+              color: scheme.onSurfaceVariant,
+            ),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSynopsis(PlaybackDetail d) {
+    final String content = d.vod.vodContent?.trim() ?? '';
+    if (content.isEmpty) return const SizedBox.shrink();
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _sectionTitle('剧情简介', scheme),
+        const SizedBox(height: VboxSpacing.sm),
+        Text(
+          content,
+          maxLines: _synopsisExpanded ? null : 3,
+          overflow: _synopsisExpanded ? null : TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: VboxTypography.s13,
+            height: 1.45,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        if (content.length > 36)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () =>
+                  setState(() => _synopsisExpanded = !_synopsisExpanded),
+              child: Text(_synopsisExpanded ? '收起' : '展开'),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCast(PlaybackDetail d) {
+    final List<String> people = <String>[
+      if (d.vod.vodDirector?.isNotEmpty ?? false)
+        ...d.vod.vodDirector!.split(RegExp(r'[,，、/\s]+'))
+            .where((String s) => s.trim().isNotEmpty)
+            .map((String s) => '导演 ${s.trim()}'),
+      if (d.vod.vodActor?.isNotEmpty ?? false)
+        ...d.vod.vodActor!.split(RegExp(r'[,，、/\s]+'))
+            .where((String s) => s.trim().isNotEmpty)
+            .map((String s) => s.trim()),
+    ];
+    if (people.isEmpty) return const SizedBox.shrink();
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _sectionTitle('演职人员', scheme),
+        const SizedBox(height: VboxSpacing.sm),
+        SizedBox(
+          height: 32,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: people.length,
+            separatorBuilder: (BuildContext context, int index) =>
+                const SizedBox(width: VboxSpacing.sm),
+            itemBuilder: (BuildContext context, int index) => _CastChip(
+              label: people[index],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sectionTitle(String text, ColorScheme scheme) => Text(
+        text,
+        style: TextStyle(
+          fontSize: VboxTypography.s16,
+          fontWeight: FontWeight.w600,
+          color: scheme.onSurface,
+        ),
+      );
+
+  Widget _buildLineChips(PlaybackDetail d) {
+    if (d.froms.length <= 1) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _sectionTitle('播放源', Theme.of(context).colorScheme),
+        const SizedBox(height: VboxSpacing.sm),
+        SizedBox(
+          height: 34,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: d.froms.length,
+            separatorBuilder: (BuildContext context, int index) =>
+                const SizedBox(width: VboxSpacing.sm),
+            itemBuilder: (BuildContext context, int index) => VboxChip(
+              label: d.froms[index],
+              dense: true,
+              selected: index == _fromIndex,
+              onTap: () {
+                if (index == _fromIndex) return;
+                setState(() {
+                  _fromIndex = index;
+                  _episodeIndex = 0;
+                  _expanded = false;
+                });
+              },
+            ),
+          ),
+        ),
       ],
     );
   }
 
   Widget _buildEpisodes(PlaybackDetail d) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
     final List<PlaybackEpisode> visible = _episodesForLine(_fromIndex);
-    if (visible.isEmpty) {
-      return const Text('暂无剧集');
-    }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        for (int i = 0; i < visible.length; i++)
-          ActionChip(
-            avatar: i == _episodeIndex ? const Icon(Icons.play_arrow, size: 16) : null,
-            label: Text(visible[i].name.isEmpty ? '第${i + 1}集' : visible[i].name),
-            backgroundColor: i == _episodeIndex
-                ? Theme.of(context).colorScheme.primaryContainer
-                : null,
-            onPressed: () {
-              setState(() => _episodeIndex = i);
-              _play();
-            },
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: _sectionTitle(
+                visible.isEmpty ? '剧集列表' : '剧集列表 · 共 ${visible.length} 集',
+                scheme,
+              ),
+            ),
+            if (visible.length > 8)
+              TextButton.icon(
+                onPressed: () => setState(() => _expanded = !_expanded),
+                icon: Icon(
+                  _expanded ? Icons.unfold_less : Icons.unfold_more,
+                  size: VboxTypography.s16,
+                ),
+                label: Text(_expanded ? '收起' : '展开'),
+              ),
+          ],
+        ),
+        const SizedBox(height: VboxSpacing.sm),
+        if (visible.isEmpty)
+          Text(
+            '暂无剧集',
+            style: TextStyle(
+              fontSize: VboxTypography.s13,
+              color: scheme.onSurfaceVariant,
+            ),
+          )
+        else
+          _EpisodeGrid(
+            episodes: visible,
+            selectedIndex: _episodeIndex,
+            expanded: _expanded,
+            onSelect: (int index) => setState(() => _episodeIndex = index),
           ),
       ],
     );
   }
 
-  Widget _buildPlayButton() {
+  Widget _buildButtons() {
     final PlaybackDetail? d = _detail;
     final bool enabled = d != null && _episodesForLine(_fromIndex).isNotEmpty;
-    return FilledButton.icon(
-      onPressed: _playing || !enabled ? null : _play,
-      icon: _playing
-          ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : const Icon(Icons.play_arrow),
-      label: Text(_playing ? '播放中…' : '播放'),
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: _playing || !enabled ? null : _play,
+            icon: _playing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.play_arrow),
+            label: Text(_playing ? '播放中…' : '立即播放'),
+          ),
+        ),
+        const SizedBox(width: VboxSpacing.md),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: !enabled ? null : _showDownloadSheet,
+            icon: const Icon(Icons.download_outlined),
+            label: const Text('下载'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 剧集宫格（自适应列数 + 折叠/展开）。
+class _EpisodeGrid extends StatelessWidget {
+  const _EpisodeGrid({
+    required this.episodes,
+    required this.selectedIndex,
+    required this.expanded,
+    required this.onSelect,
+  });
+
+  final List<PlaybackEpisode> episodes;
+  final int selectedIndex;
+  final bool expanded;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final List<PlaybackEpisode> shown =
+        expanded ? episodes : episodes.take(8).toList(growable: false);
+    final double height = expanded
+        ? ((shown.length / 4).ceil() * 44.0).clamp(176.0, 400.0)
+        : ((shown.length / 4).ceil() * 44.0).clamp(88.0, 176.0);
+
+    return SizedBox(
+      height: height,
+      child: GridView.builder(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 4,
+          mainAxisSpacing: VboxSpacing.sm,
+          crossAxisSpacing: VboxSpacing.sm,
+          childAspectRatio: 1.8,
+        ),
+        itemCount: shown.length,
+        itemBuilder: (BuildContext context, int index) {
+          final PlaybackEpisode ep = shown[index];
+          final bool selected = index == selectedIndex;
+          return _EpisodeCell(
+            label: ep.name.isEmpty ? '第${index + 1}集' : ep.name,
+            selected: selected,
+            color: scheme,
+            onTap: () => onSelect(index),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// 单集宫格项（选中态带播放角标）。
+class _EpisodeCell extends StatelessWidget {
+  const _EpisodeCell({
+    required this.label,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final ColorScheme color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color foreground = selected ? VboxColors.selected : color.onSurface;
+    final Color background =
+        selected ? VboxColors.selected.withValues(alpha: 0.20) : color.surfaceContainerHighest;
+    return Material(
+      color: background,
+      shape: RoundedRectangleBorder(
+        borderRadius: VboxRadii.button,
+        side: selected
+            ? BorderSide(color: VboxColors.selected)
+            : BorderSide.none,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: VboxSpacing.symmetric(horizontal: VboxSpacing.xs),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              if (selected) ...<Widget>[
+                const Icon(Icons.play_arrow, size: VboxTypography.s14),
+                const SizedBox(width: 2),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: VboxTypography.s12,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    color: foreground,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 演职人员 chip。
+class _CastChip extends StatelessWidget {
+  const _CastChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: VboxSpacing.symmetric(horizontal: VboxSpacing.md),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: VboxRadii.badge,
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: VboxTypography.s12,
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+/// 下载选集 sheet（多选 + 全选 + 确认）。
+class _DownloadSelectionSheet extends StatefulWidget {
+  const _DownloadSelectionSheet({required this.episodes});
+
+  final List<PlaybackEpisode> episodes;
+
+  @override
+  State<_DownloadSelectionSheet> createState() =>
+      _DownloadSelectionSheetState();
+}
+
+class _DownloadSelectionSheetState extends State<_DownloadSelectionSheet> {
+  final Set<int> _selected = <int>{};
+
+  void _toggleAll() {
+    setState(() {
+      if (_selected.length == widget.episodes.length) {
+        _selected.clear();
+      } else {
+        _selected
+          ..clear()
+          ..addAll(List<int>.generate(widget.episodes.length, (int i) => i));
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(VboxSpacing.lg, 0, VboxSpacing.lg, VboxSpacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    '下载选集 · 共 ${widget.episodes.length} 集',
+                    style: TextStyle(
+                      fontSize: VboxTypography.s16,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                ),
+                TextButton(onPressed: _toggleAll, child: const Text('全选')),
+              ],
+            ),
+            const SizedBox(height: VboxSpacing.sm),
+            Flexible(
+              child: GridView.builder(
+                shrinkWrap: true,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 4,
+                  mainAxisSpacing: VboxSpacing.sm,
+                  crossAxisSpacing: VboxSpacing.sm,
+                  childAspectRatio: 1.8,
+                ),
+                itemCount: widget.episodes.length,
+                itemBuilder: (BuildContext context, int index) {
+                  final bool checked = _selected.contains(index);
+                  final PlaybackEpisode ep = widget.episodes[index];
+                  final String label = ep.name.isEmpty ? '第${index + 1}集' : ep.name;
+                  return Material(
+                    color: checked
+                        ? Colors.blue.withValues(alpha: 0.15)
+                        : scheme.surfaceContainerHighest,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: VboxRadii.button,
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => setState(() {
+                        if (checked) {
+                          _selected.remove(index);
+                        } else {
+                          _selected.add(index);
+                        }
+                      }),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                          Icon(
+                            checked
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            size: VboxTypography.s13,
+                            color: checked ? Colors.blue : scheme.outline,
+                          ),
+                          const SizedBox(width: VboxSpacing.xs),
+                          Flexible(
+                            child: Text(
+                              label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: VboxTypography.s12,
+                                color: checked ? Colors.blue : scheme.onSurface,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: VboxSpacing.md),
+            FilledButton(
+              onPressed: _selected.isEmpty
+                  ? null
+                  : () => Navigator.of(context).pop(_selected.toList()..sort()),
+              child: Text('下载选中 (${_selected.length})'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
