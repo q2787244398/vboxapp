@@ -116,7 +116,8 @@ DEAD_DOCS = ("PROJECT_LAYOUT.md", "PROGRESS.md", "KNOWN_GAPS.md")
 # v6.32：追加 v6.31 —— 本轮把文件名升到 v6.32（Spider 引擎口径 D31 + 残留漂移订正批次），v6.31 成为旧名，纳入防回流。
 # v6.33：追加 v6.32 —— 本轮把文件名升到 v6.33（第 2 轮批次 A「设计基座」首批交付），v6.32 成为旧名，纳入防回流。
 # v6.34：追加 v6.33 —— 本轮把文件名升到 v6.34（第 2 轮批次 A「设计基座」续交付 A-05 形态模型 / A-06 契约扩键），v6.33 成为旧名，纳入防回流。
-DEAD_DOCS += ("VBOX_PLAN_v6.33.md", "VBOX_PLAN_v6.32.md", "VBOX_PLAN_v6.31.md", "VBOX_PLAN_v6.30.md", "VBOX_PLAN_v6.29.md", "VBOX_PLAN_v6.28.md", "VBOX_PLAN_v6.27.md", "VBOX_PLAN_v6.26.md", "VBOX_PLAN_v6.25.md", "VBOX_PLAN_v6.24.md", "VBOX_PLAN_v6.23.md", "VBOX_PLAN_v6.22.md", "VBOX_PLAN_v6.21.md", "VBOX_PLAN_v6.20.md", "VBOX_PLAN_v6.19.md", "VBOX_PLAN_v6.18.md", "VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
+# v6.35：追加 v6.34 —— 本轮把文件名升到 v6.35（第 2 轮批次 A/B/Q 三批次全交付），v6.34 成为旧名，纳入防回流。
+DEAD_DOCS += ("VBOX_PLAN_v6.34.md", "VBOX_PLAN_v6.33.md", "VBOX_PLAN_v6.32.md", "VBOX_PLAN_v6.31.md", "VBOX_PLAN_v6.30.md", "VBOX_PLAN_v6.29.md", "VBOX_PLAN_v6.28.md", "VBOX_PLAN_v6.27.md", "VBOX_PLAN_v6.26.md", "VBOX_PLAN_v6.25.md", "VBOX_PLAN_v6.24.md", "VBOX_PLAN_v6.23.md", "VBOX_PLAN_v6.22.md", "VBOX_PLAN_v6.21.md", "VBOX_PLAN_v6.20.md", "VBOX_PLAN_v6.19.md", "VBOX_PLAN_v6.18.md", "VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
 
 # v6.27 新增：规则 10 —— 捕获任意「引用 docs/ 下已不存在的 .md」的残留
 # （DEAD_DOCS 只按字面量匹配主方案旧名；检查报告等文档改名后引用同样会失效）

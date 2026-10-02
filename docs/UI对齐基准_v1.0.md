@@ -3,7 +3,7 @@
 > **版本**：v1.0（首版）· 2026-10-01
 > **定位**：**表现层（UI）对齐基准**，与数据层契约 `contract/` 平行存在、互不覆盖。
 > **不变式**：本文件**不修改**任何既有决策 —— D1（契约共享）/ D5（三端形态）/ D20（第 1 轮门禁）全部保持原样；仅**新增**表现层基准，**第 2 轮（功能补全）起按批次落地**。
-> **关联**：主方案 [VBOX_PLAN_v6.34.md](computer:///workspace/vboxapp/docs/VBOX_PLAN_v6.34.md) · [第1轮核心骨架全面检查报告_v6.32.md](computer:///workspace/vboxapp/docs/第1轮核心骨架全面检查报告_v6.32.md) · [真机验收清单_G09_G10.md](computer:///workspace/vboxapp/docs/真机验收清单_G09_G10.md)
+> **关联**：主方案 [VBOX_PLAN_v6.35.md](computer:///workspace/vboxapp/docs/VBOX_PLAN_v6.35.md) · [第1轮核心骨架全面检查报告_v6.32.md](computer:///workspace/vboxapp/docs/第1轮核心骨架全面检查报告_v6.32.md) · [真机验收清单_G09_G10.md](computer:///workspace/vboxapp/docs/真机验收清单_G09_G10.md)
 
 ---
 

@@ -1,7 +1,7 @@
 # 阶段遗漏检查报告 · 第 1 轮（核心骨架）（D13 / E.10b）
 # 契约层文件 · contract/docs/stage_check_report_stage1.yaml
 # 依据模板：stage_check_template.yaml（命名规范 stage_check_report_stage<N>.yaml）
-# 本报告对应的主方案文档版本：docs/VBOX_PLAN_v6.34.md（v6.32 批次：Spider 引擎三端口径落定 D31 + 残留漂移订正；真机验收后移至第 2 轮末，D30；v6.33 为第 2 轮批次 A「设计基座」首批交付，v6.34 为其续交付 A-05 / A-06，均不改第 1 轮结论）
+# 本报告对应的主方案文档版本：docs/VBOX_PLAN_v6.35.md（v6.32 批次：Spider 引擎三端口径落定 D31 + 残留漂移订正；真机验收后移至第 2 轮末，D30；v6.33 为第 2 轮批次 A「设计基座」首批交付，v6.34 为其续交付 A-05 / A-06，v6.35 为批次 A/B/Q 三批次全交付收口，均不改第 1 轮结论）
 
 stage: 1
 stage_name: "核心骨架"
