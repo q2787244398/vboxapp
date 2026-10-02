@@ -104,18 +104,18 @@
 
 ---
 
-## 4. 批次 D · 内容浏览（D-01 ~ D-08）· 8 项 — 🟡 **首段交付（D-01 / D-02 / D-03 / D-06，2026-10-02）**
+## 4. 批次 D · 内容浏览（D-01 ~ D-08）· 8 项 — ✅ **全交付（2026-10-02）**
 
 | 编号 | 任务 | 产出 | 依赖 | 契约 | 验收 | 状态 |
 |------|------|------|------|------|------|------|
 | D-01 | 首页（轮播 + 分类胶囊 + 横向列表）+ 切换源浮层 | `lib/presentation/pages/home/home_page.dart` `source_sheet.dart` | A-08, B, C | — | Golden ≥0.95 | ✅ 改造·已交付 |
 | D-02 | 搜索（空态：历史/榜单；结果态：左源列表 + 结果卡） | `lib/presentation/pages/search/search_page.dart` · `search_history_usecases.dart` · `content_browse_usecases.dart` | B | `searchHistory` | Golden ≥0.95 | ✅ 新建·已交付 |
 | D-03 | 豆瓣（首页 / 榜单 / 分类浏览，并发拉取） | `lib/presentation/pages/douban/*` · `douban_usecases.dart` · `douban_datasource.dart` · `douban_models.dart` | B | — | 三页 Golden | ✅ 新建·已交付（3 张 Golden 基线） |
-| D-04 | 短剧（列表 + 详情） | `.../pages/short_drama/*` | B, C | — | Golden ≥0.95 | 新建 |
-| D-05 | 详情页（头图 / 演员 / 网盘源 chips / 剧集宫格 / 剧集展开 / 下载选择） | `widgets/detail_page.dart` 扩展 | A, B, C | — | Golden ≥0.95 | 改造 |
+| D-04 | 短剧（列表 + 详情） | `.../pages/short_drama/*` | B, C | — | Golden ≥0.95 | ✅ 新建·已交付 |
+| D-05 | 详情页（头图 / 演员 / 网盘源 chips / 剧集宫格 / 剧集展开 / 下载选择） | `widgets/detail_page.dart` 扩展 | A, B, C | — | Golden ≥0.95 | ✅ 改造·已交付 |
 | D-06 | 分类网格（源下拉 + 分类胶囊 + 三列海报） | `lib/presentation/pages/category/category_page.dart` | B | — | Golden ≥0.95 | ✅ 新建·已交付 |
-| D-07 | 源发现页 | `phone/remote_source_page.dart` 扩展 | B | — | 可达且正确 | 改造 |
-| D-08 | 批次自检 | — | D-01~07 | — | 全绿 | — |
+| D-07 | 源发现页 | `phone/remote_source_page.dart` 扩展 | B | — | 可达且正确 | ✅ 改造·已交付 |
+| D-08 | 批次自检 | — | D-01~07 | — | 全绿 | ✅ 已交付 |
 
 ---
 
