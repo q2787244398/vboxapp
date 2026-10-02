@@ -1,0 +1,28 @@
+name: Regen Goldens
+
+on:
+  workflow_dispatch:
+
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5"
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Regenerate goldens
+        run: flutter test test/golden --update-goldens
+
+      - name: Upload goldens
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldens
+          path: test/golden/goldens/*.png

@@ -149,7 +149,7 @@ void main() {
         's1': <VodCategory>[cat('1', '短剧')],
       },
       videos: (_, __, ___) => <VodItem>[vod('1', '短剧片')],
-      searchResults: <VodItem>[vod('9', '搜索片')],
+      searchResults: <VodItem>[vod('9', '目标结果')],
     );
     await tester.pumpWidget(_app(uc));
     await tester.pumpAndSettle();
@@ -158,6 +158,6 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
 
-    expect(find.text('搜索片'), findsOneWidget);
+    expect(find.text('目标结果'), findsOneWidget);
   });
 }
