@@ -5,10 +5,12 @@ import android.os.Build
 import android.util.Log
 import android.util.Rational
 import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import io.flutter.embedding.engine.plugins.lifecycle.HiddenLifecycleReference
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -19,7 +21,7 @@ import io.flutter.plugin.common.MethodChannel
  * MethodChannel `com.vbox.player/pip`：
  *  - `isSupported` → API 26+ 且 Activity 已声明 `supportsPictureInPicture`
  *  - `enterPip`（width/height 可选）→ `enterPictureInPictureMode`
- *  - `exitPip` → `exitPictureInPictureMode`
+ *  - `exitPip` → `moveTaskToBack(true)`（退出系统画中画）
  *  - `isInPip` → 当前是否处于系统画中画
  *
  * EventChannel `com.vbox.player/pip/events`：`{type: pipChanged, value: bool}`
@@ -33,6 +35,7 @@ class PipPlugin : FlutterPlugin, ActivityAware,
     MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
 
     private var activityBinding: ActivityPluginBinding? = null
+    private var lifecycle: Lifecycle? = null
     private var channel: MethodChannel? = null
     private var eventChannel: EventChannel? = null
     private var sink: EventChannel.EventSink? = null
@@ -81,11 +84,13 @@ class PipPlugin : FlutterPlugin, ActivityAware,
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activityBinding = binding
-        binding.lifecycle.addObserver(lifecycleObserver)
+        lifecycle = (binding.lifecycle as HiddenLifecycleReference).lifecycle
+        lifecycle?.addObserver(lifecycleObserver)
     }
 
     override fun onDetachedFromActivity() {
-        activityBinding?.lifecycle?.removeObserver(lifecycleObserver)
+        lifecycle?.removeObserver(lifecycleObserver)
+        lifecycle = null
         activityBinding = null
         inPip = false
     }
@@ -153,7 +158,7 @@ class PipPlugin : FlutterPlugin, ActivityAware,
             result.success(false)
             return
         }
-        activity.exitPictureInPictureMode()
+        activity.moveTaskToBack(true)
         result.success(true)
     }
 

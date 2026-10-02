@@ -94,11 +94,11 @@ class PlayerPlugin : public flutter::Plugin {
   PlayerPlugin(const PlayerPlugin&) = delete;
   PlayerPlugin& operator=(const PlayerPlugin&) = delete;
 
-  // flutter::Plugin:
+  // MethodChannel 分派入口（flutter::Plugin 无 HandleMethodCall 虚函数，
+  // 由构造期 SetMethodCallHandler lambda 回调）。
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,
-      std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result)
-      override;
+      std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
 
   // ── 供 StreamHandler 调用的 sink 生命周期（事件线程安全） ──
   void SetSink(
@@ -113,12 +113,12 @@ class PlayerPlugin : public flutter::Plugin {
     explicit StreamHandler(PlayerPlugin* plugin) : plugin_(plugin) {}
 
     std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>>
-    OnListen(const flutter::EncodableValue* arguments,
-             std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&&
-                 events) override;
+    OnListenInternal(const flutter::EncodableValue* arguments,
+                     std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&&
+                         events) override;
 
     std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>>
-    OnCancel(const flutter::EncodableValue* arguments) override;
+    OnCancelInternal(const flutter::EncodableValue* arguments) override;
 
    private:
     PlayerPlugin* plugin_;

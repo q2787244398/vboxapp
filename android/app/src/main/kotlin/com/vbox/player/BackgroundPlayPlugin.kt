@@ -8,6 +8,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import com.vbox.player.player.MediaPlaybackService
 
 /**
  * 后台播放平台通道（批次 C · C-05 后台播放 —— Android 腿）。
@@ -59,7 +60,7 @@ class BackgroundPlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     private fun startService() {
         val ctx = appContext ?: return
-        val intent = Intent(ctx, player.MediaPlaybackService::class.java)
+        val intent = Intent(ctx, MediaPlaybackService::class.java)
         try {
             if (Build.VERSION.SDK_INT >= 26) {
                 ctx.startForegroundService(intent)
@@ -76,7 +77,7 @@ class BackgroundPlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private fun stopService() {
         val ctx = appContext ?: return
         try {
-            ctx.stopService(Intent(ctx, player.MediaPlaybackService::class.java))
+            ctx.stopService(Intent(ctx, MediaPlaybackService::class.java))
         } catch (e: Exception) {
             Log.w("vbox", "后台播放服务停止失败: ${e.message}")
         }

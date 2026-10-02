@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <utility>
+#include <variant>
 
 #include <flutter/event_channel.h>
 #include <flutter/method_result_functions.h>
@@ -23,8 +24,7 @@ namespace {
 // ─────────────── EncodableValue 解析辅助（Dart 侧 open 参数） ───────────────
 
 const flutter::EncodableMap* AsMap(const flutter::EncodableValue* value) {
-  if (value == nullptr ||
-      value->Type() != flutter::EncodableValue::Type::kMap) {
+  if (value == nullptr || !std::holds_alternative<flutter::EncodableMap>(*value)) {
     return nullptr;
   }
   return &std::get<flutter::EncodableMap>(*value);
@@ -33,8 +33,7 @@ const flutter::EncodableMap* AsMap(const flutter::EncodableValue* value) {
 std::string GetString(const flutter::EncodableMap& map, const std::string& key,
                       const std::string& fallback = "") {
   const auto it = map.find(flutter::EncodableValue(key));
-  if (it == map.end() ||
-      it->second.Type() != flutter::EncodableValue::Type::kString) {
+  if (it == map.end() || !std::holds_alternative<std::string>(it->second)) {
     return fallback;
   }
   return std::get<std::string>(it->second);
@@ -43,8 +42,7 @@ std::string GetString(const flutter::EncodableMap& map, const std::string& key,
 bool GetBool(const flutter::EncodableMap& map, const std::string& key,
              bool fallback = false) {
   const auto it = map.find(flutter::EncodableValue(key));
-  if (it == map.end() ||
-      it->second.Type() != flutter::EncodableValue::Type::kBool) {
+  if (it == map.end() || !std::holds_alternative<bool>(it->second)) {
     return fallback;
   }
   return std::get<bool>(it->second);
@@ -53,16 +51,15 @@ bool GetBool(const flutter::EncodableMap& map, const std::string& key,
 // headers（Dart Map<String,String>）→ mpv http-header-fields 选项串。
 std::string JoinHeaders(const flutter::EncodableMap& map) {
   const auto it = map.find(flutter::EncodableValue("headers"));
-  if (it == map.end() ||
-      it->second.Type() != flutter::EncodableValue::Type::kMap) {
+  if (it == map.end() || !std::holds_alternative<flutter::EncodableMap>(it->second)) {
     return "";
   }
   const flutter::EncodableMap& headers =
       std::get<flutter::EncodableMap>(it->second);
   std::string joined;
   for (const auto& entry : headers) {
-    if (entry.first.Type() != flutter::EncodableValue::Type::kString ||
-        entry.second.Type() != flutter::EncodableValue::Type::kString) {
+    if (!std::holds_alternative<std::string>(entry.first) ||
+        !std::holds_alternative<std::string>(entry.second)) {
       continue;
     }
     if (!joined.empty()) {
@@ -146,7 +143,7 @@ PlayerPlugin::~PlayerPlugin() {
 // ─────────────── StreamHandler ───────────────
 
 std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>>
-PlayerPlugin::StreamHandler::OnListen(
+PlayerPlugin::StreamHandler::OnListenInternal(
     const flutter::EncodableValue* arguments,
     std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&& events) {
   plugin_->SetSink(std::move(events));
@@ -156,7 +153,7 @@ PlayerPlugin::StreamHandler::OnListen(
 }
 
 std::unique_ptr<flutter::StreamHandlerError<flutter::EncodableValue>>
-PlayerPlugin::StreamHandler::OnCancel(
+PlayerPlugin::StreamHandler::OnCancelInternal(
     const flutter::EncodableValue* arguments) {
   plugin_->ClearSink();
   return nullptr;
@@ -210,12 +207,12 @@ void PlayerPlugin::Open(
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
   const flutter::EncodableMap* map = AsMap(args);
   if (map == nullptr) {
-    result->Error("E_PARAM", "open 缺少参数", nullptr);
+    result->Error("E_PARAM", "open 缺少参数");
     return;
   }
   const std::string url = GetString(*map, "url");
   if (url.empty()) {
-    result->Error("E_INVALID_SOURCE", "无效的播放源", nullptr);
+    result->Error("E_INVALID_SOURCE", "无效的播放源");
     return;
   }
 
@@ -223,14 +220,14 @@ void PlayerPlugin::Open(
   const std::string backend = GetString(*map, "backend", "libmpv");
   if (backend != "libmpv") {
     result->Error("E_BACKEND_UNAVAILABLE",
-                  "该插件仅实现 libmpv 后端，收到 backend=" + backend, nullptr);
+                  "该插件仅实现 libmpv 后端，收到 backend=" + backend);
     return;
   }
 
   // D28：mpv-2.dll 随包分发，缺失时上报 E_BACKEND_UNAVAILABLE 由 Dart 侧处理。
   if (!api_.Load()) {
     result->Error("E_BACKEND_UNAVAILABLE",
-                  "mpv-2.dll 加载失败（D28 分发缺失），libmpv 不可用", nullptr);
+                  "mpv-2.dll 加载失败（D28 分发缺失），libmpv 不可用");
     return;
   }
 
@@ -239,7 +236,7 @@ void PlayerPlugin::Open(
 
   const bool is_live = GetBool(*map, "isLive", false);
   if (!InitializeMpv(is_live)) {
-    result->Error("E_BACKEND_UNAVAILABLE", "libmpv 初始化失败", nullptr);
+    result->Error("E_BACKEND_UNAVAILABLE", "libmpv 初始化失败");
     return;
   }
 
@@ -253,93 +250,90 @@ void PlayerPlugin::Open(
   const char* load_args[] = {"loadfile", url.c_str(), "replace", nullptr};
   if (api_.command(mpv_, load_args) < 0) {
     ShutdownMpv();
-    result->Error("E_OPEN", "loadfile 命令失败", nullptr);
+    result->Error("E_OPEN", "loadfile 命令失败");
     return;
   }
 
   EmitState("opening");
-  result->Success(nullptr);
+  result->Success();
 }
 
 void PlayerPlugin::Play(
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
   if (mpv_ != nullptr) {
-    const int flag = 0;  // pause=false
+    int flag = 0;  // pause=false
     api_.set_property(mpv_, "pause", MPV_FORMAT_FLAG, &flag);
   }
-  result->Success(nullptr);
+  result->Success();
 }
 
 void PlayerPlugin::Pause(
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
   if (mpv_ != nullptr) {
-    const int flag = 1;  // pause=true
+    int flag = 1;  // pause=true
     api_.set_property(mpv_, "pause", MPV_FORMAT_FLAG, &flag);
   }
-  result->Success(nullptr);
+  result->Success();
 }
 
 void PlayerPlugin::SeekTo(
     const flutter::EncodableValue* args,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
   if (mpv_ == nullptr) {
-    result->Success(nullptr);
+    result->Success();
     return;
   }
   int64_t position_ms = 0;
   if (args != nullptr) {
-    const flutter::EncodableValue::Type type = args->Type();
-    if (type == flutter::EncodableValue::Type::kInt32) {
+    if (std::holds_alternative<int32_t>(*args)) {
       position_ms = std::get<int32_t>(*args);
-    } else if (type == flutter::EncodableValue::Type::kInt64) {
+    } else if (std::holds_alternative<int64_t>(*args)) {
       position_ms = std::get<int64_t>(*args);
     } else {
-      result->Error("E_BAD_ARGUMENT", "seekTo 需毫秒整数", nullptr);
+      result->Error("E_BAD_ARGUMENT", "seekTo 需毫秒整数");
       return;
     }
   }
-  const double seconds = static_cast<double>(position_ms) / 1000.0;
+  double seconds = static_cast<double>(position_ms) / 1000.0;
   api_.set_property(mpv_, "time-pos", MPV_FORMAT_DOUBLE, &seconds);
-  result->Success(nullptr);
+  result->Success();
 }
 
 void PlayerPlugin::SetVolume(
     const flutter::EncodableValue* args,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-  if (args == nullptr ||
-      args->Type() != flutter::EncodableValue::Type::kDouble) {
-    result->Error("E_BAD_ARGUMENT", "setVolume 需浮点数", nullptr);
+  if (args == nullptr || !std::holds_alternative<double>(*args)) {
+    result->Error("E_BAD_ARGUMENT", "setVolume 需浮点数");
     return;
   }
   const double volume = std::get<double>(*args);
   if (mpv_ != nullptr) {
     const double clamped = (volume < 0.0) ? 0.0 : ((volume > 1.0) ? 1.0 : volume);
-    const double mpv_volume = clamped * 100.0;  // mpv 音量域 0~100
+    double mpv_volume = clamped * 100.0;  // mpv 音量域 0~100
     api_.set_property(mpv_, "volume", MPV_FORMAT_DOUBLE, &mpv_volume);
   }
-  result->Success(nullptr);
+  result->Success();
 }
 
 void PlayerPlugin::SetSpeed(
     const flutter::EncodableValue* args,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-  if (args == nullptr ||
-      args->Type() != flutter::EncodableValue::Type::kDouble) {
-    result->Error("E_BAD_ARGUMENT", "setSpeed 需浮点数", nullptr);
+  if (args == nullptr || !std::holds_alternative<double>(*args)) {
+    result->Error("E_BAD_ARGUMENT", "setSpeed 需浮点数");
     return;
   }
   const double speed = std::get<double>(*args);
   if (mpv_ != nullptr) {
-    const double clamped = (speed < 0.25) ? 0.25 : ((speed > 4.0) ? 4.0 : speed);
+    double clamped = (speed < 0.25) ? 0.25 : ((speed > 4.0) ? 4.0 : speed);
     api_.set_property(mpv_, "speed", MPV_FORMAT_DOUBLE, &clamped);
   }
-  result->Success(nullptr);
+  result->Success();
 }
 
 void PlayerPlugin::Dispose(
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
   ShutdownMpv();
-  result->Success(nullptr);
+  result->Success();
 }
 
 // ─────────────── libmpv 生命周期 ───────────────
@@ -360,7 +354,7 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
   mpv_ = handle;
 
   // 直播流（isLive）open 后自动起播，对齐 Android ExoPlayer 行为；点播保持暂停待 play()。
-  const int pause = auto_play ? 0 : 1;
+  int pause = auto_play ? 0 : 1;
   api_.set_property(mpv_, "pause", MPV_FORMAT_FLAG, &pause);
 
   // 事件面：进度 / 状态由属性变更驱动。

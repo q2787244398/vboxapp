@@ -12,7 +12,7 @@ library;
 
 import 'dart:async';
 
-import '../../../../domain/entities/player/player.dart';
+import '../../../domain/entities/player/player.dart';
 import '../floating/floating_window.dart';
 import 'pip_bridge.dart';
 import 'pip_lifecycle.dart';
