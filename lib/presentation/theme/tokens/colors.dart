@@ -148,6 +148,12 @@ class VboxColors {
   /// 批次 F · F-01 新增。
   static const Color warning = Color(0xFFFF9500);
 
+  /// 待确认态（登录「已扫码，待手机确认」；对齐 iOS `qrLoginState.scanned`
+  /// 的 `.yellow`）。
+  ///
+  /// 批次 F · F-02 新增。
+  static const Color pending = Color(0xFFFFCC00);
+
   // ── 品牌渐变（「我的」页头部）───────────────────────────
   /// 品牌渐变起点。
   static const Color brandGradientStart = Color(0xFF3B82F6);

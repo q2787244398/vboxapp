@@ -1,0 +1,1224 @@
+/// 网盘登录 Sheet（批次 F · F-02，对齐 iOS 登录视图）。
+///
+/// 两种形态：
+/// - **扫码类**（原生扫码 / Node 扫码 / PG 扫码）对齐 iOS
+///   `NativeCloudQRLoginView`（`SettingsViews.swift:4391`）与 `BiliQrLoginView`：
+///   标题（18 semibold）+ 220×220 二维码卡 + 状态卡 + 提示卡 + 主按钮。
+/// - **短信类**（Node 验证码）对齐 iOS `NodeGuangyaSMSLoginView`
+///   （`NodeLoginViews.swift:123`）：手机号 + 获取验证码（60s 倒计时）+
+///   验证码输入 + 状态卡 + 主按钮。
+///
+/// 协议调用经 [CloudDriveLoginGateway]（F-02 首段缺省为「未接入」网关，
+/// 页面即时报「Node 常驻系统未就绪 / 原生登录链路尚未接入」，与 iOS 未就绪
+/// 行为一致）；真实链路随 F-04 / F-05 与 Node 客户端补齐。
+library;
+
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../../data/datasources/local/cloud_drive_credential_store.dart';
+import '../../../data/datasources/local/prefs_manager.dart';
+import '../../../domain/entities/cloud/cloud_drive.dart';
+import '../../../domain/entities/cloud/cloud_drive_login.dart';
+import '../../theme/tokens/colors.dart';
+import '../../theme/tokens/radii.dart';
+import '../../theme/tokens/spacing.dart';
+import '../../theme/tokens/typography.dart';
+import '../../widgets/vbox/vbox.dart';
+import 'cloud_drive_widgets.dart';
+import 'login_controller.dart';
+import 'login_gateway.dart';
+
+/// 授权中心动作 → 打开对应登录 Sheet。
+///
+/// 网页兜底（F-02 余项）走 [CloudDriveWebLoginSheet]：拉起系统浏览器打开官方
+/// 登录页 + 粘贴 Token / Cookie 落安全存储。
+Future<void> openCloudDriveLoginSheet(
+  BuildContext context, {
+  required CloudDriveType type,
+  required String action,
+  CloudDriveLoginGateway? gateway,
+  CloudDriveWebCredentialSaver? webSaver,
+}) {
+  final CloudDriveLoginMode mode = CloudDriveLoginMode.fromActionLabel(action);
+  final ColorScheme scheme = Theme.of(context).colorScheme;
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: scheme.surface,
+    shape: const RoundedRectangleBorder(borderRadius: VboxRadii.panel),
+    builder: (BuildContext _) => switch (mode) {
+      CloudDriveLoginMode.webFallback => CloudDriveWebLoginSheet(
+          driveType: type,
+          saver: webSaver,
+        ),
+      CloudDriveLoginMode.nodeSms => CloudDriveSmsLoginSheet(
+          driveType: type,
+          mode: mode,
+          gateway: gateway,
+        ),
+      CloudDriveLoginMode.nodeAccount => CloudDriveAccountLoginSheet(
+          driveType: type,
+          mode: mode,
+          gateway: gateway,
+        ),
+      _ => CloudDriveQrLoginSheet(
+          driveType: type,
+          mode: mode,
+          gateway: gateway,
+        ),
+    },
+  );
+}
+
+/// 扫码登录 Sheet（对齐 iOS `NativeCloudQRLoginView` / `BiliQrLoginView`）。
+class CloudDriveQrLoginSheet extends StatefulWidget {
+  /// 构造。
+  const CloudDriveQrLoginSheet({
+    super.key,
+    required this.driveType,
+    this.mode = CloudDriveLoginMode.nativeQr,
+    this.gateway,
+  });
+
+  /// 目标网盘。
+  final CloudDriveType driveType;
+
+  /// 登录方式（扫码类）。
+  final CloudDriveLoginMode mode;
+
+  /// 登录网关（测试注入；缺省「未接入」）。
+  final CloudDriveLoginGateway? gateway;
+
+  @override
+  State<CloudDriveQrLoginSheet> createState() => _CloudDriveQrLoginSheetState();
+}
+
+class _CloudDriveQrLoginSheetState extends State<CloudDriveQrLoginSheet> {
+  late final CloudDriveLoginController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = CloudDriveLoginController(
+      driveType: widget.driveType,
+      mode: widget.mode,
+      gateway: widget.gateway ?? const UnavailableCloudDriveLoginGateway(),
+    )..addListener(_onChanged);
+  }
+
+  void _onChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// 标题（对齐 iOS `"\(driveType.displayName) 原生扫码授权"`）。
+  String get _headline => switch (widget.mode) {
+        CloudDriveLoginMode.pgQr => '${widget.driveType.displayName} PG 扫码登录',
+        CloudDriveLoginMode.nodeQr => '${widget.driveType.displayName} Node 扫码登录',
+        CloudDriveLoginMode.nativeQr ||
+        CloudDriveLoginMode.nodeSms ||
+        CloudDriveLoginMode.nodeAccount ||
+        CloudDriveLoginMode.webFallback =>
+          '${widget.driveType.displayName} 原生扫码授权',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final CloudDriveLoginPhase phase = _controller.phase;
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(VboxSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            LoginSheetHeader(title: _headline),
+            const SizedBox(height: VboxSpacing.lg),
+            _qrCard(scheme, phase),
+            const SizedBox(height: VboxSpacing.lg),
+            LoginStatusCard(
+              tone: phase.tone,
+              phase: phase,
+              message: _controller.message,
+              error: _controller.error,
+            ),
+            const SizedBox(height: VboxSpacing.md),
+            LoginTipCard(
+              text: _controller.tipText,
+              tint: cloudDriveBrandColor(widget.driveType),
+            ),
+            const SizedBox(height: VboxSpacing.lg),
+            if (phase.canCancel) ...<Widget>[
+              LoginSecondaryButton(
+                label: '取消',
+                onTap: _controller.cancel,
+              ),
+              const SizedBox(height: VboxSpacing.md),
+            ],
+            LoginPrimaryButton(
+              label: _controller.primaryLabel,
+              enabled: phase != CloudDriveLoginPhase.loading,
+              onTap: _controller.generateQr,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 二维码卡片（对齐 iOS `qrCard`：220×220 + 圆角 16 + 阴影）。
+  Widget _qrCard(ColorScheme scheme, CloudDriveLoginPhase phase) {
+    final Uint8List? bytes = _decodeQrDataUrl(_controller.qrDataUrl);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(VboxSpacing.lg),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(VboxRadii.r16),
+      ),
+      child: Center(
+        child: Container(
+          width: 220,
+          height: 220,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(VboxRadii.r16),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: scheme.shadow.withValues(alpha: 0.08),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: switch (bytes) {
+            final Uint8List data => ClipRRect(
+                borderRadius: BorderRadius.circular(VboxRadii.r16),
+                child: Image.memory(
+                  data,
+                  width: 220,
+                  height: 220,
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, __, ___) => _qrPlaceholder(scheme),
+                ),
+              ),
+            _ when phase == CloudDriveLoginPhase.loading => const SizedBox(
+                width: 36,
+                height: 36,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+            _ => _qrPlaceholder(scheme),
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _qrPlaceholder(ColorScheme scheme) => Icon(
+        Icons.qr_code_2,
+        size: 88,
+        color: scheme.onSurfaceVariant.withValues(alpha: 0.45),
+      );
+}
+
+/// 短信验证码登录 Sheet（对齐 iOS `NodeGuangyaSMSLoginView`）。
+class CloudDriveSmsLoginSheet extends StatefulWidget {
+  /// 构造。
+  const CloudDriveSmsLoginSheet({
+    super.key,
+    required this.driveType,
+    this.mode = CloudDriveLoginMode.nodeSms,
+    this.gateway,
+  });
+
+  /// 目标网盘。
+  final CloudDriveType driveType;
+
+  /// 登录方式（短信类）。
+  final CloudDriveLoginMode mode;
+
+  /// 登录网关（测试注入；缺省「未接入」）。
+  final CloudDriveLoginGateway? gateway;
+
+  @override
+  State<CloudDriveSmsLoginSheet> createState() => _CloudDriveSmsLoginSheetState();
+}
+
+class _CloudDriveSmsLoginSheetState extends State<CloudDriveSmsLoginSheet> {
+  late final CloudDriveLoginController _controller;
+  final TextEditingController _phone = TextEditingController();
+  final TextEditingController _code = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = CloudDriveLoginController(
+      driveType: widget.driveType,
+      mode: widget.mode,
+      gateway: widget.gateway ?? const UnavailableCloudDriveLoginGateway(),
+    )..addListener(_onChanged);
+    _phone.addListener(_onChanged);
+    _code.addListener(_onChanged);
+  }
+
+  void _onChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onChanged);
+    _controller.dispose();
+    _phone.dispose();
+    _code.dispose();
+    super.dispose();
+  }
+
+  bool get _canLogin =>
+      _phone.text.trim().isNotEmpty &&
+      _code.text.trim().isNotEmpty &&
+      _controller.phase != CloudDriveLoginPhase.loading;
+
+  /// 短信档状态主行（按短信语义替换扫码档的 `phase.displayText`）。
+  String get _statusTitle => switch (_controller.phase) {
+        CloudDriveLoginPhase.idle => '输入手机号后获取验证码',
+        CloudDriveLoginPhase.success => '登录成功',
+        CloudDriveLoginPhase.failed => '登录失败',
+        CloudDriveLoginPhase.loading ||
+        CloudDriveLoginPhase.waitingScan ||
+        CloudDriveLoginPhase.scanned ||
+        CloudDriveLoginPhase.exchanging ||
+        CloudDriveLoginPhase.saving =>
+          _controller.message.isEmpty ? '等待中…' : _controller.message,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final CloudDriveLoginPhase phase = _controller.phase;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(VboxSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              LoginSheetHeader(title: '${widget.driveType.displayName} 授权'),
+              const SizedBox(height: VboxSpacing.lg),
+              Text(
+                '使用${widget.driveType.displayName}注册手机号接收验证码，登录成功后自动回收 Token。',
+                style: TextStyle(
+                  fontSize: VboxTypography.s12,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: VboxSpacing.lg),
+              _formCard(scheme),
+              const SizedBox(height: VboxSpacing.lg),
+              LoginStatusCard(
+                tone: phase.tone,
+                phase: phase,
+                title: _statusTitle,
+                message: '',
+                error: _controller.error,
+              ),
+              const SizedBox(height: VboxSpacing.lg),
+              LoginPrimaryButton(
+                label: _controller.primaryLabel,
+                enabled: _canLogin,
+                onTap: () => _controller.loginWithSms(_code.text),
+              ),
+              const SizedBox(height: VboxSpacing.lg),
+              LoginTipCard(
+                text: _controller.tipText,
+                tint: cloudDriveBrandColor(widget.driveType),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 手机号 + 验证码表单卡（对齐 iOS 分组底 + 圆角 12）。
+  Widget _formCard(ColorScheme scheme) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(VboxRadii.r12),
+      ),
+      child: Column(
+        children: <Widget>[
+          Row(
+            spacing: VboxSpacing.sm,
+            children: <Widget>[
+              Expanded(
+                child: LoginTextField(
+                  key: const ValueKey<String>('cloud_login_phone'),
+                  controller: _phone,
+                  hintText: '${widget.driveType.displayName}手机号',
+                  keyboardType: TextInputType.phone,
+                ),
+              ),
+              SizedBox(
+                width: 90,
+                height: 34,
+                child: LoginSecondaryButton(
+                  label: _controller.smsCooldownActive
+                      ? '${_controller.countdown}s'
+                      : '获取验证码',
+                  enabled: !_controller.smsCooldownActive &&
+                      _controller.phase != CloudDriveLoginPhase.loading,
+                  dense: true,
+                  onTap: () => _controller.sendSms(_phone.text),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          LoginTextField(
+            key: const ValueKey<String>('cloud_login_code'),
+            controller: _code,
+            hintText: '短信验证码',
+            keyboardType: TextInputType.number,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 账号密码登录 Sheet（对齐 iOS `NodePan123LoginView` / `NodeWoniu4kLoginView`）。
+class CloudDriveAccountLoginSheet extends StatefulWidget {
+  /// 构造。
+  const CloudDriveAccountLoginSheet({
+    super.key,
+    required this.driveType,
+    this.mode = CloudDriveLoginMode.nodeAccount,
+    this.gateway,
+  });
+
+  /// 目标网盘。
+  final CloudDriveType driveType;
+
+  /// 登录方式（账号类）。
+  final CloudDriveLoginMode mode;
+
+  /// 登录网关（测试注入；缺省「未接入」）。
+  final CloudDriveLoginGateway? gateway;
+
+  @override
+  State<CloudDriveAccountLoginSheet> createState() =>
+      _CloudDriveAccountLoginSheetState();
+}
+
+class _CloudDriveAccountLoginSheetState
+    extends State<CloudDriveAccountLoginSheet> {
+  late final CloudDriveLoginController _controller;
+  final TextEditingController _account = TextEditingController();
+  final TextEditingController _password = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = CloudDriveLoginController(
+      driveType: widget.driveType,
+      mode: widget.mode,
+      gateway: widget.gateway ?? const UnavailableCloudDriveLoginGateway(),
+    )..addListener(_onChanged);
+    _account.addListener(_onChanged);
+    _password.addListener(_onChanged);
+  }
+
+  void _onChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onChanged);
+    _controller.dispose();
+    _account.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  bool get _canLogin =>
+      _account.text.trim().isNotEmpty &&
+      _password.text.isNotEmpty &&
+      _controller.phase != CloudDriveLoginPhase.loading;
+
+  /// 账号档状态主行（按账号语义替换扫码档的 `phase.displayText`）。
+  String get _statusTitle => switch (_controller.phase) {
+        CloudDriveLoginPhase.idle => '输入账号密码登录',
+        CloudDriveLoginPhase.success => '登录成功',
+        CloudDriveLoginPhase.failed => '登录失败',
+        CloudDriveLoginPhase.loading ||
+        CloudDriveLoginPhase.waitingScan ||
+        CloudDriveLoginPhase.scanned ||
+        CloudDriveLoginPhase.exchanging ||
+        CloudDriveLoginPhase.saving =>
+          _controller.message.isEmpty ? '等待中…' : _controller.message,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final CloudDriveLoginPhase phase = _controller.phase;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(VboxSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              LoginSheetHeader(title: '${widget.driveType.displayName} 账号登录'),
+              const SizedBox(height: VboxSpacing.lg),
+              Text(
+                '使用${widget.driveType.displayName}账号密码登录，登录成功后自动回收凭据到授权中心。',
+                style: TextStyle(
+                  fontSize: VboxTypography.s12,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: VboxSpacing.lg),
+              _formCard(scheme),
+              const SizedBox(height: VboxSpacing.lg),
+              LoginStatusCard(
+                tone: phase.tone,
+                phase: phase,
+                title: _statusTitle,
+                message: '',
+                error: _controller.error,
+              ),
+              const SizedBox(height: VboxSpacing.lg),
+              LoginPrimaryButton(
+                label: phase == CloudDriveLoginPhase.loading ? '登录中…' : '登录并保存',
+                enabled: _canLogin,
+                onTap: () =>
+                    _controller.loginWithAccount(_account.text, _password.text),
+              ),
+              const SizedBox(height: VboxSpacing.lg),
+              LoginTipCard(
+                text: _controller.tipText,
+                tint: cloudDriveBrandColor(widget.driveType),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 账号 + 密码表单卡（对齐 iOS 分组底 + 圆角 12）。
+  Widget _formCard(ColorScheme scheme) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(VboxRadii.r12),
+      ),
+      child: Column(
+        spacing: 10,
+        children: <Widget>[
+          LoginTextField(
+            key: const ValueKey<String>('cloud_login_account'),
+            controller: _account,
+            hintText: '${widget.driveType.displayName}账号',
+          ),
+          LoginTextField(
+            key: const ValueKey<String>('cloud_login_password'),
+            controller: _password,
+            hintText: '${widget.driveType.displayName}密码',
+            obscureText: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 网页兜底凭据落盘回调（F-02 余项；测试注入替身，缺省写契约安全存储）。
+typedef CloudDriveWebCredentialSaver = Future<void> Function({
+  required CloudDriveType type,
+  required String secret,
+});
+
+/// 默认落盘：把网页登录回收到的 Token / Cookie 写入
+/// `cloud_drive_credentials_v1`（契约 `storage: keychain`）。
+///
+/// 对齐 iOS `CloudDriveAuthManager.saveWebViewCookie(type:cookie:)`：仅落凭据 +
+/// 标记 `valid`（是否真正可用仍由授权中心的 `isAuthorized` 复审，百度需
+/// BDUSS+STOKEN 齐全）。
+Future<void> saveWebCredentialToStore({
+  required CloudDriveType type,
+  required String secret,
+}) async {
+  final CloudDriveCredentialStore store =
+      CloudDriveCredentialStore(PrefsManager.instance);
+  final DateTime now = DateTime.now();
+  await store.save(
+    CloudDriveCredential(
+      driveType: type.id,
+      authType: CloudDriveAuthType.webView,
+      cookie: secret,
+      updatedAt: now,
+      lastCheckedAt: now,
+      state: CloudDriveAuthState.valid,
+    ),
+  );
+}
+
+/// 网页登录兜底 Sheet（批次 F · F-02 余项）。
+///
+/// 对齐 iOS `*LoginHelper`（`CloudDriveAuthManager.swift`）的网页登录页：
+/// ① 拉起官方登录页（[launchUrl] 系统浏览器）→ ② 用户完成登录 →
+/// ③ 粘贴回收到的 Cookie / Token → ④ 落安全存储并回授权中心。
+class CloudDriveWebLoginSheet extends StatefulWidget {
+  /// 构造。
+  const CloudDriveWebLoginSheet({
+    super.key,
+    required this.driveType,
+    this.saver,
+  });
+
+  /// 目标网盘。
+  final CloudDriveType driveType;
+
+  /// 凭据落盘回调（测试注入；缺省 [saveWebCredentialToStore]）。
+  final CloudDriveWebCredentialSaver? saver;
+
+  @override
+  State<CloudDriveWebLoginSheet> createState() =>
+      _CloudDriveWebLoginSheetState();
+}
+
+class _CloudDriveWebLoginSheetState extends State<CloudDriveWebLoginSheet> {
+  final TextEditingController _secret = TextEditingController();
+  bool _saving = false;
+  bool _saved = false;
+  String? _error;
+  String? _launchError;
+
+  @override
+  void initState() {
+    super.initState();
+    _secret.addListener(_onChanged);
+  }
+
+  void _onChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _secret.removeListener(_onChanged);
+    _secret.dispose();
+    super.dispose();
+  }
+
+  String? get _url => CloudDriveWebLogin.urlFor(widget.driveType);
+
+  bool get _canSave => _secret.text.trim().isNotEmpty && !_saving && !_saved;
+
+  /// 打开官方登录页（系统浏览器）。
+  Future<void> _openUrl() async {
+    final String? url = _url;
+    if (url == null) return;
+    bool launched = false;
+    try {
+      launched = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      launched = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _launchError = launched ? null : '无法拉起浏览器，请复制链接后手动打开';
+    });
+    if (!launched) {
+      VboxToast.show(context, '无法拉起浏览器，请复制登录链接');
+    }
+  }
+
+  /// 复制官方登录页地址（兜底：无法拉起浏览器时手动打开）。
+  Future<void> _copyUrl() async {
+    final String? url = _url;
+    if (url == null) return;
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) return;
+    VboxToast.show(context, '已复制登录链接');
+  }
+
+  /// 保存粘贴的 Token / Cookie 到安全存储（空凭据时主按钮禁用，不会进此分支）。
+  Future<void> _save() async {
+    final String secret = _secret.text.trim();
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await (widget.saver ?? saveWebCredentialToStore)(
+        type: widget.driveType,
+        secret: secret,
+      );
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _saved = true;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = '保存失败：$e';
+      });
+    }
+  }
+
+  CloudDriveLoginPhase get _phase {
+    if (_saved) return CloudDriveLoginPhase.success;
+    if (_saving) return CloudDriveLoginPhase.loading;
+    if (_error != null) return CloudDriveLoginPhase.failed;
+    return CloudDriveLoginPhase.idle;
+  }
+
+  String get _statusTitle {
+    if (_saved) return '已保存到授权中心';
+    if (_saving) return '正在保存凭据…';
+    if (_error != null) return '保存失败';
+    return '等待粘贴 Token / Cookie';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(VboxSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              LoginSheetHeader(title: '${widget.driveType.displayName} 网页登录兜底'),
+              const SizedBox(height: VboxSpacing.lg),
+              Text(
+                '在系统浏览器完成${widget.driveType.displayName}网页登录后，'
+                '把回收到的 Cookie / Token 粘贴到下方并保存。',
+                style: TextStyle(
+                  fontSize: VboxTypography.s12,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: VboxSpacing.lg),
+              _urlCard(scheme),
+              const SizedBox(height: VboxSpacing.lg),
+              _pasteCard(scheme),
+              const SizedBox(height: VboxSpacing.lg),
+              LoginStatusCard(
+                tone: _phase.tone,
+                phase: _phase,
+                title: _statusTitle,
+                message: '',
+                error: _error,
+              ),
+              const SizedBox(height: VboxSpacing.lg),
+              LoginPrimaryButton(
+                label: _saved ? '已保存' : (_saving ? '保存中…' : '保存并授权'),
+                enabled: _canSave,
+                onTap: _save,
+              ),
+              const SizedBox(height: VboxSpacing.lg),
+              LoginTipCard(
+                text: 'iOS 侧内嵌 WebView 可直接读取 HttpOnly Cookie；'
+                    'Flutter 端统一走「系统浏览器 + 粘贴」兜底，'
+                    '保存后凭据写入安全存储并即时出现在授权中心。',
+                tint: cloudDriveBrandColor(widget.driveType),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 官方登录页卡片（地址 + 复制链接 / 打开网页）。
+  Widget _urlCard(ColorScheme scheme) {
+    final String url = _url ?? '';
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(VboxRadii.r12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        spacing: 10,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(
+                Icons.language,
+                size: VboxTypography.s16,
+                color: scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: VboxSpacing.sm),
+              Expanded(
+                child: Text(
+                  url,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: VboxTypography.s13,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Row(
+            spacing: 10,
+            children: <Widget>[
+              Expanded(
+                child: LoginSecondaryButton(
+                  label: '复制链接',
+                  onTap: _copyUrl,
+                ),
+              ),
+              Expanded(
+                child: LoginSecondaryButton(
+                  label: '打开网页',
+                  enabled: _url != null,
+                  onTap: _openUrl,
+                ),
+              ),
+            ],
+          ),
+          if (_launchError != null)
+            Text(
+              _launchError!,
+              style: TextStyle(
+                fontSize: VboxTypography.s12,
+                color: scheme.error,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 粘贴卡（Cookie / Token 多行输入）。
+  Widget _pasteCard(ColorScheme scheme) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(VboxRadii.r12),
+      ),
+      child: LoginTextField(
+        key: const ValueKey<String>('cloud_login_web_secret'),
+        controller: _secret,
+        hintText: CloudDriveWebLogin.credentialHint(widget.driveType),
+        maxLines: 3,
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 共享子组件（对齐 iOS 各登录视图的公共行级结构）
+// ─────────────────────────────────────────────────────────────
+
+/// 登录 Sheet 顶栏（标题 + 关闭）。
+class LoginSheetHeader extends StatelessWidget {
+  /// 构造。
+  const LoginSheetHeader({super.key, required this.title});
+
+  /// 标题文案。
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(
+              fontSize: VboxTypography.s16,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+            ),
+          ),
+        ),
+        IconButton(
+          tooltip: '关闭',
+          onPressed: () => Navigator.of(context).maybePop(),
+          icon: Icon(
+            Icons.close,
+            size: VboxTypography.s18,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 登录状态卡（对齐 iOS `statusCard`：状态点 + 文案 + 已登录角标 + 错误行）。
+class LoginStatusCard extends StatelessWidget {
+  /// 构造。
+  const LoginStatusCard({
+    super.key,
+    required this.tone,
+    required this.phase,
+    required this.message,
+    this.error,
+    this.title,
+  });
+
+  /// 配色档。
+  final CloudDriveLoginTone tone;
+
+  /// 阶段。
+  final CloudDriveLoginPhase phase;
+
+  /// 状态说明。
+  final String message;
+
+  /// 错误文案（非空优先展示）。
+  final String? error;
+
+  /// 主行文案覆盖（短信档按自身语义替换 `phase.displayText`；缺省取阶段文案）。
+  final String? title;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final Color color = loginToneColor(scheme, tone);
+    final String? errorText = error;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: VboxSpacing.md,
+        vertical: 10,
+      ),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(VboxRadii.r10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: VboxSpacing.sm),
+              Expanded(
+                child: Text(
+                  title ?? phase.displayText,
+                  style: TextStyle(
+                    fontSize: VboxTypography.s14,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              ),
+              if (phase == CloudDriveLoginPhase.success)
+                _badge('已登录', VboxColors.success),
+            ],
+          ),
+          if (errorText != null) ...<Widget>[
+            const SizedBox(height: VboxSpacing.xs),
+            Text(
+              errorText,
+              style: TextStyle(
+                fontSize: VboxTypography.s12,
+                color: scheme.error,
+              ),
+            ),
+          ] else if (message.isNotEmpty &&
+              phase != CloudDriveLoginPhase.idle) ...<Widget>[
+            const SizedBox(height: VboxSpacing.xs),
+            Text(
+              message,
+              style: TextStyle(
+                fontSize: VboxTypography.s12,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _badge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.sm, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(VboxRadii.r8),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: VboxTypography.s12,
+          fontWeight: FontWeight.w500,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+/// 提示卡（对齐 iOS `tipCard`：品牌色 8% 底 + 圆角 14）。
+class LoginTipCard extends StatelessWidget {
+  /// 构造。
+  const LoginTipCard({super.key, required this.text, required this.tint});
+
+  /// 提示文案。
+  final String text;
+
+  /// 品牌主色（背景淡染）。
+  final Color tint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: tint.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(VboxRadii.r14),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: VboxTypography.s12,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+/// 主按钮（对齐 iOS 登录视图主按钮：满宽 + 主色 + 圆角 12）。
+class LoginPrimaryButton extends StatelessWidget {
+  /// 构造。
+  const LoginPrimaryButton({
+    super.key,
+    required this.label,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  /// 文案。
+  final String label;
+
+  /// 是否可用。
+  final bool enabled;
+
+  /// 点击回调。
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: double.infinity,
+      child: Material(
+        color: enabled
+            ? scheme.primary
+            : scheme.onSurface.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(VboxRadii.r12),
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(VboxRadii.r12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: VboxSpacing.md),
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: VboxTypography.s15,
+                  fontWeight: FontWeight.w600,
+                  color: enabled ? scheme.onPrimary : scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 次级按钮（取消 / 获取验证码；[dense] 用于表单内小号档）。
+class LoginSecondaryButton extends StatelessWidget {
+  /// 构造。
+  const LoginSecondaryButton({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.enabled = true,
+    this.dense = false,
+  });
+
+  /// 文案。
+  final String label;
+
+  /// 点击回调。
+  final VoidCallback onTap;
+
+  /// 是否可用。
+  final bool enabled;
+
+  /// 紧凑档（表单内 90×34）。
+  final bool dense;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final Color foreground =
+        enabled ? scheme.primary : scheme.onSurfaceVariant;
+    return SizedBox(
+      width: double.infinity,
+      height: dense ? null : 42,
+      child: Material(
+        color: foreground.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(VboxRadii.r8),
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(VboxRadii.r8),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: dense ? VboxTypography.s12 : VboxTypography.s14,
+                fontWeight: FontWeight.w500,
+                color: foreground,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 登录输入框（对齐 iOS `RoundedBorderTextFieldStyle` 的朴素样式）。
+class LoginTextField extends StatelessWidget {
+  /// 构造。
+  const LoginTextField({
+    super.key,
+    required this.controller,
+    required this.hintText,
+    this.keyboardType,
+    this.obscureText = false,
+    this.maxLines = 1,
+  });
+
+  /// 文本控制器。
+  final TextEditingController controller;
+
+  /// 占位提示。
+  final String hintText;
+
+  /// 键盘类型。
+  final TextInputType? keyboardType;
+
+  /// 是否密码框（对齐 iOS `SecureField`）。
+  final bool obscureText;
+
+  /// 最大行数（网页兜底粘贴 Cookie / Token 用多行）。
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      obscureText: obscureText,
+      maxLines: maxLines,
+      autocorrect: false,
+      enableSuggestions: false,
+      style: TextStyle(
+        fontSize: VboxTypography.s14,
+        color: scheme.onSurface,
+      ),
+      decoration: InputDecoration(
+        hintText: hintText,
+        hintStyle: TextStyle(
+          fontSize: VboxTypography.s14,
+          color: scheme.onSurfaceVariant,
+        ),
+        isDense: true,
+        filled: true,
+        fillColor: scheme.surface,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: VboxSpacing.md,
+          vertical: 10,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(VboxRadii.r8),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+}
+
+/// 登录配色档 → 令牌色（域层不持有色值，映射集中在表现层）。
+Color loginToneColor(ColorScheme scheme, CloudDriveLoginTone tone) =>
+    switch (tone) {
+      CloudDriveLoginTone.neutral => scheme.onSurfaceVariant,
+      CloudDriveLoginTone.busy => VboxColors.warning,
+      CloudDriveLoginTone.active => VboxColors.selected,
+      CloudDriveLoginTone.pending => VboxColors.pending,
+      CloudDriveLoginTone.ok => VboxColors.success,
+      CloudDriveLoginTone.error => scheme.error,
+    };
+
+/// 解析二维码 data URL（对齐 iOS `NodeLoginAPIClient.image(fromDataURL:)`）。
+Uint8List? _decodeQrDataUrl(String? dataUrl) {
+  if (dataUrl == null) return null;
+  String source = dataUrl.trim();
+  final int marker = source.indexOf('base64,');
+  if (marker >= 0) source = source.substring(marker + 7);
+  if (source.isEmpty) return null;
+  try {
+    return base64Decode(source);
+  } catch (_) {
+    return null;
+  }
+}

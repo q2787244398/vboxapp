@@ -5,29 +5,39 @@
 /// （9 普通 + 3 Node 托管）· 底部说明文案。
 ///
 /// 数据由 [CloudDriveAuthController] 提供（读契约安全存储
-/// `cloud_drive_credentials_v1`）。授权动作（扫码 / 短信 / 网页兜底）随
-/// F-02 授权链落地，本页先以回调外抛（缺省轻提示占位）。
+/// `cloud_drive_credentials_v1`）。授权动作（扫码 / 短信 / 账号 / 网页兜底）经
+/// [openCloudDriveLoginSheet] 打开对应登录 Sheet（F-02 全档），Sheet 关闭后
+/// 刷新卡片态。[onAction] 非空时优先外抛（供宿主接管与测试）。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
-import '../../widgets/vbox/vbox.dart';
 import 'cloud_drive_auth_controller.dart';
 import 'cloud_drive_widgets.dart';
+import 'login_gateway.dart';
+import 'login_sheet.dart';
 import 'sort.dart';
 
 /// 网盘账号授权中心页。
 class CloudDriveAuthCenterPage extends StatefulWidget {
-  /// 构造（[controller] 供测试注入；缺省自建并自管生命周期）。
-  const CloudDriveAuthCenterPage({super.key, this.controller, this.onAction});
+  /// 构造（[controller] / [loginGateway] 供测试注入；缺省自建并自管生命周期）。
+  const CloudDriveAuthCenterPage({
+    super.key,
+    this.controller,
+    this.onAction,
+    this.loginGateway,
+  });
 
   /// 外部注入的控制器（null → 页面自建）。
   final CloudDriveAuthController? controller;
 
-  /// 授权动作回调（null → 轻提示占位；F-02 接入登录链后由外部接管）。
+  /// 授权动作回调（非空 → 优先外抛，不打开内置登录 Sheet）。
   final void Function(CloudDriveAccount account, String action)? onAction;
+
+  /// 登录网关（null → 「未接入」网关；F-02 余项替换为真实实现）。
+  final CloudDriveLoginGateway? loginGateway;
 
   @override
   State<CloudDriveAuthCenterPage> createState() =>
@@ -52,13 +62,20 @@ class _CloudDriveAuthCenterPageState extends State<CloudDriveAuthCenterPage> {
     super.dispose();
   }
 
-  void _handleAction(CloudDriveAccount account, String action) {
+  Future<void> _handleAction(CloudDriveAccount account, String action) async {
     final void Function(CloudDriveAccount, String)? callback = widget.onAction;
     if (callback != null) {
       callback(account, action);
       return;
     }
-    VboxToast.show(context, '「$action」授权入口建设中');
+    await openCloudDriveLoginSheet(
+      context,
+      type: account.type,
+      action: action,
+      gateway: widget.loginGateway,
+    );
+    // 登录 / 网页兜底保存后刷新卡片态（凭据可能已被写入安全存储）。
+    await _controller.load();
   }
 
   @override

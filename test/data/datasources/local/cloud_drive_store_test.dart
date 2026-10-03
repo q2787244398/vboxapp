@@ -212,7 +212,7 @@ void main() {
       await credStore.save(_cred(CloudDriveType.baidu, cookie: 'BDUSS=secret'));
       final SharedPreferences raw = await SharedPreferences.getInstance();
       expect(raw.getString(CloudDriveCredentialStore.storageKey), isNull);
-      final FlutterSecureStorage secure = const FlutterSecureStorage();
+      const FlutterSecureStorage secure = FlutterSecureStorage();
       expect(
         await secure.read(key: CloudDriveCredentialStore.storageKey),
         contains('BDUSS=secret'),

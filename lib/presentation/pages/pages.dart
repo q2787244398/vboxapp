@@ -3,6 +3,8 @@ library;
 
 export 'category/category_page.dart';
 export 'cloud/auth_center.dart';
+export 'cloud/login_gateway.dart';
+export 'cloud/login_sheet.dart';
 export 'cloud/sort.dart';
 export 'douban/douban_category_page.dart';
 export 'douban/douban_home_page.dart';
