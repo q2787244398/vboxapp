@@ -3,6 +3,7 @@ library;
 
 export 'category/category_page.dart';
 export 'cloud/auth_center.dart';
+export 'cloud/files.dart';
 export 'cloud/login_gateway.dart';
 export 'cloud/login_sheet.dart';
 export 'cloud/sort.dart';

@@ -120,7 +120,10 @@ DEAD_DOCS = ("PROJECT_LAYOUT.md", "PROGRESS.md", "KNOWN_GAPS.md")
 # v6.39：追加 v6.38 —— 本轮把文件名升到 v6.39（批次 D 收口 + 批次 E 全交付 + 批次 F 首段网盘），v6.38 成为旧名，纳入防回流。
 # v6.40：追加 v6.39 —— 本轮把文件名升到 v6.40（批次 F 第二段 · F-02 登录模式首段），v6.39 成为旧名，纳入防回流。
 # v6.41：追加 v6.40 —— 本轮把文件名升到 v6.41（批次 F 第三段 · F-02 收官 + F-03 Node 凭据同步），v6.40 成为旧名，纳入防回流。
-DEAD_DOCS += ("VBOX_PLAN_v6.40.md", "VBOX_PLAN_v6.39.md", "VBOX_PLAN_v6.38.md", "VBOX_PLAN_v6.34.md", "VBOX_PLAN_v6.33.md", "VBOX_PLAN_v6.32.md", "VBOX_PLAN_v6.31.md", "VBOX_PLAN_v6.30.md", "VBOX_PLAN_v6.29.md", "VBOX_PLAN_v6.28.md", "VBOX_PLAN_v6.27.md", "VBOX_PLAN_v6.26.md", "VBOX_PLAN_v6.25.md", "VBOX_PLAN_v6.24.md", "VBOX_PLAN_v6.23.md", "VBOX_PLAN_v6.22.md", "VBOX_PLAN_v6.21.md", "VBOX_PLAN_v6.20.md", "VBOX_PLAN_v6.19.md", "VBOX_PLAN_v6.18.md", "VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
+# v6.42：追加 v6.41 —— 本轮把文件名升到 v6.42（批次 F 第四段 · F-04 阿里 extscreen 加密链路），v6.41 成为旧名，纳入防回流。
+# v6.43：追加 v6.42 —— 本轮把文件名升到 v6.43（批次 F 第五段 · F-05 B站扫码 + 百度专用代理），v6.42 成为旧名，纳入防回流。
+# v6.44：追加 v6.43 —— 本轮把文件名升到 v6.44（批次 F 第六段 · F-07 文件列表 / 转存 / 清理队列），v6.43 成为旧名，纳入防回流。
+DEAD_DOCS += ("VBOX_PLAN_v6.43.md", "VBOX_PLAN_v6.42.md", "VBOX_PLAN_v6.41.md", "VBOX_PLAN_v6.40.md", "VBOX_PLAN_v6.39.md", "VBOX_PLAN_v6.38.md", "VBOX_PLAN_v6.34.md", "VBOX_PLAN_v6.33.md", "VBOX_PLAN_v6.32.md", "VBOX_PLAN_v6.31.md", "VBOX_PLAN_v6.30.md", "VBOX_PLAN_v6.29.md", "VBOX_PLAN_v6.28.md", "VBOX_PLAN_v6.27.md", "VBOX_PLAN_v6.26.md", "VBOX_PLAN_v6.25.md", "VBOX_PLAN_v6.24.md", "VBOX_PLAN_v6.23.md", "VBOX_PLAN_v6.22.md", "VBOX_PLAN_v6.21.md", "VBOX_PLAN_v6.20.md", "VBOX_PLAN_v6.19.md", "VBOX_PLAN_v6.18.md", "VBOX_PLAN_v6.17.md", "VBOX_PLAN_v6.16.md", "VBOX_PLAN_v6.15.md", "VBOX_PLAN_v6.14.md", "VBOX_PLAN_v6.13.md", "VBOX_PLAN_v6.12.md", "VBOX_PLAN_v6.11.md", "VBOX_PLAN_v6.10.md", "VBOX_PLAN_v6.9.md", "VBOX_PLAN_v6.md", "VBOX_PLAN_v5.md")
 
 # v6.27 新增：规则 10 —— 捕获任意「引用 docs/ 下已不存在的 .md」的残留
 # （DEAD_DOCS 只按字面量匹配主方案旧名；检查报告等文档改名后引用同样会失效）

@@ -5,5 +5,6 @@ export 'aliyun_extscreen.dart';
 export 'baidu_proxy.dart';
 export 'bili_auth.dart';
 export 'cloud_drive.dart';
+export 'cloud_drive_files.dart';
 export 'cloud_drive_login.dart';
 export 'node_credential_sync.dart';
