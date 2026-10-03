@@ -17,6 +17,8 @@
 /// 配置先行扩展；仅校验上述必需结构，避免旧客户端因新增字段而整包拒收。
 library;
 
+import 'welfare_service_type.dart';
+
 /// 福利平台分类（对齐契约 `categories[].key` 枚举）。
 enum WelfarePlatformCategory {
   /// 视频。
@@ -55,6 +57,7 @@ class WelfarePlatform {
     this.icon,
     this.desc = '',
     this.serviceType = '',
+    this.scriptType,
     this.defaultHosts = const <String>[],
     this.sortOrder = 0,
     this.defaultProxy = false,
@@ -79,6 +82,12 @@ class WelfarePlatform {
   /// 客户端 Service 实现类型（`ybox_special` / `welfare_spider` …，路由分发用，H-02）。
   final String serviceType;
 
+  /// 福利专区专用脚本类型（契约枚举 `python` / `javascript`，H-02 路由判定用）。
+  ///
+  /// 仅 `serviceType == welfare_spider` 时有业务含义：`javascript` 走 JS 引擎页，
+  /// 其余走脚本状态页（对齐 iOS `makeWelfareSpiderDestination`）。
+  final String? scriptType;
+
   /// 默认域名列表（按顺序回退探测）。
   final List<String> defaultHosts;
 
@@ -90,6 +99,17 @@ class WelfarePlatform {
 
   /// 备注（仅说明用途）。
   final String? notes;
+
+  /// 路由服务类型（由 [serviceType] 解析，未知回退 [WelfareServiceType.unknown]）。
+  WelfareServiceType get service => WelfareServiceType.fromRaw(serviceType);
+
+  /// 是否为福利专区 JS Spider（`welfare_spider` + `scriptType == javascript`）。
+  bool get isJavaScriptSpider =>
+      serviceType.trim() == WelfareServiceType.welfareSpider.raw &&
+      (scriptType ?? '').trim().toLowerCase() == 'javascript';
+
+  /// 首个默认域名（兜底显示 / 探测起点）。
+  String get primaryHost => defaultHosts.isEmpty ? '' : defaultHosts.first;
 
   /// 解析单项（缺必需字段返回 `null`）。
   static WelfarePlatform? tryParse(Object? raw) {
@@ -107,6 +127,7 @@ class WelfarePlatform {
     final Object? icon = j['icon'];
     final Object? desc = j['desc'];
     final Object? serviceType = j['serviceType'];
+    final Object? scriptType = j['scriptType'];
     final Object? notes = j['notes'];
     final Object? defaultProxy = j['defaultProxy'];
     final Object? sortOrder = j['sortOrder'];
@@ -120,6 +141,8 @@ class WelfarePlatform {
       }
     }
 
+    final String scriptTypeValue = (scriptType ?? '').toString().trim();
+
     return WelfarePlatform(
       platformKey: platformKey,
       name: name,
@@ -127,6 +150,7 @@ class WelfarePlatform {
       icon: icon?.toString(),
       desc: (desc ?? '').toString(),
       serviceType: (serviceType ?? '').toString(),
+      scriptType: scriptTypeValue.isEmpty ? null : scriptTypeValue,
       defaultHosts: hosts,
       sortOrder: sortOrder is num ? sortOrder.toInt() : 0,
       defaultProxy: defaultProxy is bool ? defaultProxy : false,
@@ -142,6 +166,7 @@ class WelfarePlatform {
         if (icon != null) 'icon': icon,
         if (desc.isNotEmpty) 'desc': desc,
         if (serviceType.isNotEmpty) 'serviceType': serviceType,
+        if (scriptType != null) 'scriptType': scriptType,
         if (defaultHosts.isNotEmpty) 'defaultHosts': defaultHosts,
         'sortOrder': sortOrder,
         'defaultProxy': defaultProxy,

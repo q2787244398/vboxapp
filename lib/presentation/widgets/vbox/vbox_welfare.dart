@@ -143,6 +143,7 @@ class VboxWelfarePlatform {
   const VboxWelfarePlatform({
     required this.name,
     required this.icon,
+    this.platformKey,
     this.gradient,
   });
 
@@ -151,6 +152,9 @@ class VboxWelfarePlatform {
 
   /// 平台图标。
   final IconData icon;
+
+  /// 平台唯一键（路由回查用；`null` 时仅作纯展示）。
+  final String? platformKey;
 
   /// 渐变色（`null` → 由 [name] 稳定哈希取 [VboxColors.welfarePlatformPalette]）。
   final List<Color>? gradient;

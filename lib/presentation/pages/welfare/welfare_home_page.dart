@@ -13,7 +13,8 @@
 ///   · iOS 平台图标为 SF Symbol（`platform.icon`），Flutter 无法渲染 → 按
 ///     [welfarePlatformIcon] 映射 Material 近似图标，未知符号回退 `apps`；
 ///   · 长按进入**编辑排序**（拖拽 + 边缘自动滚动 + 震动）未在本批实现，
-///     随 H-07 排序持久化一并接入；本页点击平台暂只提示（平台路由属 H-02）。
+///     随 H-07 排序持久化一并接入；本页点击平台经 [WelfarePlatformRouter]
+///     路由（H-02）：未支持 → [UnsupportedPlatformPage]，其余提示目标页面族。
 library;
 
 import 'package:flutter/material.dart';
@@ -22,8 +23,10 @@ import 'package:provider/provider.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../welfare/welfare_platform_controller.dart';
+import '../../welfare/welfare_platform_router.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../../../domain/entities/welfare/welfare.dart';
+import 'unsupported_platform_page.dart';
 
 /// 福利专区首页（远程源版，三栏目 + 平台网格）。
 class WelfareHomePage extends StatefulWidget {
@@ -37,6 +40,9 @@ class WelfareHomePage extends StatefulWidget {
 class _WelfareHomePageState extends State<WelfareHomePage> {
   /// 当前栏目（默认「视频」，对齐 iOS `selectedTab = .video`）。
   VboxWelfareCategory _tab = VboxWelfareCategory.video;
+
+  /// 平台路由分发器（H-02）。
+  final WelfarePlatformRouter _router = WelfarePlatformRouter();
 
   @override
   void initState() {
@@ -91,6 +97,9 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
     List<WelfarePlatform> platforms,
   ) {
     if (platforms.isNotEmpty) {
+      final Map<String, WelfarePlatform> byKey = <String, WelfarePlatform>{
+        for (final WelfarePlatform p in platforms) p.platformKey: p,
+      };
       return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(
           VboxSpacing.lg,
@@ -103,10 +112,13 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
               .map((WelfarePlatform p) => VboxWelfarePlatform(
                     name: p.name,
                     icon: welfarePlatformIcon(p.icon),
+                    platformKey: p.platformKey,
                   ))
               .toList(growable: false),
-          onTap: (VboxWelfarePlatform p) =>
-              VboxToast.show(context, '「${p.name}」平台路由待 H-02 接入'),
+          onTap: (VboxWelfarePlatform p) {
+            final WelfarePlatform? target = byKey[p.platformKey];
+            if (target != null) _onPlatformTap(target);
+          },
         ),
       );
     }
@@ -148,6 +160,26 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
         ),
       ),
     );
+  }
+
+  /// 按 [WelfarePlatformRouter] 解析并跳转（H-02）。
+  ///
+  /// 未支持（`unknown` / `fuli_base` 未注册）→ [UnsupportedPlatformPage]；
+  /// 其余目标页面随「福利原生平台 / H-03 Spider」批次落地，当前先提示目标页面族。
+  void _onPlatformTap(WelfarePlatform platform) {
+    final WelfareRoute route = _router.resolve(platform);
+    if (route is WelfareUnsupportedRoute) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) => UnsupportedPlatformPage(
+            platform: platform,
+            reason: route.reason,
+          ),
+        ),
+      );
+      return;
+    }
+    VboxToast.show(context, '「${platform.name}」路由至 ${route.destinationLabel}');
   }
 }
 

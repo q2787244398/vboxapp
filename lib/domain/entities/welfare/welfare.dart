@@ -5,3 +5,4 @@
 library;
 
 export 'welfare_platform_config.dart';
+export 'welfare_service_type.dart';

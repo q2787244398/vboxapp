@@ -102,4 +102,40 @@ void main() {
     expect(find.text('fake 未配置福利平台数据'), findsOneWidget);
     expect(find.text('重试'), findsOneWidget);
   });
+
+  testWidgets('点击未支持平台（缺 serviceType）→ 进入未支持平台页', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      _page(controllerWith(config: buildWelfarePlatformConfig())),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('平台甲'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('该平台暂不可用'), findsOneWidget);
+  });
+
+  testWidgets('点击已支持平台（kanliao）→ 提示目标页面族', (WidgetTester tester) async {
+    const WelfarePlatformConfig config = WelfarePlatformConfig(
+      meta: <String, Object?>{'version': 'x'},
+      platforms: <WelfarePlatform>[
+        WelfarePlatform(
+          platformKey: 'kanliao-1',
+          name: '今日看料',
+          category: WelfarePlatformCategory.video,
+          serviceType: 'kanliao',
+        ),
+      ],
+    );
+    await tester.pumpWidget(_page(controllerWith(config: config)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('今日看料'));
+    await tester.pump();
+
+    expect(find.text('「今日看料」路由至 今日看料页'), findsOneWidget);
+
+    // 走完 Toast 计时器，避免测试结束时残留 pending timer。
+    await tester.pump(const Duration(seconds: 3));
+  });
 }
