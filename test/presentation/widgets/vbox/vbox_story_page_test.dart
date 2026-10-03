@@ -37,9 +37,11 @@ void main() {
     expect(find.byType(VboxPosterCard), findsNWidgets(3));
     expect(find.byType(VboxBottomNav), findsOneWidget);
     expect(find.byType(VboxNavRail), findsOneWidget);
+    // A4：开关两态 + 禁用对照（共 3 个）。
+    expect(find.byType(Switch), findsNWidgets(3));
   });
 
-  testWidgets('区块标题齐全（9 区）', (WidgetTester tester) async {
+  testWidgets('区块标题齐全（10 区）', (WidgetTester tester) async {
     await _pumpFull(tester);
     const List<String> sections = <String>[
       '品牌（A-13）',
@@ -49,7 +51,8 @@ void main() {
       '区块标题 SectionHeader',
       '源角标 SourceBadge',
       '海报卡 PosterCard',
-      '导航 BottomNav / NavRail',
+      '导航 BottomNav（Rail 已弃用 · A8）',
+      '开关 Switch（A4）',
       '浮层 Dialog / Toast',
     ];
     for (final String s in sections) {

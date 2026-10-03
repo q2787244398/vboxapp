@@ -255,6 +255,8 @@ class _RootRouter extends StatelessWidget {
       theme: VboxTheme.build(skin: skin.skin, brightness: Brightness.light),
       darkTheme: VboxTheme.build(skin: skin.skin, brightness: Brightness.dark),
       themeMode: themeMode,
+      // A5：全端统一 iOS 回弹滚动（BouncingScrollPhysics + 无辉光过卷）。
+      scrollBehavior: const VboxScrollBehavior(),
       home: const HomeShellPage(),
     );
   }

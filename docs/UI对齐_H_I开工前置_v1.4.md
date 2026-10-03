@@ -1,6 +1,6 @@
 # vbox · H / I 批次开工前置 UI 对齐清单
 
-> **版本**：v1.3 · 2026-10-03（v1.3 递增：**A8 / A9 / I-01 / H-05 四项已交付并验证**，新增 §6 交付回执；含 5 Tab 金色基线）
+> **版本**：v1.4 · 2026-10-03（v1.4 递增：**A2~A7 主题层收口已交付并验证** —— 全端 iOS 推入转场 / 去涟漪 / iOS 配色开关 / Bouncing 回弹 / 卡片审计 / UI 令牌守卫接入 CI；Story 页补开关两态并更新金色基线）
 > **定位**：**表现层开工前置清单**，与 [UI对齐基准_v1.0.md](UI对齐基准_v1.0.md) 平行存在、互不覆盖。
 > **不变式**：本文件**不回溯修改** D1（契约共享）/ D3（统一 UI + 横竖双形态）/ D5（形态判定）—— 三者保持原样；仅把「H / I 批次开工前必须先做完的事」固化为可核对清单。**唯一例外**：§1.5(1) 记录了一项**用户新决策**（全端统一底栏），该决策**须另行登记**到计划 §3.3，本文件仅如实记录其连带影响。
 > **依据（实际核对）**：
@@ -33,6 +33,8 @@
 > **v1.2 决策（用户决策 · 待登记）**：**全端（Android / Android TV / Windows / macOS）统一使用「底部悬浮胶囊 TabBar」**，不做左侧 NavigationRail、不做顶栏 Tab；检测到 TV / 桌面时**仅自适应尺寸、宽度与内容列数**。据此，样式基准 07/08 两张图与计划 §3.3「横屏 → 左侧 Rail」口径**作废或需重出**（详见 §1.5(1)）。
 >
 > **v1.3 回执（本批次交付 · 2026-10-03）**：**A8 / A9 / I-01 / H-05 四项已完成并本地验证通过**（`flutter analyze` 0 issue · `flutter test` 全绿 · 契约/令牌守卫全绿 · conformance 全绿），并补出 **5 Tab 态金色基线**。差距 D1 / D12~D18 关闭，口径 R-6 / R-9~R-13 已可自动核对；剩余 A1~A7 / B / C / H-06·H-07 / I-02~I-05 仍待办（详见 §6）。
+>
+> **v1.4 回执（本批次交付 · 2026-10-03）**：**A2~A7 主题层收口已完成并本地验证通过**（`flutter analyze` 0 issue · `flutter test` **1528 用例全绿** · 11/11 契约脚本全绿 · conformance 全绿）。差距 **D2 / D3 / D4 / D5 关闭**；A6 审计结论「**无页面级手写卡片**」；**A7 已把 `check_ui_tokens` 接入 CI**（contract-checks 由 10 项 → 11 项），机制 C 的「令牌守卫实效」缺口由此闭合。A 批次 **9 项全部完成**（A1 随 A8 落地、A8/A9 随 v1.3 落地）。剩余 B1·B3~B6 / C1~C5 / H-06·H-07 / I-02~I-05 仍待办（详见 §7）。
 
 ---
 
@@ -274,7 +276,7 @@
 
 ### 2.2 未对齐 ❌（本清单要解决的）
 
-> **v1.3 状态**：本表 **D1 · D12~D18 已关闭**（A8/A9 交付，见 §6 回执）；D2~D5（转场/涟漪/Switch/回弹）与 D8~D11（设置行/皮肤四选/登录弹窗/福利分段）**仍待办**。下表保留 v1.2 时的**开工前现状**，供回溯。
+> **v1.4 状态**：本表 **D1~D5 · D7 · D12~D18 已关闭** —— D1 / D12~D18 随 v1.3（A8/A9）关闭；**D2~D5 随 v1.4（A2~A5 主题层收口）关闭**；**D7（3×3 宫格）随 v1.3 的 I-01 / B2 关闭**。仅 **D6 · D8~D11** 待办（渐变头部卡 / 设置行 / 皮肤四选 / 登录弹窗 / 福利分段 + 网格）。下表保留 v1.2 时的**开工前现状**，供回溯。
 
 | # | 还原点（§1.3） | Flutter 现状 | 差距 |
 |---|---|---|---|
@@ -303,7 +305,7 @@
 
 ### 3.1 A · 全局观感对齐（改主题层，一次生效）
 
-> **v1.3 状态**：**A8 / A9 已交付**（含 4 Tab + 5 Tab 金色基线）；**A1~A7 待办**（A1 的悬浮胶囊形态已随 A8 落地，A2~A5 主题项与 A6/A7 自查项仍待做）。
+> **v1.4 状态**：**A 批次 9 项全部完成** —— A1（悬浮胶囊形态）随 A8 落地；A8 / A9 随 v1.3 落地；**A2 / A3 / A4 / A5（主题层收口）· A6（卡片审计）· A7（UI 守卫接入 CI）随 v1.4 落地**。A2~A5 统一收口于 [`vbox_theme.dart`](../lib/presentation/theme/vbox_theme.dart)（含 `VboxScrollBehavior`），改一处即全端生效。
 
 | # | 动作 | 目标 | 影响面 | 验收 |
 |---|---|---|---|---|
@@ -403,11 +405,13 @@
 
 ---
 
-## 6. v1.3 交付回执（本批次 · 2026-10-03）
+## 6. 交付回执
 
-> 本批次对 **A8 / A9 / I-01 / H-05** 四项做「代码 + 测试 + 金色基线」三合一交付。以下为**已核对**的落地证据（本地实跑）。
+> 按批次累积：**v1.3 批（A8 / A9 / I-01 / H-05）** 见 §6.1~§6.4；**v1.4 批（A2~A7 主题层收口）** 见 §7。
 
-### 6.1 交付明细
+### 6.1 v1.3 · 交付明细（A8 / A9 / I-01 / H-05）
+
+> 对上述四项做「代码 + 测试 + 金色基线」三合一交付。以下为**已核对**的落地证据（本地实跑）。
 
 | 前置/条目 | 状态 | 落地文件 | 核对证据 |
 |---|---|---|---|
@@ -417,32 +421,76 @@
 | **I-01** 个人中心 | ✅ 已交付 | [profile_page.dart](../lib/presentation/pages/profile/profile_page.dart)（顶栏双主色图标 + 居中 Logo/账号 + 观看记录**红竖条分区头** + **3×3 宫格** + 「更多工具」）· 组件 [vbox_quick_grid.dart](../lib/presentation/widgets/vbox/vbox_quick_grid.dart)（对应 B2） | 宫格第 1 项「福利专区」入口 → H-05；**注**：图10 头部为居中 Logo（非渐变卡），故 **D6/B1 主色渐变头部卡仍待办**（供 I-03 设置页/后续页复用） |
 | **H-05** 福利专区两阶段弹窗 | ✅ 已交付 | [welfare_sheet.dart](../lib/presentation/pages/profile/welfare_sheet.dart)（未解锁 = 密码框 + 「确认解锁」；已解锁 = 启用开关 + 密码掩码行 + 「完成」） | Golden + 单测 |
 
-### 6.2 金色基线（4 Tab 态 + 5 Tab 态）
+### 6.2 v1.3 · 金色基线（4 Tab 态 + 5 Tab 态）
 
 | 基线 | 态 | 文件 |
 |---|---|---|
-| `home_portrait` | 4 Tab（默认：福利未解锁） | [test/golden/goldens/home_portrait.png](../test/golden/goldens/home_portrait.png) |
-| `home_landscape` | 4 Tab（横屏 → 仍为悬浮胶囊底栏，无 Rail） | [test/golden/goldens/home_landscape.png](../test/golden/goldens/home_landscape.png) |
-| **`home_welfare_portrait`** | **5 Tab（福利已解锁，index 3 插入）** | [test/golden/goldens/home_welfare_portrait.png](../test/golden/goldens/home_welfare_portrait.png) |
+| `home_portrait` | 4 Tab（默认：福利未解锁） | [home_portrait.png](../test/golden/goldens/home_portrait.png) |
+| `home_landscape` | 4 Tab（横屏 → 仍为悬浮胶囊底栏，无 Rail） | [home_landscape.png](../test/golden/goldens/home_landscape.png) |
+| **`home_welfare_portrait`** | **5 Tab（福利已解锁，index 3 插入）** | [home_welfare_portrait.png](../test/golden/goldens/home_welfare_portrait.png) |
 
-### 6.3 验证结果
+### 6.3 v1.3 · 验证结果
 
 | 门禁 | 命令 | 结果 |
 |---|---|---|
 | 静态分析 | `flutter analyze`（Flutter 3.47.5，CI 锁定版） | **0 issue** |
 | 全部测试 | `flutter test` | **全绿（1524 用例）** |
 | 覆盖率门禁 | `flutter test --coverage` + `check_coverage.py` | **全 lib 口径 77.7% ≥ 70%，达标** |
-| 契约/一致性脚本 | `check_contract_sync` / `_completeness` / `_migration_chain` / `_models_roundtrip` / `_prefs_manager` / `_backup_contract` / `_spider_domain` / `_domain_remote_player` / `_docs_consistency` / `_dart_imports`（= CI contract-checks 全 10 项） | **全绿（10/10）** |
-| UI 令牌守卫 | `check_ui_tokens.py`（**注：尚未接入 CI**，见 A7） | **全绿** |
+| 契约/一致性脚本 | CI contract-checks 全 10 项 | **全绿（10/10）** |
+| UI 令牌守卫 | `check_ui_tokens.py` | **全绿**（v1.4 起已接入 CI，见 §7） |
 | 一致性用例 | `conformance/runner/run_conformance.py` | **全绿** |
 
-### 6.4 遗留（本批次未覆盖，按 §3.5 顺序继续）
+### 6.4 v1.3 · 遗留（当时）
 
-- **A1~A7**：A1 悬浮胶囊形态已随 A8 落地；A2 转场 / A3 涟漪 / A4 Switch 主题 / A5 回弹 / A6 卡片自查 / A7 CI 守卫确认 —— **待办**。
-- **B1~B6**：**B2 宫格**已随 I-01 落地；**B1 主色渐变头部卡（图10 实测为居中 Logo，未使用）/ B3 设置行 / B4 皮肤四选 / B5 登录弹窗 / B6 福利分段+网格** —— **待办**（H-06/H-07 / I-02~I-05 阻塞项）。
+- ~~A1~A7~~ → **已在 v1.4 全部完成**（A1 随 A8；A2~A7 随 v1.4，见 §7）。
+- **B1~B6**：**B2 宫格**已随 I-01 落地；**B1 主色渐变头部卡（图10 实测为居中 Logo，未使用）/ B3 设置行 / B4 皮肤四选 / B5 登录弹窗 / B6 福利分段 + 网格** —— **待办**（H-06/H-07 / I-02~I-05 阻塞项）。
 - **C1~C5**：SSIM 接 CI（C1）、H/I 页面族 Golden（C2）、福利视频/漫画基准（C3）、R-5 登记（C4）、UI 对齐基准升 v1.1（C5）—— **待办**。
 - **H-06 / H-07 / I-02~I-05**：**待办**。
 - **§5-2（SSIM 门禁未接 CI）· §5-11（TV 遥控可达性）**：**风险仍在**，须在开 H/I 前处置。
+
+---
+
+## 7. v1.4 交付回执（A2~A7 主题层收口 · 2026-10-03）
+
+> 本批次**全部落在主题层 / 机制层**，不改任何页面结构；因此**既有首页 4 张金色基线字节不变**，仅 Story 页因新增开关段而更新。
+
+### 7.1 交付明细
+
+| 前置 | 状态 | 落地 | 核对证据 |
+|---|---|---|---|
+| **A2** 页面转场 | ✅ | [vbox_theme.dart](../lib/presentation/theme/vbox_theme.dart) `pageTransitionsTheme`：`TargetPlatform` 全 6 项 → `CupertinoPageTransitionsBuilder` | 单测：遍历 `TargetPlatform.values` 断言均为 Cupertino |
+| **A3** 去涟漪 | ✅ | 同上 `splashFactory: NoSplash.splashFactory`（按下高亮保留，对齐 iOS「无扩散波纹」） | 单测：`theme.splashFactory == NoSplash.splashFactory` |
+| **A4** 开关主题 | ✅ | 同上 `switchTheme`：滑块恒白 / 选中轨道 = 皮肤主色 / 未选中 = `systemGray4` / 描边透明 | 单测：4 皮肤 × 2 亮度共 8 组断言（R-1 口径）；Story 页补开关两态 |
+| **A5** 滚动回弹 | ✅ | 同上新增 `VboxScrollBehavior`（`BouncingScrollPhysics` + 抑制 `GlowingOverscrollIndicator`）；[app.dart](../lib/app.dart) 经 `MaterialApp.scrollBehavior` 接入 | 单测：物理类型 + `buildOverscrollIndicator` 原样返回 child |
+| **A6** 卡片审计 | ✅ | 全 `lib/presentation` 检索 `boxShadow`（共 4 处）与 `BoxDecoration`：**未发现页面级手写卡片**（R-8 无违规）；2 处非卡片手写阴影登记为观察项（见 §7.3） | 检索结论 + §7.3 |
+| **A7** UI 守卫接入 CI | ✅ | [flutter-check.yml](../.github/workflows/flutter-check.yml) contract-checks **10 项 → 11 项**（新增 `check_ui_tokens`），job 名与文件头注释同步 | 本地守卫全绿 + `--selftest` 负向自测全通过；CI 生效 |
+
+### 7.2 验证结果（本地实跑）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 静态分析 | `flutter analyze` | **0 issue** |
+| 全部测试 | `flutter test` | **全绿（1528 用例，较 v1.3 +4）** |
+| 契约/一致性脚本 | 11 项（含新增 `check_ui_tokens`） | **全绿（11/11）** |
+| UI 令牌守卫 | `check_ui_tokens.py`（扫描 264 文件）+ `--selftest` | **全绿**（R-2 / R-3 / R-4 负向自测全通过） |
+| 金色基线 | `flutter test test/golden --update-goldens` 后比对 | 仅 `story_page.png` 变化；**首页 4 张字节不变** |
+
+### 7.3 A6 审计明细（观察项 · 不阻塞）
+
+| 位置 | 写法 | 判定 |
+|---|---|---|
+| [login_sheet.dart](../lib/presentation/pages/cloud/login_sheet.dart#L197-L207) 二维码卡 | 手写 `BoxShadow`（blur 12 / offset (0,6) / 8%） | 非通用卡片（对齐 iOS `qrCard` 专用）；圆角已走 `VboxRadii.r16`；**阴影未走 `VboxShadows`** → 观察项 |
+| [mini_player.dart](../lib/presentation/widgets/music/mini_player.dart#L228-L238) 迷你播放器浮层 | 手写 `BoxShadow`；折叠态圆角 `22`（条件表达式，未触发 R-2 守卫） | 浮层非卡片；折叠态 `22` 属「胶囊」语义 → 观察项 |
+| 其余各处 `BoxDecoration` | 渐变蒙层 / 圆形页码点 / 聚焦环 / 分隔线 | 非卡片，**合规** |
+
+> 处置：两项观察项均位于**既有已交付页面**（批次 F / G），改动会牵动既有视觉，按 R-5 须走登记流程；本批次**仅登记不改**。
+
+### 7.4 v1.4 遗留（按 §3.5 顺序继续）
+
+- **B1 · B3~B6**：渐变头部卡 / 设置行（`SettingsSection` + `SettingsRow`）/ 皮肤四选 / 登录弹窗 / 福利分段 + 平台网格 —— **待办**（H-06 / H-07 / I-02~I-05 阻塞项）。
+- **C1~C5**：SSIM 接 CI（C1）· H/I 页面族 Golden（C2）· 福利视频/漫画基准（C3）· R-5 登记（C4）· UI 对齐基准升 v1.1（C5）—— **待办**。
+- **H-06 / H-07 / I-02~I-05**：**待办**。
+- **§5-2（SSIM 门禁仍未接 CI）· §5-11（TV 遥控可达性）**：**风险仍在**，须在开 H/I 前处置。
 
 ---
 
@@ -454,3 +502,4 @@
 > | v1.1 | 2026-10-03 | **新增两个结构性缺口专项（§1.4）**：① 首页默认内容应为豆瓣（iOS 实测为「豆瓣推荐」首页，Flutter 为纯站点驱动且无源即报错）→ 差距 D12 / 前置 A9 / 口径 R-11；② 底栏应为 5 Tab 且「福利」显隐由个人中心福利设置以 `welfareEnabled && welfareUnlocked` 双条件控制，并需 key 驱动以支持动态增删 → 差距 D13~D15 / 前置 A8 / 口径 R-9、R-10；补 §5-6~§5-9 四条风险 |
 > | v1.2 | 2026-10-03 | **新增 §1.5（iOS 源码实测）**：① **全端导航形态决策** —— 全端统一底部悬浮胶囊 TabBar，TV / 桌面只自适应尺寸宽度，连带作废 07/08 样式图与计划 §3.3 的 Rail 口径；② **底栏胶囊精确规格**（基础 4 项 + 福利插入 index 3、宽度公式 `min(W−140, n×56+28)`、56/Tab、10pt、Capsule + 1px 描边、四皮肤配色、`isTabBarHidden`）；③ **「个人中心 · 福利专区」完整交互**（宫格入口 → 两阶段弹窗 → 刷新/设置入口 → 记录过滤非删除，7 条关键语义）；新增差距 D16~D18、口径 R-12/R-13、风险 §5-10/§5-11 |
 > | v1.3 | 2026-10-03 | **交付回执（新增 §6）**：A8 底栏统一化（全端悬浮胶囊 + 枚举/key 驱动 + 福利 index 3 门控 + `hideTabBar`）、A9 首页豆瓣默认内容、I-01 个人中心（3×3 宫格）、H-05 福利两阶段弹窗 **四项完成并验证**（analyze 0 issue / test 全绿 / 守卫全绿 / conformance 全绿）；补 **5 Tab 态金色基线** `home_welfare_portrait`；关闭差距 D1 · D12~D18；§2.2 / §3.1 加 v1.3 状态行；注明 **D6/B1 渐变头部卡仍待办**（图10 实测为居中 Logo）；§6.4 列明 A2~A7 / B1·B3~B6 / C1~C5 / H-06·H-07 / I-02~I-05 遗留 |
+> | v1.4 | 2026-10-03 | **交付回执（新增 §7）**：**A2~A7 主题层收口** —— A2 全端 `CupertinoPageTransitionsBuilder` 推入转场 · A3 `NoSplash` 去涟漪 · A4 `switchTheme` 对齐 iOS `UISwitch` 配色 · A5 `VboxScrollBehavior`（Bouncing + 抑制辉光）· A6 卡片审计（**结论：无页面级手写卡片**，2 处非卡片阴影登记观察项）· A7 `check_ui_tokens` **接入 CI**（contract-checks 10 → 11 项）**六项完成并验证**（analyze 0 issue / **test 1528 全绿** / 11/11 脚本全绿）；Story 页补**开关两态**并更新其金色基线；**A 批次 9 项全部完成**；关闭差距 **D2~D5、D7**；§2.2 / §3.1 加 v1.4 状态行；§7.4 列明 B1·B3~B6 / C1~C5 / H-06·H-07 / I-02~I-05 遗留 |

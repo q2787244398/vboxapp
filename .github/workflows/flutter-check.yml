@@ -2,7 +2,8 @@
 #
 # 背景：本机 iSH aarch64 无法运行 Flutter（官方 Linux 包仅 x86-64），
 # 所有 Dart 代码未经编译验证。本 workflow 在 GitHub Actions 上补齐验证闭环：
-#   1. contract-checks   10 个纯 Python 校验脚本（不含需 lcov 的 check_coverage）+ conformance runner（ubuntu）
+#   1. contract-checks   11 个纯 Python 校验脚本（10 项契约一致性 + check_ui_tokens 表现层令牌守卫；
+#                        不含需 lcov 的 check_coverage）+ conformance runner（ubuntu）
 #   2. flutter-analyze   flutter analyze + flutter test --coverage + 覆盖率门槛（ubuntu-latest，见 job 注释）
 #   3~5. 三端编译（build-android/macos/windows）—— 仅 PR 触发（合并前编译验证）。
 #        push 到 main 的编译改由 build-release-assets 直接产出 release 安装包，
@@ -55,7 +56,7 @@ jobs:
       - name: Install crypto deps
         run: pip install cryptography
 
-      - name: Run 10 contract checks (check_coverage runs in flutter-analyze)
+      - name: Run 11 contract checks (check_coverage runs in flutter-analyze)
         run: |
           set -e
           for s in check_contract_sync \
@@ -67,7 +68,8 @@ jobs:
                    check_spider_domain \
                    check_domain_remote_player \
                    check_docs_consistency \
-                   check_dart_imports; do
+                   check_dart_imports \
+                   check_ui_tokens; do
             echo "===== $s ====="
             python3 scripts/$s.py
           done

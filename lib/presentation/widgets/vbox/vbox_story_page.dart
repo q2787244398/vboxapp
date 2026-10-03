@@ -47,7 +47,8 @@ class VboxStoryView extends StatelessWidget {
           _section('区块标题 SectionHeader', const _SectionHeaders()),
           _section('源角标 SourceBadge', _badges()),
           _section('海报卡 PosterCard', _posters()),
-          _section('导航 BottomNav / NavRail', const _NavDemo()),
+          _section('导航 BottomNav（Rail 已弃用 · A8）', const _NavDemo()),
+          _section('开关 Switch（A4）', const _SwitchDemo()),
           _section('浮层 Dialog / Toast', const _OverlayDemo()),
         ],
       ),
@@ -205,6 +206,8 @@ class _NavDemo extends StatelessWidget {
       children: <Widget>[
         SizedBox(height: 72, child: _BottomNavDemo(items: items)),
         SizedBox(height: 12),
+        Text('NavRail：A8 决策后已弃用（全端统一底部胶囊底栏），仅存档参考'),
+        SizedBox(height: 8),
         SizedBox(
           height: 200,
           child: _RailDemo(items: items),
@@ -278,6 +281,30 @@ class _OverlayDemo extends StatelessWidget {
           label: '弹 Toast',
           onPressed: () => VboxToast.show(context, '已加入收藏'),
         ),
+      ],
+    );
+  }
+}
+
+/// 开关两态（批次 A · A4 验收：开关开 / 关两态）。
+///
+/// `onChanged` 传非空回调以保持「启用」配色（`onChanged: null` 会进入禁用灰态，
+/// 无法展示 A4 定义的主色轨道）。「禁用」一项故意传 `null`，供对照。
+class _SwitchDemo extends StatelessWidget {
+  const _SwitchDemo();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        const Text('开'),
+        Switch(value: true, onChanged: (bool _) {}),
+        const SizedBox(width: 24),
+        const Text('关'),
+        Switch(value: false, onChanged: (bool _) {}),
+        const SizedBox(width: 24),
+        const Text('禁用'),
+        const Switch(value: true, onChanged: null),
       ],
     );
   }
