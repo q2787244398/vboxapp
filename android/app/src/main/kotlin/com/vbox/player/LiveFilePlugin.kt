@@ -25,7 +25,7 @@ import java.nio.charset.CodingErrorAction
  * （`UIActivityViewController`）：
  *
  * MethodChannel `com.vbox.live/file`：
- *  - `pickTextFile` → 打开系统文件选择器（`ACTION_OPEN_DOCUMENT`，`*/*` + openable），
+ *  - `pickTextFile` → 打开系统文件选择器（`ACTION_OPEN_DOCUMENT`，MIME `*`/`*` + openable），
  *    读取文本内容（UTF-8 → ASCII 兜底，对齐 iOS `String(contentsOf:encoding:)` 失败
  *    走 ASCII 解码的语义），回传 `{name, content, path}`；取消/失败回传 null。
  *  - `shareFile`（path）→ 经 `FileProvider` 生成 `content://` URI（内部缓存目录，
