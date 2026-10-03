@@ -41,10 +41,12 @@ class _FakeFuliService extends FuliBaseService {
 
   @override
   Future<FuliPlayerResult> fetchPlayerURL(FuliEpisode episode) async {
+    // 缺省忠实返回该集 URL（对齐基类按 URL 后缀判定 parse），
+    // 注入 playerResult 时（如失败用例）优先返回。
     return playerResult ??
-        const FuliPlayerResult(
-          url: 'https://cdn.example.com/ep.m3u8',
-          headers: <String, String>{'Referer': 'https://a.example.com'},
+        FuliPlayerResult(
+          url: episode.url,
+          headers: const <String, String>{'Referer': 'https://a.example.com'},
           parse: 0,
         );
   }
@@ -115,7 +117,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('测试影片'), findsWidgets);
-    expect(find.text('这是一段简介。'), findsOneWidget);
+    // 简介在 800×600 测试视口下位于首屏之外，属 ListView 懒加载离屏区，
+    // 用 skipOffstage 断言其在树中存在（真机竖屏首屏即可见）。
+    expect(find.text('这是一段简介。', skipOffstage: false), findsOneWidget);
     expect(find.text('立即播放'), findsOneWidget);
     expect(find.text('下载'), findsOneWidget);
     expect(find.textContaining('选集('), findsNothing);
@@ -177,10 +181,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('选择线路'), findsNothing);
-    // 切换后当前线路为线路2 → 播放按钮文案使用其第 1 集。
-    expect(find.text('播放第1集'), findsOneWidget);
+    // 线路2 仅 1 集 → 播放按钮文案对齐 iOS：`currentEpisodes.count == 1 ? "立即播放"`。
+    expect(find.text('立即播放'), findsOneWidget);
 
-    await tester.tap(find.text('播放第1集'));
+    await tester.tap(find.text('立即播放'));
     await tester.pumpAndSettle();
     expect(recorder.urls, hasLength(1));
     expect(recorder.urls.single, 'https://cdn.example.com/l2e1.m3u8');
@@ -198,7 +202,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(recorder.urls, hasLength(1));
-    expect(recorder.urls.single, 'https://cdn.example.com/ep.m3u8');
+    // 单线路详情首集 URL（假服务忠实返回该集地址）。
+    expect(recorder.urls.single, 'https://cdn.example.com/ep1.m3u8');
     expect(
       recorder.headersList.single['Referer'],
       'https://a.example.com',

@@ -155,6 +155,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), '美女');
+    // 输入后先出一帧：onChanged 触发 setState 使「搜索」按钮由禁用变为可用。
+    await tester.pumpAndSettle();
     // 此时「搜索」同时命中 Tab 与搜索按钮，按钮是 TextButton。
     await tester.tap(find.widgetWithText(TextButton, '搜索'));
     await tester.pumpAndSettle();

@@ -46,6 +46,121 @@ void main() {
     });
   });
 
+  group('parseHeaderSuffix（@key=value 后缀，对齐 iOS）', () {
+    test('无后缀原样透传', () {
+      final ParsedImageUrl r =
+          PlatformAsyncImage.parseHeaderSuffix('https://a.com/x.png');
+      expect(r.url, 'https://a.com/x.png');
+      expect(r.headers, isEmpty);
+    });
+
+    test('拆分 UA / Referer 后缀', () {
+      final ParsedImageUrl r = PlatformAsyncImage.parseHeaderSuffix(
+        'https://a.com/x.png@User-Agent=Mozilla@Referer=https://r.com/',
+      );
+      expect(r.url, 'https://a.com/x.png');
+      expect(r.headers['User-Agent'], 'Mozilla');
+      expect(r.headers['Referer'], 'https://r.com/');
+    });
+
+    test('SSL 绕过标记单独解析', () {
+      final ParsedImageUrl r = PlatformAsyncImage.parseHeaderSuffix(
+        'https://a.com/x.png@X-VBox-SSL-Bypass=1',
+      );
+      expect(r.url, 'https://a.com/x.png');
+      expect(r.headers['X-VBox-SSL-Bypass'], '1');
+    });
+  });
+
+  group('sourceCover（防盗链工厂，对齐 iOS）', () {
+    test('referer 为空 → 不附加任何后缀', () {
+      final PlatformAsyncImage img =
+          PlatformAsyncImage.sourceCover('https://a.com/x.png');
+      expect(img.url, 'https://a.com/x.png');
+    });
+
+    test('注入 UA / Referer / SSL 绕过后缀', () {
+      final PlatformAsyncImage img = PlatformAsyncImage.sourceCover(
+        'https://a.com/x.png',
+        referer: 'https://r.com',
+        sslBypass: true,
+      );
+      final ParsedImageUrl parsed =
+          PlatformAsyncImage.parseHeaderSuffix(img.url!);
+      expect(parsed.url, 'https://a.com/x.png');
+      expect(parsed.headers['Referer'], 'https://r.com/');
+      expect(parsed.headers['User-Agent'], kPlatformImageDefaultUA);
+      expect(parsed.headers['X-VBox-SSL-Bypass'], '1');
+    });
+  });
+
+  group('doubanHeadersFor（豆瓣/TMDB 封面防盗链，对齐 iOS DoubanImageProxyServer）', () {
+    test('命中 doubanio.com → 注入 Referer / UA / Accept', () {
+      final Map<String, String> headers = PlatformAsyncImage.doubanHeadersFor(
+        'https://img1.doubanio.com/view/photo/s_ratio_poster/public/p1.jpg',
+      );
+      expect(headers['Referer'], 'https://movie.douban.com/');
+      expect(headers['User-Agent'], contains('AppleWebKit'));
+      expect(headers['Accept'], contains('image/webp'));
+    });
+
+    test('命中 douban.com / tmdb 主机同样注入', () {
+      expect(
+        PlatformAsyncImage.doubanHeadersFor('https://img9.douban.com/pic/x.jpg'),
+        containsPair('Referer', 'https://movie.douban.com/'),
+      );
+      expect(
+        PlatformAsyncImage.doubanHeadersFor('https://image.tmdb.org/t/p/w500/a.jpg'),
+        containsPair('Referer', 'https://movie.douban.com/'),
+      );
+      expect(
+        PlatformAsyncImage.doubanHeadersFor('https://media.themoviedb.org/t/p/w500/b.jpg'),
+        isNotEmpty,
+      );
+    });
+
+    test('非豆瓣主机 → 空表（不影响其他图片）', () {
+      expect(PlatformAsyncImage.doubanHeadersFor('https://a.com/x.png'), isEmpty);
+      expect(PlatformAsyncImage.doubanHeadersFor('data:image/png;base64,AAA'), isEmpty);
+      expect(PlatformAsyncImage.doubanHeadersFor('not-a-url'), isEmpty);
+    });
+  });
+
+  group('data: 内嵌图（对齐 iOS loadDataImage）', () {
+    testWidgets('data:image 前缀 → Image.memory 渲染', (WidgetTester tester) async {
+      // 1×1 透明 PNG。
+      const String b64 =
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+      await tester.pumpWidget(
+        _host(
+          const SizedBox(
+            width: 120,
+            height: 180,
+            child: PlatformAsyncImage(url: 'data:image/png;base64,$b64'),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(Image), findsOneWidget);
+      final Image image = tester.widget<Image>(find.byType(Image));
+      expect(image.image, isA<MemoryImage>());
+    });
+
+    testWidgets('非法 base64 → 回退占位', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(
+          const SizedBox(
+            width: 120,
+            height: 180,
+            child: PlatformAsyncImage(url: 'data:image/png;base64,@@@'),
+          ),
+        ),
+      );
+      expect(find.byType(Image), findsNothing);
+      expect(find.byIcon(Icons.movie_outlined), findsOneWidget);
+    });
+  });
+
   group('占位 / 失败态', () {
     testWidgets('URL 为 null：直接占位态（无 Image 节点）', (WidgetTester tester) async {
       await tester.pumpWidget(

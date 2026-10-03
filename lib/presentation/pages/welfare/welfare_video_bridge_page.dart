@@ -374,10 +374,6 @@ class _WelfareVideoBridgePageState extends State<WelfareVideoBridgePage> {
   // ─────────────── 16:9 封面（对齐 iOS `FuliCoverImage` + 播放按钮叠加）───────────────
 
   Widget _cover(BuildContext context, ColorScheme scheme) {
-    final String? referer = widget.service.imageReferer;
-    final Map<String, String>? headers = (referer == null || referer.isEmpty)
-        ? null
-        : <String, String>{'Referer': referer};
     final FuliDetail? detail = _detail;
     final bool showPlay =
         !_isLoading && _errorMsg == null && (detail?.episodes.isNotEmpty ?? false);
@@ -391,10 +387,11 @@ class _WelfareVideoBridgePageState extends State<WelfareVideoBridgePage> {
           child: Stack(
             fit: StackFit.expand,
             children: <Widget>[
-              PlatformAsyncImage(
-                url: widget.video.vodPic,
+              PlatformAsyncImage.sourceCover(
+                widget.video.vodPic,
+                referer: widget.service.imageReferer,
+                sslBypass: widget.service.imageSSLBypass,
                 fit: BoxFit.fitWidth,
-                headers: headers,
                 placeholderColor: scheme.surfaceContainerHighest,
                 placeholder: Icon(
                   Icons.movie_outlined,

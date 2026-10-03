@@ -438,8 +438,12 @@ class _WelfareCategoryTabViewState extends State<_WelfareCategoryTabView> {
   void didUpdateWidget(covariant _WelfareCategoryTabView oldWidget) {
     super.didUpdateWidget(oldWidget);
     // 分类导航选中子类 → 强制刷新（对齐 iOS NotificationCenter 通知监听）。
+    // 同样延迟到帧后：didUpdateWidget 处于构建期，同步 setState 会抛异常。
     if (widget.reloadTick != oldWidget.reloadTick) {
-      _refresh(force: true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _refresh(force: true);
+      });
     }
   }
 
@@ -456,11 +460,18 @@ class _WelfareCategoryTabViewState extends State<_WelfareCategoryTabView> {
   }
 
   /// 首次进入（对齐 iOS `onAppear`：未加载过才触发）。
+  ///
+  /// 延迟到首帧后执行：`onStateChanged` / `_refresh` 内部会同步触发父级
+  /// `setState`，若在 `initState`（PageView 构建子页期间）直接调用会触发
+  /// "setState() or markNeedsBuild() called during build"。
   void _initialLoad() {
     if (_state.hasLoaded) return;
     _state.hasLoaded = true;
-    widget.onStateChanged();
-    _refresh(force: false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onStateChanged();
+      _refresh(force: false);
+    });
   }
 
   Future<void> _refresh({bool force = false}) async {
@@ -626,6 +637,7 @@ class _WelfareCategoryTabViewState extends State<_WelfareCategoryTabView> {
       child: _VideoGrid(
         videos: _state.videos,
         imageReferer: widget.service.imageReferer,
+        imageSSLBypass: widget.service.imageSSLBypass,
         onVideoTap: widget.onVideoTap,
         onLoadMore: _loadMore,
         isLoadingMore: _state.isLoadingMore,
@@ -772,6 +784,7 @@ class _WelfareSearchTabViewState extends State<_WelfareSearchTabView> {
     return _VideoGrid(
       videos: _videos,
       imageReferer: widget.service.imageReferer,
+      imageSSLBypass: widget.service.imageSSLBypass,
       onVideoTap: widget.onVideoTap,
       onLoadMore: _loadMore,
       isLoadingMore: _isLoading,
@@ -785,6 +798,7 @@ class _VideoGrid extends StatelessWidget {
   const _VideoGrid({
     required this.videos,
     required this.imageReferer,
+    required this.imageSSLBypass,
     required this.onVideoTap,
     required this.onLoadMore,
     required this.isLoadingMore,
@@ -793,6 +807,7 @@ class _VideoGrid extends StatelessWidget {
 
   final List<FuliVideo> videos;
   final String? imageReferer;
+  final bool imageSSLBypass;
   final ValueChanged<FuliVideo> onVideoTap;
   final VoidCallback onLoadMore;
   final bool isLoadingMore;
@@ -823,6 +838,7 @@ class _VideoGrid extends StatelessWidget {
                   return WelfareVideoCard(
                     video: video,
                     imageReferer: imageReferer,
+                    imageSSLBypass: imageSSLBypass,
                     onTap: () => onVideoTap(video),
                   );
                 },
@@ -887,6 +903,7 @@ class WelfareVideoCard extends StatelessWidget {
     super.key,
     required this.video,
     this.imageReferer,
+    this.imageSSLBypass = false,
     this.onTap,
   });
 
@@ -895,6 +912,9 @@ class WelfareVideoCard extends StatelessWidget {
 
   /// 封面防盗链 Referer（空则不附加请求头）。
   final String? imageReferer;
+
+  /// 封面图是否绕过 SSL（对齐 iOS `imageSSLBypass`）。
+  final bool imageSSLBypass;
 
   /// 点击回调。
   final VoidCallback? onTap;
@@ -913,10 +933,6 @@ class WelfareVideoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final String bottomLabel = _bottomLabel;
-    final Map<String, String>? headers =
-        (imageReferer == null || imageReferer!.isEmpty)
-            ? null
-            : <String, String>{'Referer': imageReferer!};
     return GestureDetector(
       onTap: onTap,
       child: Column(
@@ -929,10 +945,11 @@ class WelfareVideoCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: <Widget>[
-                  PlatformAsyncImage(
-                    url: video.vodPic,
+                  PlatformAsyncImage.sourceCover(
+                    video.vodPic,
+                    referer: imageReferer,
+                    sslBypass: imageSSLBypass,
                     fit: BoxFit.cover,
-                    headers: headers,
                   ),
                   // 底部渐变（对齐 iOS `LinearGradient` 0 → 0.55）。
                   DecoratedBox(
