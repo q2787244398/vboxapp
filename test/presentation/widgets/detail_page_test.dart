@@ -79,7 +79,7 @@ class _FakePlayerController extends PlayerController {
   String? openedUrl;
 
   @override
-  Future<void> open(PlayerSource source) async {
+  Future<void> open(PlayerSource source, {PlaybackRoute? route}) async {
     calls.add('open');
     openedUrl = source.url;
   }

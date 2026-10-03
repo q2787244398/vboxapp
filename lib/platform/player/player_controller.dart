@@ -110,19 +110,22 @@ class PlayerController {
   ///
   /// C-01：打开前先解析播放路由并据此排序后端；C-06：每次回退触发
   /// [onBackendFallback] 事件并写降级日志。
-  Future<void> open(PlayerSource source) async {
+  ///
+  /// [route] 为显式路由覆盖（批次 F · F-08 网盘播放：直链特征无法自证 pan 路由，
+  /// 由调用方显式传入）；为 null 时按 [PlaybackRouteResolver] 从源推导。
+  Future<void> open(PlayerSource source, {PlaybackRoute? route}) async {
     await _disposePlayer();
-    final PlaybackRoute route = PlaybackRouteResolver.resolve(source);
-    _route = route;
+    final PlaybackRoute resolved = route ?? PlaybackRouteResolver.resolve(source);
+    _route = resolved;
     PlayerOpenException? last;
     PlayerBackend? previous;
-    for (final PlayerBackend backend in _orderedChain(source, route)) {
+    for (final PlayerBackend backend in _orderedChain(source, resolved)) {
       if (previous != null) {
         // 上一后端失败，本次尝试即降级：先记降级事件再试新后端（C-06）。
         final String reason = last?.message ?? '';
         debugPrint(
           '[PlayerController] 后端降级：${previous.name} → ${backend.name}'
-          '（route=${route.name}，$reason）',
+          '（route=${resolved.name}，$reason）',
         );
         onBackendFallback?.call(previous, backend, reason);
       }
