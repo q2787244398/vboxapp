@@ -2,7 +2,7 @@
 ///
 /// 验收：`docs/第2轮开发计划_功能补全_v2.6.md` §3.3 ——
 ///   [ResponsiveGrid] 列数（竖屏 2–3 / 横屏 5–8）·
-///   [AdaptiveScaffold] 导航（竖屏 TabBar ↔ 横屏 Rail）·
+///   [AdaptiveScaffold] 导航（全端统一底部胶囊 TabBar，A8 起横竖屏不再分叉）·
 ///   [ContentPanel] 分栏（竖屏全屏列表 / 横屏列表 + 详情）·
 ///   [AdaptiveDialog] 锚点（竖屏居中 / 横屏右侧抽屉）。
 library;
@@ -97,7 +97,9 @@ void main() {
   });
 
   group('AdaptiveScaffold 导航', () {
-    testWidgets('竖屏 → 底部 TabBar（无 Rail）', (WidgetTester tester) async {
+    // A8（决策 2026-10-03，R-9）：全端统一「底部悬浮胶囊 TabBar」，
+    // 横竖屏**均**不渲染左侧 Rail（原 A-07「横屏 → Rail」分支已废弃，解 D18）。
+    testWidgets('竖屏 → 底部胶囊 TabBar（无 Rail）', (WidgetTester tester) async {
       await tester.pumpWidget(
         _host(
           AdaptiveScaffold(
@@ -108,12 +110,12 @@ void main() {
           ),
         ),
       );
-      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(find.byType(VboxBottomNav), findsOneWidget);
       expect(find.byType(NavigationRail), findsNothing);
       expect(find.text('内容'), findsOneWidget);
     });
 
-    testWidgets('横屏 → 左侧 Rail（无 TabBar）', (WidgetTester tester) async {
+    testWidgets('横屏 → 仍为底部胶囊 TabBar（全端统一，无 Rail）', (WidgetTester tester) async {
       await tester.pumpWidget(
         _host(
           AdaptiveScaffold(
@@ -124,8 +126,8 @@ void main() {
           ),
         ),
       );
-      expect(find.byType(NavigationRail), findsOneWidget);
-      expect(find.byType(NavigationBar), findsNothing);
+      expect(find.byType(VboxBottomNav), findsOneWidget);
+      expect(find.byType(NavigationRail), findsNothing);
       expect(find.text('内容'), findsOneWidget);
     });
 
@@ -138,7 +140,7 @@ void main() {
           ),
         ),
       );
-      expect(find.byType(NavigationBar), findsNothing);
+      expect(find.byType(VboxBottomNav), findsNothing);
       expect(find.text('裸内容'), findsOneWidget);
     });
 

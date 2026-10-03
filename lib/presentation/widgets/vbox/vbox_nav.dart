@@ -1,14 +1,19 @@
-/// 统一组件库 · 导航（批次 A · A-04）。
+/// 统一组件库 · 导航（批次 A · A-04 / A8）。
 ///
-/// 唯一真相源：`docs/UI对齐基准_v1.0.md` §4.1（底部 Tab）/ §4.2（桌面 NavigationRail）。
-/// 视觉语言（色 / 字号）对齐 §2；交互形态按端适配（原则 2）。
+/// 唯一真相源：iOS `ContentView.swift` L17-L56（Tab 组成与 `visibleTabs`）·
+/// L108-L131（胶囊宽度公式与描边）· L256-L278（四皮肤底栏配色）。
+///
+/// 视觉语言（色 / 字号）对齐 UI 基准 §2；**全端（Android / Android TV /
+/// Windows / macOS）统一底部悬浮胶囊 TabBar**（决策 2026-10-03，R-9），
+/// 不再使用左侧 Rail 作为壳层导航。
 library;
 
 import 'package:flutter/material.dart';
 
+import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/typography.dart';
 
-/// 导航项（共享模型，供底栏与侧栏复用）。
+/// 导航项（共享模型，供底栏复用）。
 class VboxNavItem {
   /// 构造。
   const VboxNavItem({
@@ -27,7 +32,13 @@ class VboxNavItem {
   final String label;
 }
 
-/// 底部导航（手机形态，对齐 iOS 六 Tab 骨架）。
+/// 底部悬浮胶囊 TabBar（全端统一形态，对齐 iOS `ContentView` 底栏）。
+///
+/// 规格（R-12）：
+///   · 宽度 = `min(屏宽 − 140, Tab数 × 56 + 28)`；
+///   · 每 Tab 宽 56；胶囊左右内边距 14、上下 5；
+///   · 形状 `Capsule` + **1px 描边**；
+///   · 文字 **10pt**（选中 semibold / 未选中 regular），图标 18。
 class VboxBottomNav extends StatelessWidget {
   /// 构造。
   const VboxBottomNav({
@@ -35,6 +46,7 @@ class VboxBottomNav extends StatelessWidget {
     required this.items,
     required this.selectedIndex,
     required this.onSelected,
+    this.palette,
   });
 
   /// 导航项。
@@ -46,42 +58,110 @@ class VboxBottomNav extends StatelessWidget {
   /// 选择回调。
   final ValueChanged<int> onSelected;
 
+  /// 四皮肤配色；缺省按浅色皮肤 + 当前亮度解析。
+  final VboxTabBarPalette? palette;
+
+  /// 每 Tab 宽度（iOS 固定 56）。
+  static const double tabWidth = 56;
+
+  /// 胶囊左右内边距。
+  static const double horizontalPadding = 14;
+
+  /// 胶囊上下内边距。
+  static const double verticalPadding = 5;
+
+  /// 屏宽扣减量（iOS `UIScreen.width - 140`）。
+  static const double screenInset = 140;
+
+  /// 底栏与屏幕底边留白。
+  static const double bottomGap = 8;
+
+  /// 胶囊宽度公式（R-12）。
+  static double widthFor(double screenWidth, int tabCount) {
+    final double byGrid = tabCount * tabWidth + horizontalPadding * 2;
+    final double maxWidth = screenWidth - screenInset;
+    return byGrid < maxWidth ? byGrid : maxWidth;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    return NavigationBarTheme(
-      data: NavigationBarThemeData(
-        backgroundColor: scheme.surface,
-        indicatorColor: scheme.primary.withValues(alpha: 0.12),
-        labelTextStyle: WidgetStateProperty.resolveWith(
-          (Set<WidgetState> states) => TextStyle(
-            fontSize: VboxTypography.s11,
-            fontWeight: states.contains(WidgetState.selected)
-                ? FontWeight.w600
-                : FontWeight.w400,
-            color: states.contains(WidgetState.selected)
-                ? scheme.primary
-                : scheme.onSurfaceVariant,
+    final ThemeData theme = Theme.of(context);
+    final VboxTabBarPalette colors =
+        palette ?? VboxTabBarPalette.resolve(VboxSkin.light, theme.brightness);
+    final double screenWidth = MediaQuery.sizeOf(context).width;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: bottomGap),
+      child: Center(
+        child: SizedBox(
+          width: widthFor(screenWidth, items.length),
+          child: DecoratedBox(
+            decoration: ShapeDecoration(
+              color: colors.base,
+              shape: StadiumBorder(
+                side: BorderSide(color: colors.stroke, width: 1),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: horizontalPadding,
+                vertical: verticalPadding,
+              ),
+              child: Row(
+                children: <Widget>[
+                  for (int i = 0; i < items.length; i++)
+                    Expanded(child: _tab(context, i, colors)),
+                ],
+              ),
+            ),
           ),
         ),
       ),
-      child: NavigationBar(
-        selectedIndex: selectedIndex,
-        onDestinationSelected: onSelected,
-        destinations: <Widget>[
-          for (final VboxNavItem item in items)
-            NavigationDestination(
-              icon: Icon(item.icon),
-              selectedIcon: Icon(item.selectedIcon ?? item.icon),
-              label: item.label,
-            ),
-        ],
+    );
+  }
+
+  Widget _tab(BuildContext context, int index, VboxTabBarPalette colors) {
+    final bool selected = index == selectedIndex;
+    final VboxNavItem item = items[index];
+    final Color color = selected ? colors.active : colors.inactive;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: item.label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => onSelected(index),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                selected ? (item.selectedIcon ?? item.icon) : item.icon,
+                size: VboxTypography.s18,
+                color: color,
+              ),
+              const SizedBox(height: 1),
+              Text(
+                item.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: VboxTypography.s10,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
-/// 侧边导航（桌面形态，替代底部 Tab）。
+/// 侧边导航（组件库陈列用；**壳层已全端统一为底栏**，见 R-9）。
 class VboxNavRail extends StatelessWidget {
   /// 构造。
   const VboxNavRail({

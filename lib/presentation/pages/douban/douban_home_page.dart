@@ -2,6 +2,9 @@
 ///
 /// 轮播横幅（TOP250 前若干）+ 区块横向列表（热门电影 / 剧集 / 综艺 / 动漫）。
 /// 数据通路：[DoubanUseCases.homeFeed]（用例层并发拉取）。仅浏览，点击不跳转。
+///
+/// 结构：`DoubanHomePage`（独立页 = AppBar「豆瓣」+ [DoubanHomeView]）与
+/// `VboxHomePage`（首页默认内容）**共用**同一 [DoubanHomeView]。
 library;
 
 import 'package:flutter/material.dart';
@@ -17,16 +20,30 @@ import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
 import 'douban_widgets.dart';
 
-/// 豆瓣首页。
-class DoubanHomePage extends StatefulWidget {
+/// 豆瓣独立页（AppBar「豆瓣」+ [DoubanHomeView]）。
+class DoubanHomePage extends StatelessWidget {
   /// 构造。
   const DoubanHomePage({super.key});
 
   @override
-  State<DoubanHomePage> createState() => _DoubanHomePageState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('豆瓣')),
+      body: const DoubanHomeView(),
+    );
+  }
 }
 
-class _DoubanHomePageState extends State<DoubanHomePage> {
+/// 豆瓣首页内容视图（**不含** Scaffold / AppBar，供首页默认内容与独立页复用）。
+class DoubanHomeView extends StatefulWidget {
+  /// 构造。
+  const DoubanHomeView({super.key});
+
+  @override
+  State<DoubanHomeView> createState() => _DoubanHomeViewState();
+}
+
+class _DoubanHomeViewState extends State<DoubanHomeView> {
   late final DoubanUseCases _uc;
 
   DoubanHomeFeed? _feed;
@@ -56,10 +73,7 @@ class _DoubanHomePageState extends State<DoubanHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('豆瓣')),
-      body: _buildBody(),
-    );
+    return _buildBody();
   }
 
   Widget _buildBody() {

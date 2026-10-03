@@ -14,13 +14,18 @@ import 'package:provider/provider.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
 import 'package:vbox/presentation/shell/home_shell_page.dart';
+import 'package:vbox/presentation/theme/vbox_skin_controller.dart';
 import 'package:vbox/presentation/ui_mode/ui_mode_resolver.dart';
+import 'package:vbox/presentation/welfare/welfare_controller.dart';
 import 'package:vbox/presentation/widgets/adaptive/adaptive.dart';
 import 'package:vbox/presentation/widgets/vbox/vbox.dart';
 
 import '../support/fakes.dart';
 
-Widget _app({UiFormOverride override = UiFormOverride.portrait}) {
+Widget _app({
+  UiFormOverride override = UiFormOverride.portrait,
+  bool welfareUnlocked = false,
+}) {
   return MultiProvider(
     providers: [
       ChangeNotifierProvider<UiFormController>.value(
@@ -31,6 +36,16 @@ Widget _app({UiFormOverride override = UiFormOverride.portrait}) {
           ),
         ),
       ),
+      // A8：壳层消费皮肤（底栏四皮肤配色）与福利门控（「福利」Tab 显隐）。
+      ChangeNotifierProvider<VboxSkinController>.value(
+        value: VboxSkinController(),
+      ),
+      // 门控两态各出一张 Golden：默认 4 Tab；`welfareUnlocked` → 5 Tab（index 3 插入福利）。
+      ChangeNotifierProvider<WelfareController>.value(
+        value: WelfareController(unlocked: welfareUnlocked),
+      ),
+      // A9：首页默认内容 = 豆瓣（[DoubanHomeView] 消费 [DoubanUseCases]）。
+      Provider<DoubanUseCases>.value(value: buildDoubanUseCases()),
       Provider<FavoriteUseCases>.value(
         value: FavoriteUseCases(InMemoryFavoriteRepository(const <FavoriteItem>[])),
       ),
@@ -79,12 +94,21 @@ void main() {
     );
   });
 
-  testWidgets('home_landscape（横屏：左侧 NavigationRail）', (WidgetTester tester) async {
+  testWidgets('home_landscape（横屏：仍为悬浮胶囊底栏，无 Rail）', (WidgetTester tester) async {
     await _shot(
       tester,
       'home_landscape',
       const Size(1280, 800),
       _app(override: UiFormOverride.landscape),
+    );
+  });
+
+  testWidgets('home_welfare_portrait（5 Tab：福利已解锁，index 3 插入）', (WidgetTester tester) async {
+    await _shot(
+      tester,
+      'home_welfare_portrait',
+      const Size(390, 844),
+      _app(override: UiFormOverride.portrait, welfareUnlocked: true),
     );
   });
 

@@ -190,6 +190,18 @@ class VboxColors {
   /// 次级文字 · 深（`.secondaryLabel` Dark，`#EBEBF5` @ 60%）。
   static const Color secondaryLabelDark = Color(0x99EBEBF5);
 
+  /// 系统灰 2 · 浅（`.systemGray2`）—— 底栏未选中色（浅色 / 黑暗皮肤）。
+  static const Color systemGray2Light = Color(0xFFAEAEB2);
+
+  /// 系统灰 2 · 深（`.systemGray2` Dark）。
+  static const Color systemGray2Dark = Color(0xFF636366);
+
+  /// 系统灰 4 · 浅（`.systemGray4`）—— 底栏描边色（浅色 / 黑暗皮肤）。
+  static const Color systemGray4Light = Color(0xFFD1D1D6);
+
+  /// 系统灰 4 · 深（`.systemGray4` Dark）。
+  static const Color systemGray4Dark = Color(0xFF38383A);
+
   // ── 直播分类调色板（12 色，按 `cat_N` 取模循环）──────────────
   /// 直播分类胶囊调色板（对齐 iOS `LiveCategory.palette`）。
   static const List<Color> liveCategoryPalette = <Color>[
@@ -244,4 +256,72 @@ class VboxColors {
     'woniu4k': Color(0xFF8B5CF6),
     'bilibili': Color(0xFFEC4899),
   };
+}
+
+/// 底栏（悬浮胶囊 TabBar）配色。
+///
+/// 唯一真相源：iOS `ContentView.swift` L256-L278（四皮肤底栏配色计算属性）。
+/// Flutter 侧无 `ultraThinMaterial`，以 [base] 半透明底 + 1px [stroke] 近似。
+@immutable
+class VboxTabBarPalette {
+  /// 构造。
+  const VboxTabBarPalette({
+    required this.active,
+    required this.inactive,
+    required this.base,
+    required this.stroke,
+  });
+
+  /// 选中色（图标 + 文字）。
+  final Color active;
+
+  /// 未选中色。
+  final Color inactive;
+
+  /// 胶囊底（半透明）。
+  final Color base;
+
+  /// 胶囊 1px 描边。
+  final Color stroke;
+
+  /// 按皮肤 + 配色模式解析（对齐 iOS `activeTabColor` 等四个计算属性）。
+  static VboxTabBarPalette resolve(VboxSkin skin, Brightness brightness) {
+    final bool isDark = brightness == Brightness.dark;
+    switch (skin) {
+      case VboxSkin.frosted:
+        return VboxTabBarPalette(
+          active: skin.primary,
+          inactive: isDark
+              ? VboxColors.secondaryLabelDark
+              : VboxColors.secondaryLabelLight,
+          base: (isDark
+                  ? VboxColors.secondarySystemBackgroundDark
+                  : VboxColors.secondarySystemBackgroundLight)
+              .withValues(alpha: 0.62),
+          stroke: Colors.white.withValues(alpha: 0.34),
+        );
+      case VboxSkin.liquid:
+        return VboxTabBarPalette(
+          active: skin.primary,
+          inactive: Colors.white.withValues(alpha: 0.72),
+          base: Colors.black.withValues(alpha: 0.34),
+          stroke: Colors.white.withValues(alpha: 0.22),
+        );
+      case VboxSkin.light:
+      case VboxSkin.dark:
+        return VboxTabBarPalette(
+          active: skin.primary,
+          inactive: isDark
+              ? VboxColors.systemGray2Dark
+              : VboxColors.systemGray2Light,
+          base: (isDark
+                  ? VboxColors.systemBackgroundDark
+                  : VboxColors.systemBackgroundLight)
+              .withValues(alpha: 0.9),
+          stroke: isDark
+              ? VboxColors.systemGray4Dark
+              : VboxColors.systemGray4Light,
+        );
+    }
+  }
 }

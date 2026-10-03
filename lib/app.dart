@@ -33,6 +33,7 @@ import 'platform/system/system.dart';
 import 'presentation/shell/home_shell_page.dart';
 import 'presentation/theme/theme.dart';
 import 'presentation/ui_mode/ui_mode_resolver.dart';
+import 'presentation/welfare/welfare_controller.dart';
 
 class VBoxApp extends StatefulWidget {
   const VBoxApp({super.key});
@@ -62,11 +63,18 @@ class _VBoxAppState extends State<VBoxApp> {
   late final AllSourcesDatasource _allSourcesDatasource;
   late final CmsV10Datasource _cmsDatasource;
 
+  /// 豆瓣浏览用例（A9：首页默认内容）。
+  late final DoubanUseCases _doubanUseCases;
+
   /// 皮肤控制器（A-03：消费 `app_skin_mode` / `app_skin_follows_system`）。
   late final VboxSkinController _skinController;
 
   /// 形态控制器（A-05：消费 `app_ui_form_override` + 平台通道三重判定）。
   late final UiFormController _uiFormController;
+
+  /// 福利门控控制器（A8：消费 `app_welfare_enabled` / `app_welfare_unlocked`
+  /// / `app_welfare_password`；控制底栏「福利」Tab 显隐）。
+  late final WelfareController _welfareController;
 
   @override
   void initState() {
@@ -129,6 +137,10 @@ class _VBoxAppState extends State<VBoxApp> {
         override: formOverride,
       );
 
+      // ②''' 福利门控（A8：读契约键 `app_welfare_*` → 底栏「福利」Tab 显隐）
+      _welfareController = WelfareController();
+      await _welfareController.load(PrefsManager.instance);
+
       // ③ 日志（闸门 + 落盘）
       await _startLogging();
       AppLog.info(_logTag, '启动 v${AppInfo.version}+${AppInfo.buildNumber}');
@@ -159,6 +171,8 @@ class _VBoxAppState extends State<VBoxApp> {
         loadAllSources: _loadAllSources,
         cmsDatasource: _cmsDatasource,
       );
+      // A9：首页默认内容 = 豆瓣推荐。
+      _doubanUseCases = DoubanUseCases();
 
       AppLog.info(_logTag, '初始化完成');
       if (mounted) {
@@ -202,6 +216,7 @@ class _VBoxAppState extends State<VBoxApp> {
       providers: [
         ChangeNotifierProvider<UiFormController>.value(value: _uiFormController),
         ChangeNotifierProvider<VboxSkinController>.value(value: _skinController),
+        ChangeNotifierProvider<WelfareController>.value(value: _welfareController),
         Provider<FavoriteUseCases>.value(value: _favoriteUseCases),
         Provider<HistoryUseCases>.value(value: _historyUseCases),
         Provider<SubscriptionUseCases>.value(value: _subscriptionUseCases),
@@ -209,6 +224,7 @@ class _VBoxAppState extends State<VBoxApp> {
         Provider<DetailPlaybackUseCases>.value(value: _detailPlaybackUseCases),
         Provider<ContentBrowseUseCases>.value(value: _contentBrowseUseCases),
         Provider<SearchHistoryUseCases>.value(value: _searchHistoryUseCases),
+        Provider<DoubanUseCases>.value(value: _doubanUseCases),
       ],
       child: const _RootRouter(),
     );

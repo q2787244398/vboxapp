@@ -12,6 +12,7 @@ export 'vbox_dialog.dart';
 export 'vbox_episode_chip.dart';
 export 'vbox_nav.dart';
 export 'vbox_poster_card.dart';
+export 'vbox_quick_grid.dart';
 export 'vbox_section_header.dart';
 export 'vbox_source_badge.dart';
 export 'vbox_story_page.dart';

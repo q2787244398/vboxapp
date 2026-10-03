@@ -1,8 +1,14 @@
-/// 首页内容浏览（批次 D · D-01）。
+/// 首页内容浏览（批次 D · D-01；批次 A · A9「默认内容改豆瓣」）。
 ///
-/// 每源三区块：轮播（首条若干海报）+ 分类胶囊 + 横向海报列表；顶部切换源入口
-/// （底部浮层列出全部站点）。数据通路：`ContentBrowseUseCases.listSites` +
-/// `homeContent`（模式分流 CMS / Spider 在用例层完成），点击海报 push 详情页。
+/// 唯一真相源：iOS `MainViews.swift` L229-L276「首页视图（豆瓣推荐）」。
+///
+/// A9 口径（R-11）：
+///   · 首页**默认内容 = 豆瓣**（[DoubanHomeView]，对齐 iOS「豆瓣推荐」）；
+///   · 源（Spider / CMS）通过顶部「切换源」浮层进入并覆盖展示，**不是**首页默认内容；
+///   · **无可用源时不报错**，保持豆瓣默认内容（原 `UnknownFailure('无可用站点')` 已废弃）。
+///
+/// 站点内容通路：`ContentBrowseUseCases.listSites` + `homeContent`（模式分流在用例层完成），
+/// 点击海报 push 详情页。
 library;
 
 import 'package:flutter/material.dart';
@@ -18,10 +24,11 @@ import '../../widgets/detail_page.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../category/category_page.dart';
+import '../douban/douban_home_page.dart';
 import '../search/search_page.dart';
 import 'source_sheet.dart';
 
-/// 首页（内容浏览）。默认选中首个可用站点，切换源后重载。
+/// 首页（内容浏览）。默认展示豆瓣推荐；切换源后展示对应站点内容。
 class VboxHomePage extends StatefulWidget {
   /// 构造。
   const VboxHomePage({super.key});
@@ -33,7 +40,7 @@ class VboxHomePage extends StatefulWidget {
 class _VboxHomePageState extends State<VboxHomePage> {
   late final ContentBrowseUseCases _uc;
 
-  List<SiteConfig>? _sites;
+  List<SiteConfig> _sites = const <SiteConfig>[];
   String? _siteKey;
   HomeContentResult? _home;
   Failure? _error;
@@ -43,30 +50,14 @@ class _VboxHomePageState extends State<VboxHomePage> {
   void initState() {
     super.initState();
     _uc = context.read<ContentBrowseUseCases>();
-    _init();
+    _loadSites();
   }
 
-  Future<void> _init() async {
+  /// 加载站点清单（仅供「切换源」使用；失败 / 为空**不报错**，保持豆瓣默认内容）。
+  Future<void> _loadSites() async {
     final Result<List<SiteConfig>> result = await _uc.listSites();
     if (!mounted) return;
-    final Failure? failure = result.failureOrNull;
-    if (failure != null) {
-      setState(() {
-        _loading = false;
-        _error = failure;
-      });
-      return;
-    }
-    final List<SiteConfig> sites = result.valueOrNull ?? const <SiteConfig>[];
-    if (sites.isEmpty) {
-      setState(() {
-        _loading = false;
-        _error = const UnknownFailure('无可用站点');
-      });
-      return;
-    }
-    _sites = sites;
-    await _loadHome(sites.first.key);
+    setState(() => _sites = result.valueOrNull ?? const <SiteConfig>[]);
   }
 
   Future<void> _loadHome(String siteKey) async {
@@ -84,12 +75,24 @@ class _VboxHomePageState extends State<VboxHomePage> {
     });
   }
 
+  /// 回到豆瓣默认内容（A9）。
+  void _backToDouban() {
+    setState(() {
+      _siteKey = null;
+      _home = null;
+      _error = null;
+    });
+  }
+
   Future<void> _switchSource() async {
-    final List<SiteConfig>? sites = _sites;
-    if (sites == null || sites.isEmpty) return;
+    if (_sites.isEmpty) {
+      VboxToast.show(context, '暂无可用站点，当前为豆瓣推荐');
+      await _loadSites();
+      if (!mounted || _sites.isEmpty) return;
+    }
     final String? picked = await showVboxSourceSheet(
       context,
-      sites: sites,
+      sites: _sites,
       selectedKey: _siteKey,
     );
     if (picked == null || !mounted || picked == _siteKey) return;
@@ -97,21 +100,32 @@ class _VboxHomePageState extends State<VboxHomePage> {
   }
 
   SiteConfig? get _currentSite {
-    final List<SiteConfig>? sites = _sites;
-    if (sites == null) return null;
-    for (final SiteConfig s in sites) {
-      if (s.key == _siteKey) return s;
+    final String? key = _siteKey;
+    if (key == null) return null;
+    for (final SiteConfig s in _sites) {
+      if (s.key == key) return s;
     }
-    return sites.isNotEmpty ? sites.first : null;
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
+    final bool doubanMode = _siteKey == null;
     final SiteConfig? site = _currentSite;
     return Scaffold(
       appBar: AppBar(
-        title: Text(site == null || site.name.isEmpty ? '首页' : site.name),
+        title: Text(
+          doubanMode
+              ? '豆瓣推荐'
+              : (site == null || site.name.isEmpty ? '首页' : site.name),
+        ),
         actions: <Widget>[
+          if (!doubanMode)
+            IconButton(
+              tooltip: '豆瓣推荐',
+              icon: const Icon(Icons.recommend_outlined),
+              onPressed: _backToDouban,
+            ),
           IconButton(
             tooltip: '切换源',
             icon: const Icon(Icons.layers_outlined),
@@ -132,11 +146,11 @@ class _VboxHomePageState extends State<VboxHomePage> {
           ),
         ],
       ),
-      body: _buildBody(),
+      body: doubanMode ? const DoubanHomeView() : _buildSiteBody(),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildSiteBody() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -165,7 +179,7 @@ class _VboxHomePageState extends State<VboxHomePage> {
     if (key != null) {
       _loadHome(key);
     } else {
-      _init();
+      _loadSites();
     }
   }
 

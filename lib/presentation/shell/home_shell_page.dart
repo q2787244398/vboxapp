@@ -1,11 +1,14 @@
-/// 单一页树 + 双排布（批次 A · A-08）。
+/// 单一页树 + 全端统一底栏（批次 A · A-08 / A8）。
 ///
-/// 唯一真相源：`docs/第2轮开发计划_功能补全_v2.6.md` §3.3（布局适配模型）。
+/// 唯一真相源：iOS `ContentView.swift` L50-L57（`visibleTabs`）·
+/// L94-L133（悬浮胶囊底栏）· L256-L278（四皮肤底栏配色）；决策 2026-10-03（§1.5(1)）。
 ///
-/// 收敛口径：原三套页树（phone 底栏 / tv 顶栏 / desktop 侧栏）→ **一套**：
-///   · 导航项**单源** [_destinations]（同图标体系 + 同标签，全端共用）；
-///   · 排布由 [AdaptiveScaffold] 按 `UiForm` 产出（竖屏底部胶囊 TabBar / 横屏左侧 Rail）；
-///   · 内容区全端共用（[ShelfView] / RemoteSourcePage / LogViewerPage / BackupPage）。
+/// 收敛口径（A8）：
+///   · 导航项**枚举单源** [AppTab]（基础 4 项 `[首页,短剧,直播,我的]`
+///     + 福利按需插入 index 3，最多 5）；
+///   · 内容区由 [AppTab] **枚举派生**（不是下标），福利 Tab 增删不漂移错位（解 D15）；
+///   · 全端（Android / Android TV / Windows / macOS）统一底部悬浮胶囊 TabBar（解 D18）；
+///   · 底栏显隐受 [WelfareController.tabVisible]（门控）与 `tabBarHidden` 控制。
 ///
 /// 输入模态只加**反馈层**（遥控 → D-pad 焦点遍历，T.7），不改版式（§3.4）。
 library;
@@ -14,40 +17,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../pages/pages.dart';
-import '../phone/remote_source_page.dart';
+import '../theme/tokens/colors.dart';
+import '../theme/vbox_skin_controller.dart';
 import '../ui_mode/ui_mode.dart';
+import '../welfare/welfare_controller.dart';
 import '../widgets/adaptive/adaptive.dart';
-import '../widgets/backup_page.dart';
 import '../widgets/input/input.dart';
-import '../widgets/library_views.dart';
-import '../widgets/log_viewer_page.dart';
-import '../widgets/vbox/vbox.dart';
+import 'app_tab.dart';
 
-/// 书架内容：收藏 / 历史双 Tab（全端共用）。
-class ShelfView extends StatelessWidget {
-  /// 构造。
-  const ShelfView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('vbox 书架'),
-          bottom: const TabBar(
-            tabs: <Widget>[Tab(text: '收藏'), Tab(text: '历史')],
-          ),
-        ),
-        body: const TabBarView(
-          children: <Widget>[FavoritesView(), HistoryView()],
-        ),
-      ),
-    );
-  }
-}
-
-/// 首页外壳：单一页树，按形态产出双排布。
+/// 首页外壳：单一页树，全端统一底部悬浮胶囊 TabBar。
 class HomeShellPage extends StatefulWidget {
   /// 构造。
   const HomeShellPage({super.key});
@@ -57,81 +35,51 @@ class HomeShellPage extends StatefulWidget {
 }
 
 class _HomeShellPageState extends State<HomeShellPage> {
-  int _index = 0;
+  /// 当前选中 Tab（**枚举**驱动，非下标）。
+  AppTab _tab = AppTab.home;
 
-  /// 导航项单源（图标 + 标签，全端共用）。
-  static const List<VboxNavItem> _destinations = <VboxNavItem>[
-    VboxNavItem(
-      icon: Icons.home_outlined,
-      selectedIcon: Icons.home,
-      label: '首页',
-    ),
-    VboxNavItem(
-      icon: Icons.smart_display_outlined,
-      selectedIcon: Icons.smart_display,
-      label: '短剧',
-    ),
-    VboxNavItem(
-      icon: Icons.live_tv_outlined,
-      selectedIcon: Icons.live_tv,
-      label: '直播',
-    ),
-    VboxNavItem(
-      icon: Icons.bookmark_outline,
-      selectedIcon: Icons.bookmark,
-      label: '书架',
-    ),
-    VboxNavItem(
-      icon: Icons.cloud_outlined,
-      selectedIcon: Icons.cloud,
-      label: '远程源',
-    ),
-    VboxNavItem(
-      icon: Icons.cloud_sync_outlined,
-      selectedIcon: Icons.cloud_sync,
-      label: '网盘',
-    ),
-    VboxNavItem(
-      icon: Icons.article_outlined,
-      selectedIcon: Icons.article,
-      label: '日志',
-    ),
-    VboxNavItem(icon: Icons.settings_backup_restore, label: '备份'),
-  ];
-
-  /// 内容区（全端共用）。
-  Widget _content() => switch (_index) {
-        0 => const VboxHomePage(),
-        1 => const ShortDramaPage(),
-        2 => const LiveTVPage(),
-        3 => const ShelfView(),
-        4 => const RemoteSourcePage(),
-        5 => const CloudDriveAuthCenterPage(),
-        6 => const LogViewerPage(),
-        _ => const BackupPage(),
+  /// 内容区：由 [AppTab] 枚举派生（福利 Tab 增删不影响映射）。
+  Widget _contentFor(AppTab tab) => switch (tab) {
+        AppTab.home => const VboxHomePage(),
+        AppTab.shortDrama => const ShortDramaPage(),
+        AppTab.live => const LiveTVPage(),
+        AppTab.welfare => const WelfareGatePage(),
+        AppTab.profile => const ProfilePage(),
       };
 
   @override
   Widget build(BuildContext context) {
-    final UiFormController controller = context.watch<UiFormController>();
+    final UiFormController uiForm = context.watch<UiFormController>();
+    final WelfareController welfare = context.watch<WelfareController>();
+    final VboxSkinController skin = context.watch<VboxSkinController>();
+    final ThemeData theme = Theme.of(context);
     final MediaQueryData mq = MediaQuery.of(context);
-    final UiForm form = controller.resolveAt(
+    final UiForm form = uiForm.resolveAt(
       size: mq.size,
       orientation: mq.orientation,
     );
 
+    // 动态可见 Tab：基础 4 项 + 福利按需插入 index 3（对齐 iOS `visibleTabs`）。
+    final List<AppTab> tabs =
+        AppTab.visibleTabs(welfareVisible: welfare.tabVisible);
+    // 当前 Tab 因门控被裁剪时回退首页，避免选中下标漂移错位。
+    final AppTab current = tabs.contains(_tab) ? _tab : AppTab.home;
+
     final Widget shell = AdaptiveScaffold(
       form: form,
-      items: _destinations,
-      selectedIndex: _index,
-      onSelected: (int index) => setState(() => _index = index),
-      body: _content(),
+      items: tabs.map((AppTab tab) => tab.toNavItem()).toList(),
+      selectedIndex: tabs.indexOf(current),
+      onSelected: (int index) => setState(() => _tab = tabs[index]),
+      hideTabBar: welfare.tabBarHidden,
+      tabBarPalette:
+          VboxTabBarPalette.resolve(skin.skin, theme.brightness),
+      body: _contentFor(current),
     );
 
     // 输入模态反馈层（§3.4）：不改版式。
     //   · 遥控 → D-pad 焦点遍历（T.7）+ 十英尺缩放（§3.3，1.35× 文案档位）
     //   · 触摸 / 鼠标键盘 → 无额外包裹（hover / 快捷键由页面按需用 input/ 层）
-    if (controller.modality == InputModality.remote) {
+    if (uiForm.modality == InputModality.remote) {
       return TenFootScaler(
         child: FocusTraversalGroup(
           policy: WidgetOrderTraversalPolicy(),

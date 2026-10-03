@@ -4,6 +4,8 @@ library;
 import 'package:vbox/core/errors/failures.dart';
 import 'package:vbox/core/utils/result.dart';
 import 'package:vbox/data/datasources/remote/cms_v10_datasource.dart';
+import 'package:vbox/data/datasources/remote/douban_datasource.dart';
+import 'package:vbox/domain/entities/douban/douban_models.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/entities/remote_source/remote_source.dart';
 import 'package:vbox/domain/repositories/repositories.dart';
@@ -420,3 +422,34 @@ ContentBrowseUseCases buildContentBrowseUseCases({
       cmsDatasource: cmsDatasource,
       engineFactory: engineFactory,
     );
+
+/// 内存豆瓣数据源（A9 首页默认内容测试用；默认返回空集合 → 空态）。
+class InMemoryDoubanDatasource extends DoubanDatasource {
+  /// 构造。
+  InMemoryDoubanDatasource({this.subjects = const <DoubanSubject>[]});
+
+  /// 固定返回的合集条目。
+  final List<DoubanSubject> subjects;
+
+  @override
+  Future<List<DoubanSubject>> fetchCollection(
+    String collectionId, {
+    int start = 0,
+    int count = 20,
+  }) async =>
+      subjects;
+
+  @override
+  Future<List<DoubanChartSubject>> fetchChartRanking(
+    DoubanChartCategory category, {
+    int start = 0,
+    int count = 20,
+  }) async =>
+      const <DoubanChartSubject>[];
+}
+
+/// 构造豆瓣用例（内存数据源；默认空集合）。
+DoubanUseCases buildDoubanUseCases({
+  List<DoubanSubject> subjects = const <DoubanSubject>[],
+}) =>
+    DoubanUseCases(datasource: InMemoryDoubanDatasource(subjects: subjects));
