@@ -14,21 +14,25 @@
 ///     [welfarePlatformIcon] 映射 Material 近似图标，未知符号回退 `apps`；
 ///   · 长按进入**编辑排序**（拖拽 + 边缘自动滚动 + 震动）未在本批实现，
 ///     随 H-07 排序持久化一并接入；本页点击平台经 [WelfarePlatformRouter]
-///     路由（H-02）：未支持 → [UnsupportedPlatformPage]；福利 Spider →
-///     [WelfareSpiderHomePage]（H-03）；其余目标页面族随后续批次落地。
+///     路由（H-02）：未支持 → [UnsupportedPlatformPage]；福利 Spider
+///     JS / Python → [WelfareSpiderMainPage]（H-03 续段：JS 引擎 / Python 桥
+///     执行页）；其余 Spider 脚本 → [WelfareSpiderHomePage]（脚本状态页）。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../domain/entities/welfare/welfare.dart';
+import '../../../domain/services/welfare_js_spider_service.dart';
+import '../../../domain/services/welfare_python_spider_service.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../welfare/welfare_platform_controller.dart';
 import '../../welfare/welfare_platform_router.dart';
 import '../../widgets/vbox/vbox.dart';
-import '../../../domain/entities/welfare/welfare.dart';
 import 'unsupported_platform_page.dart';
 import 'welfare_spider_home_page.dart';
+import 'welfare_spider_main_page.dart';
 
 /// 福利专区首页（远程源版，三栏目 + 平台网格）。
 class WelfareHomePage extends StatefulWidget {
@@ -167,12 +171,11 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
   /// 按 [WelfarePlatformRouter] 解析并跳转（H-02）。
   ///
   /// 未支持（`unknown` / `fuli_base` 未注册 / 隔离违规）→ [UnsupportedPlatformPage]；
-  /// 福利 Spider（H-03）→ [WelfareSpiderHomePage]（脚本状态页）。
-  ///
-  /// 差异登记：iOS 对 `scriptType == javascript` 的平台走
-  /// `FuliPlatformMainView + WelfareJSSpiderService`（JS 引擎执行页），
-  /// Flutter 的 JS 引擎执行页随后续批次落地，本批两种 Spider 平台均以
-  /// 脚本状态页承接（页面文档注释已注明）。
+  /// 福利 JS Spider（H-03 续段）→ [WelfareSpiderMainPage]（JS 引擎执行页，
+  /// 对齐 iOS `FuliPlatformMainView + WelfareJSSpiderService`）；
+  /// 福利 Python Spider → [WelfareSpiderMainPage]（Python 桥执行页，
+  /// 对齐 iOS `WelfarePythonSpiderService`）；
+  /// 其余福利 Spider 脚本 → [WelfareSpiderHomePage]（脚本状态页）。
   void _onPlatformTap(WelfarePlatform platform) {
     final WelfareRoute route = _router.resolve(platform);
     if (route is WelfareUnsupportedRoute) {
@@ -186,7 +189,29 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
       );
       return;
     }
-    if (route is WelfareSpiderHomeRoute || route is WelfareWelfareSpiderRoute) {
+    if (route is WelfareWelfareSpiderRoute) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) => WelfareSpiderMainPage(
+            platform: platform,
+            service: WelfareJSSpiderService.serviceFor(platform),
+          ),
+        ),
+      );
+      return;
+    }
+    if (route is WelfarePythonSpiderRoute) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) => WelfareSpiderMainPage(
+            platform: platform,
+            service: WelfarePythonSpiderService.serviceFor(platform),
+          ),
+        ),
+      );
+      return;
+    }
+    if (route is WelfareSpiderHomeRoute) {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (BuildContext context) =>
