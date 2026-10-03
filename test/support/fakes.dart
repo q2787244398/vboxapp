@@ -2,15 +2,45 @@
 library;
 
 import 'package:vbox/core/errors/failures.dart';
+import 'package:vbox/core/network/http_client.dart';
 import 'package:vbox/core/utils/result.dart';
+import 'package:vbox/data/datasources/local/settings_store.dart';
+import 'package:vbox/data/datasources/local/welfare_platform_cache.dart';
 import 'package:vbox/data/datasources/remote/cms_v10_datasource.dart';
 import 'package:vbox/data/datasources/remote/douban_datasource.dart';
+import 'package:vbox/data/datasources/remote/welfare_platform_datasource.dart';
 import 'package:vbox/domain/entities/douban/douban_models.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/entities/remote_source/remote_source.dart';
+import 'package:vbox/domain/entities/welfare/welfare.dart';
 import 'package:vbox/domain/repositories/repositories.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
 import 'package:vbox/platform/spider/spider_engine_factory.dart';
+
+/// 内存设置键值存储（替代 SQLite `settings` 表，供 [SessionController] 单测注入）。
+class InMemorySettingsStore implements SettingsStore {
+  /// 构造（可注入初值）。
+  InMemorySettingsStore([Map<String, String>? seed])
+      : _data = <String, String>{...?seed};
+
+  final Map<String, String> _data;
+
+  /// 当前全部键值（只读快照，便于断言）。
+  Map<String, String> get snapshot => Map<String, String>.unmodifiable(_data);
+
+  @override
+  Future<String?> get(String key) async => _data[key];
+
+  @override
+  Future<void> set(String key, String value) async {
+    _data[key] = value;
+  }
+
+  @override
+  Future<void> remove(String key) async {
+    _data.remove(key);
+  }
+}
 
 /// 内存收藏仓储。
 class InMemoryFavoriteRepository implements FavoriteRepository {
@@ -453,3 +483,86 @@ DoubanUseCases buildDoubanUseCases({
   List<DoubanSubject> subjects = const <DoubanSubject>[],
 }) =>
     DoubanUseCases(datasource: InMemoryDoubanDatasource(subjects: subjects));
+
+/// 内存福利平台配置数据源（H-01 / H-06 单测用，不触碰真实网络）。
+///
+/// 默认返回 [UnknownFailure]（等价「远程不可达」→ 页面走错误/空态分支）；
+/// 注入 [config] 后返回该配置（页面走有数据分支）。
+class InMemoryWelfarePlatformDatasource extends WelfarePlatformDatasource {
+  /// 构造。
+  InMemoryWelfarePlatformDatasource({
+    this.config,
+    this.failure = const UnknownFailure('fake 未配置福利平台数据'),
+  }) : super(client: HttpClient());
+
+  /// 命中时返回的配置（null → 返回 [failure]）。
+  final WelfarePlatformConfig? config;
+
+  /// 未配置 [config] 时返回的失败。
+  final Failure failure;
+
+  /// fetch 调用次数（断言刷新行为用）。
+  int fetchCount = 0;
+
+  @override
+  Future<Result<WelfarePlatformConfig>> fetch(
+    String manifestUrl, {
+    bool forceRefresh = false,
+  }) async {
+    fetchCount++;
+    final WelfarePlatformConfig? c = config;
+    return c == null
+        ? Err<WelfarePlatformConfig>(failure)
+        : Success<WelfarePlatformConfig>(c);
+  }
+}
+
+/// 内存福利平台配置缓存（H-01 单测用；不落盘，读写均在内存）。
+class InMemoryWelfarePlatformCache extends WelfarePlatformCache {
+  /// 构造（可注入初值）。
+  InMemoryWelfarePlatformCache({this.config});
+
+  /// 当前缓存配置。
+  WelfarePlatformConfig? config;
+
+  @override
+  Future<WelfarePlatformConfig?> read() async => config;
+
+  @override
+  Future<void> write(WelfarePlatformConfig value) async {
+    config = value;
+  }
+
+  @override
+  Future<void> clear() async {
+    config = null;
+  }
+}
+
+/// 构造福利平台配置（H-06 单测用；按 `video` / `live` / `comic` 三栏各给平台）。
+WelfarePlatformConfig buildWelfarePlatformConfig({
+  Map<String, List<String>> namesByCategory = const <String, List<String>>{
+    'video': <String>['平台甲', '平台乙'],
+    'live': <String>['直播甲'],
+    'comic': <String>['漫画甲'],
+  },
+}) {
+  int order = 0;
+  final List<WelfarePlatform> platforms = <WelfarePlatform>[];
+  namesByCategory.forEach((String category, List<String> names) {
+    final WelfarePlatformCategory? c = WelfarePlatformCategory.fromKey(category);
+    if (c == null) return;
+    for (final String name in names) {
+      platforms.add(WelfarePlatform(
+        platformKey: '$category-${order + 1}',
+        name: name,
+        category: c,
+        sortOrder: order++,
+      ));
+    }
+  });
+  return WelfarePlatformConfig(
+    meta: const <String, Object?>{'version': '2026.10.03.1'},
+    platforms: platforms,
+  );
+}

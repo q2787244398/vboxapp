@@ -22,5 +22,7 @@ export 'mdtv/mdtv_video_list_page.dart';
 export 'mdtv/mdtv_widgets.dart';
 export 'profile/profile_page.dart';
 export 'search/search_page.dart';
+export 'settings/settings_page.dart';
 export 'short_drama/short_drama_page.dart';
 export 'welfare/welfare_gate_page.dart';
+export 'welfare/welfare_home_page.dart';

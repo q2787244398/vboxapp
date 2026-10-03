@@ -15,6 +15,30 @@
       "ref": "docs/ui_baseline/ios_ref/豆瓣排行榜页面.PNG",
       "cmp": "test/golden/goldens/douban_ranking.png",
       "baseline": 0.2539
+    },
+    {
+      "family": "个人中心",
+      "ref": "docs/ui_baseline/ios_ref/个人中心主页面.PNG",
+      "cmp": "test/golden/goldens/profile_portrait.png",
+      "baseline": 0.7117
+    },
+    {
+      "family": "账号登录",
+      "ref": "docs/ui_baseline/ios_ref/个人中心账号登陆页面.PNG",
+      "cmp": "test/golden/goldens/login_sheet.png",
+      "baseline": 0.7852
+    },
+    {
+      "family": "设置页",
+      "ref": "docs/ui_baseline/ios_ref/整个设置页面可以上下滑动查看更多.PNG",
+      "cmp": "test/golden/goldens/settings_portrait.png",
+      "baseline": 0.7148
+    },
+    {
+      "family": "福利专区直播栏目",
+      "ref": "docs/ui_baseline/ios_ref/福利页面直播栏目.PNG",
+      "cmp": "test/golden/goldens/welfare_live_portrait.png",
+      "baseline": 0.8193
     }
   ]
 }

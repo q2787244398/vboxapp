@@ -9,3 +9,4 @@ export 'douban_datasource.dart';
 export 'node_credential_sync_service.dart';
 export 'remote_manifest_datasource.dart';
 export 'remote_source_config_manager.dart';
+export 'welfare_platform_datasource.dart';

@@ -1,13 +1,13 @@
 # vbox · H / I 批次开工前置 UI 对齐清单
 
-> **版本**：v1.6 · 2026-10-03（v1.6 递增：**C1「SSIM 接入 CI」已交付并验证** —— 新增 `visual-regression` job + 配对清单 `visual_pairs.json` + 脚本清单模式；门禁口径经实测修正为**相对基线**（绝对 0.95 跨设备不可达，留待 J.3 终检）。C 批次 1/5 完成）
+> **版本**：v1.9 · 2026-10-03（v1.9 递增：**H-01 + H-06 打通福利专区** —— 平台配置远程加载链（manifest → `files.welfarePlatforms` → schema 校验，代理降级链）+ 本地磁盘缓存 + `WelfarePlatformController` 状态管理 + 三栏目平台网格页 `WelfareHomePage`，并把「福利专区」远程/内置门控从 `WelfareGatePage` 接上；新增 4 测试文件 / **35 用例** + 1 张金色基线（`welfare_live_portrait`，SSIM **0.819**）；本地实跑 `flutter analyze` **0 issue** · `flutter test` **1607 用例全绿** · 覆盖率 **78.0%** · 契约 11/11 · conformance 83/83 · 视觉门禁 6 配对全达标。详见 §12。v1.8 递增（C2）保留于 §11；v1.7 递增（批次 I 首段）保留于 §10；v1.6 递增（C1「SSIM 接入 CI」）保留于 §9）
 > **定位**：**表现层开工前置清单**，与 [UI对齐基准_v1.0.md](UI对齐基准_v1.0.md) 平行存在、互不覆盖。
 > **不变式**：本文件**不回溯修改** D1（契约共享）/ D3（统一 UI + 横竖双形态）/ D5（形态判定）—— 三者保持原样；仅把「H / I 批次开工前必须先做完的事」固化为可核对清单。**唯一例外**：§1.5(1) 记录了一项**用户新决策**（全端统一底栏），该决策**须另行登记**到计划 §3.3，本文件仅如实记录其连带影响。
 > **依据（实际核对）**：
 > 1. `docs/ui_baseline/ios_ref/` 全部 iOS 基准截图**逐张分析**（本文件 §1 为实测结论）；
 > 2. `lib/presentation/` 令牌层与组件库**现状**（本文件 §2 为代码核对结论）；
-> 3. [第2轮细分实施WBS_v1.22.md](第2轮细分实施WBS_v1.22.md) 批次 H（H-01~H-08）与批次 I（I-01~I-06）条目；
-> 4. [第2轮开发计划_功能补全_v2.18.md](第2轮开发计划_功能补全_v2.18.md) §2 页面族清单 / §3.3 双形态 / §3.6 保真度口径；
+> 3. [第2轮细分实施WBS_v1.24.md](第2轮细分实施WBS_v1.24.md) 批次 H（H-01~H-08）与批次 I（I-01~I-06）条目；
+> 4. [第2轮开发计划_功能补全_v2.19.md](第2轮开发计划_功能补全_v2.19.md) §2 页面族清单 / §3.3 双形态 / §3.6 保真度口径；
 > 5. **v1.1 新增**：[ContentView.swift](../vbox/App/ContentView.swift) 福利 Tab 门控 · [MainViews.swift](../vbox/Views/MainViews.swift) 首页「豆瓣推荐」实现 · [AppSettings.swift](../vbox/App/AppSettings.swift) 福利三键默认值；
 > 6. **v1.2 新增**：[ContentView.swift](../vbox/App/ContentView.swift#L17-L56) 底栏 Tab 组成与 `visibleTabs` · [L108-L131](../vbox/App/ContentView.swift#L108-L131) 胶囊宽度公式与描边 · [L256-L278](../vbox/App/ContentView.swift#L256-L278) 四皮肤底栏配色 · [ProfileView.swift](../vbox/Views/ProfileView.swift#L416-L420) 宫格入口与 [L504-L665](../vbox/Views/ProfileView.swift#L504-L665) 福利两阶段弹窗与记录过滤；及**全端导航形态决策（用户决策）**。
 
@@ -68,7 +68,7 @@
 | — | Bug 反馈 | `Bug 反馈界面.PNG` | ✅ 已分析 |
 | 20 | 播放器 | `播放器界面UI/横屏效果/*.PNG`（7 张）· `播放器界面UI/竖屏效果/*.PNG`（5 张） | ✅ 抽样已分析 |
 
-> **⚠️ 基准缺口（已实测确认）**：福利「视频栏目」「漫画栏目」两张图**确因内容合规过滤无法读取**（与 [计划 §2 注](第2轮开发计划_功能补全_v2.18.md) 一致）。H-06 开工前须先人工确认「直播栏目」版式是否可同构推广，或直接从 iOS 源码 [WelfareHomeView.swift](../vbox/Views/WelfareHomeView.swift) 采样补齐基准。
+> **⚠️ 基准缺口（已实测确认）**：福利「视频栏目」「漫画栏目」两张图**确因内容合规过滤无法读取**（与 [计划 §2 注](第2轮开发计划_功能补全_v2.19.md) 一致）。H-06 开工前须先人工确认「直播栏目」版式是否可同构推广，或直接从 iOS 源码 [WelfareHomeView.swift](../vbox/Views/WelfareHomeView.swift) 采样补齐基准。
 
 ### 1.2 与 H / I 直接相关的还原点（实测）
 
@@ -276,7 +276,11 @@
 
 ### 2.2 未对齐 ❌（本清单要解决的）
 
-> **v1.4 状态**：本表 **D1~D5 · D7 · D12~D18 已关闭** —— D1 / D12~D18 随 v1.3（A8/A9）关闭；**D2~D5 随 v1.4（A2~A5 主题层收口）关闭**；**D7（3×3 宫格）随 v1.3 的 I-01 / B2 关闭**。仅 **D6 · D8~D11** 待办（渐变头部卡 / 设置行 / 皮肤四选 / 登录弹窗 / 福利分段 + 网格）。下表保留 v1.2 时的**开工前现状**，供回溯。
+> **v1.4 状态**：本表 **D1~D5 · D7 · D12~D18 已关闭** —— D1 / D12~D18 随 v1.3（A8/A9）关闭；**D2~D5 随 v1.4（A2~A5 主题层收口）关闭**；**D7（3×3 宫格）随 v1.3 的 I-01 / B2 关闭**。
+>
+> **v1.7 状态**：**D8 / D9 / D10 已关闭** —— D8（设置分组 + 设置行）随 B3（`VboxSettingsSection` / `VboxSettingsRow`）与 I-03 落地；D9（皮肤四选 2×2）随 B4（`VboxSkinPicker`）与 I-03 落地；D10（登录弹窗）随 B5（`VboxLoginSheet`）与 I-02 落地。**D11（福利分段 + 平台网格）组件层已随 B6 关闭，页面层（H-06）待办**。**D6（主色渐变头部卡）作废** —— 图10 实测为**居中 Logo**，无 iOS 还原依据，B1 已降级为「不实现」。下表保留 v1.2 时的**开工前现状**，供回溯。
+>
+> **v1.9 状态**：**D11 页面层已关闭** —— H-06（三栏目 + 平台网格页 [`WelfareHomePage`](../lib/presentation/pages/welfare/welfare_home_page.dart)）随 v1.9 落地：福利分段控件（`VboxWelfareTabs`）与 4 列彩色平台网格（`VboxWelfarePlatformGrid`）在真实页面接线，数据来自 H-01 远程配置链；金色基线 `welfare_live_portrait` SSIM **0.819**。
 
 | # | 还原点（§1.3） | Flutter 现状 | 差距 |
 |---|---|---|---|
@@ -353,6 +357,8 @@
 
 > **v1.6 状态**：**C1 已完成并验证**（详见 §9）—— 门禁口径**经实测修正**：计划 §3.6 的绝对 SSIM ≥ 0.95 跨设备不可达（实测 0.25~0.45），故 CI 采用「基线 − 容差」**相对门禁**（防回归），绝对 0.95 留待 J.3 终检重定口径。
 > **C2~C5 仍待办**。C2（H/I 页面族 Golden）依赖页面产出 → 随 **I-02~I-05 / H-06·H-07** 逐页接入（每页追加一条 pairing 即可）。
+>
+> **v1.9 状态**：**C2 第二段（H 页面族首张）落地** —— H-06 产金色基线 `welfare_live_portrait` 并接入配对清单（SSIM **0.819**）；C2 已覆盖 **图10 / 图11 / 图12 / 图17** 四族；**C3~C5 与 H-07 Golden 仍待办**。
 
 ### 3.4 D · 逐页验收表（H / I 直接可用）
 
@@ -367,6 +373,12 @@
 | H | H-06 三栏目 + 平台网格 | 图17（+ C3 补图） | 紫色分段选中 + 4 列彩色平台图标网格 | Golden + SSIM ≥0.95 |
 | H | H-07 域名/代理设置 | 图19 | 平台清单行（图标+名称+开关）+ 代理/域名输入 | 开关生效 + Golden |
 | G | G-09 Bug 反馈 | `Bug 反馈界面.PNG` | 抽屉 + 标题输入 + 详细描述文本域 + 提交按钮 | Golden |
+
+> **v1.7 状态**：**I-01 / I-02 / I-03 / I-04 四项已交付**（详见 §10）；四项均**未产 Golden**（C2 待办），故本表「Golden + SSIM」门禁本批**未闭环**。H-05 已于 v1.3 交付；**H-06 / H-07 / I-05 / G-09 待办**。
+>
+> **v1.9 状态**：**H-01 + H-06 已交付**（详见 §12）—— H-06 三栏目 + 平台网格页落地并**产金色基线**（`welfare_live_portrait`，SSIM 0.819），本行「Golden + SSIM」门禁**已闭环**（相对口径）；I 批四页 Golden 已于 v1.8（§11）补齐。**H-07 / I-05 / G-09 仍待办**。
+>
+> **口径提示**：本表「SSIM ≥0.95」为原计划**绝对阈值**；v1.6（§9.2）已**实测修正为相对门禁**（`SSIM ≥ 基线 − 0.02`，回归即红），绝对 0.95 留待 J.3 终检重定。
 
 ### 3.5 E · 执行顺序
 
@@ -510,7 +522,7 @@
 |---|---|---|---|
 | 1 | CI step 名写死 `conformance runner (45 checks)`，实测为 **83 项**（`合计 83 项：通过 83 · 失败 0`） | 注释不实（数字会随 fixture 增长漂移） | ✅ **本批修正**：step 名改为 `Run conformance runner`（去写死数字，以 runner 输出为准） |
 | 2 | [README.md](../README.md) 目录表写 `conformance/（45 项）` | 既有文档漂移 | 📌 登记；随 **C5**（UI 对标基准升版）同期修订 |
-| 3 | 主方案 [VBOX_PLAN_v6.47.md](VBOX_PLAN_v6.47.md) 多处**仍写**陈旧口径「10 个校验脚本」「conformance 45 项」（L30 / L3568 / L3749 / L3888 / L5427 等） | 既有文档漂移 | 📌 登记；主方案走其自身版本治理（规则 6/7），**不在本清单改动范围** |
+| 3 | 主方案 [VBOX_PLAN_v6.48.md](VBOX_PLAN_v6.48.md) 多处**仍写**陈旧口径「10 个校验脚本」「conformance 45 项」（L30 / L3568 / L3749 / L3888 / L5427 等） | 既有文档漂移 | 📌 登记；主方案走其自身版本治理（规则 6/7），**不在本清单改动范围** |
 | 4 | `login_sheet.dart` / `mini_player.dart` 手写阴影 | 非卡片的样式观察项 | 📌 已登记（§7.3），按 R-5 走登记流程后处理 |
 
 > 回溯口径：§7.3 与 §7.5 的 📌 项**均不阻塞** H/I 开工；但若开 H/I 前未清，须在批次计划中显式承接。
@@ -584,7 +596,7 @@
 
 | 项 | 命令 | 结果 |
 |---|---|---|
-| 登记基线 | `--pairs … --update-baseline` | ✅ 写入 2 条（0.4494 / 0.2539） |
+| 登记基线 | `--pairs … --update-baseline` | ✅ 写入 2 条（0.4494 / 0.2539）；**v1.8 追加 3 条**（0.712 / 0.785 / 0.715，共 5 条） |
 | 正向门禁 | `--pairs … --gate` | ✅ **exit 0** |
 | 负向门禁 | 人为抬高基线至 0.60 → `--gate` | ✅ **exit 1**（`首页 Δ −0.151 · 低于基线-容差 0.580`） |
 | 向后兼容 | `--ref … --cmp …`（目录模式） | ✅ 行为不变 |
@@ -600,8 +612,169 @@
 
 ### 9.5 遗留
 
-- **C2**：H/I 页面族 Golden —— 随页面开发**边做边接**（依赖 I-02~I-05 / H-06·H-07）。
+- **C2**：H/I 页面族 Golden —— ✅ **首段已交付**（I-01 / I-02 / I-03 三页，见 §11）；余下页面随 H-06 / H-07 / I-05 开发**边做边接**。
 - **C3 / C4 / C5**：待办。
+
+---
+
+## 10. v1.7 交付回执（批次 I 首段 · I-01 / I-02 / I-03 / I-04 · 2026-10-03）
+
+> 用户决策：本批只做「**设置页 + 登录弹窗 + 显示模式**」。对应 **I-01~I-04 四项**；
+> **I-05（自更新 UI）依赖 K 批次**、**I-06 为批次自检**（即本回执）—— I-05 仍待办。
+
+### 10.1 交付明细
+
+| 条目 | 状态 | 落地文件 | 关键内容 |
+|---|---|---|---|
+| **I-01** 个人中心 | ✅ 收口 | [profile_page.dart](../lib/presentation/pages/profile/profile_page.dart) | 顶栏 **左「退出」（仅登录态）/ 右「设置」**（**用户决策**覆盖图10 的「分享」）· 居中 80 圆头像（登录态 = 首字母灰圈 / 已存头像；未登录 = Logo 兜底）· 展示名 18 semibold + 铅笔（登录态可改名）· 「点击登录」/「账号：<account>」· 观看记录红竖条分区头 + 横向海报 · 3×3 宫格（「备份还原」仅登录态）· **原「更多工具」分组移除** |
+| **I-02** 登录弹窗 | ✅ | [profile_page.dart](../lib/presentation/pages/profile/profile_page.dart)（`_LoginSheetHost`）· [vbox_login_sheet.dart](../lib/presentation/widgets/vbox/vbox_login_sheet.dart)（B5 组件） | 底部抽屉 + 72 图标 + 「欢迎回来」+ 账号 / 密码输入（眼睛切换）+ 「登录 / 注册」按钮（账号空 → 禁用）+ 上级用户胶囊 + 取消；登录中显示进度圈；错误文案内联 |
+| **I-02** 本地账号会话 | ✅ | [session_controller.dart](../lib/presentation/profile/session_controller.dart) · [settings_store.dart](../lib/data/datasources/local/settings_store.dart) | 纯本地账号（无服务端）：`account`（不可改）/ `username`（可改）/ 密码**按账号分键** `password_<account>`（首次登录即注册）/ `isLoggedIn` / `avatar_image`；**登出只清登录态、保留密码与头像**；`load` 兼容旧版 `account` 空时以 `username` 兜底迁移 |
+| **I-03** 设置页 | ✅ 骨架 + 逐条 | [settings_page.dart](../lib/presentation/pages/settings/settings_page.dart) | 8 分区落地：皮肤（四选 + 跟随系统）· **显示模式** · 播放设置（自定义弹幕源 + 地址输入 + 搜索调试面板）· 工具（书架 / 远程源 / 网盘管理 / 备份还原）· 存储管理 · 日志调试（开启日志 + 查看日志）· 关于（版本 + 检查更新）· **更多设置（待实现）** 显式列出 TMDB / TG / 订阅源 / 站点诊断 / 切片源 / 站点管理 6 项（不虚标可用） |
+| **I-04** 显示模式 | ✅ | [settings_page.dart](../lib/presentation/pages/settings/settings_page.dart)（`_displayModeSection` / `_pickDisplayMode`） | 三档「自动 / 手机（竖屏）/ 大屏（横屏）」单选对话框 → 写 `app_ui_form_override` + `UiFormController.setOverride` 热切换 |
+| 接线 | ✅ | [app.dart](../lib/app.dart)（L149-L151 Provider 注入 + `load()`）· [profile_page.dart](../lib/presentation/pages/profile/profile_page.dart)（`_openSettings` 推入设置页） | `SessionController` 注册进 MultiProvider 并在启动时 `load()`；个人中心右上角齿轮 → 设置页 |
+| 测试 | ✅ 新增 / 修正 | [session_controller_test.dart](../test/presentation/profile/session_controller_test.dart)（10 例）· [settings_page_test.dart](../test/presentation/pages/settings/settings_page_test.dart)（6 例）· [home_shell_page_test.dart](../test/presentation/shell/home_shell_page_test.dart)（修正陈旧断言）· [fakes.dart](../test/support/fakes.dart)（新增 `InMemorySettingsStore`） | 会话语义 / 设置页分区与 I-04 热切换 / 个人中心新 UI + 工具迁移全覆盖 |
+
+### 10.2 迁移与口径
+
+| # | 变更 | 处置 |
+|---|---|---|
+| 1 | 个人中心「更多工具」分组移除 | 书架 / 远程源 / 网盘管理 / 备份还原 **迁入设置页「工具」分区**；日志调试迁入设置页「日志调试」分区（对齐 iOS：这些入口在设置页内） |
+| 2 | 个人中心顶栏左键 | 图10 截图为「分享」，按**用户决策**改为**用户退出**（仅登录态显示）；未登录留空占位保持居中对称 |
+| 3 | 未登录头部文案 | 对齐 iOS `loginSection`（L304）：展示名 = **「未登录」**（非「vbox 默认账号」—— 后者是登录后的 `username`） |
+| 4 | 设置页分区数 | WBS I-03 记「12 分区」；iOS 实测为「皮肤 + 10 功能分区 + 关于」。本批落地 **8 分区 + 6 项待实现显式登记**（不虚标），与 §5-4 口径一致 |
+
+### 10.3 验证结果（本地）
+
+> ⚠️ **原始登记（v1.7）**：本批交付时**本执行环境未安装 Flutter SDK**（`flutter` / `dart` 均不在 PATH），故 `flutter analyze` / `flutter test` / 生成 Golden **本批未实跑**；新增 16 例单测与用例修正仅经**静态审查 + 导入路径校验**。
+>
+> ✅ **v1.8 回填**：环境已装 **Flutter 3.47.5 / Dart 3.13.4（Linux x64，与 CI 同版本）**，上述未实跑项**已全部补跑**（结果见 §11.2）；并据此修复 1 处测试缺陷（I-04 残留 Timer）。
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 导入路径校验 | `check_dart_imports.py`（416 文件） | ✅ 全绿（相对 / `package:vbox` 路径全可达） |
+| UI 令牌守卫 | `check_ui_tokens.py`（271 文件） | ✅ 全绿（R-2 / R-3 / R-4） |
+| 契约完整性 | `check_contract_completeness.py` | ✅ 通过（契约覆盖 99 键；`app_ui_form_override` 为 D17 新增键，提示「源码未见」属预期） |
+| 契约镜像同步 | `check_contract_sync.py` | ✅ 通过（99 键 storage 标注 + 9 表字段 + conformance fixture） |
+| prefs_manager 守卫 | `check_prefs_manager.py` | ✅ 通过（键字面量 / JSON 列表 / 安全存储分派） |
+| 备份契约 | `check_backup_contract.py` | ✅ 通过 |
+| 文档一致性 | `check_docs_consistency.py` | ✅ 通过（含本文件升版 v1.7 后复跑） |
+
+### 10.4 遗漏排查（本批发现 · 逐项处置）
+
+| # | 发现 | 性质 | 处置 |
+|---|---|---|---|
+| 1 | [home_shell_page_test.dart](../test/presentation/shell/home_shell_page_test.dart) 仍断言**旧个人中心**（`vbox 默认账号` / `更多工具` / `书架` / `远程源`） | **真实缺陷**：与已改实现冲突，测试必挂 | ✅ **本批修正**：改为「未登录」+ 工具入口迁出断言 + 设置页工具分区导航用例 |
+| 2 | `SessionController` 无专属单测（新落地代码零覆盖） | 覆盖率缺口 | ✅ **本批新增** 10 例（登录 / 注册 / 登出保留密码 / 改名 / 兜底迁移） |
+| 3 | 设置页无专属单测 | 覆盖率缺口 | ✅ **本批新增** 6 例（分区骨架 / 工具迁移 / 皮肤 + I-04 热切换 / 弹幕源开关 / 关于） |
+| 4 | `VboxSettingsRow.toggle` 未在 `_LoginSheetHost` 之外验证过开关写键 | 回归风险 | ✅ 由新增设置页用例覆盖（弹幕源 / 搜索调试 / 日志三键同一路径） |
+| 5 | I-05 自更新 UI 未实现（「检查更新」按钮仅 Toast 占位） | 依赖 K 批次 | 📌 **登记待办**：K 批次落地后接线（`_aboutSection` 已留入口） |
+| 6 | 头像更换（iOS `photosPicker`）未实现（点击仅 Toast） | 依赖 M-02 | 📌 **登记待办**：M-02「昵称 / 头像 / 编辑」批次接线 |
+| 7 | 观看记录「查看更多 >」未实现（仅 Toast） | 依赖 M-03 | 📌 **登记待办**：M-03「观看记录页」批次接线 |
+| 8 | 存储管理「缓存清理」未接线 | 依赖缓存层 | 📌 **登记待办**：缓存层就绪后接线 |
+| 9 | I-02 / I-03 / I-04 页面**未产 Golden** | C2 依赖 | ✅ **v1.8 已闭环**：I-01 / I-02 / I-03 三页已产金色基线并接入 SSIM 配对（见 §11） |
+| 10 | 设置页「更多设置（待实现）」6 项为显式占位 | 不虚标（合规） | ✅ 保留；随 H-06/H-07 及各域批次逐项转正 |
+
+### 10.5 遗留（按 §3.5 顺序继续）
+
+- **I-05**：自更新 UI（依赖 K 批次）—— **待办**。
+- **H-06 / H-07**：福利三栏目 + 平台网格 / 代理·域名·远程开关 —— **待办**（组件 B6 已就绪）。
+- **C2~C5**：H/I 页面族 Golden（C2 ✅ **首段已交付**）· 福利视频/漫画基准（C3）· R-5 登记（C4）· UI 对齐基准升 v1.1（C5）—— 除 C2 首段外 **待办**。
+- **待补跑**：`flutter analyze` / `flutter test` / Golden 生成 —— ✅ **v1.8 已补跑并回填 §10.3 / §11.2**。
+- **G 批次剩余项**：G-02~G-10（除 G-01 已交付）—— **待办**。
+
+---
+
+## 11. v1.8 交付回执（C2：H/I 页面族 Golden 首段 + 门禁补跑 · 2026-10-03）
+
+> 用户决策：批次 I 首段（v1.7）交付后，**优先补 C2**。
+> C2 = 「H/I 页面族 Golden」—— 给已落地的 I-01 / I-02 / I-03 **三页各产 Flutter 金色基线**，
+> 并按 §9.4 接入 SSIM 配对清单，使本批**首次进入 CI 视觉回归门禁**。
+
+### 11.1 交付明细
+
+| 条目 | 状态 | 落地文件 | 关键内容 |
+|---|---|---|---|
+| I-01 个人中心 Golden | ✅ | [i_pages_golden_test.dart](../test/golden/i_pages_golden_test.dart) → `test/golden/goldens/profile_portrait.png` | 390×844 竖屏：外壳 → 切「我的」→ 逐像素锁（含底栏） |
+| I-02 登录弹窗 Golden | ✅ | 同上 → `test/golden/goldens/login_sheet.png` | 390×844：空态（账号空 → 主按钮禁用） |
+| I-03 设置页 Golden | ✅ | 同上 → `test/golden/goldens/settings_portrait.png` | 390×2400 长视口：皮肤 / 显示模式 / 播放设置 / 工具 / 存储 / 日志 / 关于 / 待实现 |
+| SSIM 配对接入 | ✅ | [visual_pairs.json](ui_baseline/visual_pairs.json) | 追加 3 条配对，容差 0.02（沿用 §9 相对门禁口径） |
+
+### 11.2 验证结果（本地实跑 · Flutter 3.47.5 / Dart 3.13.4 · Linux x64）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 静态检查 | `flutter analyze` | ✅ **0 issue** |
+| 全量单测 | `flutter test` | ✅ **1572 用例全绿** |
+| 覆盖率 | `flutter test --coverage` + `check_coverage.py` | ✅ **77.8% ≥ 70%**（零触达仅 `app.dart` / `main.dart`） |
+| 金色基线生成 | `flutter test test/golden --update-goldens` | ✅ 新增 3 张（profile_portrait / login_sheet / settings_portrait） |
+| 视觉回归门禁 | `visual_regression.py --pairs … --gate` | ✅ **exit 0**（5 配对全达标：0.449 / 0.254 / 0.712 / 0.785 / 0.715） |
+| 契约脚本 | 11 项 `check_*.py` | ✅ **11/11 全绿** |
+| conformance | `run_conformance.py` | ✅ **83/83** |
+
+### 11.3 遗漏排查（补 C2 时发现 · 逐项处置）
+
+| # | 发现 | 性质 | 处置 |
+|---|---|---|---|
+| 1 | [settings_page_test.dart](../test/presentation/pages/settings/settings_page_test.dart) I-04 用例切换显示模式后触发 `VboxToast`（挂 2s 自动关闭 `Timer`），teardown 报 `A Timer is still pending` | **真实缺陷**（此前未实跑，首次暴露） | ✅ **已修**：用例末 `pump(Duration(seconds: 3))` 排空定时器（对齐仓库既有约定） |
+| 2 | v1.7 文档 §10.3 陈旧键数「98 键」 | 文档漂移（`check_docs_consistency` 实测报错） | ✅ **已修**：改「99 键」，守卫复绿 |
+| 3 | 此前 §10.3 声明「未装 Flutter SDK / 未实跑」 | 验证缺口 | ✅ **已闭环**：环境装 SDK 后全量补跑（见 §11.2） |
+
+### 11.4 遗留
+
+- **C3**（福利视频 / 漫画基准）· **C4**（R-5 登记）· **C5**（UI 对齐基准升 v1.1）：待办。
+- **I-05 / H-06 / H-07**：待办（同 §10.5）；其 Golden 随开发按 §9.4 边做边接。
+
+---
+
+## 12. v1.9 交付回执（H-01 + H-06 打通福利专区 · 2026-10-03）
+
+> 用户决策：C2 交付后，**优先做「H-01 + H-06 打通福利专区」**。
+> H-01 = 平台配置加载（远程 JSON + 本地缓存 + schema 校验）；H-06 = 三栏目 + 平台网格页。
+> 目标：把 iOS `RemoteWelfareHomeView` 的**数据链 + 页面**在 Flutter 侧打通（平台点击的 5 类路由属 H-02，本批仅提示）。
+
+### 12.1 交付明细
+
+| 条目 | 状态 | 落地文件 | 关键内容 |
+|---|---|---|---|
+| H-01 领域模型 | ✅ | [welfare_platform_config.dart](../lib/domain/entities/welfare/welfare_platform_config.dart) | `WelfarePlatformCategory`（video/live/comic）+ `WelfarePlatform` + `WelfarePlatformCategoryMeta` + `WelfarePlatformConfig`（严格 `tryParse`：`schemaVersion=1` / 未知 key 剔除 / 显式校验），对齐契约 [welfare_v1.json](../contract/schema/welfare_v1.json) |
+| H-01 数据源 | ✅ | [welfare_platform_datasource.dart](../lib/data/datasources/remote/welfare_platform_datasource.dart) | `WelfarePlatformDatasource.fetch()`：manifest（`files.welfarePlatforms`）→ 平台配置，两级均走 `RemoteSourceStrategy` 代理降级链 |
+| H-01 本地缓存 | ✅ | [welfare_platform_cache.dart](../lib/data/datasources/local/welfare_platform_cache.dart) | 磁盘缓存 `welfare_platforms.json`（`FileStore`）；离线可读、读写失败降级 |
+| H-01 状态管理 | ✅ | [welfare_platform_controller.dart](../lib/presentation/welfare/welfare_platform_controller.dart) | `WelfarePlatformController`：缓存先出 → 后台刷新；`fuli_remote_source_enabled` 开关 + 上次成功时间/版本落 Prefs；`platformsIn(category)` 按 `sortOrder` 排序 |
+| H-06 页面 | ✅ | [welfare_home_page.dart](../lib/presentation/pages/welfare/welfare_home_page.dart) | `WelfareHomePage`：三段栏目（`VboxWelfareTabs`）+ 4 列平台网格（`VboxWelfarePlatformGrid`）+ 加载/失败/空态 + 刷新 |
+| H-06 门控接线 | ✅ | [welfare_gate_page.dart](../lib/presentation/pages/welfare/welfare_gate_page.dart) | 开关开 → `WelfareHomePage`（远程版）；关 → 内置占位页 |
+| 应用接线 | ✅ | [app.dart](../lib/app.dart) | `WelfarePlatformController` 注册进 `MultiProvider`，全端可用 |
+| 金色基线 | ✅ | [h_pages_golden_test.dart](../test/golden/h_pages_golden_test.dart) → `test/golden/goldens/welfare_live_portrait.png` | 390×844：进入页面 → 切「直播」→ 逐像素锁（注入内存数据源，不触网） |
+| SSIM 配对接入 | ✅ | [visual_pairs.json](ui_baseline/visual_pairs.json) | 追加「福利专区直播栏目」配对（实测 SSIM **0.819**），共 6 对 |
+| 测试 | ✅ | 4 文件 / **35 用例** | 领域 12 · 数据源 8 · 控制器 10 · 页面 4 + Golden 1 |
+
+### 12.2 验证结果（本地实跑 · Flutter 3.47.5 / Dart 3.13.4 · Linux x64）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 静态检查 | `flutter analyze` | ✅ **0 issue** |
+| 全量单测 | `flutter test` | ✅ **1607 用例全绿**（1572 → 1607，+35） |
+| 覆盖率 | `flutter test --coverage` + `check_coverage.py` | ✅ **78.0% ≥ 70%**（零触达仅 `app.dart` / `main.dart`） |
+| 金色基线生成 | `flutter test test/golden --update-goldens` | ✅ 新增 1 张（`welfare_live_portrait`） |
+| 视觉回归门禁 | `visual_regression.py --pairs … --gate` | ✅ **exit 0**（6 配对全达标，均值 0.622） |
+| 契约脚本 | 11 项 `check_*.py` | ✅ **11/11 全绿** |
+| conformance | `run_conformance.py` | ✅ **83/83** |
+
+### 12.3 遗漏排查（本批发现 · 逐项处置）
+
+| # | 发现 | 性质 | 处置 |
+|---|---|---|---|
+| 1 | [h_pages_golden_test.dart](../test/golden/h_pages_golden_test.dart) 的 `WelfarePlatformConfig` 构造触发 `prefer_const_constructors` / `unnecessary_const` | 静态检查告警 | ✅ **已修**：外层加 `const`、内层去冗余 `const` |
+| 2 | 平台**长按编辑排序**（拖拽 + 边缘自动滚动 + 震动）未实现 | 功能缺项 | 📌 已登记在页面头注释：随 **H-07** 排序持久化一并接入 |
+| 3 | 平台点击**路由**（5 类 serviceType）未实现，当前仅 `VboxToast` 提示 | 功能缺项 | 📌 属 **H-02**（路由 + 基类抽象），本批显式留待 |
+| 4 | iOS 平台图标为 SF Symbol，Flutter 无对应渲染 | 跨端差异 | 📌 如实登记：`welfarePlatformIcon` 映射 Material 近似图标，未知符号回退 `apps` |
+| 5 | 福利「视频 / 漫画」栏目基准图不可读 | 基准缺口 | 📌 **C3** 未做；本批仅锁「直播」栏目（同构版式），按 §1.1 缺口登记 |
+
+### 12.4 遗留（按 §3.5 顺序继续）
+
+- **H-02**（5 类路由）· **H-03**（福利 Spider）· **H-04**（三重隔离）
+- **H-07**（代理 / 自定义域名 / 远程开关 + 平台排序持久化）· **H-08**（批次自检）
+- **C3**（福利视频 / 漫画基准）· **C4**（R-5 登记）· **C5**（UI 对齐基准升 v1.1）
+- **I-05**（自更新 UI，依赖 K）· **G-09**（Bug 反馈）
 
 ---
 
@@ -616,3 +789,6 @@
 > | v1.4 | 2026-10-03 | **交付回执（新增 §7）**：**A2~A7 主题层收口** —— A2 全端 `CupertinoPageTransitionsBuilder` 推入转场 · A3 `NoSplash` 去涟漪 · A4 `switchTheme` 对齐 iOS `UISwitch` 配色 · A5 `VboxScrollBehavior`（Bouncing + 抑制辉光）· A6 卡片审计（**结论：无页面级手写卡片**，2 处非卡片阴影登记观察项）· A7 `check_ui_tokens` **接入 CI**（contract-checks 10 → 11 项）**六项完成并验证**（analyze 0 issue / **test 1528 全绿** / 11/11 脚本全绿）；Story 页补**开关两态**并更新其金色基线；**A 批次 9 项全部完成**；关闭差距 **D2~D5、D7**；§2.2 / §3.1 加 v1.4 状态行；§7.4 列明 B1·B3~B6 / C1~C5 / H-06·H-07 / I-02~I-05 遗留；§7.5 登记**批次遗漏检查**（修正 CI conformance step 名的不实数字 `45 → 去写死`） |
 > | v1.5 | 2026-10-03 | **交付回执（新增 §8）**：**B 批次缺失组件补齐 B3~B6** —— B3 设置分组 + 三行型（`SettingsSection` / `SettingsRow` / `SettingsInputRow`）· B4 皮肤四选 2×2（`SkinPicker` / `SkinCard`）· B5 登录弹窗（`LoginSheet`）· B6 福利分段 + 平台网格（`WelfareTabs` / `WelfarePlatformGrid`）**四项完成并验证**（analyze 0 issue / **test 1549 全绿** / 11/11 脚本全绿 / conformance 83/83）；令牌扩展（登录渐变 + 系统灰 6 / 分组底 + 福利三段渐变 + 平台 8 色板稳定哈希）；Story 页新增 B5/B6 两区块（**共 14 区**）并更新金色基线；§3.2 补 v1.3/v1.5 状态行；**B 批次 6 项中 5 项完成**，**B1 降级为不实现**（图10 实测为居中 Logo，无还原依据，随 D6 处置）；§8.4 列明 C1~C5 / H-06·H-07 / I-02~I-05 遗留 |
 > | v1.6 | 2026-10-03 | **交付回执（新增 §9）**：**C1「SSIM 接入 CI」完成并验证** —— 新增 `visual-regression` job（opencv/numpy 版本固定以保证 SSIM 可复现）+ 配对清单 [visual_pairs.json](ui_baseline/visual_pairs.json)（首批 2 对）+ 脚本 `--pairs` 清单模式（含 `--update-baseline`，保留目录模式向后兼容）；**门禁口径经实测修正** —— 计划 §3.6 的绝对 SSIM ≥ 0.95 跨设备不可达（实测 首页 0.449 / 排行榜 0.254），改为「基线 − 容差」**相对门禁**（回归即红），绝对 0.95 留待 J.3 终检重定；§3.3 补 v1.6 状态行；**C 批次 1/5 完成**，C2~C5 待办（C2 随页面开发边做边接） |
+> | v1.7 | 2026-10-03 | **交付回执（新增 §10）**：**批次 I 首段 I-01~I-04 四项完成** —— I-01 个人中心（未登录头部「未登录」+ 左退出 / 右设置 + 工具入口迁出）· I-02 登录弹窗 + 本地账号会话 [`SessionController`](../lib/presentation/profile/session_controller.dart)（SQLite `settings` 表；登出保留密码与头像；旧版 `username` 兜底迁移）· I-03 设置页 [settings_page.dart](../lib/presentation/pages/settings/settings_page.dart)（8 分区落地 + 6 项「待实现」显式登记）· I-04 显示模式（`app_ui_form_override` 热切换）；工具入口（书架 / 远程源 / 网盘管理 / 备份还原）由个人中心迁入设置页；新增单测 **16 例**（`SessionController` 10 + 设置页 6）并**修正陈旧底栏用例**（仍断言「vbox 默认账号 / 更多工具 / 书架」的真实缺陷）；关闭差距 **D8 / D9 / D10**，**D6 作废**（无 iOS 还原依据）、**D11 组件层关闭·页面层待办**；§2.2 补 v1.7 状态行；**如实登记本环境无 Flutter SDK → `flutter analyze` / `flutter test` 未实跑**（Python 守卫全绿），须补跑回填；§10.4 遗漏排查 10 项 · §10.5 遗留（I-05 / H-06·H-07 / C2~C5 / G-02~G-10） |
+> | v1.8 | 2026-10-03 | **交付回执（新增 §11）**：**C2「H/I 页面族 Golden」首段交付 + 门禁全量补跑** —— 新增 [i_pages_golden_test.dart](../test/golden/i_pages_golden_test.dart)（I-01 个人中心 / I-02 登录弹窗 / I-03 设置页**三页金色基线**）+ [visual_pairs.json](ui_baseline/visual_pairs.json) 追加 3 条配对（实测 **0.712 / 0.785 / 0.715**，共 5 对）；本批**首次进入 CI 视觉回归门禁**（`--gate` exit 0）；**环境装 Flutter 3.47.5 / Dart 3.13.4（Linux x64，与 CI 同版本）后补跑全部此前「未实跑」项**：`flutter analyze` **0 issue** · `flutter test` **1572 用例全绿** · 覆盖率 **77.8% ≥ 70%** · 契约 11/11 · conformance 83/83；修复实跑暴露的 **1 处测试缺陷**（I-04 残留 Timer → 排空）+ **1 处文档漂移**（98 键 → 99）；§9.3 / §9.5 / §10.3 / §10.4 同步回填；**C 批次 2/5 完成**，C3~C5 待办 |
+> | v1.9 | 2026-10-03 | **交付回执（新增 §12）**：**H-01 + H-06 打通福利专区** —— H-01 平台配置链（领域 [welfare_platform_config.dart](../lib/domain/entities/welfare/welfare_platform_config.dart) 严格 `tryParse` 对齐契约 [welfare_v1.json](../contract/schema/welfare_v1.json) · 数据源 manifest → 平台配置 + 代理降级链 · 磁盘缓存 · [`WelfarePlatformController`](../lib/presentation/welfare/welfare_platform_controller.dart) 缓存先出 + 后台刷新 + 三键落 Prefs）+ H-06 页面 [welfare_home_page.dart](../lib/presentation/pages/welfare/welfare_home_page.dart)（三段栏目 + 4 列平台网格 + 加载/失败/空态）+ 门控接线 + `MultiProvider` 注册；新增 **4 测试文件 / 35 用例** + 金色基线 `welfare_live_portrait`；[visual_pairs.json](ui_baseline/visual_pairs.json) 追加「福利专区直播栏目」配对（SSIM **0.819**，共 6 对）；本地实跑 `flutter analyze` **0 issue** · `flutter test` **1607 用例全绿** · 覆盖率 **78.0% ≥ 70%** · 契约 11/11 · conformance 83/83 · 视觉门禁 exit 0；关闭差距 **D11 页面层**；§2.2 / §3.3 / §3.4 加 v1.9 状态行；**H 批次 H-01 交付、H-06 首段交付（平台点击路由 / 长按排序归 H-02 / H-07）**；§12.4 列明 H-02~H-04 / H-07·H-08 / C3~C5 / I-05 / G-09 遗留 |

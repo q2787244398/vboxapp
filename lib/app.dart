@@ -30,10 +30,12 @@ import 'data/repositories/repositories.dart';
 import 'domain/entities/remote_source/remote_source.dart';
 import 'domain/usecases/usecases.dart';
 import 'platform/system/system.dart';
+import 'presentation/profile/session_controller.dart';
 import 'presentation/shell/home_shell_page.dart';
 import 'presentation/theme/theme.dart';
 import 'presentation/ui_mode/ui_mode_resolver.dart';
 import 'presentation/welfare/welfare_controller.dart';
+import 'presentation/welfare/welfare_platform_controller.dart';
 
 class VBoxApp extends StatefulWidget {
   const VBoxApp({super.key});
@@ -75,6 +77,14 @@ class _VBoxAppState extends State<VBoxApp> {
   /// 福利门控控制器（A8：消费 `app_welfare_enabled` / `app_welfare_unlocked`
   /// / `app_welfare_password`；控制底栏「福利」Tab 显隐）。
   late final WelfareController _welfareController;
+
+  /// 福利平台配置控制器（H-01：消费 `fuli_remote_source_*` + `remote_default_manifest_url`；
+  /// 福利页进入时 `bootstrap()` 恢复缓存并后台刷新）。
+  late final WelfarePlatformController _welfarePlatformController;
+
+  /// 本地账号会话控制器（I-02：SQLite `settings` 表的 `account` / `username`
+  /// / `isLoggedIn` / `avatar_image`；纯本地账号，无服务端）。
+  late final SessionController _sessionController;
 
   @override
   void initState() {
@@ -140,6 +150,14 @@ class _VBoxAppState extends State<VBoxApp> {
       // ②''' 福利门控（A8：读契约键 `app_welfare_*` → 底栏「福利」Tab 显隐）
       _welfareController = WelfareController();
       await _welfareController.load(PrefsManager.instance);
+
+      // ②'''' 本地账号会话（I-02：读 SQLite `settings` 表 → 个人中心登录态）
+      _sessionController = SessionController();
+      await _sessionController.load();
+
+      // ②''''' 福利平台配置（H-01：消费 `fuli_remote_source_*` +
+      //        `remote_default_manifest_url`；福利页进入时 bootstrap() 恢复缓存并后台刷新）
+      _welfarePlatformController = WelfarePlatformController();
 
       // ③ 日志（闸门 + 落盘）
       await _startLogging();
@@ -217,6 +235,10 @@ class _VBoxAppState extends State<VBoxApp> {
         ChangeNotifierProvider<UiFormController>.value(value: _uiFormController),
         ChangeNotifierProvider<VboxSkinController>.value(value: _skinController),
         ChangeNotifierProvider<WelfareController>.value(value: _welfareController),
+        ChangeNotifierProvider<WelfarePlatformController>.value(
+          value: _welfarePlatformController,
+        ),
+        ChangeNotifierProvider<SessionController>.value(value: _sessionController),
         Provider<FavoriteUseCases>.value(value: _favoriteUseCases),
         Provider<HistoryUseCases>.value(value: _historyUseCases),
         Provider<SubscriptionUseCases>.value(value: _subscriptionUseCases),
