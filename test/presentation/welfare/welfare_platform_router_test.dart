@@ -148,6 +148,29 @@ void main() {
       );
     });
 
+    test('welfare_spider 三重隔离违规 → 未支持页（H-04 拦截）', () {
+      final WelfarePlatformRouter router = WelfarePlatformRouter();
+      final WelfareRoute route = router.resolve(
+        platform(serviceType: 'welfare_spider', scriptType: 'javascript')
+            .copyWith(visibleInHome: true),
+      );
+      expect(route, isA<WelfareUnsupportedRoute>());
+      expect((route as WelfareUnsupportedRoute).reason, contains('visibleInHome'));
+    });
+
+    test('welfare_spider 脚本路径越界 → 未支持页（H-04 拦截）', () {
+      final WelfarePlatformRouter router = WelfarePlatformRouter();
+      final WelfareRoute route = router.resolve(
+        platform(
+          serviceType: 'welfare_spider',
+          scriptType: 'javascript',
+        ).copyWith(api: './sources/other/x.py'),
+      );
+      expect(route, isA<WelfareUnsupportedRoute>());
+      expect((route as WelfareUnsupportedRoute).reason,
+          contains('sources/welfare-js/'));
+    });
+
     test('fuli_base：注册命中 → 服务路由；未注册 → 未支持', () {
       final FuliBaseServiceRegistry registry = FuliBaseServiceRegistry();
       registry.register(_FakeFuliService(platformKey: 'panda'));

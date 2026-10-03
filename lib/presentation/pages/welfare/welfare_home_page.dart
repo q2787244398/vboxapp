@@ -14,7 +14,8 @@
 ///     [welfarePlatformIcon] 映射 Material 近似图标，未知符号回退 `apps`；
 ///   · 长按进入**编辑排序**（拖拽 + 边缘自动滚动 + 震动）未在本批实现，
 ///     随 H-07 排序持久化一并接入；本页点击平台经 [WelfarePlatformRouter]
-///     路由（H-02）：未支持 → [UnsupportedPlatformPage]，其余提示目标页面族。
+///     路由（H-02）：未支持 → [UnsupportedPlatformPage]；福利 Spider →
+///     [WelfareSpiderHomePage]（H-03）；其余目标页面族随后续批次落地。
 library;
 
 import 'package:flutter/material.dart';
@@ -27,6 +28,7 @@ import '../../welfare/welfare_platform_router.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../../../domain/entities/welfare/welfare.dart';
 import 'unsupported_platform_page.dart';
+import 'welfare_spider_home_page.dart';
 
 /// 福利专区首页（远程源版，三栏目 + 平台网格）。
 class WelfareHomePage extends StatefulWidget {
@@ -164,8 +166,13 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
 
   /// 按 [WelfarePlatformRouter] 解析并跳转（H-02）。
   ///
-  /// 未支持（`unknown` / `fuli_base` 未注册）→ [UnsupportedPlatformPage]；
-  /// 其余目标页面随「福利原生平台 / H-03 Spider」批次落地，当前先提示目标页面族。
+  /// 未支持（`unknown` / `fuli_base` 未注册 / 隔离违规）→ [UnsupportedPlatformPage]；
+  /// 福利 Spider（H-03）→ [WelfareSpiderHomePage]（脚本状态页）。
+  ///
+  /// 差异登记：iOS 对 `scriptType == javascript` 的平台走
+  /// `FuliPlatformMainView + WelfareJSSpiderService`（JS 引擎执行页），
+  /// Flutter 的 JS 引擎执行页随后续批次落地，本批两种 Spider 平台均以
+  /// 脚本状态页承接（页面文档注释已注明）。
   void _onPlatformTap(WelfarePlatform platform) {
     final WelfareRoute route = _router.resolve(platform);
     if (route is WelfareUnsupportedRoute) {
@@ -175,6 +182,15 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
             platform: platform,
             reason: route.reason,
           ),
+        ),
+      );
+      return;
+    }
+    if (route is WelfareSpiderHomeRoute || route is WelfareWelfareSpiderRoute) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) =>
+              WelfareSpiderHomePage(platform: platform),
         ),
       );
       return;

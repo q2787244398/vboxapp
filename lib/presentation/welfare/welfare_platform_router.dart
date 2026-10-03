@@ -158,6 +158,11 @@ class WelfarePlatformRouter {
         return WelfareRemoteCmsV10Route(platform);
       case WelfareServiceType.welfareSpider:
         // 对齐 iOS：JS 脚本 → JS 引擎页；其余 → 脚本状态页。
+        // 三重隔离前置（H-04）：违规平台一律进未支持页，杜绝进入普通链路。
+        final String? violation = WelfareIsolationPolicy.violationFor(platform);
+        if (violation != null) {
+          return WelfareUnsupportedRoute(platform, violation);
+        }
         return platform.isJavaScriptSpider
             ? WelfareWelfareSpiderRoute(platform)
             : WelfareSpiderHomeRoute(platform);

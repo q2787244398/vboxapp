@@ -58,10 +58,14 @@ class WelfarePlatform {
     this.desc = '',
     this.serviceType = '',
     this.scriptType,
+    this.api,
     this.defaultHosts = const <String>[],
     this.sortOrder = 0,
     this.defaultProxy = false,
     this.notes,
+    this.visibleInNormalSpider = false,
+    this.visibleInGlobalSearch = false,
+    this.visibleInHome = false,
   });
 
   /// 平台唯一键（不可变，排序持久化主键）。
@@ -100,6 +104,18 @@ class WelfarePlatform {
   /// 备注（仅说明用途）。
   final String? notes;
 
+  /// 脚本路径（契约 `api`，如 `./sources/welfare-js/xxx.py`；仅福利 Spider 有业务含义）。
+  final String? api;
+
+  /// ⚠️ 三重隔离（契约强制 false）：不进入普通 Spider 链路。
+  final bool visibleInNormalSpider;
+
+  /// ⚠️ 三重隔离（契约强制 false）：不参与全局搜索。
+  final bool visibleInGlobalSearch;
+
+  /// ⚠️ 三重隔离（契约强制 false）：不在首页展示。
+  final bool visibleInHome;
+
   /// 路由服务类型（由 [serviceType] 解析，未知回退 [WelfareServiceType.unknown]）。
   WelfareServiceType get service => WelfareServiceType.fromRaw(serviceType);
 
@@ -110,6 +126,42 @@ class WelfarePlatform {
 
   /// 首个默认域名（兜底显示 / 探测起点）。
   String get primaryHost => defaultHosts.isEmpty ? '' : defaultHosts.first;
+
+  /// 拷贝并覆写部分字段（测试 / 门控补丁用）。
+  WelfarePlatform copyWith({
+    String? platformKey,
+    String? name,
+    WelfarePlatformCategory? category,
+    String? icon,
+    String? desc,
+    String? serviceType,
+    String? scriptType,
+    String? api,
+    List<String>? defaultHosts,
+    int? sortOrder,
+    bool? defaultProxy,
+    String? notes,
+    bool? visibleInNormalSpider,
+    bool? visibleInGlobalSearch,
+    bool? visibleInHome,
+  }) =>
+      WelfarePlatform(
+        platformKey: platformKey ?? this.platformKey,
+        name: name ?? this.name,
+        category: category ?? this.category,
+        icon: icon ?? this.icon,
+        desc: desc ?? this.desc,
+        serviceType: serviceType ?? this.serviceType,
+        scriptType: scriptType ?? this.scriptType,
+        api: api ?? this.api,
+        defaultHosts: defaultHosts ?? this.defaultHosts,
+        sortOrder: sortOrder ?? this.sortOrder,
+        defaultProxy: defaultProxy ?? this.defaultProxy,
+        notes: notes ?? this.notes,
+        visibleInNormalSpider: visibleInNormalSpider ?? this.visibleInNormalSpider,
+        visibleInGlobalSearch: visibleInGlobalSearch ?? this.visibleInGlobalSearch,
+        visibleInHome: visibleInHome ?? this.visibleInHome,
+      );
 
   /// 解析单项（缺必需字段返回 `null`）。
   static WelfarePlatform? tryParse(Object? raw) {
@@ -128,9 +180,13 @@ class WelfarePlatform {
     final Object? desc = j['desc'];
     final Object? serviceType = j['serviceType'];
     final Object? scriptType = j['scriptType'];
+    final Object? api = j['api'];
     final Object? notes = j['notes'];
     final Object? defaultProxy = j['defaultProxy'];
     final Object? sortOrder = j['sortOrder'];
+    final Object? visibleNormal = j['visibleInNormalSpider'];
+    final Object? visibleSearch = j['visibleInGlobalSearch'];
+    final Object? visibleHome = j['visibleInHome'];
 
     final List<String> hosts = <String>[];
     final Object? rawHosts = j['defaultHosts'];
@@ -142,6 +198,7 @@ class WelfarePlatform {
     }
 
     final String scriptTypeValue = (scriptType ?? '').toString().trim();
+    final String apiValue = (api ?? '').toString().trim();
 
     return WelfarePlatform(
       platformKey: platformKey,
@@ -151,10 +208,14 @@ class WelfarePlatform {
       desc: (desc ?? '').toString(),
       serviceType: (serviceType ?? '').toString(),
       scriptType: scriptTypeValue.isEmpty ? null : scriptTypeValue,
+      api: apiValue.isEmpty ? null : apiValue,
       defaultHosts: hosts,
       sortOrder: sortOrder is num ? sortOrder.toInt() : 0,
       defaultProxy: defaultProxy is bool ? defaultProxy : false,
       notes: notes?.toString(),
+      visibleInNormalSpider: visibleNormal is bool ? visibleNormal : false,
+      visibleInGlobalSearch: visibleSearch is bool ? visibleSearch : false,
+      visibleInHome: visibleHome is bool ? visibleHome : false,
     );
   }
 
@@ -167,10 +228,15 @@ class WelfarePlatform {
         if (desc.isNotEmpty) 'desc': desc,
         if (serviceType.isNotEmpty) 'serviceType': serviceType,
         if (scriptType != null) 'scriptType': scriptType,
+        if (api != null) 'api': api,
         if (defaultHosts.isNotEmpty) 'defaultHosts': defaultHosts,
         'sortOrder': sortOrder,
         'defaultProxy': defaultProxy,
         if (notes != null) 'notes': notes,
+        // 三重隔离显式回写（缺省 false 亦写，保证缓存重读口径一致）。
+        'visibleInNormalSpider': visibleInNormalSpider,
+        'visibleInGlobalSearch': visibleInGlobalSearch,
+        'visibleInHome': visibleInHome,
       };
 }
 

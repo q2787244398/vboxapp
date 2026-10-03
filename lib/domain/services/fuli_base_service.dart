@@ -1,20 +1,21 @@
-/// 领域层：通用福利平台服务基类 + 注册表（批次 H · H-02）。
+/// 领域层：通用福利平台服务基类 + 注册表（批次 H · H-02 / H-03）。
 ///
 /// 唯一真相源：iOS `vbox/Services/FuliPlatformService.swift`
 ///   · `FuliPlatformService` 协议（L24-L60）：平台标识 / 域名 / 抓取契约；
 ///   · `FuliBaseService` 基类（L201-L236）：`@Published currentHost` /
-///     `isHostReady` + 默认视频内容类型 + 图片防盗链默认值。
+///     `isHostReady` + 默认视频内容类型 + 图片防盗链默认值 + 抓取默认实现。
 ///
-/// 移植口径（本批只落**路由所需的抽象面**）：
+/// 移植口径：
 ///   · 平台标识：`platformKey` / `platformName` / `defaultHosts`；
 ///   · 域名就绪：`currentHost` / `isHostReady` + `reprobe()` / `resetDomain()`；
 ///   · 内容类型：`contentCategory`（video / comic，决定列表点击进播放还是漫画）；
-///   · 图片防盗链：`imageReferer` / `imageSSLBypass`。
-///
-/// 未移植（如实登记，随「福利原生平台实现 / H-03 Spider」批次落地）：
-/// `fetchHomeContent` / `fetchCategoryContent` / `fetchDetail` / `fetchSearch`
-/// / `fetchPlayerURL` 及其 `Fuli*` 结果模型——依赖各原生平台的解析实现。
+///   · 图片防盗链：`imageReferer` / `imageSSLBypass`；
+///   · 抓取契约（H-03 落地）：`fetchHomeContent` / `fetchCategoryContent` /
+///     `fetchDetail` / `fetchSearch` / `fetchPlayerURL` 默认实现
+///     （对齐 iOS `FuliBaseService` L222-L236，子类覆写）。
 library;
+
+import '../entities/welfare/fuli_models.dart';
 
 /// 福利内容类型（对齐 iOS `FuliContentCategory`）。
 enum FuliContentCategory {
@@ -70,6 +71,49 @@ abstract class FuliBaseService {
 
   /// 清空自定义域名并重新探测（对齐 iOS `resetDomain()`）。
   void resetDomain();
+
+  // ─────────────── 抓取契约（H-03，对齐 iOS `FuliBaseService` L222-L236）───────────────
+
+  /// 解析首页分类 + 推荐视频（默认空结果）。
+  Future<FuliHomeResult> fetchHomeContent() async => FuliHomeResult.empty;
+
+  /// 解析分类 / 子分类视频列表（默认空结果）。
+  Future<FuliCategoryResult> fetchCategoryContent({
+    required FuliCategory category,
+    FuliCategory? subCategory,
+    required int page,
+  }) async =>
+      FuliCategoryResult(videos: <FuliVideo>[], page: page, hasMore: false);
+
+  /// 解析视频详情（含剧集；默认空详情）。
+  Future<FuliDetail> fetchDetail(String vodId) async => FuliDetail(
+        vodId: vodId,
+        vodName: '',
+        vodPic: '',
+        vodContent: null,
+        playFrom: platformName,
+        episodes: <FuliEpisode>[],
+      );
+
+  /// 搜索（默认空结果）。
+  Future<FuliSearchResult> fetchSearch({
+    required String keyword,
+    required int page,
+  }) async =>
+      FuliSearchResult(videos: <FuliVideo>[], page: page, hasMore: false);
+
+  /// 获取播放地址（默认按 URL 后缀判定 parse，对齐 iOS 基类）。
+  Future<FuliPlayerResult> fetchPlayerURL(FuliEpisode episode) async {
+    final String url = episode.url;
+    final bool direct = url.contains('.m3u8') ||
+        url.contains('.mp4') ||
+        url.contains('.ts');
+    return FuliPlayerResult(
+      url: url,
+      headers: const <String, String>{},
+      parse: direct ? 0 : 1,
+    );
+  }
 }
 
 /// 福利平台服务注册表（`fuli_base` 路由按 `platformKey` 解析服务实例）。
