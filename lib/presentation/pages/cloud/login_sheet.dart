@@ -8,9 +8,10 @@
 ///   （`NodeLoginViews.swift:123`）：手机号 + 获取验证码（60s 倒计时）+
 ///   验证码输入 + 状态卡 + 主按钮。
 ///
-/// 协议调用经 [CloudDriveLoginGateway]（F-02 首段缺省为「未接入」网关，
-/// 页面即时报「Node 常驻系统未就绪 / 原生登录链路尚未接入」，与 iOS 未就绪
-/// 行为一致）；真实链路随 F-04 / F-05 与 Node 客户端补齐。
+/// 协议调用经 [CloudDriveLoginGateway]：缺省按网盘 / 方式路由
+/// （[defaultCloudDriveLoginGateway]，F-05 起 B 站扫码走 Node 常驻系统），
+/// 未接线档回退「未接入」网关，页面即时报「Node 常驻系统未就绪 /
+/// 原生登录链路尚未接入」，与 iOS 未就绪行为一致。
 library;
 
 import 'dart:convert';
@@ -31,6 +32,7 @@ import '../../widgets/vbox/vbox.dart';
 import 'cloud_drive_widgets.dart';
 import 'login_controller.dart';
 import 'login_gateway.dart';
+import 'node_login_gateway.dart';
 
 /// 授权中心动作 → 打开对应登录 Sheet。
 ///
@@ -106,7 +108,8 @@ class _CloudDriveQrLoginSheetState extends State<CloudDriveQrLoginSheet> {
     _controller = CloudDriveLoginController(
       driveType: widget.driveType,
       mode: widget.mode,
-      gateway: widget.gateway ?? const UnavailableCloudDriveLoginGateway(),
+      gateway: widget.gateway ??
+          defaultCloudDriveLoginGateway(widget.driveType, widget.mode),
     )..addListener(_onChanged);
   }
 
@@ -267,7 +270,8 @@ class _CloudDriveSmsLoginSheetState extends State<CloudDriveSmsLoginSheet> {
     _controller = CloudDriveLoginController(
       driveType: widget.driveType,
       mode: widget.mode,
-      gateway: widget.gateway ?? const UnavailableCloudDriveLoginGateway(),
+      gateway: widget.gateway ??
+          defaultCloudDriveLoginGateway(widget.driveType, widget.mode),
     )..addListener(_onChanged);
     _phone.addListener(_onChanged);
     _code.addListener(_onChanged);
@@ -440,7 +444,8 @@ class _CloudDriveAccountLoginSheetState
     _controller = CloudDriveLoginController(
       driveType: widget.driveType,
       mode: widget.mode,
-      gateway: widget.gateway ?? const UnavailableCloudDriveLoginGateway(),
+      gateway: widget.gateway ??
+          defaultCloudDriveLoginGateway(widget.driveType, widget.mode),
     )..addListener(_onChanged);
     _account.addListener(_onChanged);
     _password.addListener(_onChanged);
