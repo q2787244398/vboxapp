@@ -161,11 +161,23 @@ jobs:
         shell: pwsh
         run: .\scripts\bundle-jsc-windows.ps1 -Config Release
 
+      - name: Resolve version from pubspec
+        id: version
+        shell: bash
+        run: |
+          VER="$(grep -E '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+          test -n "$VER" || { echo "❌ 未从 pubspec.yaml 解析到版本号"; exit 1; }
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+          echo "注入安装包版本号: ${VER}"
+
       - name: Compile installer with Inno Setup
+        shell: pwsh
+        env:
+          VBOX_VERSION: ${{ steps.version.outputs.version }}
         run: |
           choco install innosetup -y --no-progress
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          & $iscc "windows/installer/installer.iss"
+          & $iscc "/DMyAppVersion=$env:VBOX_VERSION" "windows/installer/installer.iss"
 
       - name: Rename to S.7 name (vbox-setup.exe)
         shell: bash

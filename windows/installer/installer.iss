@@ -14,7 +14,9 @@ AppVersion={#MyAppVersion}
 AppPublisher=vbox
 DefaultDirName={autopf}\vbox
 DefaultGroupName=vbox
-UninstallDisplayIcon={app}\runner.exe
+; 安装程序自身图标（vbox 品牌图标，与桌面快捷方式一致）
+SetupIconFile=..\..\windows\runner\resources\app_icon.ico
+UninstallDisplayIcon={app}\app_icon.ico
 Compression=lzma2
 SolidCompression=yes
 OutputDir=Output
@@ -23,14 +25,20 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 
+; 安装界面简体中文（Inno Setup 6 自带 ChineseSimplified 语言文件）
+[Languages]
+Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+
 [Files]
 ; 相对本文件（windows/installer/）两级的 build/windows/x64/runner/Release 全量文件
 ; （含 runner.exe + Flutter DLL + libmpv-windows-*.dll，D28 随安装包分发）
 Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; vbox 品牌图标随包分发，供快捷方式 / 卸载列表使用
+Source: "..\..\windows\runner\resources\app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\vbox"; Filename: "{app}\runner.exe"
-Name: "{autodesktop}\vbox"; Filename: "{app}\runner.exe"
+Name: "{autoprograms}\vbox"; Filename: "{app}\runner.exe"; IconFilename: "{app}\app_icon.ico"
+Name: "{autodesktop}\vbox"; Filename: "{app}\runner.exe"; IconFilename: "{app}\app_icon.ico"
 
 [Run]
 Filename: "{app}\runner.exe"; Description: "启动 vbox"; Flags: nowait postinstall skipifsilent
