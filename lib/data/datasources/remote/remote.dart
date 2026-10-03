@@ -1,6 +1,7 @@
 /// 数据层：远程数据源 barrel。
 library;
 
+export 'aliyun_extscreen_client.dart';
 export 'all_sources_datasource.dart';
 export 'cms_v10_datasource.dart';
 export 'cms_v10_models.dart';
