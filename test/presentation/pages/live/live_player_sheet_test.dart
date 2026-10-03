@@ -71,13 +71,15 @@ void main() {
     ]);
   });
 
-  testWidgets('无 sources 时回退 playURL', (WidgetTester tester) async {
+  testWidgets('单线路频道：解析为 1 条并自动连接', (WidgetTester tester) async {
     final List<String> played = <String>[];
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: LivePlayerSheet(
-            channel: _channel(),
+            channel: _channel(
+              sources: const <String>['http://stream/cctv1-only.m3u8'],
+            ),
             onPlayRoute: (String url) async => played.add(url),
           ),
         ),
@@ -86,7 +88,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('共 1 条线路'), findsOneWidget);
-    expect(played, <String>['http://stream/cctv1.m3u8']);
+    expect(played, <String>['http://stream/cctv1-only.m3u8']);
   });
 
   testWidgets('无线路时展示错误态', (WidgetTester tester) async {
@@ -100,7 +102,7 @@ void main() {
               tid: 'News',
               channelId: '',
               token: '',
-              sources: const <String>[],
+              sources: <String>[],
             ),
             onPlayRoute: (String url) async {},
           ),

@@ -87,6 +87,11 @@ class _HomeShellPageState extends State<HomeShellPage> {
       label: '远程源',
     ),
     VboxNavItem(
+      icon: Icons.cloud_sync_outlined,
+      selectedIcon: Icons.cloud_sync,
+      label: '网盘',
+    ),
+    VboxNavItem(
       icon: Icons.article_outlined,
       selectedIcon: Icons.article,
       label: '日志',
@@ -101,7 +106,8 @@ class _HomeShellPageState extends State<HomeShellPage> {
         2 => const LiveTVPage(),
         3 => const ShelfView(),
         4 => const RemoteSourcePage(),
-        5 => const LogViewerPage(),
+        5 => const CloudDriveAuthCenterPage(),
+        6 => const LogViewerPage(),
         _ => const BackupPage(),
       };
 

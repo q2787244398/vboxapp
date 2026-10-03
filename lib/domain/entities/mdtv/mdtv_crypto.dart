@@ -85,6 +85,7 @@ class MdtvAes {
     for (var i = 0; i < key.length; i++) {
       w[i] = key[i];
     }
+    // Rcon：rcon[k] 对应第 k+1 轮（k = i/nk - 1 ∈ 0..9，AES-128/192/256 通用）。
     const List<int> rcon = <int>[0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
     for (var i = nk; i < totalWords; i++) {
       var t0 = w[(i - 1) * 4];
@@ -93,7 +94,7 @@ class MdtvAes {
       var t3 = w[(i - 1) * 4 + 3];
       if (i % nk == 0) {
         final int tmp = t0;
-        t0 = _sbox[t1] ^ rcon[i ~/ nk];
+        t0 = _sbox[t1] ^ rcon[i ~/ nk - 1];
         t1 = _sbox[t2];
         t2 = _sbox[t3];
         t3 = _sbox[tmp];

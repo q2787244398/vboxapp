@@ -137,6 +137,17 @@ class VboxColors {
   /// 危险操作（文字 + 背景 @10%）。
   static const Color danger = Color(0xFFEF4444);
 
+  /// 成功 / 就绪（授权中心「已获取 / 正常 / 就绪」；对齐 iOS `.green`）。
+  ///
+  /// 批次 F · F-01 新增：网盘授权状态语义色（与 [chipSelected] 同为系统绿，
+  /// 但语义独立，故单列以免误用）。
+  static const Color success = Color(0xFF34C759);
+
+  /// 警告 / 过渡态（「即将过期 / 启动中 / 内存告警」；对齐 iOS `.orange`）。
+  ///
+  /// 批次 F · F-01 新增。
+  static const Color warning = Color(0xFFFF9500);
+
   // ── 品牌渐变（「我的」页头部）───────────────────────────
   /// 品牌渐变起点。
   static const Color brandGradientStart = Color(0xFF3B82F6);
@@ -203,5 +214,28 @@ class VboxColors {
     VboxCategory.download: Color(0xFFEC4899),
     VboxCategory.welfare: Color(0xFFF97316),
     VboxCategory.node: Color(0xFF14B8A6),
+  };
+
+  // ── 网盘品牌角标底色（批次 F · F-01 授权中心 / F-06 排序列表）──────
+  /// 网盘品牌角标底色（键为 `CloudDriveType.id`；采样 iOS 图标配色）。
+  ///
+  /// 键用字符串而非领域枚举，避免主题层反向依赖领域层（分层约束）；
+  /// 未登记的键回退 [VboxColors.categoryColors] 的 `cloud` 蓝。
+  static const Map<String, Color> cloudDriveBrandColors = <String, Color>{
+    'ali': Color(0xFF2563EB),
+    'quark': Color(0xFF3B82F6),
+    'quarkNode': Color(0xFF6B7280),
+    'baidu': Color(0xFFE11D48),
+    'baiduNode': Color(0xFF6B7280),
+    '115': Color(0xFF3B82F6),
+    'uc': Color(0xFF38BDF8),
+    'ucNode': Color(0xFF6B7280),
+    '123pan': Color(0xFF2563EB),
+    '139pan': Color(0xFF2563EB),
+    '189pan': Color(0xFF3B82F6),
+    'xunlei': Color(0xFF38BDF8),
+    'guangya': Color(0xFF14B8A6),
+    'woniu4k': Color(0xFF8B5CF6),
+    'bilibili': Color(0xFFEC4899),
   };
 }
