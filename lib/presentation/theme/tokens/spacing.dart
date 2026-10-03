@@ -34,6 +34,19 @@ class VboxSpacing {
   /// 32 · 超大间距（页面分节）。
   static const double xxxl = 32;
 
+  // ── 语义间距（批次 B · B3/B4，对齐 iOS 实测值，不在 4pt 栅格档位）──
+  /// 14 · 设置行垂直内边距（iOS `SettingsToggleRow` / `SettingsNavigationRow` 的 v14）。
+  static const double rowVertical = 14;
+
+  /// 6 · 紧凑间距（皮肤卡网格间距与卡内水平内边距，iOS `skinSettingsSection` 的 6）。
+  static const double compact = 6;
+
+  /// 10 · 分段控件垂直内边距（iOS `RemoteWelfareHomeView` 分段 v10）。
+  static const double segmentVertical = 10;
+
+  /// 14 · 输入行水平内边距（iOS `LoginSheetView` 输入框 h14）。
+  static const double inputHorizontal = 14;
+
   /// 全部间距档位（升序；单测断言用）。
   static const List<double> scale = <double>[
     none,

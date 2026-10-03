@@ -11,6 +11,10 @@
 ///   ⑧ PosterCard 占位态 + 标题
 ///   ⑨ SourceBadge 分类色固定映射
 ///   ⑩ BottomNav / NavRail 渲染
+///   ⑪ SettingsSection + 三种行型（批次 B · B3）
+///   ⑫ SkinPicker 四皮肤两态（批次 B · B4）
+///   ⑬ LoginSheet 空态禁用 / 填写态 / 密码可见性 / 错误态（批次 B · B5）
+///   ⑭ WelfareTabs 三栏目 + WelfarePlatformGrid 4 列（批次 B · B6）
 library;
 
 import 'package:flutter/material.dart';
@@ -26,6 +30,17 @@ Widget _host(Widget child) => MaterialApp(
 Material _materialUnder(WidgetTester tester, Type owner) => tester.widget<Material>(
       find.descendant(of: find.byType(owner), matching: find.byType(Material)).first,
     );
+
+/// 取首个带渐变的 [DecoratedBox] 装饰（皮肤卡渐变填充断言用）。
+BoxDecoration _gradientDecoration(WidgetTester tester) {
+  final Finder finder = find.byWidgetPredicate(
+    (Widget w) =>
+        w is DecoratedBox &&
+        w.decoration is BoxDecoration &&
+        (w.decoration as BoxDecoration).gradient != null,
+  );
+  return tester.widget<DecoratedBox>(finder.first).decoration as BoxDecoration;
+}
 
 void main() {
   group('VboxCard', () {
@@ -256,4 +271,335 @@ void main() {
       expect(find.byType(VboxNavRail), findsOneWidget);
     });
   });
+
+  group('VboxSettingsSection（B3）', () {
+    testWidgets('渲染标题、三行与 n-1 条分隔线', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(const VboxSettingsSection(
+          title: '播放设置',
+          children: <Widget>[
+            VboxSettingsRow(title: 'A'),
+            VboxSettingsRow(title: 'B'),
+            VboxSettingsRow(title: 'C'),
+          ],
+        )),
+      );
+      expect(find.text('播放设置'), findsOneWidget);
+      expect(find.byType(VboxSettingsRow), findsNWidgets(3));
+      expect(find.byType(Divider), findsNWidgets(2));
+      expect(find.byType(ClipRRect), findsWidgets);
+    });
+
+    testWidgets('行底取二级分组底 70%（浅色）', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(const VboxSettingsSection(
+          title: '播放设置',
+          children: <Widget>[VboxSettingsRow(title: 'A')],
+        )),
+      );
+      expect(
+        _materialUnder(tester, VboxSettingsRow).color,
+        VboxColors.secondarySystemGroupedBackgroundLight.withValues(alpha: 0.7),
+      );
+    });
+  });
+
+  group('VboxSettingsRow（B3）', () {
+    testWidgets('开关行渲染标题 / 副标题 / Switch 并可切换', (WidgetTester tester) async {
+      bool value = false;
+      await tester.pumpWidget(
+        _host(VboxSettingsRow.toggle(
+          title: '自定义弹幕源',
+          subtitle: '已关闭',
+          icon: Icons.forum_rounded,
+          value: value,
+          onChanged: (bool v) => value = v,
+        )),
+      );
+      expect(find.text('自定义弹幕源'), findsOneWidget);
+      expect(find.text('已关闭'), findsOneWidget);
+      expect(find.byType(Switch), findsOneWidget);
+      await tester.tap(find.byType(Switch));
+      expect(value, isTrue);
+    });
+
+    testWidgets('箭头行渲染 chevron 且整行可点', (WidgetTester tester) async {
+      int taps = 0;
+      await tester.pumpWidget(
+        _host(VboxSettingsRow.navigation(
+          title: '缓存管理',
+          subtitle: '256 MB',
+          icon: Icons.folder_rounded,
+          onTap: () => taps++,
+        )),
+      );
+      expect(find.byIcon(Icons.chevron_right_rounded), findsOneWidget);
+      await tester.tap(find.text('缓存管理'));
+      expect(taps, 1);
+    });
+
+    testWidgets('无图标时不渲染图标占位', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(const VboxSettingsRow(title: '无图标行')),
+      );
+      expect(find.byType(Icon), findsNothing);
+    });
+  });
+
+  group('VboxSettingsInputRow（B3）', () {
+    testWidgets('渲染输入框并可回调输入值', (WidgetTester tester) async {
+      final TextEditingController controller = TextEditingController();
+      addTearDown(controller.dispose);
+      String? typed;
+      await tester.pumpWidget(
+        _host(VboxSettingsInputRow(
+          controller: controller,
+          hint: 'https://your-danmu-api.com',
+          onChanged: (String v) => typed = v,
+        )),
+      );
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text('https://your-danmu-api.com'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'https://api.test');
+      expect(typed, 'https://api.test');
+    });
+  });
+
+  group('VboxSkinPicker（B4）', () {
+    testWidgets('渲染四张皮肤卡（标题齐全）', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(const VboxSkinPicker(selected: VboxSkin.light, onSelected: _noop)),
+      );
+      expect(find.byType(VboxSkinCard), findsNWidgets(4));
+      for (final VboxSkin skin in VboxSkin.values) {
+        expect(find.text(skin.title), findsOneWidget);
+      }
+    });
+
+    testWidgets('点击卡片回调对应皮肤', (WidgetTester tester) async {
+      VboxSkin? picked;
+      await tester.pumpWidget(
+        _host(VboxSkinPicker(
+          selected: VboxSkin.light,
+          onSelected: (VboxSkin s) => picked = s,
+        )),
+      );
+      await tester.tap(find.text(VboxSkin.liquid.title));
+      expect(picked, VboxSkin.liquid);
+    });
+  });
+
+  group('VboxSkinCard（B4）', () {
+    testWidgets('选中填皮肤渐变', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(const VboxSkinCard(skin: VboxSkin.liquid, isSelected: true)),
+      );
+      final LinearGradient g =
+          _gradientDecoration(tester).gradient! as LinearGradient;
+      expect(g.colors, VboxColors.skinCardGradient(VboxSkin.liquid));
+    });
+
+    testWidgets('选中文字色：浅色卡取深字', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(const VboxSkinCard(skin: VboxSkin.light, isSelected: true)),
+      );
+      expect(
+        tester.widget<Text>(find.text(VboxSkin.light.title)).style?.color,
+        VboxColors.skinCardOnLightText,
+      );
+    });
+
+    testWidgets('未选中取分组底渐变（浅色）', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(const VboxSkinCard(skin: VboxSkin.light, isSelected: false)),
+      );
+      final LinearGradient g =
+          _gradientDecoration(tester).gradient! as LinearGradient;
+      expect(
+        g.colors.first,
+        VboxColors.secondarySystemGroupedBackgroundLight.withValues(alpha: 0.95),
+      );
+    });
+  });
+
+  group('VboxLoginSheet（B5）', () {
+    /// 建两个输入控制器并登记释放。
+    List<TextEditingController> controllers() {
+      final TextEditingController user = TextEditingController();
+      final TextEditingController pwd = TextEditingController();
+      addTearDown(user.dispose);
+      addTearDown(pwd.dispose);
+      return <TextEditingController>[user, pwd];
+    }
+
+    testWidgets('空账号 → 主按钮禁用并透明 60%，含标题 / 胶囊', (WidgetTester tester) async {
+      final List<TextEditingController> c = controllers();
+      await tester.pumpWidget(
+        _host(VboxLoginSheet(
+          usernameController: c[0],
+          passwordController: c[1],
+          onSubmit: () {},
+        )),
+      );
+      expect(find.text('欢迎回来'), findsOneWidget);
+      expect(find.text('登录你的账号继续使用'), findsOneWidget);
+      expect(find.text('登录 / 注册'), findsOneWidget);
+      expect(find.text('上级用户：没有上级用户'), findsOneWidget);
+      expect(find.text('取消'), findsOneWidget);
+
+      final Opacity opacity = tester.widget<Opacity>(
+        find
+            .ancestor(
+              of: find.text('登录 / 注册'),
+              matching: find.byType(Opacity),
+            )
+            .first,
+      );
+      expect(opacity.opacity, 0.6);
+    });
+
+    testWidgets('填写账号后主按钮可点并回调', (WidgetTester tester) async {
+      final List<TextEditingController> c = controllers();
+      int submits = 0;
+      await tester.pumpWidget(
+        _host(VboxLoginSheet(
+          usernameController: c[0],
+          passwordController: c[1],
+          onSubmit: () => submits++,
+        )),
+      );
+      await tester.enterText(find.byType(TextField).first, 'alice');
+      await tester.pump();
+      await tester.tap(find.text('登录 / 注册'));
+      expect(submits, 1);
+    });
+
+    testWidgets('已注册 → 按钮文案为「登录」', (WidgetTester tester) async {
+      final List<TextEditingController> c = controllers();
+      await tester.pumpWidget(
+        _host(VboxLoginSheet(
+          usernameController: c[0],
+          passwordController: c[1],
+          registered: true,
+          onSubmit: () {},
+        )),
+      );
+      expect(find.text('登录'), findsOneWidget);
+      expect(find.text('登录 / 注册'), findsNothing);
+    });
+
+    testWidgets('密码可见性可切换', (WidgetTester tester) async {
+      final List<TextEditingController> c = controllers();
+      await tester.pumpWidget(
+        _host(VboxLoginSheet(
+          usernameController: c[0],
+          passwordController: c[1],
+          onSubmit: () {},
+        )),
+      );
+      expect(find.byIcon(Icons.visibility_off), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.visibility_off));
+      await tester.pump();
+      expect(find.byIcon(Icons.visibility), findsOneWidget);
+    });
+
+    testWidgets('错误提示渲染', (WidgetTester tester) async {
+      final List<TextEditingController> c = controllers();
+      await tester.pumpWidget(
+        _host(VboxLoginSheet(
+          usernameController: c[0],
+          passwordController: c[1],
+          error: '密码错误，请重试',
+          onSubmit: () {},
+        )),
+      );
+      expect(find.text('密码错误，请重试'), findsOneWidget);
+    });
+
+    testWidgets('取消回调触发', (WidgetTester tester) async {
+      final List<TextEditingController> c = controllers();
+      int cancels = 0;
+      await tester.pumpWidget(
+        _host(VboxLoginSheet(
+          usernameController: c[0],
+          passwordController: c[1],
+          onCancel: () => cancels++,
+          onSubmit: () {},
+        )),
+      );
+      await tester.tap(find.text('取消'));
+      expect(cancels, 1);
+    });
+  });
+
+  group('VboxWelfareTabs（B6）', () {
+    testWidgets('渲染三栏目，选中项白字 + 渐变', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(const VboxWelfareTabs(
+          selected: VboxWelfareCategory.live,
+          onSelected: _noopCategory,
+        )),
+      );
+      expect(find.text('视频'), findsOneWidget);
+      expect(find.text('直播'), findsOneWidget);
+      expect(find.text('漫画'), findsOneWidget);
+      expect(
+        tester.widget<Text>(find.text('直播')).style?.color,
+        Colors.white,
+      );
+      final LinearGradient g =
+          _gradientDecoration(tester).gradient! as LinearGradient;
+      expect(g.colors, VboxColors.welfareTabLiveGradient);
+    });
+
+    testWidgets('点击切换回调', (WidgetTester tester) async {
+      VboxWelfareCategory? picked;
+      await tester.pumpWidget(
+        _host(VboxWelfareTabs(
+          selected: VboxWelfareCategory.video,
+          onSelected: (VboxWelfareCategory c) => picked = c,
+        )),
+      );
+      await tester.tap(find.text('漫画'));
+      expect(picked, VboxWelfareCategory.comic);
+    });
+  });
+
+  group('VboxWelfarePlatformGrid（B6）', () {
+    testWidgets('按名渲染平台并可回调', (WidgetTester tester) async {
+      final List<VboxWelfarePlatform> items = List<VboxWelfarePlatform>.generate(
+        5,
+        (int i) => VboxWelfarePlatform(name: '平台$i', icon: Icons.tv_rounded),
+      );
+      VboxWelfarePlatform? tapped;
+      await tester.pumpWidget(
+        _host(VboxWelfarePlatformGrid(
+          platforms: items,
+          onTap: (VboxWelfarePlatform p) => tapped = p,
+        )),
+      );
+      for (int i = 0; i < 5; i++) {
+        expect(find.text('平台$i'), findsOneWidget);
+      }
+      await tester.tap(find.text('平台0'));
+      expect(tapped?.name, '平台0');
+    });
+
+    testWidgets('渐变取自稳定哈希色板', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _host(const VboxWelfarePlatformGrid(
+          platforms: <VboxWelfarePlatform>[
+            VboxWelfarePlatform(name: '熊猫直播', icon: Icons.tv_rounded),
+          ],
+        )),
+      );
+      final LinearGradient g =
+          _gradientDecoration(tester).gradient! as LinearGradient;
+      expect(g.colors, VboxColors.welfarePlatformGradient('熊猫直播'));
+    });
+  });
 }
+
+void _noop(VboxSkin _) {}
+
+void _noopCategory(VboxWelfareCategory _) {}

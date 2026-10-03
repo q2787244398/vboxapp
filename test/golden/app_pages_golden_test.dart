@@ -144,7 +144,7 @@ void main() {
 
   testWidgets('story_page（A-04 组件画廊全量像素锁）', (WidgetTester tester) async {
     // 大视口一次性构建全部组件区块（懒加载 ListView）。
-    tester.view.physicalSize = const Size(800, 4000);
+    tester.view.physicalSize = const Size(800, 6400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     final GlobalKey key = GlobalKey();

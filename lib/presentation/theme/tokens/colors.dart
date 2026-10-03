@@ -256,6 +256,131 @@ class VboxColors {
     'woniu4k': Color(0xFF8B5CF6),
     'bilibili': Color(0xFFEC4899),
   };
+
+  // ── 系统分组底 / 分隔线（批次 B · B3 设置页行底）──────────────
+  /// 系统分组底 · 浅（`.secondarySystemGroupedBackground`）——设置行底（浅色下为纯白）。
+  static const Color secondarySystemGroupedBackgroundLight = Color(0xFFFFFFFF);
+
+  /// 系统分组底 · 深（`.secondarySystemGroupedBackground` Dark）。
+  static const Color secondarySystemGroupedBackgroundDark = Color(0xFF1C1C1E);
+
+  /// 三级分组底 · 浅（`.tertiarySystemGroupedBackground`）——未选中皮肤卡渐变终点。
+  static const Color tertiarySystemGroupedBackgroundLight = Color(0xFFFFFFFF);
+
+  /// 三级分组底 · 深（`.tertiarySystemGroupedBackground` Dark）。
+  static const Color tertiarySystemGroupedBackgroundDark = Color(0xFF2C2C2E);
+
+  /// 分隔线 · 浅（`.separator`，`#3C3C43` @ 29%）。
+  static const Color separatorLight = Color(0x4A3C3C43);
+
+  /// 分隔线 · 深（`.separator` Dark，`#545458` @ 65%）。
+  static const Color separatorDark = Color(0xA6545458);
+
+  // ── 皮肤选择卡（批次 B · B4，对齐 iOS `SkinModeButton.selectedGradient`）──
+  /// 浅色模式卡选中渐变（`#F59E0B → #FDE68A`）。
+  static const List<Color> skinCardLight = <Color>[
+    Color(0xFFF59E0B),
+    Color(0xFFFDE68A),
+  ];
+
+  /// 黑暗模式卡选中渐变（`#111827 → #374151`）。
+  static const List<Color> skinCardDark = <Color>[
+    Color(0xFF111827),
+    Color(0xFF374151),
+  ];
+
+  /// 液态模式卡选中渐变（`#06B6D4 → #7C3AED → #EC4899`）。
+  static const List<Color> skinCardLiquid = <Color>[
+    Color(0xFF06B6D4),
+    Color(0xFF7C3AED),
+    Color(0xFFEC4899),
+  ];
+
+  /// 磨砂模式卡选中渐变（`#93C5FD → #C4B5FD → #FBCFE8`）。
+  static const List<Color> skinCardFrosted = <Color>[
+    Color(0xFF93C5FD),
+    Color(0xFFC4B5FD),
+    Color(0xFFFBCFE8),
+  ];
+
+  /// 皮肤卡选中文字色（浅 / 磨砂卡上为深色；对齐 iOS `selectedTextColor`）。
+  static const Color skinCardOnLightText = Color(0xFF111827);
+
+  /// 皮肤卡选中渐变（按皮肤解析；对齐 iOS `SkinModeButton.selectedGradient`）。
+  static List<Color> skinCardGradient(VboxSkin skin) => switch (skin) {
+        VboxSkin.light => skinCardLight,
+        VboxSkin.dark => skinCardDark,
+        VboxSkin.liquid => skinCardLiquid,
+        VboxSkin.frosted => skinCardFrosted,
+      };
+
+  // ── 系统灰 6 / 分组底（批次 B · B5 输入框底 / B6 页面底）──────────
+  /// 系统灰 6 · 浅（`.systemGray6`）——登录输入框底。
+  static const Color systemGray6Light = Color(0xFFF2F2F7);
+
+  /// 系统灰 6 · 深（`.systemGray6` Dark）——登录输入框底。
+  static const Color systemGray6Dark = Color(0xFF1C1C1E);
+
+  /// 分组页底 · 浅（`.systemGroupedBackground`）——登录弹窗背景。
+  static const Color systemGroupedBackgroundLight = Color(0xFFF2F2F7);
+
+  /// 分组页底 · 深（`.systemGroupedBackground` Dark）——登录弹窗背景。
+  static const Color systemGroupedBackgroundDark = Color(0xFF000000);
+
+  // ── 登录弹窗（批次 B · B5，对齐 iOS `LoginSheetView`）──────────────
+  /// 登录强调色（图标 / 按钮阴影底；`#3B82F6`）。
+  static const Color loginAccent = Color(0xFF3B82F6);
+
+  /// 登录按钮 / 图标兜底渐变（`#3B82F6 → #2563EB → #1D4ED8`，横向）。
+  static const List<Color> loginGradient = <Color>[
+    Color(0xFF3B82F6),
+    Color(0xFF2563EB),
+    Color(0xFF1D4ED8),
+  ];
+
+  // ── 福利分段 + 平台网格（批次 B · B6，对齐 iOS `RemoteWelfareHomeView`）──
+  /// 福利 · 视频分段选中渐变（`#FF598C → #F23373`）。
+  static const List<Color> welfareTabVideoGradient = <Color>[
+    Color(0xFFFF598C),
+    Color(0xFFF23373),
+  ];
+
+  /// 福利 · 直播分段选中渐变（`#664DF2 → #8C40D9`，图17 实测紫色实心）。
+  static const List<Color> welfareTabLiveGradient = <Color>[
+    Color(0xFF664DF2),
+    Color(0xFF8C40D9),
+  ];
+
+  /// 福利 · 漫画分段选中渐变（`#33A6F2 → #1A73D9`）。
+  static const List<Color> welfareTabComicGradient = <Color>[
+    Color(0xFF33A6F2),
+    Color(0xFF1A73D9),
+  ];
+
+  /// 福利平台图标 8 色渐变板（对齐 iOS `RemoteWelfareHomeView.platformGradient`）。
+  static const List<List<Color>> welfarePlatformPalette = <List<Color>>[
+    <Color>[Color(0xFFFF598C), Color(0xFFF23373)],
+    <Color>[Color(0xFF664DF2), Color(0xFF8C40D9)],
+    <Color>[Color(0xFF33A6F2), Color(0xFF1A73D9)],
+    <Color>[Color(0xFFFF8C33), Color(0xFFF2661A)],
+    <Color>[Color(0xFF4DBF73), Color(0xFF339959)],
+    <Color>[Color(0xFFD94DA6), Color(0xFFB33380)],
+    <Color>[Color(0xFF6680F2), Color(0xFF4059D9)],
+    <Color>[Color(0xFFFFA64D), Color(0xFFF28026)],
+  ];
+
+  /// 平台图标渐变（按名称稳定取模）。
+  ///
+  /// iOS 用 `abs(name.hashValue) % 8`，而 Swift `String.hashValue` **每进程随机**
+  /// （截图中的具体配色因此不可复现）；Flutter 侧改用**稳定求和哈希**，
+  /// 保证同名平台跨运行 / 跨平台取同一色板槽位。
+  static List<Color> welfarePlatformGradient(String name) {
+    int hash = 0;
+    for (final int unit in name.codeUnits) {
+      hash = (hash + unit) & 0x7FFFFFFF;
+    }
+    return welfarePlatformPalette[hash % welfarePlatformPalette.length];
+  }
 }
 
 /// 底栏（悬浮胶囊 TabBar）配色。

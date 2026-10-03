@@ -1,6 +1,6 @@
 # vbox · H / I 批次开工前置 UI 对齐清单
 
-> **版本**：v1.4 · 2026-10-03（v1.4 递增：**A2~A7 主题层收口已交付并验证** —— 全端 iOS 推入转场 / 去涟漪 / iOS 配色开关 / Bouncing 回弹 / 卡片审计 / UI 令牌守卫接入 CI；Story 页补开关两态并更新金色基线）
+> **版本**：v1.5 · 2026-10-03（v1.5 递增：**B3 · B4 · B5 · B6 四项缺失组件已交付并验证** —— 设置分组与三行型 / 皮肤四选 / 登录弹窗 / 福利分段 + 平台网格；含令牌扩展、Story 页两区块、单测 9 例与金色基线。**B 批次 6 项中 5 项完成**，仅 B1 因图10 实测未使用而暂缓）
 > **定位**：**表现层开工前置清单**，与 [UI对齐基准_v1.0.md](UI对齐基准_v1.0.md) 平行存在、互不覆盖。
 > **不变式**：本文件**不回溯修改** D1（契约共享）/ D3（统一 UI + 横竖双形态）/ D5（形态判定）—— 三者保持原样；仅把「H / I 批次开工前必须先做完的事」固化为可核对清单。**唯一例外**：§1.5(1) 记录了一项**用户新决策**（全端统一底栏），该决策**须另行登记**到计划 §3.3，本文件仅如实记录其连带影响。
 > **依据（实际核对）**：
@@ -331,6 +331,15 @@
 | **B6** | `WelfareSegmentedTabs` + `WelfarePlatformGrid` | 图17 | 分段 = 紫色实心选中；网格 = 4 列圆角方形彩色图标 + 名称 | Golden：三栏目切换 + 网格 |
 
 > 复用既有：`VboxCard` / `VboxChip` / `VboxButton(danger)` / `VboxToast` / `VboxSectionHeader` / `VboxDialog` / `VboxEpisodeChip` / `PosterCard` / `SourceBadge` / `VboxBottomNav`(待 A1 重构)。
+>
+> **v1.3 状态**：**B2 `QuickGrid` 已完成**（随 I-01 落地）。
+>
+> **v1.5 状态**：**B3 / B4 / B5 / B6 四项已完成并验证**（详见 §8）——
+> · B3 = [vbox_settings.dart](../lib/presentation/widgets/vbox/vbox_settings.dart)（`VboxSettingsSection` + `VboxSettingsRow` 三行型 + `VboxSettingsInputRow`）；
+> · B4 = [vbox_skin_picker.dart](../lib/presentation/widgets/vbox/vbox_skin_picker.dart)（`VboxSkinPicker` + `VboxSkinCard`，四皮肤 2×2）；
+> · B5 = [vbox_login_sheet.dart](../lib/presentation/widgets/vbox/vbox_login_sheet.dart)（图标 / 欢迎回来 / 2 输入框 / 渐变主按钮 / 上级胶囊 / 取消）；
+> · B6 = [vbox_welfare.dart](../lib/presentation/widgets/vbox/vbox_welfare.dart)（`VboxWelfareTabs` 三段选中紫色实心 + `VboxWelfarePlatformGrid` 4 列圆角方形渐变图标）。
+> **B1 暂缓**：图10 实测为**居中 Logo**（非顶部渐变头卡），渐变头部卡无 iOS 还原依据 → 降级为「不实现」，待 D6 处置。
 
 ### 3.3 C · 验收机制补齐（让"是否对齐"可判定）
 
@@ -505,6 +514,44 @@
 
 ---
 
+## 8. v1.5 交付回执（B3~B6 缺失组件补齐 · 2026-10-03）
+
+### 8.1 交付清单
+
+| # | 交付物 | 文件 | 关键内容 |
+|---|---|---|---|
+| B3 | 设置分组 + 三行型 | [vbox_settings.dart](../lib/presentation/widgets/vbox/vbox_settings.dart) | `VboxSettingsSection`（浅灰分组容器 r16 + 内缩分隔线 `n−1`）+ `VboxSettingsRow`（开关 / 箭头两行型，静态工厂 `toggle` / `navigation`）+ `VboxSettingsInputRow`（内嵌输入框） |
+| B4 | 皮肤四选 2×2 | [vbox_skin_picker.dart](../lib/presentation/widgets/vbox/vbox_skin_picker.dart) | `VboxSkinPicker`（默认 2 列）+ `VboxSkinCard`（选中填皮肤渐变 / 未选中二级分组底 95%，浅色卡取深字） |
+| B5 | 登录弹窗 | [vbox_login_sheet.dart](../lib/presentation/widgets/vbox/vbox_login_sheet.dart) | 72×72 图标（兜底蓝色渐变闪电）/「欢迎回来」/ 副标题 / 卡片 r20（hShadow 8%）/ 账号 + 密码输入（浅灰 r12 + 蓝图标）/ 蓝色横向渐变主按钮（空账号或加载中 → 透明 60%）/ 上级用户胶囊 / 取消 |
+| B6 | 福利分段 + 平台网格 | [vbox_welfare.dart](../lib/presentation/widgets/vbox/vbox_welfare.dart) | `VboxWelfareTabs`（三段等宽，选中 = r12 实心渐变 + 白字，「直播」为紫色）+ `VboxWelfarePlatformGrid`（4 列，52×52 圆角 16 渐变方块 + 12 medium 名称） |
+| — | 令牌扩展 | [colors.dart](../lib/presentation/theme/tokens/colors.dart) / [spacing.dart](../lib/presentation/theme/tokens/spacing.dart) | 登录渐变 + 强调色 · 系统灰 6 / 分组底（明暗）· 福利三段渐变 · 平台 8 色板 + `welfarePlatformGradient()` 稳定哈希 · `segmentVertical` / `inputHorizontal` |
+| — | 导出 / Story / 单测 / Golden | [vbox.dart](../lib/presentation/widgets/vbox/vbox.dart) · [vbox_story_page.dart](../lib/presentation/widgets/vbox/vbox_story_page.dart) · [vbox_components_test.dart](../test/presentation/widgets/vbox/vbox_components_test.dart) · [vbox_story_page_test.dart](../test/presentation/widgets/vbox/vbox_story_page_test.dart) · [story_page.png](../test/golden/goldens/story_page.png) | 新组件导出；Story 页新增 B5 / B6 两区块（**共 14 区**）；新增单测 **9 例**（B5 六 / B6 三）；金色基线 `story_page.png` 更新 |
+
+### 8.2 验证结果（本地实跑 · Flutter 3.47.5 / Dart 3.13.4）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 静态分析 | `flutter analyze` | **0 issue** |
+| 全部测试 | `flutter test` | **全绿（1549 用例，较 v1.4 +21）** |
+| 契约/一致性脚本 | 11 项（含 `check_ui_tokens`） | **全绿（11/11）** |
+| conformance | `run_conformance.py` | **全绿（83/83）** |
+| UI 令牌守卫 | `check_ui_tokens.py`（扫描 268 文件） | **全绿（R-2 / R-3 / R-4）** |
+| 金色基线 | `flutter test test/golden --update-goldens` 后比对 | 仅 `story_page.png` 变化（视口 4000→6400，新增两区块）；**首页 5 张字节不变** |
+
+### 8.3 规格要点与近似说明
+
+- **B6 平台图标配色不可复现**：iOS 用 `abs(name.hashValue) % 8`，而 Swift `String.hashValue` **每进程随机**（截图配色因此不可复现）；Flutter 改用**稳定求和哈希**，保证同名平台跨运行一致。
+- **图17 实测修正**：分段选中为**紫色实心圆角胶囊**、网格为**圆角方形**渐变图标（非圆形）——与 `RemoteWelfareHomeView` / `RemotePlatformIconCard` 源码一致，已按其实现。
+- **字号档位取整**：iOS 登录标题 26 → 取 **24**；按钮 17 → 取 **18**（大号按钮档）；均受 R-3 档位约束。
+
+### 8.4 遗留（按 §3.5 顺序继续）
+
+- **B1**：渐变头部卡 —— **降级为不实现**（图10 实测为居中 Logo，无还原依据），随 D6 处置。
+- **C1~C5**：SSIM 接 CI（C1）· H/I 页面族 Golden（C2）· 福利视频/漫画基准（C3）· R-5 登记（C4）· UI 对齐基准升 v1.1（C5）—— **待办**。
+- **H-06 / H-07 / I-02~I-05**：**待办**（B3~B6 已解其组件阻塞）。
+
+---
+
 > **维护口径**：本文件与主方案**版本独立**（主方案用 v6.x，UI 对齐基准用 v1.x，本文件用 v1.x 独立序号）。本文件为**建议稿**，除 §1.5(1) 记录的决策（须另行登记到计划 §3.3）外，不改变任何既有决策；如需纳入正式流程，须同步主方案与 WBS 的引用登记。
 >
 > | 版本 | 日期 | 变更 |
@@ -514,3 +561,4 @@
 > | v1.2 | 2026-10-03 | **新增 §1.5（iOS 源码实测）**：① **全端导航形态决策** —— 全端统一底部悬浮胶囊 TabBar，TV / 桌面只自适应尺寸宽度，连带作废 07/08 样式图与计划 §3.3 的 Rail 口径；② **底栏胶囊精确规格**（基础 4 项 + 福利插入 index 3、宽度公式 `min(W−140, n×56+28)`、56/Tab、10pt、Capsule + 1px 描边、四皮肤配色、`isTabBarHidden`）；③ **「个人中心 · 福利专区」完整交互**（宫格入口 → 两阶段弹窗 → 刷新/设置入口 → 记录过滤非删除，7 条关键语义）；新增差距 D16~D18、口径 R-12/R-13、风险 §5-10/§5-11 |
 > | v1.3 | 2026-10-03 | **交付回执（新增 §6）**：A8 底栏统一化（全端悬浮胶囊 + 枚举/key 驱动 + 福利 index 3 门控 + `hideTabBar`）、A9 首页豆瓣默认内容、I-01 个人中心（3×3 宫格）、H-05 福利两阶段弹窗 **四项完成并验证**（analyze 0 issue / test 全绿 / 守卫全绿 / conformance 全绿）；补 **5 Tab 态金色基线** `home_welfare_portrait`；关闭差距 D1 · D12~D18；§2.2 / §3.1 加 v1.3 状态行；注明 **D6/B1 渐变头部卡仍待办**（图10 实测为居中 Logo）；§6.4 列明 A2~A7 / B1·B3~B6 / C1~C5 / H-06·H-07 / I-02~I-05 遗留 |
 > | v1.4 | 2026-10-03 | **交付回执（新增 §7）**：**A2~A7 主题层收口** —— A2 全端 `CupertinoPageTransitionsBuilder` 推入转场 · A3 `NoSplash` 去涟漪 · A4 `switchTheme` 对齐 iOS `UISwitch` 配色 · A5 `VboxScrollBehavior`（Bouncing + 抑制辉光）· A6 卡片审计（**结论：无页面级手写卡片**，2 处非卡片阴影登记观察项）· A7 `check_ui_tokens` **接入 CI**（contract-checks 10 → 11 项）**六项完成并验证**（analyze 0 issue / **test 1528 全绿** / 11/11 脚本全绿）；Story 页补**开关两态**并更新其金色基线；**A 批次 9 项全部完成**；关闭差距 **D2~D5、D7**；§2.2 / §3.1 加 v1.4 状态行；§7.4 列明 B1·B3~B6 / C1~C5 / H-06·H-07 / I-02~I-05 遗留；§7.5 登记**批次遗漏检查**（修正 CI conformance step 名的不实数字 `45 → 去写死`） |
+> | v1.5 | 2026-10-03 | **交付回执（新增 §8）**：**B 批次缺失组件补齐 B3~B6** —— B3 设置分组 + 三行型（`SettingsSection` / `SettingsRow` / `SettingsInputRow`）· B4 皮肤四选 2×2（`SkinPicker` / `SkinCard`）· B5 登录弹窗（`LoginSheet`）· B6 福利分段 + 平台网格（`WelfareTabs` / `WelfarePlatformGrid`）**四项完成并验证**（analyze 0 issue / **test 1549 全绿** / 11/11 脚本全绿 / conformance 83/83）；令牌扩展（登录渐变 + 系统灰 6 / 分组底 + 福利三段渐变 + 平台 8 色板稳定哈希）；Story 页新增 B5/B6 两区块（**共 14 区**）并更新金色基线；§3.2 补 v1.3/v1.5 状态行；**B 批次 6 项中 5 项完成**，**B1 降级为不实现**（图10 实测为居中 Logo，无还原依据，随 D6 处置）；§8.4 列明 C1~C5 / H-06·H-07 / I-02~I-05 遗留 |

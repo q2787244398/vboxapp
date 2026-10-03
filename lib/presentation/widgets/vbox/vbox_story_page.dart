@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import '../../theme/brand.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
+import '../../theme/tokens/spacing.dart';
 import 'vbox.dart';
 
 /// 组件 Story 页（全组件画廊）。
@@ -49,6 +50,10 @@ class VboxStoryView extends StatelessWidget {
           _section('海报卡 PosterCard', _posters()),
           _section('导航 BottomNav（Rail 已弃用 · A8）', const _NavDemo()),
           _section('开关 Switch（A4）', const _SwitchDemo()),
+          _section('设置分组 SettingsSection（B3）', const _SettingsDemo()),
+          _section('皮肤选择 SkinPicker（B4）', const _SkinPickerDemo()),
+          _section('登录弹窗 LoginSheet（B5）', const _LoginDemo()),
+          _section('福利分段 + 平台网格（B6）', const _WelfareDemo()),
           _section('浮层 Dialog / Toast', const _OverlayDemo()),
         ],
       ),
@@ -305,6 +310,160 @@ class _SwitchDemo extends StatelessWidget {
         const SizedBox(width: 24),
         const Text('禁用'),
         const Switch(value: true, onChanged: null),
+      ],
+    );
+  }
+}
+
+/// 设置分组三行型（批次 B · B3 验收：开关 / 箭头 / 输入）。
+class _SettingsDemo extends StatefulWidget {
+  const _SettingsDemo();
+
+  @override
+  State<_SettingsDemo> createState() => _SettingsDemoState();
+}
+
+class _SettingsDemoState extends State<_SettingsDemo> {
+  bool _danmaku = true;
+  final TextEditingController _url =
+      TextEditingController(text: 'https://your-danmu-api.com');
+
+  @override
+  void dispose() {
+    _url.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return VboxSettingsSection(
+      title: '播放设置',
+      children: <Widget>[
+        VboxSettingsRow.toggle(
+          title: '自定义弹幕源',
+          subtitle: _danmaku ? '已开启 — 使用自定义弹幕API地址' : '关闭 — 使用默认弹幕源',
+          icon: Icons.forum_rounded,
+          iconColor: VboxColors.selected,
+          value: _danmaku,
+          onChanged: (bool value) => setState(() => _danmaku = value),
+        ),
+        if (_danmaku)
+          VboxSettingsInputRow(
+            controller: _url,
+            hint: 'https://your-danmu-api.com',
+          ),
+        VboxSettingsRow.navigation(
+          title: '缓存管理',
+          subtitle: '256 MB',
+          icon: Icons.folder_rounded,
+          onTap: () => VboxToast.show(context, '示例：进入缓存管理'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 皮肤四选（批次 B · B4 验收：四皮肤各一张或四态合一）。
+class _SkinPickerDemo extends StatefulWidget {
+  const _SkinPickerDemo();
+
+  @override
+  State<_SkinPickerDemo> createState() => _SkinPickerDemoState();
+}
+
+class _SkinPickerDemoState extends State<_SkinPickerDemo> {
+  VboxSkin _skin = VboxSkin.light;
+
+  @override
+  Widget build(BuildContext context) {
+    return VboxSkinPicker(
+      selected: _skin,
+      onSelected: (VboxSkin skin) => setState(() => _skin = skin),
+    );
+  }
+}
+
+/// 登录弹窗（批次 B · B5 验收：空态禁用 + 填写态）。
+class _LoginDemo extends StatefulWidget {
+  const _LoginDemo();
+
+  @override
+  State<_LoginDemo> createState() => _LoginDemoState();
+}
+
+class _LoginDemoState extends State<_LoginDemo> {
+  final TextEditingController _user = TextEditingController();
+  final TextEditingController _pwd = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _user.dispose();
+    _pwd.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_pwd.text.isEmpty) {
+      setState(() => _error = '请输入密码');
+      return;
+    }
+    setState(() => _error = null);
+    VboxToast.show(context, '示例：登录 ${_user.text.trim()}');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return VboxLoginSheet(
+      usernameController: _user,
+      passwordController: _pwd,
+      error: _error,
+      onSubmit: _submit,
+      onCancel: () => VboxToast.show(context, '示例：取消登录'),
+    );
+  }
+}
+
+/// 福利分段 + 平台网格（批次 B · B6 验收：三栏目切换 + 4 列网格）。
+class _WelfareDemo extends StatefulWidget {
+  const _WelfareDemo();
+
+  @override
+  State<_WelfareDemo> createState() => _WelfareDemoState();
+}
+
+class _WelfareDemoState extends State<_WelfareDemo> {
+  VboxWelfareCategory _category = VboxWelfareCategory.live;
+
+  static const List<VboxWelfarePlatform> _platforms = <VboxWelfarePlatform>[
+    VboxWelfarePlatform(name: '熊猫直播', icon: Icons.live_tv_rounded),
+    VboxWelfarePlatform(name: '哔哩直播', icon: Icons.play_circle_fill_rounded),
+    VboxWelfarePlatform(name: '酷狗直播', icon: Icons.music_note_rounded),
+    VboxWelfarePlatform(name: '斗鱼直播', icon: Icons.videogame_asset_rounded),
+    VboxWelfarePlatform(name: '虎牙直播', icon: Icons.sports_esports_rounded),
+    VboxWelfarePlatform(name: '抖音直播', icon: Icons.music_video_rounded),
+    VboxWelfarePlatform(name: '快手直播', icon: Icons.video_camera_back_rounded),
+    VboxWelfarePlatform(name: '体育直播', icon: Icons.sports_basketball_rounded),
+    VboxWelfarePlatform(name: '影视直播', icon: Icons.movie_rounded),
+    VboxWelfarePlatform(name: '音乐直播', icon: Icons.album_rounded),
+    VboxWelfarePlatform(name: '央视直播', icon: Icons.tv_rounded),
+    VboxWelfarePlatform(name: '电台直播', icon: Icons.radio_rounded),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        VboxWelfareTabs(
+          selected: _category,
+          onSelected: (VboxWelfareCategory c) => setState(() => _category = c),
+        ),
+        const SizedBox(height: VboxSpacing.lg),
+        VboxWelfarePlatformGrid(
+          platforms: _platforms,
+          onTap: (VboxWelfarePlatform p) =>
+              VboxToast.show(context, '示例：进入 ${p.name}'),
+        ),
       ],
     );
   }
