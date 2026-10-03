@@ -74,7 +74,7 @@ jobs:
             python3 scripts/$s.py
           done
 
-      - name: Run conformance runner (45 checks)
+      - name: Run conformance runner
         run: python3 conformance/runner/run_conformance.py
 
   # ── QuickJS FFI wrapper 原生编译（G-03-B-1：wrapper.c 可编译，纯 C）──────
