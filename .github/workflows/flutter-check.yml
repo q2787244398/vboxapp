@@ -4,8 +4,10 @@
 # 所有 Dart 代码未经编译验证。本 workflow 在 GitHub Actions 上补齐验证闭环：
 #   1. contract-checks   11 个纯 Python 校验脚本（10 项契约一致性 + check_ui_tokens 表现层令牌守卫；
 #                        不含需 lcov 的 check_coverage）+ conformance runner（ubuntu）
-#   2. flutter-analyze   flutter analyze + flutter test --coverage + 覆盖率门槛（ubuntu-latest，见 job 注释）
-#   3~5. 三端编译（build-android/macos/windows）—— 仅 PR 触发（合并前编译验证）。
+#   2. visual-regression 视觉回归比对（SSIM）：Flutter golden ↔ iOS 基准图逐页配对，
+#                        「基线 − 容差」相对门禁（C1；绝对 0.95 留待 J.3 终检，见脚本头注释）
+#   3. flutter-analyze   flutter analyze + flutter test --coverage + 覆盖率门槛（ubuntu-latest，见 job 注释）
+#   4~6. 三端编译（build-android/macos/windows）—— 仅 PR 触发（合并前编译验证）。
 #        push 到 main 的编译改由 build-release-assets 直接产出 release 安装包，
 #        此处不再 debug+release 重复编译（避免每次推送三端各编两遍）。
 #
@@ -76,6 +78,28 @@ jobs:
 
       - name: Run conformance runner
         run: python3 conformance/runner/run_conformance.py
+
+  # ── 视觉回归比对（SSIM · C1）：Flutter golden ↔ iOS 基准图逐页配对 ──────────
+  # 门禁口径：相对基线（baseline − tolerance）——分数跌破已登记基线即红（防回归）。
+  # 计划 §3.6 的绝对 SSIM ≥ 0.95 属跨设备不可达（iOS 真机截图 vs Flutter 测试渲染，
+  # 分辨率/字体/内容三重差异下实测 0.25~0.45），留待 J.3 终检重定口径。
+  # 配对清单：docs/ui_baseline/visual_pairs.json（新增页面：追加一条 → --update-baseline 登记）。
+  # opencv/numpy 与本地生成基线时同版本固定，保证 SSIM 可复现。
+  visual-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install vision deps (pinned for reproducible SSIM)
+        run: pip install opencv-python-headless==4.13.0.92 numpy==2.2.6
+
+      - name: Run visual regression gate (SSIM vs iOS baseline pairs)
+        run: python3 scripts/visual_regression.py --pairs docs/ui_baseline/visual_pairs.json --gate
 
   # ── QuickJS FFI wrapper 原生编译（G-03-B-1：wrapper.c 可编译，纯 C）──────
   build-native-quickjs:
