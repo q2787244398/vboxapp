@@ -16,6 +16,7 @@ import 'package:vbox/core/utils/time_utils.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/data/datasources/local/subscribe_config_store.dart';
 import 'package:vbox/data/datasources/local/tg_search_config_store.dart';
+import 'package:vbox/data/datasources/local/tmdb_config_store.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
 import 'package:vbox/platform/download/download.dart';
@@ -69,6 +70,10 @@ Widget _shell({
       // G-07：设置页订阅配置分区消费订阅存储。
       ChangeNotifierProvider<SubscribeConfigStore>.value(
         value: SubscribeConfigStore(prefs: PrefsManager.instance),
+      ),
+      // G-06：设置页 TMDB 分区消费 TMDB 配置存储。
+      ChangeNotifierProvider<TmdbConfigStore>.value(
+        value: TmdbConfigStore(),
       ),
       // H-01 / H-06：福利 Tab 落地页（门控）消费远程平台配置控制器；
       // 注入内存数据源，避免单测触网（默认返回失败 → 页面走错误态）。

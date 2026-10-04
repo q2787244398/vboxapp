@@ -28,6 +28,7 @@ import 'data/datasources/local/prefs_manager.dart';
 import 'data/datasources/local/push_play_store.dart';
 import 'data/datasources/local/subscribe_config_store.dart';
 import 'data/datasources/local/tg_search_config_store.dart';
+import 'data/datasources/local/tmdb_config_store.dart';
 import 'data/datasources/local/welfare_domain_store.dart';
 import 'data/datasources/local/welfare_proxy_store.dart';
 import 'data/datasources/remote/remote.dart';
@@ -73,6 +74,9 @@ class _VBoxAppState extends State<VBoxApp> {
 
   /// 豆瓣浏览用例（A9：首页默认内容）。
   late final DoubanUseCases _doubanUseCases;
+
+  /// TMDB 用例（G-06：详情页封面 / 演职增强；消费 `app_tmdb_*` 四契约键）。
+  late final TmdbUseCases _tmdbUseCases;
 
   /// 皮肤控制器（A-03：消费 `app_skin_mode` / `app_skin_follows_system`）。
   late final VboxSkinController _skinController;
@@ -189,6 +193,11 @@ class _VBoxAppState extends State<VBoxApp> {
       //         `active_subscription_index` / `cached_subscribe_config` 三契约键）
       await SubscribeConfigStore.shared.load();
 
+      // ②'''''''''''' TMDB 配置（G-06：启动恢复 `app_enable_tmdb` /
+      //         `app_tmdb_proxy_url` / `app_tmdb_use_token` / `app_tmdb_proxy_token`
+      //         四契约键；敏感 Token 键经 PrefsManager 路由安全存储）
+      await TmdbConfigStore.shared.load();
+
       // ③ 日志（闸门 + 落盘）
       await _startLogging();
       AppLog.info(_logTag, '启动 v${AppInfo.version}+${AppInfo.buildNumber}');
@@ -221,6 +230,8 @@ class _VBoxAppState extends State<VBoxApp> {
       );
       // A9：首页默认内容 = 豆瓣推荐。
       _doubanUseCases = DoubanUseCases();
+      // G-06：TMDB 详情增强（默认消费共享配置实例）。
+      _tmdbUseCases = TmdbUseCases();
 
       AppLog.info(_logTag, '初始化完成');
       if (mounted) {
@@ -277,6 +288,9 @@ class _VBoxAppState extends State<VBoxApp> {
         ChangeNotifierProvider<SubscribeConfigStore>.value(
           value: SubscribeConfigStore.shared,
         ),
+        ChangeNotifierProvider<TmdbConfigStore>.value(
+          value: TmdbConfigStore.shared,
+        ),
         Provider<FavoriteUseCases>.value(value: _favoriteUseCases),
         Provider<HistoryUseCases>.value(value: _historyUseCases),
         Provider<SubscriptionUseCases>.value(value: _subscriptionUseCases),
@@ -285,6 +299,7 @@ class _VBoxAppState extends State<VBoxApp> {
         Provider<ContentBrowseUseCases>.value(value: _contentBrowseUseCases),
         Provider<SearchHistoryUseCases>.value(value: _searchHistoryUseCases),
         Provider<DoubanUseCases>.value(value: _doubanUseCases),
+        Provider<TmdbUseCases>.value(value: _tmdbUseCases),
       ],
       child: const _RootRouter(),
     );

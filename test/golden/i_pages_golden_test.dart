@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/data/datasources/local/subscribe_config_store.dart';
 import 'package:vbox/data/datasources/local/tg_search_config_store.dart';
+import 'package:vbox/data/datasources/local/tmdb_config_store.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
 import 'package:vbox/platform/download/download.dart';
@@ -97,6 +98,10 @@ Widget _settings() {
       // G-07：订阅配置分区消费订阅存储。
       ChangeNotifierProvider<SubscribeConfigStore>.value(
         value: SubscribeConfigStore(prefs: PrefsManager.instance),
+      ),
+      // G-06：TMDB 分区消费 TMDB 配置存储。
+      ChangeNotifierProvider<TmdbConfigStore>.value(
+        value: TmdbConfigStore(),
       ),
       // G-08：设置页站点诊断入口读 `ContentBrowseUseCases.listSites()` 取接口总数。
       Provider<ContentBrowseUseCases>.value(

@@ -182,6 +182,13 @@ class VboxColors {
   /// TG 频道管理图标色（设置入口天线图标；iOS `Color(hex: "8B5CF6")`）。
   static const Color tgChannelPurple = Color(0xFF8B5CF6);
 
+  // ── TMDB（G-06，对齐 iOS `SettingsViews.swift` tmdbSettingsSection）──────
+  /// TMDB 封面图标色（iOS `Color(hex: "3B82F6")`）。
+  static const Color tmdbAccent = Color(0xFF3B82F6);
+
+  /// TMDB 代理 Token 图标色（iOS `Color(hex: "F59E0B")`）。
+  static const Color tmdbKeyAmber = Color(0xFFF59E0B);
+
   // ── 系统色（Apple HIG 语义色）───────────────────────────
   /// 系统底 · 浅（`.systemBackground`）。
   static const Color systemBackgroundLight = Color(0xFFFFFFFF);

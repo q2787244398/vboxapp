@@ -35,6 +35,7 @@ export 'settings/settings_page.dart';
 export 'settings/tg_channel_list_page.dart';
 export 'short_drama/short_drama_page.dart';
 export 'subscribe/subscribe_config_page.dart';
+export 'tmdb/tmdb_settings_section.dart';
 export 'welfare/welfare_gate_page.dart';
 export 'welfare/welfare_home_page.dart';
 export 'welfare/welfare_settings_page.dart';

@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/data/datasources/local/subscribe_config_store.dart';
 import 'package:vbox/data/datasources/local/tg_search_config_store.dart';
+import 'package:vbox/data/datasources/local/tmdb_config_store.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
 import 'package:vbox/presentation/pages/diagnostics/site_diagnostics_page.dart';
 import 'package:vbox/presentation/pages/settings/settings_page.dart';
@@ -38,6 +39,10 @@ Widget _page(UiFormController form, {ContentBrowseUseCases? browse}) {
       // G-07：订阅配置分区消费订阅存储。
       ChangeNotifierProvider<SubscribeConfigStore>.value(
         value: SubscribeConfigStore(prefs: PrefsManager.instance),
+      ),
+      // G-06：TMDB 分区消费 TMDB 配置存储。
+      ChangeNotifierProvider<TmdbConfigStore>.value(
+        value: TmdbConfigStore(),
       ),
       Provider<ContentBrowseUseCases>.value(
         value: browse ?? buildContentBrowseUseCases(),

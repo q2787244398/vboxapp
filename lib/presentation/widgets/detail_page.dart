@@ -3,16 +3,18 @@
 /// 对齐 iOS `VideoDetailView`（`vbox/Views/PlayerViews.swift`）：
 /// - 头图封面 + 元信息（备注 / 年份 / 地区 / 导演 / 主演）；
 /// - 剧情简介（超长可展开）；
-/// - 演职人员（导演 / 主演 chips 横滑）；
+/// - 演职人员（导演 / 主演 chips 横滑；G-06 TMDB 有则整体替换豆瓣）；
 /// - 线路 chips（`vod_play_from` 拆分）横滑切源；
 /// - 剧集宫格（自适应列数 + 折叠/展开）+ 单集点击选中；
 /// - 「立即播放」解析单集播放地址（`PlayerContent` → [PlayerController]）；
 /// - 「下载」弹出选集多选 sheet（含全选），确认后解析直链并交
 ///   [DownloadManager] 入队下载（G-02 接线，对齐 iOS `handleBatchDownload`）。
 ///
-/// 数据通路：[DetailPlaybackUseCases].loadDetail / resolvePlayUrl。
+/// 数据通路：[DetailPlaybackUseCases].loadDetail / resolvePlayUrl；
+/// 封面 / 演职增强：[TmdbUseCases].enrich（G-06，未启用或未命中时回退站点数据）。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -24,6 +26,7 @@ import '../../data/models/download.dart';
 import '../../domain/entities/player/player.dart';
 import '../../domain/entities/playback/playback.dart';
 import '../../domain/entities/spider/spider_models.dart';
+import '../../domain/entities/tmdb/tmdb_models.dart';
 import '../../domain/usecases/usecases.dart';
 import '../../platform/download/download.dart';
 import '../../platform/player/player_controller.dart';
@@ -64,6 +67,12 @@ class DetailPage extends StatefulWidget {
 class _DetailPageState extends State<DetailPage> {
   late final DetailPlaybackUseCases _uc;
   PlaybackDetail? _detail;
+
+  /// TMDB 用例（G-06；宿主未装配时为 null → 跳过增强，回退站点数据）。
+  TmdbUseCases? _tmdbUc;
+
+  /// TMDB 增强结果（封面 / 演职）。
+  TmdbEnrichment? _tmdb;
   Failure? _error;
   bool _loaded = false;
   bool _playing = false;
@@ -77,7 +86,17 @@ class _DetailPageState extends State<DetailPage> {
     super.initState();
     // 用例引用在 initState 缓存，避免跨 async gap 使用 context
     _uc = context.read<DetailPlaybackUseCases>();
+    _tmdbUc = _readTmdbUseCases();
     _load();
+  }
+
+  /// 读取 TMDB 用例（宿主未装配 [TmdbUseCases] Provider 时返回 null）。
+  TmdbUseCases? _readTmdbUseCases() {
+    try {
+      return context.read<TmdbUseCases>();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _load() async {
@@ -93,6 +112,25 @@ class _DetailPageState extends State<DetailPage> {
       _detail = result.valueOrNull;
     });
     _applyInitialSelection();
+    // 详情就绪后异步拉取 TMDB 增强（对齐 iOS `loadTMDBData`，不阻塞首屏）。
+    if (_detail != null) unawaited(_loadTmdb());
+  }
+
+  /// TMDB 详情增强（对齐 iOS `VideoDetailView.loadTMDBData`）。
+  ///
+  /// 未启用 / 未配置代理 / 无匹配 / 请求失败 → 保持 null，UI 回退站点数据。
+  Future<void> _loadTmdb() async {
+    final TmdbUseCases? uc = _tmdbUc;
+    final PlaybackDetail? d = _detail;
+    if (uc == null || d == null) return;
+    final Result<TmdbEnrichment?> result = await uc.enrich(
+      name: d.vod.vodName,
+      year: d.vod.vodYear,
+    );
+    if (!mounted) return;
+    final TmdbEnrichment? enrichment = result.valueOrNull;
+    if (enrichment == null || enrichment.isEmpty) return;
+    setState(() => _tmdb = enrichment);
   }
 
   /// 初始剧集索引 → 线路索引 + 线路内剧集索引。
@@ -333,7 +371,8 @@ class _DetailPageState extends State<DetailPage> {
             width: 120,
             height: 168,
             child: PlatformAsyncImage(
-              url: vod.vodPic,
+              // G-06：TMDB 有海报则替换站点封面（对齐 iOS `tmdbPosterURL`）。
+              url: _tmdb?.posterUrl ?? vod.vodPic,
               fit: BoxFit.cover,
               placeholderColor: scheme.surfaceContainerHighest,
             ),
@@ -435,16 +474,24 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   Widget _buildCast(PlaybackDetail d) {
-    final List<String> people = <String>[
-      if (d.vod.vodDirector?.isNotEmpty ?? false)
-        ...d.vod.vodDirector!.split(RegExp(r'[,，、/\s]+'))
-            .where((String s) => s.trim().isNotEmpty)
-            .map((String s) => '导演 ${s.trim()}'),
-      if (d.vod.vodActor?.isNotEmpty ?? false)
-        ...d.vod.vodActor!.split(RegExp(r'[,，、/\s]+'))
-            .where((String s) => s.trim().isNotEmpty)
-            .map((String s) => s.trim()),
-    ];
+    // G-06：TMDB 演职人员有数据则整体替换站点（豆瓣）演职（对齐 iOS）。
+    final TmdbEnrichment? tmdb = _tmdb;
+    final List<String> people = tmdb != null && tmdb.hasCredits
+        ? <String>[
+            ...tmdb.directors.map((TmdbPerson p) => '导演 ${p.name}'),
+            ...tmdb.actors.map((TmdbPerson p) => p.name),
+            ...tmdb.writers.map((TmdbPerson p) => '编剧 ${p.name}'),
+          ]
+        : <String>[
+            if (d.vod.vodDirector?.isNotEmpty ?? false)
+              ...d.vod.vodDirector!.split(RegExp(r'[,，、/\s]+'))
+                  .where((String s) => s.trim().isNotEmpty)
+                  .map((String s) => '导演 ${s.trim()}'),
+            if (d.vod.vodActor?.isNotEmpty ?? false)
+              ...d.vod.vodActor!.split(RegExp(r'[,，、/\s]+'))
+                  .where((String s) => s.trim().isNotEmpty)
+                  .map((String s) => s.trim()),
+          ];
     if (people.isEmpty) return const SizedBox.shrink();
     final ColorScheme scheme = Theme.of(context).colorScheme;
     return Column(

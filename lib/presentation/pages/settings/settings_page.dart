@@ -8,8 +8,8 @@
 ///
 /// **落地范围（如实登记）**：本轮落地「皮肤（B4 组件 + 跟随系统）」「显示模式（I-04）」
 /// 「播放设置」「工具入口（承接自个人中心迁出的远程源 / 网盘管理 / 备份还原）」
-/// 「存储管理」「日志调试」「关于」「站点诊断（G-08）」八个分区；iOS 侧其余域分区（TMDB /
-/// 切片源 / 站点管理）在 Flutter 侧对应域功能尚未实现，故以
+/// 「存储管理」「日志调试」「关于」「站点诊断（G-08）」「TMDB（G-06）」九个分区；
+/// iOS 侧其余域分区（切片源 / 站点管理）在 Flutter 侧对应域功能尚未实现，故以
 /// **「更多设置（待实现）」**分组显式列出并标注，不虚标为可用（见交付回执遗留项）。
 library;
 
@@ -35,6 +35,7 @@ import '../cloud/auth_center.dart';
 import '../subscribe/subscribe_config_page.dart';
 import 'tg_channel_list_page.dart';
 import '../diagnostics/site_diagnostics_page.dart';
+import '../tmdb/tmdb_settings_section.dart';
 
 /// 设置页。
 class SettingsPage extends StatefulWidget {
@@ -111,6 +112,8 @@ class _SettingsPageState extends State<SettingsPage> {
           _subscribeSection(),
           _toolsSection(),
           _diagnosticsSection(),
+          // G-06：TMDB 封面 / 演职增强设置。
+          _tmdbSection(),
           _storageSection(),
           _developerSection(),
           _aboutSection(),
@@ -402,6 +405,9 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// TMDB 设置（批次 G · G-06；对齐 iOS `SettingsViews.tmdbSettingsSection`）。
+  Widget _tmdbSection() => const TmdbSettingsSection();
+
   /// 存储管理（缓存概览；清缓存依赖缓存层，暂登记为待接线）。
   Widget _storageSection() {
     return VboxSettingsSection(
@@ -471,7 +477,6 @@ class _SettingsPageState extends State<SettingsPage> {
   /// 待实现分区（如实标注，不虚标可用）。
   Widget _pendingSection() {
     const List<(IconData, String)> pending = <(IconData, String)>[
-      (Icons.movie_filter, 'TMDB 设置'),
       (Icons.content_cut, '切片源'),
       (Icons.dns, '站点管理'),
     ];
