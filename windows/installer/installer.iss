@@ -25,9 +25,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 
-; 安装界面简体中文（Inno Setup 6 自带 ChineseSimplified 语言文件）
+; 安装界面简体中文（语言文件随仓库分发：languages/ChineseSimplified.isl，
+; 来源 jrsoftware/issrc Files/Languages/ChineseSimplified.isl，UTF-8 BOM；
+; 不依赖 Inno Setup 安装目录——choco 安装的 innosetup 缺 Languages 中文文件）
 [Languages]
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "chinesesimp"; MessagesFile: "Languages\ChineseSimplified.isl"
 
 [Files]
 ; 相对本文件（windows/installer/）两级的 build/windows/x64/runner/Release 全量文件
