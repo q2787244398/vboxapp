@@ -212,14 +212,14 @@ void main() {
 
   group('PushPlayDetailPage（对齐 iOS VideoDetailView 本地数据模式）', () {
     /// 详情页为纵向 ListView，放大测试视口确保封面后的按钮/宫格在首屏内。
-    void _tallViewport(WidgetTester tester) {
+    void tallViewport(WidgetTester tester) {
       tester.view.physicalSize = const Size(390, 1200);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
     }
 
     testWidgets('单集（无 episodes）：封面 + 立即播放', (WidgetTester tester) async {
-      _tallViewport(tester);
+      tallViewport(tester);
       final _PlayRecorder recorder = _PlayRecorder();
       await tester.pumpWidget(MaterialApp(
         home: PushPlayDetailPage(
@@ -244,7 +244,7 @@ void main() {
     });
 
     testWidgets('多集（episodes）：选集宫格 → 点击即播', (WidgetTester tester) async {
-      _tallViewport(tester);
+      tallViewport(tester);
       final _PlayRecorder recorder = _PlayRecorder();
       await tester.pumpWidget(MaterialApp(
         home: PushPlayDetailPage(
