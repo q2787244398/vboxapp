@@ -8,8 +8,8 @@
 ///
 /// **落地范围（如实登记）**：本轮落地「皮肤（B4 组件 + 跟随系统）」「显示模式（I-04）」
 /// 「播放设置」「工具入口（承接自个人中心迁出的远程源 / 网盘管理 / 备份还原）」
-/// 「存储管理」「日志调试」「关于」七个分区；iOS 侧其余域分区（TMDB /
-/// 站点诊断 / 切片源 / 站点管理）在 Flutter 侧对应域功能尚未实现，故以
+/// 「存储管理」「日志调试」「关于」「站点诊断（G-08）」八个分区；iOS 侧其余域分区（TMDB /
+/// 切片源 / 站点管理）在 Flutter 侧对应域功能尚未实现，故以
 /// **「更多设置（待实现）」**分组显式列出并标注，不虚标为可用（见交付回执遗留项）。
 library;
 
@@ -17,10 +17,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/utils/result.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../data/datasources/local/subscribe_config_store.dart';
 import '../../../data/datasources/local/tg_search_config_store.dart';
 import '../../../domain/entities/tg/tg_channel.dart';
+import '../../../domain/entities/spider/site_config.dart';
+import '../../../domain/usecases/content_browse_usecases.dart';
 import '../../phone/remote_source_page.dart';
 import '../../theme/theme.dart';
 import '../../ui_mode/ui_mode.dart';
@@ -31,6 +34,7 @@ import '../../widgets/vbox/vbox.dart';
 import '../cloud/auth_center.dart';
 import '../subscribe/subscribe_config_page.dart';
 import 'tg_channel_list_page.dart';
+import '../diagnostics/site_diagnostics_page.dart';
 
 /// 设置页。
 class SettingsPage extends StatefulWidget {
@@ -49,6 +53,9 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _searchDebug = false;
   bool _logEnabled = false;
 
+  /// 站点总数（G-08 站点诊断入口副文本；来自 `ContentBrowseUseCases.listSites()`）。
+  int _siteTotal = 0;
+
   @override
   void initState() {
     super.initState();
@@ -65,12 +72,14 @@ class _SettingsPageState extends State<SettingsPage> {
   /// 读取契约键初值（对齐 iOS `@AppStorage` 的初始绑定）。
   Future<void> _load() async {
     final PrefsManager prefs = PrefsManager.instance;
+    final ContentBrowseUseCases browse = context.read<ContentBrowseUseCases>();
     final bool danmaku = await prefs.getBool('custom_danmaku_source_enabled');
     final String url = await prefs.getString('custom_danmaku_source_url');
     final bool debug = await prefs.getBool('show_search_debug');
     final bool log = await prefs.getBool('app_log_enabled');
     final String tgProxy =
         await prefs.getString(TGSearchConfigStore.proxyUrlKey);
+    final Result<List<SiteConfig>> sites = await browse.listSites();
     if (!mounted) return;
     setState(() {
       _danmakuEnabled = danmaku;
@@ -78,6 +87,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _searchDebug = debug;
       _logEnabled = log;
       _tgProxy.text = tgProxy;
+      _siteTotal = sites.valueOrNull?.length ?? 0;
     });
   }
 
@@ -100,6 +110,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _tgSection(),
           _subscribeSection(),
           _toolsSection(),
+          _diagnosticsSection(),
           _storageSection(),
           _developerSection(),
           _aboutSection(),
@@ -357,6 +368,40 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// 站点诊断（批次 G · G-08；对齐 iOS `SettingsViews.siteDiagnosticsSection`）。
+  ///
+  /// iOS 尾部显示「已加载引擎数 / 站点总数 就绪」（读 `SpiderManager.engines`）。
+  /// 差异登记：Flutter 侧当前无引擎注册表，无法在不跑一轮诊断的前提下得到
+  /// 「就绪数」，故尾部改显「共 N 个接口」（诚实标注，不虚标就绪）；图标
+  /// `stethoscope` 在 Material 无对应，以 `medical_services` 近似，同主色。
+  Widget _diagnosticsSection() {
+    return VboxSettingsSection(
+      title: '站点诊断',
+      children: <Widget>[
+        VboxSettingsRow(
+          title: '接口状态检测',
+          icon: Icons.medical_services,
+          iconColor: VboxColors.skinPrimaryRose,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                '共 $_siteTotal 个接口',
+                style: TextStyle(
+                  fontSize: VboxTypography.s13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(width: VboxSpacing.xs),
+              const Icon(Icons.chevron_right, size: VboxTypography.s18),
+            ],
+          ),
+          onTap: () => _push(const SiteDiagnosticsPage()),
+        ),
+      ],
+    );
+  }
+
   /// 存储管理（缓存概览；清缓存依赖缓存层，暂登记为待接线）。
   Widget _storageSection() {
     return VboxSettingsSection(
@@ -427,7 +472,6 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _pendingSection() {
     const List<(IconData, String)> pending = <(IconData, String)>[
       (Icons.movie_filter, 'TMDB 设置'),
-      (Icons.health_and_safety, '站点诊断'),
       (Icons.content_cut, '切片源'),
       (Icons.dns, '站点管理'),
     ];

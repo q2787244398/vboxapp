@@ -98,6 +98,10 @@ Widget _settings() {
       ChangeNotifierProvider<SubscribeConfigStore>.value(
         value: SubscribeConfigStore(prefs: PrefsManager.instance),
       ),
+      // G-08：设置页站点诊断入口读 `ContentBrowseUseCases.listSites()` 取接口总数。
+      Provider<ContentBrowseUseCases>.value(
+        value: buildContentBrowseUseCases(),
+      ),
     ],
     child: const MaterialApp(
       debugShowCheckedModeBanner: false,

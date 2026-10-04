@@ -7,6 +7,7 @@ export 'cloud/files.dart';
 export 'cloud/login_gateway.dart';
 export 'cloud/login_sheet.dart';
 export 'cloud/sort.dart';
+export 'diagnostics/site_diagnostics_page.dart';
 export 'douban/douban_category_page.dart';
 export 'douban/douban_home_page.dart';
 export 'douban/douban_ranking_page.dart';

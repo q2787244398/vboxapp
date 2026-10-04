@@ -15,12 +15,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/data/datasources/local/subscribe_config_store.dart';
 import 'package:vbox/data/datasources/local/tg_search_config_store.dart';
+import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/presentation/pages/diagnostics/site_diagnostics_page.dart';
 import 'package:vbox/presentation/pages/settings/settings_page.dart';
 import 'package:vbox/presentation/theme/vbox_skin_controller.dart';
 import 'package:vbox/presentation/ui_mode/ui_mode.dart';
 import 'package:vbox/presentation/widgets/vbox/vbox.dart';
 
-Widget _page(UiFormController form) {
+import '../../../support/fakes.dart';
+
+Widget _page(UiFormController form, {ContentBrowseUseCases? browse}) {
   return MultiProvider(
     providers: [
       ChangeNotifierProvider<VboxSkinController>.value(
@@ -34,6 +38,12 @@ Widget _page(UiFormController form) {
       // G-07：订阅配置分区消费订阅存储。
       ChangeNotifierProvider<SubscribeConfigStore>.value(
         value: SubscribeConfigStore(prefs: PrefsManager.instance),
+      ),
+      Provider<ContentBrowseUseCases>.value(
+        value: browse ?? buildContentBrowseUseCases(),
+      ),
+      Provider<RemoteSourceUseCases>.value(
+        value: RemoteSourceUseCases(InMemoryRemoteSourceRepository()),
       ),
     ],
     child: const MaterialApp(home: SettingsPage()),
@@ -78,6 +88,7 @@ void main() {
     // G-07：订阅配置分区 + 管理订阅源入口。
     expect(find.text('订阅配置'), findsOneWidget);
     expect(find.text('管理订阅源'), findsOneWidget);
+    expect(find.text('站点诊断'), findsOneWidget); // G-08 分区标题
     expect(find.text('存储管理'), findsOneWidget);
     expect(find.text('日志调试'), findsOneWidget);
     expect(find.text('关于'), findsOneWidget);
@@ -85,6 +96,32 @@ void main() {
     expect(find.text('更多设置（待实现）'), findsOneWidget);
     expect(find.text('TMDB 设置'), findsOneWidget);
     expect(find.text('站点管理'), findsOneWidget);
+  });
+
+  testWidgets('G-08：站点诊断入口展示接口总数并可进入诊断页', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final ContentBrowseUseCases browse = buildContentBrowseUseCases(
+      sites: <Map<String, Object?>>[
+        siteJson(key: 'a', type: 0, api: 'https://a.example.com/api'),
+        siteJson(key: 'b', type: 2),
+      ],
+    );
+    await tester.pumpWidget(_page(UiFormController(), browse: browse));
+    await tester.pumpAndSettle();
+
+    // 入口行：标题「接口状态检测」+ 尾部「共 N 个接口」。
+    expect(find.text('接口状态检测'), findsOneWidget);
+    expect(find.text('共 2 个接口'), findsOneWidget);
+
+    await tester.tap(find.text('接口状态检测'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SiteDiagnosticsPage), findsOneWidget);
+    expect(find.text('接口状态诊断'), findsOneWidget);
+    // 诊断页启动后回填远程源信息行。
+    await tester.pump(const Duration(seconds: 1));
   });
 
   testWidgets('I-03：工具分区承接个人中心迁出的四个入口', (WidgetTester tester) async {
