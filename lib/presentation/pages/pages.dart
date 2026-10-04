@@ -20,6 +20,7 @@ export 'mdtv/mdtv_settings_page.dart';
 export 'mdtv/mdtv_video_detail_page.dart';
 export 'mdtv/mdtv_video_list_page.dart';
 export 'mdtv/mdtv_widgets.dart';
+export 'profile/feedback_sheet.dart';
 export 'profile/profile_page.dart';
 export 'push/push_play_detail_page.dart';
 export 'push/push_play_page.dart';

@@ -36,6 +36,7 @@ import '../../widgets/vbox/vbox.dart';
 import '../cloud/sort.dart';
 import '../push/push_play_page.dart';
 import '../settings/settings_page.dart';
+import 'feedback_sheet.dart';
 import 'welfare_sheet.dart';
 
 /// 「个人中心（我的）」页。
@@ -342,7 +343,7 @@ class ProfilePage extends StatelessWidget {
         VboxQuickGridItem(
           icon: Icons.bug_report,
           label: 'Bug反馈',
-          onTap: () => VboxToast.show(context, 'Bug 反馈将在 G-09 批次开放'),
+          onTap: () => showVboxFeedbackSheet(context),
         ),
       ],
     );
