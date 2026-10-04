@@ -271,6 +271,7 @@
 		9C9F2E85386B45EAB0C010B8 /* WaibiService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4B44716C2FC412BACA38D26 /* WaibiService.swift */; };
 		9DA4F65EF8EF91BC17D4B90C /* Libunibreak.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9A2FCEBA5ED58CC95BBAAEF0 /* Libunibreak.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		9E500FE500FDAD63873B5803 /* gmp.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C9E623AC03FF5B83F03C95FD /* gmp.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		9EBDB63CB3294D1B4AFDFF33 /* GoProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5DD680B838B2D7A227F546 /* GoProxyManager.swift */; };
 		9FB31B690D7896F20EEB7625 /* GoProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8D6D1E345A801552360111 /* GoProxyManager.swift */; };
 		A10001 /* VBoxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* VBoxApp.swift */; };
 		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* ContentView.swift */; };
@@ -1061,6 +1062,7 @@
 		D9B8E7EFE2BC22277E51AF9D /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
 		DA20392CA92938345F75AF63 /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
 		DA86A8CB7920A4CF12E66915 /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
+		DC5DD680B838B2D7A227F546 /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
 		DC91BA5CEE3869D1A389F394 /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
 		DF1672E5FBEDC509EEEFFB60 /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
 		DF2C7C53BC75AC3A492EC9A9 /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
@@ -1455,6 +1457,15 @@
 			isa = PBXGroup;
 			children = (
 				163E79342DFA637BCFC61FE3 /* GoProxyManager.swift */,
+			);
+			name = Bridge;
+			path = Bridge;
+			sourceTree = "<group>";
+		};
+		217FF65887D0FF9E7F86BCBF /* Bridge */ = {
+			isa = PBXGroup;
+			children = (
+				DC5DD680B838B2D7A227F546 /* GoProxyManager.swift */,
 			);
 			name = Bridge;
 			path = Bridge;
@@ -2306,6 +2317,7 @@
 				3D0E89978F787727ACD8BA57 /* Bridge */,
 				83C4DDC8580A49B256C6FEFB /* Bridge */,
 				4CA6385A1715654F8B1B50A2 /* Bridge */,
+				217FF65887D0FF9E7F86BCBF /* Bridge */,
 			);
 			name = vbox;
 			sourceTree = "<group>";
@@ -4690,6 +4702,7 @@
 				816D4883FFCFD4B8B5C7B00C /* GoProxyManager.swift in Sources */,
 				2B057444A2762058E31E33BF /* GoProxyManager.swift in Sources */,
 				30EE0E436EA0D2442044D9C6 /* GoProxyManager.swift in Sources */,
+				9EBDB63CB3294D1B4AFDFF33 /* GoProxyManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
