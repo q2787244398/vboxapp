@@ -9,12 +9,14 @@ import 'package:vbox/data/datasources/local/welfare_platform_cache.dart';
 import 'package:vbox/data/datasources/remote/cms_v10_datasource.dart';
 import 'package:vbox/data/datasources/remote/douban_datasource.dart';
 import 'package:vbox/data/datasources/remote/welfare_platform_datasource.dart';
+import 'package:vbox/data/models/download.dart';
 import 'package:vbox/domain/entities/douban/douban_models.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/entities/remote_source/remote_source.dart';
 import 'package:vbox/domain/entities/welfare/welfare.dart';
 import 'package:vbox/domain/repositories/repositories.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/platform/download/download.dart';
 import 'package:vbox/platform/spider/spider_engine_factory.dart';
 
 /// 内存设置键值存储（替代 SQLite `settings` 表，供 [SessionController] 单测注入）。
@@ -565,4 +567,76 @@ WelfarePlatformConfig buildWelfarePlatformConfig({
     meta: const <String, Object?>{'version': '2026.10.03.1'},
     platforms: platforms,
   );
+}
+
+/// 内存下载存储（G-02 单测用；镜像 iOS `queryDownloads` 的 addedAt 倒序）。
+///
+/// 与 `download_manager_test.dart` 内的私有实现同构，供表现层测试注入
+/// [DownloadManager]（避免触网 / 落盘）。
+class InMemoryDownloadStore implements DownloadStore {
+  /// 构造（可注入初值）。
+  InMemoryDownloadStore([List<Download>? seed])
+      : items = <Download>[...?seed];
+
+  /// 当前记录（全量快照，供断言）。
+  final List<Download> items;
+  int _seq = 1;
+
+  @override
+  Future<int> add(Download d) async {
+    final int id = _seq++;
+    items.add(d.copyWith(id: id));
+    return id;
+  }
+
+  @override
+  Future<List<Download>> all() async {
+    final List<Download> sorted = <Download>[...items]
+      ..sort((Download a, Download b) => b.addedAt.compareTo(a.addedAt));
+    return sorted;
+  }
+
+  @override
+  Future<void> updateProgress(
+    int id,
+    double progress,
+    int downloadedSize,
+    String status,
+  ) async {
+    final int i = items.indexWhere((Download d) => d.id == id);
+    if (i < 0) return;
+    items[i] = items[i].copyWith(
+      progress: progress,
+      downloadedSize: downloadedSize,
+      status: DownloadStatus.fromDb(status),
+    );
+  }
+
+  @override
+  Future<void> updatePath(int id, String path, int fileSize, String status) async {
+    final int i = items.indexWhere((Download d) => d.id == id);
+    if (i < 0) return;
+    items[i] = items[i].copyWith(
+      filePath: path,
+      fileSize: fileSize,
+      status: DownloadStatus.fromDb(status),
+    );
+  }
+
+  @override
+  Future<void> updateStatus(int id, String status) async {
+    final int i = items.indexWhere((Download d) => d.id == id);
+    if (i < 0) return;
+    items[i] = items[i].copyWith(status: DownloadStatus.fromDb(status));
+  }
+
+  @override
+  Future<void> delete(int id) async {
+    items.removeWhere((Download d) => d.id == id);
+  }
+
+  @override
+  Future<void> clear() async {
+    items.clear();
+  }
 }

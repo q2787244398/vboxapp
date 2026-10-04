@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/platform/download/download.dart';
 import 'package:vbox/presentation/shell/home_shell_page.dart';
 import 'package:vbox/presentation/theme/vbox_skin_controller.dart';
 import 'package:vbox/presentation/ui_mode/ui_mode_resolver.dart';
@@ -43,6 +44,13 @@ Widget _app({
       // 门控两态各出一张 Golden：默认 4 Tab；`welfareUnlocked` → 5 Tab（index 3 插入福利）。
       ChangeNotifierProvider<WelfareController>.value(
         value: WelfareController(unlocked: welfareUnlocked),
+      ),
+      // G-02：首页外壳消费下载胶囊/悬浮按键（内存 store，不触库不触网）。
+      ChangeNotifierProvider<DownloadManager>.value(
+        value: DownloadManager(
+          store: InMemoryDownloadStore(),
+          downloadsDirectory: '/tmp/vbox_test/dl',
+        ),
       ),
       // A9：首页默认内容 = 豆瓣（[DoubanHomeView] 消费 [DoubanUseCases]）。
       Provider<DoubanUseCases>.value(value: buildDoubanUseCases()),

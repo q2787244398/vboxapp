@@ -22,6 +22,7 @@ import '../theme/vbox_skin_controller.dart';
 import '../ui_mode/ui_mode.dart';
 import '../welfare/welfare_controller.dart';
 import '../widgets/adaptive/adaptive.dart';
+import '../widgets/download/download_overlay_widgets.dart';
 import '../widgets/input/input.dart';
 import 'app_tab.dart';
 
@@ -79,14 +80,28 @@ class _HomeShellPageState extends State<HomeShellPage> {
     // 输入模态反馈层（§3.4）：不改版式。
     //   · 遥控 → D-pad 焦点遍历（T.7）+ 十英尺缩放（§3.3，1.35× 文案档位）
     //   · 触摸 / 鼠标键盘 → 无额外包裹（hover / 快捷键由页面按需用 input/ 层）
-    if (uiForm.modality == InputModality.remote) {
-      return TenFootScaler(
-        child: FocusTraversalGroup(
-          policy: WidgetOrderTraversalPolicy(),
-          child: Focus(autofocus: true, child: shell),
+    final Widget base = uiForm.modality == InputModality.remote
+        ? TenFootScaler(
+            child: FocusTraversalGroup(
+              policy: WidgetOrderTraversalPolicy(),
+              child: Focus(autofocus: true, child: shell),
+            ),
+          )
+        : shell;
+
+    // 下载 overlay（G-02 UI，对齐 iOS ContentView L91/L217-L227）：
+    //   ① 全局胶囊通知（底部居中，5s 自动消失）
+    //   ② 悬浮下载按键（有记录时显示；点击打开管理弹窗）
+    return Stack(
+      children: <Widget>[
+        Positioned.fill(child: base),
+        const Positioned.fill(
+          child: DownloadCapsuleNotification(),
         ),
-      );
-    }
-    return shell;
+        FloatingVideoDownloadButton(
+          onTap: () => showDownloadManagementPopup(context),
+        ),
+      ],
+    );
   }
 }

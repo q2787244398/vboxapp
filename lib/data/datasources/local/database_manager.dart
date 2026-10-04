@@ -159,6 +159,66 @@ class DatabaseManager {
     return rows.map(Download.fromMap).toList();
   }
 
+  /// 更新下载进度（对齐 iOS `updateDownloadProgress`；下载中逐条写回）。
+  Future<void> updateDownloadProgress(
+    int id,
+    double progress,
+    int downloadedSize,
+    String status,
+  ) async {
+    await update(
+      Download.table,
+      <String, Object?>{
+        'progress': progress,
+        'downloadedSize': downloadedSize,
+        'status': status,
+      },
+      where: 'id = ?',
+      whereArgs: <Object?>[id],
+    );
+  }
+
+  /// 更新下载完成路径（对齐 iOS `updateDownloadPath`；进度收敛为 1.0）。
+  Future<void> updateDownloadPath(
+    int id,
+    String path,
+    int fileSize,
+    String status,
+  ) async {
+    await update(
+      Download.table,
+      <String, Object?>{
+        'filePath': path,
+        'fileSize': fileSize,
+        'status': status,
+        'progress': 1.0,
+      },
+      where: 'id = ?',
+      whereArgs: <Object?>[id],
+    );
+  }
+
+  /// 更新下载状态（对齐 iOS `updateDownloadStatus`）。
+  Future<void> updateDownloadStatus(int id, String status) async {
+    await update(
+      Download.table,
+      <String, Object?>{'status': status},
+      where: 'id = ?',
+      whereArgs: <Object?>[id],
+    );
+  }
+
+  /// 删除下载记录（对齐 iOS `deleteDownload`）。
+  Future<void> deleteDownload(int id) async {
+    await delete(Download.table, where: 'id = ?', whereArgs: <Object?>[id]);
+  }
+
+  /// 清空下载表（对齐 iOS `clearDownloads`）。
+  Future<void> clearDownloads() async {
+    final Database db = await database;
+    await db.delete(Download.table);
+  }
+
   Future<int> insertSearchHistory(SearchHistory s) =>
       insert(SearchHistory.table, s.toMap());
 

@@ -7,20 +7,25 @@
 /// - 线路 chips（`vod_play_from` 拆分）横滑切源；
 /// - 剧集宫格（自适应列数 + 折叠/展开）+ 单集点击选中；
 /// - 「立即播放」解析单集播放地址（`PlayerContent` → [PlayerController]）；
-/// - 「下载」弹出选集多选 sheet（含全选），确认后回补下载提示。
+/// - 「下载」弹出选集多选 sheet（含全选），确认后解析直链并交
+///   [DownloadManager] 入队下载（G-02 接线，对齐 iOS `handleBatchDownload`）。
 ///
 /// 数据通路：[DetailPlaybackUseCases].loadDetail / resolvePlayUrl。
 library;
+
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/errors/failures.dart';
 import '../../core/utils/result.dart';
+import '../../data/models/download.dart';
 import '../../domain/entities/player/player.dart';
 import '../../domain/entities/playback/playback.dart';
 import '../../domain/entities/spider/spider_models.dart';
 import '../../domain/usecases/usecases.dart';
+import '../../platform/download/download.dart';
 import '../../platform/player/player_controller.dart';
 import '../theme/tokens/colors.dart';
 import '../theme/tokens/radii.dart';
@@ -201,8 +206,70 @@ class _DetailPageState extends State<DetailPage> {
       ),
     );
     if (!mounted || picked == null || picked.isEmpty) return;
-    // 下载通道（DownloadManager）尚未接线（批次 F），此处保留选集回填提示。
-    _toast('已选择 ${picked.length} 集待下载');
+    await _enqueueDownloads(picked);
+  }
+
+  /// 下载接线（G-02）：逐集解析真实地址 → 建 [Download] 记录 → 交
+  /// [DownloadManager] 入队（对齐 iOS `VideoDetailView.handleBatchDownload`）。
+  ///
+  /// 字段映射与 iOS 一致：`sourceType=normal` / `engineKey` / `vodId` /
+  /// `jishu=index+1`；`laiyuan` 用站点显示名（iOS `allSources.first?.name`）。
+  /// 差异登记：iOS 入队时存选集地址、下载启动时惰性解析；Flutter 此处复用
+  /// 播放链路 `resolvePlayUrl` 先解析为真实直链再入队——结果等价，且避免
+  /// 全局 DownloadManager 需要共享「当前详情」的跨页状态。解析失败的单集
+  /// 跳过并在提示中汇总。
+  Future<void> _enqueueDownloads(List<int> picked) async {
+    final PlaybackDetail? d = _detail;
+    if (d == null) return;
+    final DownloadManager manager = context.read<DownloadManager>();
+    final List<PlaybackEpisode> visible = _episodesForLine(_fromIndex);
+    final int now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    int added = 0;
+    final List<String> failed = <String>[];
+    for (final int index in picked) {
+      if (index >= visible.length) continue;
+      final PlaybackEpisode episode = visible[index];
+      final String label =
+          episode.name.isEmpty ? '第${index + 1}集' : episode.name;
+
+      final Result<PlayerContentResult> result =
+          await _uc.resolvePlayUrl(detail: d, episode: episode);
+      final PlayerContentResult? pc = result.valueOrNull;
+      final String? url = _firstUrl(pc);
+      if (url == null || url.isEmpty) {
+        failed.add(label);
+        continue;
+      }
+
+      final String headers =
+          jsonEncode(pc?.header ?? const <String, String>{});
+      await manager.enqueue(
+        Download(
+          name: '${d.vod.vodName} $label',
+          laiyuan: d.site.name,
+          imgurl: d.vod.vodPic,
+          detailurl: widget.vodId,
+          playurl: url,
+          jishu: index + 1,
+          addedAt: now,
+          sourceType: 'normal',
+          engineKey: d.vod.engineKey,
+          vodId: widget.vodId,
+          headers: headers,
+        ),
+      );
+      added++;
+    }
+
+    if (!mounted) return;
+    if (added > 0 && failed.isEmpty) {
+      _toast('已添加 $added 集到下载');
+    } else if (added > 0) {
+      _toast('已添加 $added 集到下载，${failed.length} 集解析失败已跳过');
+    } else {
+      _toast('${failed.length} 集解析失败，未添加下载');
+    }
   }
 
   // ─────────────── UI ───────────────

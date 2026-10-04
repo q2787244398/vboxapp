@@ -5,21 +5,26 @@
 library;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:vbox/core/errors/failures.dart';
 import 'package:vbox/core/utils/result.dart';
+import 'package:vbox/data/models/download.dart';
 import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/domain/entities/playback/playback.dart';
 import 'package:vbox/domain/entities/remote_source/remote_source.dart';
 import 'package:vbox/domain/entities/spider/spider.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/platform/download/download.dart';
 import 'package:vbox/platform/player/playback_route.dart';
 import 'package:vbox/platform/player/player_channel_bridge.dart';
 import 'package:vbox/platform/player/player_controller.dart';
 import 'package:vbox/presentation/widgets/detail_page.dart';
+
+import '../../support/fakes.dart';
 
 // ─────────────── 测试替身 ───────────────
 
@@ -100,6 +105,29 @@ class _NoopBridge implements PlayerChannelBridge {
   Future<void> dispose() async {}
 }
 
+/// 瞬时完成的传输：m3u8 播放列表拉取返回 null（下载立即 failed，不触网）；
+/// openStream 返回空流兜底（本用例不会走到直链流式路径）。
+class _InstantDownloadTransport implements DownloadTransport {
+  @override
+  Future<String?> fetchString(Uri uri, Map<String, String> headers) async =>
+      null;
+
+  @override
+  Future<Uint8List?> fetchData(Uri uri, Map<String, String> headers) async =>
+      null;
+
+  @override
+  Future<DownloadStreamResponse?> openStream(
+    Uri uri,
+    Map<String, String> headers,
+  ) async =>
+      const DownloadStreamResponse(
+        statusCode: 200,
+        totalBytes: 0,
+        bytes: Stream<Uint8List>.empty(),
+      );
+}
+
 // ─────────────── 数据构造 ───────────────
 
 VodItem vod({String? playUrl}) => VodItem.fromJson(<String, Object?>{
@@ -123,9 +151,16 @@ PlaybackDetail detail({String? playUrl, int initialIndex = 0}) =>
       initialIndex: initialIndex,
     );
 
-Widget _app(_FakeDetailUseCases uc, {int initialIndex = 0}) => MultiProvider(
+Widget _app(
+  _FakeDetailUseCases uc, {
+  int initialIndex = 0,
+  DownloadManager? manager,
+}) =>
+    MultiProvider(
       providers: [
         Provider<DetailPlaybackUseCases>.value(value: uc),
+        if (manager != null)
+          ChangeNotifierProvider<DownloadManager>.value(value: manager),
       ],
       child: MaterialApp(
         home: DetailPage(
@@ -271,5 +306,62 @@ void main() {
     await tester.tap(find.text('立即播放'));
     await tester.pumpAndSettle();
     expect(player.calls, isEmpty);
+  });
+
+  testWidgets('下载：选集 sheet 多选/全选 → 确认 → 入队 DownloadManager（G-02 接线）',
+      (WidgetTester tester) async {
+    final _FakeDetailUseCases uc = _FakeDetailUseCases(
+      detailResult: () async => Success<PlaybackDetail>(detail()),
+    );
+    final InMemoryDownloadStore store = InMemoryDownloadStore();
+    final DownloadManager manager = DownloadManager(
+      store: store,
+      transport: _InstantDownloadTransport(),
+      downloadsDirectory: '/tmp/vbox_test/dl',
+    );
+    addTearDown(manager.dispose);
+    await tester.pumpWidget(_app(uc, manager: manager));
+    await tester.pumpAndSettle();
+
+    // 打开下载选集 sheet
+    await tester.tap(find.text('下载'));
+    await tester.pumpAndSettle();
+    expect(find.text('下载选集 · 共 2 集'), findsOneWidget);
+
+    // 单选第1集并确认
+    await tester.tap(find.text('第1集').last);
+    await tester.pump();
+    await tester.tap(find.text('下载选中 (1)'));
+    await tester.pumpAndSettle();
+
+    // 记录已入队（字段对齐 iOS handleBatchDownload）
+    expect(store.items, hasLength(1));
+    final Download saved = store.items.single;
+    expect(saved.name, '示例片 第1集');
+    expect(saved.laiyuan, '站点1');
+    expect(saved.detailurl, '123');
+    expect(saved.jishu, 1);
+    expect(saved.playurl, 'https://v.com/1.m3u8');
+    expect(find.textContaining('已添加 1 集到下载'), findsOneWidget);
+    // 排空第一个 SnackBar，避免第二个提示被排队不显示
+    await tester.pump(const Duration(seconds: 5));
+
+    // 再次打开：全选 → 确认 → 两集全部入队
+    await tester.tap(find.text('下载'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全选'));
+    await tester.pump();
+    await tester.tap(find.text('下载选中 (2)'));
+    await tester.pumpAndSettle();
+
+    expect(store.items, hasLength(3));
+    expect(
+      store.items.map((Download d) => d.playurl).toSet(),
+      containsAll(<String>['https://v.com/1.m3u8', 'https://v.com/2.m3u8']),
+    );
+    expect(find.textContaining('已添加 2 集到下载'), findsOneWidget);
+
+    // 排空 SnackBar 自动关闭计时器
+    await tester.pump(const Duration(seconds: 5));
   });
 }

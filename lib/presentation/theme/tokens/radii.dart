@@ -37,6 +37,12 @@ class VboxRadii {
   /// 20 · 大卡片 / 面板（主角）。
   static const double r20 = 20;
 
+  /// 40 · 胶囊全圆角近似（对齐 iOS `Capsule()`；非档位采样值，专属）。
+  ///
+  /// 语义等同「圆角 = 高度一半」的胶囊；不进 [scale]（守卫 R-2 档位
+  /// 仅约束常规圆角，胶囊属形状语义而非档位采样）。
+  static const double capsule = 40;
+
   /// 全部圆角档位（升序；供守卫 R-2 白名单与单测断言）。
   static const List<double> scale = <double>[r4, r6, r8, r10, r12, r14, r16, r20];
 

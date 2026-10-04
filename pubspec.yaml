@@ -25,6 +25,9 @@ dependencies:
   # AES-256-GCM + PBKDF2-HMAC-SHA256, iter=100000, salt=16B, iv=12B, tag=16B
   cryptography: ^2.7.0
 
+  # ── m3u8 TS 分片解密（G-02；AES-128-CBC，纯 Dart，对齐 iOS CommonCrypto）──
+  pointycastle: ^3.7.3
+
   # ── 网络 ──
   http: ^1.2.2
   url_launcher: ^6.3.2               # 网页兜底：拉起系统浏览器打开官方登录页（F-02）

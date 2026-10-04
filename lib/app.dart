@@ -31,6 +31,7 @@ import 'data/datasources/remote/remote.dart';
 import 'data/repositories/repositories.dart';
 import 'domain/entities/remote_source/remote_source.dart';
 import 'domain/usecases/usecases.dart';
+import 'platform/download/download.dart';
 import 'platform/system/system.dart';
 import 'presentation/profile/session_controller.dart';
 import 'presentation/shell/home_shell_page.dart';
@@ -87,6 +88,9 @@ class _VBoxAppState extends State<VBoxApp> {
   /// 本地账号会话控制器（I-02：SQLite `settings` 表的 `account` / `username`
   /// / `isLoggedIn` / `avatar_image`；纯本地账号，无服务端）。
   late final SessionController _sessionController;
+
+  /// 下载管理器（G-02：全局下载队列 / 进度 / 管理浮层；消费 `download` 表）。
+  late final DownloadManager _downloadManager;
 
   @override
   void initState() {
@@ -165,6 +169,10 @@ class _VBoxAppState extends State<VBoxApp> {
       //        服务层 `allHosts` / `applyProxyIfNeeded` 与设置页即时消费）
       await WelfareProxyStore.shared.load();
       await WelfareDomainStore.shared.load();
+
+      // ②''''''' 下载管理器（G-02：全局单例；存储走 `download` 表，目录走
+      //        `StoragePaths.downloadDir`，依赖已在 ①/② 就绪）
+      _downloadManager = DownloadManager();
 
       // ③ 日志（闸门 + 落盘）
       await _startLogging();
@@ -246,6 +254,7 @@ class _VBoxAppState extends State<VBoxApp> {
           value: _welfarePlatformController,
         ),
         ChangeNotifierProvider<SessionController>.value(value: _sessionController),
+        ChangeNotifierProvider<DownloadManager>.value(value: _downloadManager),
         Provider<FavoriteUseCases>.value(value: _favoriteUseCases),
         Provider<HistoryUseCases>.value(value: _historyUseCases),
         Provider<SubscriptionUseCases>.value(value: _subscriptionUseCases),

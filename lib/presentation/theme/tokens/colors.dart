@@ -171,6 +171,13 @@ class VboxColors {
     brandGradientEnd,
   ];
 
+  // ── 下载（G-02，对齐 iOS `DownloadOverlayViews.swift`）─────────────────
+  /// 下载中强调色（悬浮按键进度环 / 图标；iOS `Color(hex: "00A8FF")`）。
+  static const Color downloadActive = Color(0xFF00A8FF);
+
+  /// 下载完成托盘色（悬浮按键图标；iOS `Color(hex: "22C55E")`）。
+  static const Color downloadCompleted = Color(0xFF22C55E);
+
   // ── 系统色（Apple HIG 语义色）───────────────────────────
   /// 系统底 · 浅（`.systemBackground`）。
   static const Color systemBackgroundLight = Color(0xFFFFFFFF);

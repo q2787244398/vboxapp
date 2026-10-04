@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/platform/download/download.dart';
 import 'package:vbox/presentation/pages/settings/settings_page.dart';
 import 'package:vbox/presentation/profile/session_controller.dart';
 import 'package:vbox/presentation/shell/home_shell_page.dart';
@@ -44,6 +45,13 @@ Widget _shell() {
       ),
       ChangeNotifierProvider<WelfareController>.value(
         value: WelfareController(),
+      ),
+      // G-02：首页外壳消费下载胶囊/悬浮按键（内存 store，不触库不触网）。
+      ChangeNotifierProvider<DownloadManager>.value(
+        value: DownloadManager(
+          store: InMemoryDownloadStore(),
+          downloadsDirectory: '/tmp/vbox_test/dl',
+        ),
       ),
       ChangeNotifierProvider<SessionController>.value(
         value: SessionController(store: InMemorySettingsStore()),

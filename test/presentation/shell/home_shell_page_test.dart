@@ -16,6 +16,7 @@ import 'package:vbox/core/utils/time_utils.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/platform/download/download.dart';
 import 'package:vbox/presentation/profile/session_controller.dart';
 import 'package:vbox/presentation/shell/home_shell_page.dart';
 import 'package:vbox/presentation/theme/vbox_skin_controller.dart';
@@ -64,6 +65,14 @@ Widget _shell({
       ChangeNotifierProvider<WelfarePlatformController>.value(
         value: WelfarePlatformController(
           datasource: InMemoryWelfarePlatformDatasource(),
+        ),
+      ),
+      // G-02：下载管理器（注入内存 store，避免单测触库 / 触网；
+      // 显式目录避免依赖 StoragePaths 全局配置）。
+      ChangeNotifierProvider<DownloadManager>.value(
+        value: DownloadManager(
+          store: InMemoryDownloadStore(),
+          downloadsDirectory: '/tmp/vbox_test/dl',
         ),
       ),
       Provider<FavoriteUseCases>.value(

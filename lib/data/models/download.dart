@@ -7,15 +7,21 @@
 library;
 
 
-/// 下载状态枚举（DDL 注释：pending|downloading|completed|failed）。
+/// 下载状态枚举。
+///
+/// DDL 注释只列 4 值（pending|downloading|completed|failed），但 iOS
+/// `DownloadManager.pauseDownload` 实际向库写入 `"paused"`（`status` 为自由 TEXT），
+/// 故 Dart 端扩展第 5 态保证「暂停 → 重启 → 恢复」可往返（G-02 差异登记）。
 enum DownloadStatus {
   pending,
   downloading,
+  paused,
   completed,
   failed;
 
   static DownloadStatus fromDb(String? v) => switch (v) {
         'downloading' => DownloadStatus.downloading,
+        'paused' => DownloadStatus.paused,
         'completed' => DownloadStatus.completed,
         'failed' => DownloadStatus.failed,
         _ => DownloadStatus.pending,
