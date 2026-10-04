@@ -461,10 +461,10 @@
         "desc": "WelfareDomainStore.swift"
       },
       "welfare_proxy_enabled_platforms_v1": {
-        "type": "stringArray",
+        "type": "string",
         "storage": "userdefaults",
         "evidence": "WelfareProxyStore.swift",
-        "desc": "WelfareProxyStore.swift"
+        "desc": "WelfareProxyStore.swift（[String: Bool] JSON 字典字符串；契约原标 stringArray 与 iOS 实现不符，H-07 修正）"
       },
       "welfare_proxy_url_v1": {
         "type": "string",

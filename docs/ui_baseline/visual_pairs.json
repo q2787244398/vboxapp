@@ -39,6 +39,12 @@
       "ref": "docs/ui_baseline/ios_ref/福利页面直播栏目.PNG",
       "cmp": "test/golden/goldens/welfare_live_portrait.png",
       "baseline": 0.8193
+    },
+    {
+      "family": "福利专区设置页",
+      "ref": "docs/ui_baseline/ios_ref/福利专区设置页面可上下滑动查看更多.PNG",
+      "cmp": "test/golden/goldens/welfare_settings_portrait.png",
+      "baseline": 0.3627
     }
   ]
 }

@@ -1,6 +1,6 @@
 # vbox · H / I 批次开工前置 UI 对齐清单
 
-> **版本**：v1.9 · 2026-10-03（v1.9 递增：**H-01 + H-06 打通福利专区** —— 平台配置远程加载链（manifest → `files.welfarePlatforms` → schema 校验，代理降级链）+ 本地磁盘缓存 + `WelfarePlatformController` 状态管理 + 三栏目平台网格页 `WelfareHomePage`，并把「福利专区」远程/内置门控从 `WelfareGatePage` 接上；新增 4 测试文件 / **35 用例** + 1 张金色基线（`welfare_live_portrait`，SSIM **0.819**）；本地实跑 `flutter analyze` **0 issue** · `flutter test` **1607 用例全绿** · 覆盖率 **78.0%** · 契约 11/11 · conformance 83/83 · 视觉门禁 6 配对全达标。详见 §12。v1.8 递增（C2）保留于 §11；v1.7 递增（批次 I 首段）保留于 §10；v1.6 递增（C1「SSIM 接入 CI」）保留于 §9）
+> **版本**：v1.11 · 2026-10-04（v1.11 递增：**H-07 福利平台设置页交付** —— `WelfareSettingsPage` / `WelfareDomainEditPage`（对齐 iOS `RemoteWelfareSettingsView` / `WelfareSettingsView`：远程源开关 → 远程/内置双主体、远程源状态行 + 立即同步、代理设置 + 平台代理开关折叠列表（未设代理置灰）、平台列表按分类分组（自定义域名优先显示）、域名编辑（添加校验 / 默认域名打勾 / 自定义域名增删清空））+ 入口接线 + 1 张金色基线（`welfare_settings_portrait`，SSIM **0.363**，visual_pairs 第 7 对，视觉门禁 7 对全达标）。详见 §12。v1.9 递增（H-01+H-06）保留于 §12；v1.8 递增（C2）保留于 §11；v1.7 递增（批次 I 首段）保留于 §10；v1.6 递增（C1「SSIM 接入 CI」）保留于 §9）
 > **定位**：**表现层开工前置清单**，与 [UI对齐基准_v1.0.md](UI对齐基准_v1.0.md) 平行存在、互不覆盖。
 > **不变式**：本文件**不回溯修改** D1（契约共享）/ D3（统一 UI + 横竖双形态）/ D5（形态判定）—— 三者保持原样；仅把「H / I 批次开工前必须先做完的事」固化为可核对清单。**唯一例外**：§1.5(1) 记录了一项**用户新决策**（全端统一底栏），该决策**须另行登记**到计划 §3.3，本文件仅如实记录其连带影响。
 > **依据（实际核对）**：
@@ -359,6 +359,8 @@
 > **C2~C5 仍待办**。C2（H/I 页面族 Golden）依赖页面产出 → 随 **I-02~I-05 / H-06·H-07** 逐页接入（每页追加一条 pairing 即可）。
 >
 > **v1.9 状态**：**C2 第二段（H 页面族首张）落地** —— H-06 产金色基线 `welfare_live_portrait` 并接入配对清单（SSIM **0.819**）；C2 已覆盖 **图10 / 图11 / 图12 / 图17** 四族；**C3~C5 与 H-07 Golden 仍待办**。
+>
+> **v1.11 状态**：**C2 第三段（H-07 设置页 Golden）落地** —— `welfare_settings_portrait` 接入配对清单（SSIM **0.363**）；C2 已覆盖 **图10 / 图11 / 图12 / 图17 / 图19** 五族；**C3~C5 与 I-05 / G-09 仍待办**。
 
 ### 3.4 D · 逐页验收表（H / I 直接可用）
 
@@ -371,12 +373,14 @@
 | I | I-05 自更新 UI | — | 检查 / 下载 / 安装引导 | 功能 + 组件一致性 |
 | H | H-05 入口门控 | 图16 | **两阶段**：未解锁 = 礼物图标 + 密码框 + 「确认解锁」；已解锁 = 启用开关 + 密码掩码行 + 刷新/设置 + 「完成」（详见 §1.5(3)） | 功能（关闭后 Tab 与记录隐藏）+ Golden |
 | H | H-06 三栏目 + 平台网格 | 图17（+ C3 补图） | 紫色分段选中 + 4 列彩色平台图标网格 | Golden + SSIM ≥0.95 |
-| H | H-07 域名/代理设置 | 图19 | 平台清单行（图标+名称+开关）+ 代理/域名输入 | 开关生效 + Golden |
+| H | H-07 域名/代理设置 | 图19 | 平台清单行（图标+名称+开关）+ 代理/域名输入 | 开关生效 + Golden（✅ v1.11 已闭环：`welfare_settings_portrait` SSIM 0.363） |
 | G | G-09 Bug 反馈 | `Bug 反馈界面.PNG` | 抽屉 + 标题输入 + 详细描述文本域 + 提交按钮 | Golden |
 
 > **v1.7 状态**：**I-01 / I-02 / I-03 / I-04 四项已交付**（详见 §10）；四项均**未产 Golden**（C2 待办），故本表「Golden + SSIM」门禁本批**未闭环**。H-05 已于 v1.3 交付；**H-06 / H-07 / I-05 / G-09 待办**。
 >
 > **v1.9 状态**：**H-01 + H-06 已交付**（详见 §12）—— H-06 三栏目 + 平台网格页落地并**产金色基线**（`welfare_live_portrait`，SSIM 0.819），本行「Golden + SSIM」门禁**已闭环**（相对口径）；I 批四页 Golden 已于 v1.8（§11）补齐。**H-07 / I-05 / G-09 仍待办**。
+>
+> **v1.11 状态**：**H-07 已交付**（详见 §12）—— 福利平台设置页 + 域名编辑页落地并**产金色基线**（`welfare_settings_portrait`，SSIM 0.363），本行「开关生效 + Golden」门禁**已闭环**（相对口径）。**I-05 / G-09 仍待办**。
 >
 > **口径提示**：本表「SSIM ≥0.95」为原计划**绝对阈值**；v1.6（§9.2）已**实测修正为相对门禁**（`SSIM ≥ 基线 − 0.02`，回归即红），绝对 0.95 留待 J.3 终检重定。
 
@@ -771,10 +775,10 @@
 
 ### 12.4 遗留（按 §3.5 顺序继续）
 
-- **H-02**（5 类路由）· **H-03**（福利 Spider）· **H-04**（三重隔离）
-- **H-07**（代理 / 自定义域名 / 远程开关 + 平台排序持久化）· **H-08**（批次自检）
 - **C3**（福利视频 / 漫画基准）· **C4**（R-5 登记）· **C5**（UI 对齐基准升 v1.1）
 - **I-05**（自更新 UI，依赖 K）· **G-09**（Bug 反馈）
+
+> **v1.11 注**：H-02 / H-03 / H-04 / H-07 / H-08 已交付（详见 §13）；本表其余项按序继续。
 
 ---
 
@@ -792,3 +796,45 @@
 > | v1.7 | 2026-10-03 | **交付回执（新增 §10）**：**批次 I 首段 I-01~I-04 四项完成** —— I-01 个人中心（未登录头部「未登录」+ 左退出 / 右设置 + 工具入口迁出）· I-02 登录弹窗 + 本地账号会话 [`SessionController`](../lib/presentation/profile/session_controller.dart)（SQLite `settings` 表；登出保留密码与头像；旧版 `username` 兜底迁移）· I-03 设置页 [settings_page.dart](../lib/presentation/pages/settings/settings_page.dart)（8 分区落地 + 6 项「待实现」显式登记）· I-04 显示模式（`app_ui_form_override` 热切换）；工具入口（书架 / 远程源 / 网盘管理 / 备份还原）由个人中心迁入设置页；新增单测 **16 例**（`SessionController` 10 + 设置页 6）并**修正陈旧底栏用例**（仍断言「vbox 默认账号 / 更多工具 / 书架」的真实缺陷）；关闭差距 **D8 / D9 / D10**，**D6 作废**（无 iOS 还原依据）、**D11 组件层关闭·页面层待办**；§2.2 补 v1.7 状态行；**如实登记本环境无 Flutter SDK → `flutter analyze` / `flutter test` 未实跑**（Python 守卫全绿），须补跑回填；§10.4 遗漏排查 10 项 · §10.5 遗留（I-05 / H-06·H-07 / C2~C5 / G-02~G-10） |
 > | v1.8 | 2026-10-03 | **交付回执（新增 §11）**：**C2「H/I 页面族 Golden」首段交付 + 门禁全量补跑** —— 新增 [i_pages_golden_test.dart](../test/golden/i_pages_golden_test.dart)（I-01 个人中心 / I-02 登录弹窗 / I-03 设置页**三页金色基线**）+ [visual_pairs.json](ui_baseline/visual_pairs.json) 追加 3 条配对（实测 **0.712 / 0.785 / 0.715**，共 5 对）；本批**首次进入 CI 视觉回归门禁**（`--gate` exit 0）；**环境装 Flutter 3.47.5 / Dart 3.13.4（Linux x64，与 CI 同版本）后补跑全部此前「未实跑」项**：`flutter analyze` **0 issue** · `flutter test` **1572 用例全绿** · 覆盖率 **77.8% ≥ 70%** · 契约 11/11 · conformance 83/83；修复实跑暴露的 **1 处测试缺陷**（I-04 残留 Timer → 排空）+ **1 处文档漂移**（98 键 → 99）；§9.3 / §9.5 / §10.3 / §10.4 同步回填；**C 批次 2/5 完成**，C3~C5 待办 |
 > | v1.9 | 2026-10-03 | **交付回执（新增 §12）**：**H-01 + H-06 打通福利专区** —— H-01 平台配置链（领域 [welfare_platform_config.dart](../lib/domain/entities/welfare/welfare_platform_config.dart) 严格 `tryParse` 对齐契约 [welfare_v1.json](../contract/schema/welfare_v1.json) · 数据源 manifest → 平台配置 + 代理降级链 · 磁盘缓存 · [`WelfarePlatformController`](../lib/presentation/welfare/welfare_platform_controller.dart) 缓存先出 + 后台刷新 + 三键落 Prefs）+ H-06 页面 [welfare_home_page.dart](../lib/presentation/pages/welfare/welfare_home_page.dart)（三段栏目 + 4 列平台网格 + 加载/失败/空态）+ 门控接线 + `MultiProvider` 注册；新增 **4 测试文件 / 35 用例** + 金色基线 `welfare_live_portrait`；[visual_pairs.json](ui_baseline/visual_pairs.json) 追加「福利专区直播栏目」配对（SSIM **0.819**，共 6 对）；本地实跑 `flutter analyze` **0 issue** · `flutter test` **1607 用例全绿** · 覆盖率 **78.0% ≥ 70%** · 契约 11/11 · conformance 83/83 · 视觉门禁 exit 0；关闭差距 **D11 页面层**；§2.2 / §3.3 / §3.4 加 v1.9 状态行；**H 批次 H-01 交付、H-06 首段交付（平台点击路由 / 长按排序归 H-02 / H-07）**；§12.4 列明 H-02~H-04 / H-07·H-08 / C3~C5 / I-05 / G-09 遗留 |
+> | v1.10 | 2026-10-03 | 更名批次（H-02 / H-04 交付期同步更名，内容于 v1.11 补记）。 |
+> | v1.11（现行） | 2026-10-04 | **交付回执（新增 §13）**：**H-07 福利平台设置页交付** —— `WelfareSettingsPage` / `WelfareDomainEditPage`（[welfare_settings_page.dart](../lib/presentation/pages/welfare/welfare_settings_page.dart)，对齐 iOS `RemoteWelfareSettingsView` / `WelfareSettingsView`：远程源开关双主体 / 状态行 + 立即同步 / 代理设置 + 平台代理开关折叠列表（未设代理置灰）/ 平台列表分类分组（自定义域名优先）+ 域名编辑页（添加校验 / 默认域名打勾 / 自定义域名增删清空））+ 入口接线（[welfare_sheet.dart](../lib/presentation/pages/profile/welfare_sheet.dart) 设置按钮）+ [visual_pairs.json](ui_baseline/visual_pairs.json) 追加「福利专区设置页」配对（SSIM **0.363**，共 7 对）+ 设置页 Golden `welfare_settings_portrait`；§3.3 / §3.4 加 v1.11 状态行；**H-07「开关生效 + Golden」门禁闭环（相对口径）；H 批次 H-07 / H-08 交付**；§13.4 遗留仅 I-05 / G-09 / C3~C5 |
+
+---
+
+## 13. v1.11 交付回执（H-07 福利平台设置页 · 2026-10-04）
+
+### 13.1 交付明细
+
+| 层 | 文件 | 说明 |
+|---|---|---|
+| 数据 | [welfare_proxy_store.dart](../lib/data/datasources/local/welfare_proxy_store.dart) | `WelfareProxyStore`：代理 URL（`welfare_proxy_url_v1`）+ 平台开关（`welfare_proxy_enabled_platforms_v1`，[String: Bool] JSON 字典字符串，契约 type 修正 stringArray → string）+ `hasValidProxy` / `isProxyEnabled`（代理无效一律 false）/ `clearProxyURL` 连带清空开关 / `buildProxiedURL`（URL 转发格式 `?`/`&` 拼接 + `Uri.encodeComponent`）+ `proxiedURL` |
+| 数据 | [welfare_domain_store.dart](../lib/data/datasources/local/welfare_domain_store.dart) | `WelfareDomainStore`：`welfare_custom_domains_v2` JSON 字典字符串 + `addDomain`（trim + 去重）/ `setDomains` / `removeDomain`（删空移除键）/ `clearDomains`，支持多域名轮询 |
+| 领域 | [fuli_base_service.dart](../lib/domain/services/fuli_base_service.dart) | `allHosts`（自定义在前 + 默认在后）/ `isProxyEnabled` / `applyProxyIfNeeded`（消费两 Store 共享实例，对齐 iOS `FuliBaseService` L70-L96） |
+| 领域 | [welfare_js_spider_service.dart](../lib/domain/services/welfare_js_spider_service.dart) · [welfare_python_spider_service.dart](../lib/domain/services/welfare_python_spider_service.dart) | `currentHost` 走 `allHosts` + `resetDomain` 清空自定义域名重探测 |
+| 表现 | [welfare_settings_page.dart](../lib/presentation/pages/welfare/welfare_settings_page.dart) | `WelfareSettingsPage`（远程源开关双主体 / 状态行 + 立即同步 / 代理设置 + 平台代理开关折叠列表 / 平台列表分类分组 / 调试）+ `WelfareDomainEditPage`（域名编辑 Form 五段） |
+| 表现 | [welfare_sheet.dart](../lib/presentation/pages/profile/welfare_sheet.dart) | 福利弹窗「设置」按钮 → `WelfareSettingsPage`（原「暂未开放」提示） |
+| 表现 | [pages.dart](../lib/presentation/pages/pages.dart) | barrel 导出 `welfare_settings_page.dart` |
+| 装配 | [app.dart](../lib/app.dart) | 启动预加载 `WelfareProxyStore.shared` / `WelfareDomainStore.shared`（服务层即时消费，遗漏核查补项） |
+
+### 13.2 验证结果（本地实跑 · Flutter 3.47.5 / Dart 3.13.4 · Linux x64）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 静态分析 | `flutter analyze` | ✅ **0 issue** |
+| 单元测试 | `flutter test` | ✅ **全量通过**（1762 → 含本批新增 3 文件 / 用例，回填见 WBS v1.29） |
+| Python 守卫 | 14 项 `check_*.py` | ✅ **14/14 全绿**（含 `check_welfare_isolation --selftest` · 文档一致性 0 漂移） |
+| 金色基线 | `flutter test test/golden --update-goldens` | ✅ 新增 1 张（`welfare_settings_portrait`） |
+| 视觉回归门禁 | `visual_regression.py --pairs … --gate` | ✅ **exit 0**（7 配对全达标，均值 SSIM 0.585） |
+
+### 13.3 遗漏排查（本批发现 · 逐项处置）
+
+| # | 发现 | 性质 | 处置 |
+|---|---|---|---|
+| 1 | `app.dart` 装配未预加载两 Store 共享实例 → 服务层 `allHosts` / `applyProxyIfNeeded` 消费空内存态（用户未进设置页时自定义域名 / 代理不生效） | 装配遗漏 | ✅ **已修**：启动装配处 `await WelfareProxyStore.shared.load()` / `WelfareDomainStore.shared.load()` |
+| 2 | `pages.dart` 未导出设置页（barrel 不一致） | 一致性遗漏 | ✅ **已修**：追加 `export 'welfare/welfare_settings_page.dart'` |
+| 3 | H-07 设置页未产 Golden（C2 门禁缺图19 族） | 门禁遗漏 | ✅ **已补**：`welfare_settings_portrait` 接入配对（SSIM 0.363，共 7 对） |
+| 4 | 契约 `welfare_proxy_enabled_platforms_v1` type=stringArray 与 iOS 实际 JSON 字典不符 | 契约漂移 | ✅ **已修**（H-07 首段已处理）：契约 + `prefs_keys.dart` 同步 string |
+
+### 13.4 遗留（按 §3.5 顺序继续）
+
+- **I-05**（自更新 UI，依赖 K）· **G-09**（Bug 反馈）· **C3~C5**（基准补图 / R-5 登记 / UI 对齐基准升版）

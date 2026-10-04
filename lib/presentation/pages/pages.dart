@@ -26,3 +26,4 @@ export 'settings/settings_page.dart';
 export 'short_drama/short_drama_page.dart';
 export 'welfare/welfare_gate_page.dart';
 export 'welfare/welfare_home_page.dart';
+export 'welfare/welfare_settings_page.dart';

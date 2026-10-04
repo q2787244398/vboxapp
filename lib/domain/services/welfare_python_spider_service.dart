@@ -14,8 +14,8 @@
 ///   · Python 执行走 Flutter 既有 **Python 桥引擎**（[PythonBridgeEngine]：
 ///     常驻子进程 + JSON over stdio），而非 iOS 内嵌解释器；
 ///   · iOS 经 `injectDict` 注入 `_vbox_effective_hosts` / `_vbox_proxy_*`
-///     上下文，Flutter 桥未暴露该机制 → 自定义域名 / 代理注入归 H-07
-///     （[WelfareDomainStore] / [WelfareProxyStore] 落地时接入）；
+///     上下文，Flutter 桥未暴露该机制 → 域名选取走 [FuliBaseService.allHosts]
+///     （H-07：自定义在前 + 默认在后），代理注入差异登记；
 ///   · `homeVideoContent` 兜底（iOS L236-L248）依赖引擎扩展能力，Flutter
 ///     引擎层未暴露 → 仅走 `homeContent`（差异登记）；
 ///   · 漫画图片加载（iOS `loadComicImages` L321-L371 并发组）Flutter 顺序执行。
@@ -23,6 +23,7 @@ library;
 
 import 'dart:async';
 
+import '../../data/datasources/local/welfare_domain_store.dart';
 import '../../data/datasources/welfare/welfare_spider_loader.dart';
 import '../../platform/spider/python_bridge_engine.dart';
 import '../entities/spider/spider_engine.dart';
@@ -141,7 +142,7 @@ class WelfarePythonSpiderService extends FuliBaseService {
 
   @override
   String get currentHost =>
-      _engine != null && defaultHosts.isNotEmpty ? defaultHosts.first : '';
+      _engine != null && allHosts.isNotEmpty ? allHosts.first : '';
 
   @override
   bool get isHostReady => _engine != null;
@@ -163,9 +164,12 @@ class WelfarePythonSpiderService extends FuliBaseService {
         '${result.videos.isNotEmpty || result.categories.isNotEmpty ? '可用' : '不可用'}');
   }
 
-  /// 重置域名（H-07 `WelfareDomainStore` 落地前仅回退默认域名重新探测）。
+  /// 重置域名（对齐 iOS `resetDomain`：清空自定义域名后重新探测）。
   @override
-  void resetDomain() => reprobe();
+  void resetDomain() {
+    WelfareDomainStore.shared.clearDomains(platformName);
+    reprobe();
+  }
 
   @override
   Future<FuliHomeResult> fetchHomeContent() async {

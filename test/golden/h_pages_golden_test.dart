@@ -1,6 +1,8 @@
-/// 视觉回归 Golden 基线：批次 H 页面族（H-06 福利专区三栏目 + 平台网格）。
+/// 视觉回归 Golden 基线：批次 H 页面族（H-06 福利专区三栏目 + 平台网格 +
+/// H-07 福利平台设置页）。
 ///
-/// 依据：`docs/UI对齐_H_I开工前置_v1.9.md` §3.4（H-06 → 图17「福利页面直播栏目」）
+/// 依据：`docs/UI对齐_H_I开工前置_v1.9.md` §3.4（H-06 → 图17「福利页面直播栏目」；
+/// H-07 → 图19「福利专区设置」）
 ///   + §9.4「每页一步」接入 [visual_pairs.json]。
 ///
 /// 机制同 `i_pages_golden_test.dart`：真实页面渲染 → `matchesGoldenFile` 像素锁；
@@ -16,8 +18,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
+import 'package:vbox/data/datasources/local/welfare_domain_store.dart';
+import 'package:vbox/data/datasources/local/welfare_proxy_store.dart';
 import 'package:vbox/domain/entities/welfare/welfare.dart';
 import 'package:vbox/presentation/pages/welfare/welfare_home_page.dart';
+import 'package:vbox/presentation/pages/welfare/welfare_settings_page.dart';
 import 'package:vbox/presentation/welfare/welfare_platform_controller.dart';
 
 import '../support/fakes.dart';
@@ -130,6 +135,19 @@ Widget _welfare() => ChangeNotifierProvider<WelfarePlatformController>.value(
       ),
     );
 
+/// 福利平台设置页外壳（H-07；注入内存数据源 + 内存 Store，Golden 不触网不落盘）。
+Widget _welfareSettings(WelfarePlatformController controller) =>
+    ChangeNotifierProvider<WelfarePlatformController>.value(
+      value: controller,
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: WelfareSettingsPage(
+          proxyStore: WelfareProxyStore(),
+          domainStore: WelfareDomainStore(),
+        ),
+      ),
+    );
+
 /// 通用截图（构建 → 稳定 → 逐像素锁）。
 Future<void> _shot(
   WidgetTester tester,
@@ -169,6 +187,22 @@ void main() {
       const Size(390, 844),
       _welfare(),
       before: (WidgetTester tester) async => tester.tap(find.text('直播')),
+    );
+  });
+
+  testWidgets('welfare_settings_portrait（H-07：福利平台设置 · 远程源版）',
+      (WidgetTester tester) async {
+    final WelfarePlatformController controller = WelfarePlatformController(
+      datasource: InMemoryWelfarePlatformDatasource(config: _liveConfig()),
+      cache: InMemoryWelfarePlatformCache(),
+      prefs: PrefsManager.instance,
+    );
+    await controller.refresh();
+    await _shot(
+      tester,
+      'welfare_settings_portrait',
+      const Size(390, 844),
+      _welfareSettings(controller),
     );
   });
 }

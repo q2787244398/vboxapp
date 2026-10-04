@@ -1,9 +1,11 @@
-/// 领域层：通用福利平台服务基类 + 注册表（批次 H · H-02 / H-03）。
+/// 领域层：通用福利平台服务基类 + 注册表（批次 H · H-02 / H-03 / H-07）。
 ///
 /// 唯一真相源：iOS `vbox/Services/FuliPlatformService.swift`
 ///   · `FuliPlatformService` 协议（L24-L60）：平台标识 / 域名 / 抓取契约；
 ///   · `FuliBaseService` 基类（L201-L236）：`@Published currentHost` /
-///     `isHostReady` + 默认视频内容类型 + 图片防盗链默认值 + 抓取默认实现。
+///     `isHostReady` + 默认视频内容类型 + 图片防盗链默认值 + 抓取默认实现；
+///   · H-07 域名 / 代理接线（L70-L96）：`allHosts`（自定义域名在前 + 默认域名）、
+///     `isProxyEnabled`、`applyProxyIfNeeded`（平台开关开启 → 代理 URL 构建）。
 ///
 /// 移植口径：
 ///   · 平台标识：`platformKey` / `platformName` / `defaultHosts`；
@@ -12,9 +14,14 @@
 ///   · 图片防盗链：`imageReferer` / `imageSSLBypass`；
 ///   · 抓取契约（H-03 落地）：`fetchHomeContent` / `fetchCategoryContent` /
 ///     `fetchDetail` / `fetchSearch` / `fetchPlayerURL` 默认实现
-///     （对齐 iOS `FuliBaseService` L222-L236，子类覆写）。
+///     （对齐 iOS `FuliBaseService` L222-L236，子类覆写）；
+///   · H-07 域名 / 代理：`allHosts` / `isProxyEnabled` / `applyProxyIfNeeded`
+///     消费 [WelfareDomainStore.shared] / [WelfareProxyStore.shared]
+///     （对齐 iOS `WelfareDomainStore.shared` / `WelfareProxyStore.shared`）。
 library;
 
+import '../../data/datasources/local/welfare_domain_store.dart';
+import '../../data/datasources/local/welfare_proxy_store.dart';
 import '../entities/welfare/fuli_models.dart';
 
 /// 福利内容类型（对齐 iOS `FuliContentCategory`）。
@@ -65,6 +72,22 @@ abstract class FuliBaseService {
   /// 首个默认域名（探测起点 / 兜底显示）。
   String get primaryHost =>
       defaultHosts.isEmpty ? '' : defaultHosts.first;
+
+  /// 全部域名（自定义在前 + 默认在后，按顺序轮询；对齐 iOS `allHosts`）。
+  ///
+  /// 播放 / 探测时优先尝试自定义域名，再回退默认域名。
+  List<String> get allHosts {
+    final List<String> customs = WelfareDomainStore.shared.domains(platformName);
+    return <String>[...customs, ...defaultHosts];
+  }
+
+  /// 当前平台是否启用代理（代理无效一律 false；对齐 iOS `isProxyEnabled`）。
+  bool get isProxyEnabled =>
+      WelfareProxyStore.shared.isProxyEnabled(platformName);
+
+  /// 对 URL 应用代理（平台开关开启 → 代理 URL，否则原样；对齐 iOS `applyProxyIfNeeded`）。
+  String applyProxyIfNeeded(String url) =>
+      WelfareProxyStore.shared.proxiedURL(url, platformName);
 
   /// 重新探测可用域名（对齐 iOS `reprobe()`）。
   void reprobe();

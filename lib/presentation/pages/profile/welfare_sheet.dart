@@ -19,6 +19,7 @@ import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../welfare/welfare_controller.dart';
 import '../../widgets/vbox/vbox.dart';
+import '../welfare/welfare_settings_page.dart';
 
 /// 弹出福利专区弹窗（两阶段）。
 ///
@@ -167,7 +168,11 @@ class _WelfareSheetState extends State<_WelfareSheet> {
             top: 0,
             child: IconButton(
               tooltip: '设置',
-              onPressed: () => VboxToast.show(context, '福利平台设置暂未开放'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (BuildContext _) => const WelfareSettingsPage(),
+                ),
+              ),
               icon: Icon(Icons.settings, color: accent),
             ),
           ),

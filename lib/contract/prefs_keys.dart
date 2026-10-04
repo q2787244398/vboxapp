@@ -249,7 +249,7 @@ const List<PrefsKey> kAllPrefsKeys = <PrefsKey>[
   PrefsKey(name: 'fuli_remote_source_last_success_time', group: PrefsGroup.welfareExt, type: PrefsType.long, storage: PrefsStorage.userDefaults, description: 'WelfarePlatformConfigStore.swift:49'),
   PrefsKey(name: 'fuli_remote_source_last_config_version', group: PrefsGroup.welfareExt, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'WelfarePlatformConfigStore.swift:51'),
   PrefsKey(name: 'welfare_custom_domains_v2', group: PrefsGroup.welfareExt, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'WelfareDomainStore.swift'),
-  PrefsKey(name: 'welfare_proxy_enabled_platforms_v1', group: PrefsGroup.welfareExt, type: PrefsType.stringArray, storage: PrefsStorage.userDefaults, description: 'WelfareProxyStore.swift'),
+  PrefsKey(name: 'welfare_proxy_enabled_platforms_v1', group: PrefsGroup.welfareExt, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'WelfareProxyStore.swift（[String: Bool] JSON 字典字符串，H-07 对齐 iOS 修正）'),
   PrefsKey(name: 'welfare_proxy_url_v1', group: PrefsGroup.welfareExt, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'WelfareProxyStore.swift'),
   // ────────────── _group_live_ext（2）──────────────
   PrefsKey(name: 'live_tv_current_source', group: PrefsGroup.liveExt, type: PrefsType.string, storage: PrefsStorage.userDefaults, description: 'LiveTVService.swift'),

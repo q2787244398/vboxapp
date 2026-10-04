@@ -25,6 +25,8 @@ import 'core/utils/result.dart';
 import 'data/datasources/local/database_manager.dart';
 import 'data/datasources/local/log_file_sink.dart';
 import 'data/datasources/local/prefs_manager.dart';
+import 'data/datasources/local/welfare_domain_store.dart';
+import 'data/datasources/local/welfare_proxy_store.dart';
 import 'data/datasources/remote/remote.dart';
 import 'data/repositories/repositories.dart';
 import 'domain/entities/remote_source/remote_source.dart';
@@ -158,6 +160,11 @@ class _VBoxAppState extends State<VBoxApp> {
       // ②''''' 福利平台配置（H-01：消费 `fuli_remote_source_*` +
       //        `remote_default_manifest_url`；福利页进入时 bootstrap() 恢复缓存并后台刷新）
       _welfarePlatformController = WelfarePlatformController();
+
+      // ②'''''' 福利代理 / 自定义域名（H-07：预加载共享实例，
+      //        服务层 `allHosts` / `applyProxyIfNeeded` 与设置页即时消费）
+      await WelfareProxyStore.shared.load();
+      await WelfareDomainStore.shared.load();
 
       // ③ 日志（闸门 + 落盘）
       await _startLogging();

@@ -18,11 +18,12 @@
 ///   · `homeVideoContent` 兜底（iOS L126-L140）依赖 `callRawFunction`，Flutter
 ///     引擎层未暴露该能力 → 仅走 `homeContent`（差异登记，随 B 批次扩展）；
 ///   · m3u8 本地代理（SSL 绕过 + Brotli 解压）依赖 iOS `DoubanImageProxyServer`
-///     等价物，Flutter 暂直接返回原地址 → 归 H-07 代理批次。
+///     等价物，Flutter 暂直接返回原地址（差异登记，随 H 批次扩展）。
 library;
 
 import 'dart:async';
 
+import '../../data/datasources/local/welfare_domain_store.dart';
 import '../../data/datasources/welfare/welfare_spider_loader.dart';
 import '../../platform/spider/spider_engine_factory.dart';
 import '../entities/spider/spider_engine.dart';
@@ -128,12 +129,12 @@ class WelfareJSSpiderService extends FuliBaseService {
 
   @override
   String get currentHost =>
-      _engine != null && defaultHosts.isNotEmpty ? defaultHosts.first : '';
+      _engine != null && allHosts.isNotEmpty ? allHosts.first : '';
 
   @override
   bool get isHostReady => _engine != null;
 
-  /// 重新探测（重建引擎；自定义域名归 H-07，当前回退默认域名）。
+  /// 重新探测（重建引擎；域名按 `allHosts` 自定义在前 + 默认在后）。
   @override
   void reprobe() {
     _engine = null;
@@ -142,9 +143,12 @@ class WelfareJSSpiderService extends FuliBaseService {
     unawaited(ensureEngine());
   }
 
-  /// 重置域名（H-07 `WelfareDomainStore` 落地前仅回退默认域名重新探测）。
+  /// 重置域名（对齐 iOS `resetDomain`：清空自定义域名后重新探测）。
   @override
-  void resetDomain() => reprobe();
+  void resetDomain() {
+    WelfareDomainStore.shared.clearDomains(platformName);
+    reprobe();
+  }
 
   @override
   Future<FuliHomeResult> fetchHomeContent() async {
