@@ -13,6 +13,7 @@ library;
 
 import '../../core/errors/failures.dart';
 import '../../core/utils/result.dart';
+import '../../data/datasources/local/tg_search_config_store.dart';
 import '../../data/datasources/remote/all_sources_datasource.dart';
 import '../../data/datasources/remote/cms_v10_datasource.dart';
 import '../../data/datasources/remote/cms_v10_models.dart';
@@ -21,6 +22,9 @@ import '../../platform/spider/node_http_client.dart';
 import '../../platform/spider/spider_engine_factory.dart';
 import '../entities/remote_source/remote_source.dart';
 import '../entities/spider/spider.dart';
+
+/// TG 搜索蜘蛛站点 key（对齐 iOS `SpiderManager.swift` L1394 的注入判定）。
+const String _tgSearchSiteKey = 'js_TG搜索';
 
 /// 内容浏览用例。
 class ContentBrowseUseCases {
@@ -406,6 +410,16 @@ class ContentBrowseUseCases {
           trimmed.startsWith('http://') || trimmed.startsWith('https://');
       if (!isUrl) {
         throw const UnsupportedFailure('本地插件脚本暂未接线（本批仅支持 http(s) 脚本 URL）');
+      }
+      // G-04：TG 搜索蜘蛛注入用户配置——对齐 iOS `SpiderManager` L1391-L1400
+      // 在主脚本前 prepend `var __TG_CONFIG__ = {...};` 的语义；Flutter 以
+      // `loadLibrary`（不检查注册）先建立全局变量，再加载主脚本。
+      if (site.key == _tgSearchSiteKey &&
+          engineType == SpiderEngineType.quickJS) {
+        final String configJs = TGSearchConfigStore.shared.generateConfigJs();
+        if (configJs.isNotEmpty) {
+          await engine.loadLibrary(configJs);
+        }
       }
       await engine.loadScriptFromURL(trimmed);
     }

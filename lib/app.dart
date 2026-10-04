@@ -26,6 +26,7 @@ import 'data/datasources/local/database_manager.dart';
 import 'data/datasources/local/log_file_sink.dart';
 import 'data/datasources/local/prefs_manager.dart';
 import 'data/datasources/local/push_play_store.dart';
+import 'data/datasources/local/tg_search_config_store.dart';
 import 'data/datasources/local/welfare_domain_store.dart';
 import 'data/datasources/local/welfare_proxy_store.dart';
 import 'data/datasources/remote/remote.dart';
@@ -179,6 +180,10 @@ class _VBoxAppState extends State<VBoxApp> {
       //        与页面自调 `load()` 幂等，保证数据在进入页面前置就绪）
       await PushPlayStore.shared.load();
 
+      // ②''''''''''' TG 搜索配置（G-04：启动恢复 `tg_search_*` 三契约键——
+      //         代理地址 / 频道来源 / 自定义频道，供设置页与蜘蛛注入消费）
+      await TGSearchConfigStore.shared.load();
+
       // ③ 日志（闸门 + 落盘）
       await _startLogging();
       AppLog.info(_logTag, '启动 v${AppInfo.version}+${AppInfo.buildNumber}');
@@ -261,6 +266,9 @@ class _VBoxAppState extends State<VBoxApp> {
         ChangeNotifierProvider<SessionController>.value(value: _sessionController),
         ChangeNotifierProvider<DownloadManager>.value(value: _downloadManager),
         ChangeNotifierProvider<PushPlayStore>.value(value: PushPlayStore.shared),
+        ChangeNotifierProvider<TGSearchConfigStore>.value(
+          value: TGSearchConfigStore.shared,
+        ),
         Provider<FavoriteUseCases>.value(value: _favoriteUseCases),
         Provider<HistoryUseCases>.value(value: _historyUseCases),
         Provider<SubscriptionUseCases>.value(value: _subscriptionUseCases),

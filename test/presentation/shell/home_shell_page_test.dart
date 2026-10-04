@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/core/utils/time_utils.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
+import 'package:vbox/data/datasources/local/tg_search_config_store.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
 import 'package:vbox/platform/download/download.dart';
@@ -59,6 +60,10 @@ Widget _shell({
       ),
       ChangeNotifierProvider<SessionController>.value(
         value: SessionController(store: InMemorySettingsStore()),
+      ),
+      // G-04：设置页 TG 搜索分区消费配置存储。
+      ChangeNotifierProvider<TGSearchConfigStore>.value(
+        value: TGSearchConfigStore(),
       ),
       // H-01 / H-06：福利 Tab 落地页（门控）消费远程平台配置控制器；
       // 注入内存数据源，避免单测触网（默认返回失败 → 页面走错误态）。

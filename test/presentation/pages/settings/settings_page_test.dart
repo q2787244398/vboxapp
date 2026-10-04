@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
+import 'package:vbox/data/datasources/local/tg_search_config_store.dart';
 import 'package:vbox/presentation/pages/settings/settings_page.dart';
 import 'package:vbox/presentation/theme/vbox_skin_controller.dart';
 import 'package:vbox/presentation/ui_mode/ui_mode.dart';
@@ -25,6 +26,10 @@ Widget _page(UiFormController form) {
         value: VboxSkinController(),
       ),
       ChangeNotifierProvider<UiFormController>.value(value: form),
+      // G-04：TG 搜索分区消费配置存储。
+      ChangeNotifierProvider<TGSearchConfigStore>.value(
+        value: TGSearchConfigStore(),
+      ),
     ],
     child: const MaterialApp(home: SettingsPage()),
   );

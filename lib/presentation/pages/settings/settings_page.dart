@@ -18,6 +18,8 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
+import '../../../data/datasources/local/tg_search_config_store.dart';
+import '../../../domain/entities/tg/tg_channel.dart';
 import '../../phone/remote_source_page.dart';
 import '../../theme/theme.dart';
 import '../../ui_mode/ui_mode.dart';
@@ -26,6 +28,7 @@ import '../../widgets/library_views.dart';
 import '../../widgets/log_viewer_page.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../cloud/auth_center.dart';
+import 'tg_channel_list_page.dart';
 
 /// 设置页。
 class SettingsPage extends StatefulWidget {
@@ -38,6 +41,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _danmakuUrl = TextEditingController();
+  final TextEditingController _tgProxy = TextEditingController();
 
   bool _danmakuEnabled = false;
   bool _searchDebug = false;
@@ -52,6 +56,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void dispose() {
     _danmakuUrl.dispose();
+    _tgProxy.dispose();
     super.dispose();
   }
 
@@ -62,12 +67,15 @@ class _SettingsPageState extends State<SettingsPage> {
     final String url = await prefs.getString('custom_danmaku_source_url');
     final bool debug = await prefs.getBool('show_search_debug');
     final bool log = await prefs.getBool('app_log_enabled');
+    final String tgProxy =
+        await prefs.getString(TGSearchConfigStore.proxyUrlKey);
     if (!mounted) return;
     setState(() {
       _danmakuEnabled = danmaku;
       _danmakuUrl.text = url;
       _searchDebug = debug;
       _logEnabled = log;
+      _tgProxy.text = tgProxy;
     });
   }
 
@@ -87,6 +95,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _skinSection(skin),
           _displayModeSection(form),
           _playbackSection(),
+          _tgSection(),
           _toolsSection(),
           _storageSection(),
           _developerSection(),
@@ -178,6 +187,121 @@ class _SettingsPageState extends State<SettingsPage> {
             setState(() => _searchDebug = value);
             await prefs.set('show_search_debug', value);
           },
+        ),
+      ],
+    );
+  }
+
+  /// TG 搜索设置（代理地址 + 频道来源 + 频道管理入口；对齐 iOS `tgSearchSettingsSection`）。
+  Widget _tgSection() {
+    final TGSearchConfigStore tg = context.watch<TGSearchConfigStore>();
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color rowBackground = (isDark
+            ? VboxColors.secondarySystemGroupedBackgroundDark
+            : VboxColors.secondarySystemGroupedBackgroundLight)
+        .withValues(alpha: 0.7);
+    final Color inputFill = isDark
+        ? VboxColors.tertiarySystemGroupedBackgroundDark
+        : VboxColors.tertiarySystemGroupedBackgroundLight;
+    final Color secondary =
+        isDark ? VboxColors.secondaryLabelDark : VboxColors.secondaryLabelLight;
+    final Color onSurface = Theme.of(context).colorScheme.onSurface;
+    final TextStyle labelStyle = TextStyle(
+      fontSize: VboxTypography.s13,
+      fontWeight: FontWeight.w500,
+      color: onSurface,
+    );
+    final TextStyle hintStyle = TextStyle(
+      fontSize: VboxTypography.s11,
+      color: secondary,
+    );
+
+    return VboxSettingsSection(
+      title: 'TG搜索设置',
+      children: <Widget>[
+        // 代理地址
+        Material(
+          color: rowBackground,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: VboxSpacing.lg,
+              vertical: VboxSpacing.md,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text('代理地址', style: labelStyle),
+                const SizedBox(height: VboxSpacing.sm),
+                TextField(
+                  controller: _tgProxy,
+                  autocorrect: false,
+                  textCapitalization: TextCapitalization.none,
+                  keyboardType: TextInputType.url,
+                  onChanged: tg.setProxyUrl,
+                  style: TextStyle(fontSize: VboxTypography.s15, color: onSurface),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    filled: true,
+                    fillColor: inputFill,
+                    hintText: 'https://xxx.com/?token=xxx&url=',
+                    hintStyle: TextStyle(
+                      fontSize: VboxTypography.s15,
+                      color: secondary,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: VboxSpacing.md,
+                      vertical: VboxSpacing.md,
+                    ),
+                    border: const OutlineInputBorder(
+                      borderRadius: VboxRadii.button,
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: VboxSpacing.sm),
+                Text('支持URL转发代理，在末尾拼接原始URL', style: hintStyle),
+              ],
+            ),
+          ),
+        ),
+        // 频道来源
+        Material(
+          color: rowBackground,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: VboxSpacing.lg,
+              vertical: VboxSpacing.md,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Text('频道来源', style: labelStyle),
+                const SizedBox(height: VboxSpacing.sm),
+                SegmentedButton<TGChannelMode>(
+                  segments: TGChannelMode.values
+                      .map((TGChannelMode mode) => ButtonSegment<TGChannelMode>(
+                            value: mode,
+                            label: Text(mode.displayName),
+                          ))
+                      .toList(growable: false),
+                  selected: <TGChannelMode>{tg.channelMode},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (Set<TGChannelMode> selection) =>
+                      tg.setChannelMode(selection.first),
+                ),
+                const SizedBox(height: VboxSpacing.sm),
+                Text(tg.channelMode.description, style: hintStyle),
+              ],
+            ),
+          ),
+        ),
+        // 频道管理入口
+        VboxSettingsRow.navigation(
+          title: 'TG频道管理',
+          subtitle: '${tg.channels.length} 个自定义频道',
+          icon: Icons.telegram,
+          iconColor: VboxColors.tgChannelPurple,
+          onTap: () => _push(const TGChannelListPage()),
         ),
       ],
     );
@@ -282,7 +406,6 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _pendingSection() {
     const List<(IconData, String)> pending = <(IconData, String)>[
       (Icons.movie_filter, 'TMDB 设置'),
-      (Icons.send, 'TG 搜索设置'),
       (Icons.rss_feed, '订阅源'),
       (Icons.health_and_safety, '站点诊断'),
       (Icons.content_cut, '切片源'),

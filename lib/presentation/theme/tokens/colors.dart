@@ -178,6 +178,10 @@ class VboxColors {
   /// 下载完成托盘色（悬浮按键图标；iOS `Color(hex: "22C55E")`）。
   static const Color downloadCompleted = Color(0xFF22C55E);
 
+  // ── TG 搜索（G-04，对齐 iOS `SettingsViews.swift` / `TGChannelListView.swift`）──
+  /// TG 频道管理图标色（设置入口天线图标；iOS `Color(hex: "8B5CF6")`）。
+  static const Color tgChannelPurple = Color(0xFF8B5CF6);
+
   // ── 系统色（Apple HIG 语义色）───────────────────────────
   /// 系统底 · 浅（`.systemBackground`）。
   static const Color systemBackgroundLight = Color(0xFFFFFFFF);
