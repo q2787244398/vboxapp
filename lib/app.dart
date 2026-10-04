@@ -25,6 +25,7 @@ import 'core/utils/result.dart';
 import 'data/datasources/local/database_manager.dart';
 import 'data/datasources/local/log_file_sink.dart';
 import 'data/datasources/local/prefs_manager.dart';
+import 'data/datasources/local/push_play_store.dart';
 import 'data/datasources/local/welfare_domain_store.dart';
 import 'data/datasources/local/welfare_proxy_store.dart';
 import 'data/datasources/remote/remote.dart';
@@ -174,6 +175,10 @@ class _VBoxAppState extends State<VBoxApp> {
       //        `StoragePaths.downloadDir`，依赖已在 ①/② 就绪）
       _downloadManager = DownloadManager();
 
+      // ②'''''''' 推送播放（G-03：启动恢复 `push_play_items_v1` 契约键；
+      //        与页面自调 `load()` 幂等，保证数据在进入页面前置就绪）
+      await PushPlayStore.shared.load();
+
       // ③ 日志（闸门 + 落盘）
       await _startLogging();
       AppLog.info(_logTag, '启动 v${AppInfo.version}+${AppInfo.buildNumber}');
@@ -255,6 +260,7 @@ class _VBoxAppState extends State<VBoxApp> {
         ),
         ChangeNotifierProvider<SessionController>.value(value: _sessionController),
         ChangeNotifierProvider<DownloadManager>.value(value: _downloadManager),
+        ChangeNotifierProvider<PushPlayStore>.value(value: PushPlayStore.shared),
         Provider<FavoriteUseCases>.value(value: _favoriteUseCases),
         Provider<HistoryUseCases>.value(value: _historyUseCases),
         Provider<SubscriptionUseCases>.value(value: _subscriptionUseCases),

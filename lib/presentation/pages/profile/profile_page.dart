@@ -34,6 +34,7 @@ import '../../widgets/library_views.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../cloud/sort.dart';
+import '../push/push_play_page.dart';
 import '../settings/settings_page.dart';
 import 'welfare_sheet.dart';
 
@@ -297,7 +298,13 @@ class ProfilePage extends StatelessWidget {
         VboxQuickGridItem(
           icon: Icons.smart_display,
           label: '推送播放',
-          onTap: () => VboxToast.show(context, '推送播放将在后续批次开放'),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => const PushPlayPage(),
+              ),
+            );
+          },
         ),
         VboxQuickGridItem(
           icon: Icons.ios_share,
