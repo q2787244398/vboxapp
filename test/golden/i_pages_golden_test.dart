@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
+import 'package:vbox/data/datasources/local/subscribe_config_store.dart';
 import 'package:vbox/data/datasources/local/tg_search_config_store.dart';
 import 'package:vbox/domain/entities/library/library.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
@@ -92,6 +93,10 @@ Widget _settings() {
       // G-04：TG 搜索分区消费配置存储。
       ChangeNotifierProvider<TGSearchConfigStore>.value(
         value: TGSearchConfigStore(),
+      ),
+      // G-07：订阅配置分区消费订阅存储。
+      ChangeNotifierProvider<SubscribeConfigStore>.value(
+        value: SubscribeConfigStore(prefs: PrefsManager.instance),
       ),
     ],
     child: const MaterialApp(

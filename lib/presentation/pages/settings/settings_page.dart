@@ -8,7 +8,7 @@
 ///
 /// **落地范围（如实登记）**：本轮落地「皮肤（B4 组件 + 跟随系统）」「显示模式（I-04）」
 /// 「播放设置」「工具入口（承接自个人中心迁出的远程源 / 网盘管理 / 备份还原）」
-/// 「存储管理」「日志调试」「关于」七个分区；iOS 侧其余域分区（TMDB / TG / 订阅源 /
+/// 「存储管理」「日志调试」「关于」七个分区；iOS 侧其余域分区（TMDB /
 /// 站点诊断 / 切片源 / 站点管理）在 Flutter 侧对应域功能尚未实现，故以
 /// **「更多设置（待实现）」**分组显式列出并标注，不虚标为可用（见交付回执遗留项）。
 library;
@@ -18,6 +18,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
+import '../../../data/datasources/local/subscribe_config_store.dart';
 import '../../../data/datasources/local/tg_search_config_store.dart';
 import '../../../domain/entities/tg/tg_channel.dart';
 import '../../phone/remote_source_page.dart';
@@ -28,6 +29,7 @@ import '../../widgets/library_views.dart';
 import '../../widgets/log_viewer_page.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../cloud/auth_center.dart';
+import '../subscribe/subscribe_config_page.dart';
 import 'tg_channel_list_page.dart';
 
 /// 设置页。
@@ -96,6 +98,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _displayModeSection(form),
           _playbackSection(),
           _tgSection(),
+          _subscribeSection(),
           _toolsSection(),
           _storageSection(),
           _developerSection(),
@@ -307,6 +310,24 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// 订阅配置（管理订阅源入口；对齐 iOS `subscriptionSection`，批次 G · G-07）。
+  Widget _subscribeSection() {
+    final SubscribeConfigStore store = context.watch<SubscribeConfigStore>();
+    return VboxSettingsSection(
+      title: '订阅配置',
+      children: <Widget>[
+        VboxSettingsRow.navigation(
+          title: '管理订阅源',
+          subtitle:
+              store.hasConfigUrls ? '${store.configUrls.length} 个源' : '未配置',
+          icon: Icons.list_alt,
+          iconColor: VboxColors.skinPrimaryRose,
+          onTap: () => _push(const SubscribeConfigPage()),
+        ),
+      ],
+    );
+  }
+
   /// 工具入口（承接个人中心迁出的远程源 / 网盘管理 / 备份还原）。
   Widget _toolsSection() {
     return VboxSettingsSection(
@@ -406,7 +427,6 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _pendingSection() {
     const List<(IconData, String)> pending = <(IconData, String)>[
       (Icons.movie_filter, 'TMDB 设置'),
-      (Icons.rss_feed, '订阅源'),
       (Icons.health_and_safety, '站点诊断'),
       (Icons.content_cut, '切片源'),
       (Icons.dns, '站点管理'),

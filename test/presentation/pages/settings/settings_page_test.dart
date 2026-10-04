@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
+import 'package:vbox/data/datasources/local/subscribe_config_store.dart';
 import 'package:vbox/data/datasources/local/tg_search_config_store.dart';
 import 'package:vbox/presentation/pages/settings/settings_page.dart';
 import 'package:vbox/presentation/theme/vbox_skin_controller.dart';
@@ -29,6 +30,10 @@ Widget _page(UiFormController form) {
       // G-04：TG 搜索分区消费配置存储。
       ChangeNotifierProvider<TGSearchConfigStore>.value(
         value: TGSearchConfigStore(),
+      ),
+      // G-07：订阅配置分区消费订阅存储。
+      ChangeNotifierProvider<SubscribeConfigStore>.value(
+        value: SubscribeConfigStore(prefs: PrefsManager.instance),
       ),
     ],
     child: const MaterialApp(home: SettingsPage()),
@@ -70,6 +75,9 @@ void main() {
     expect(find.text('显示模式'), findsWidgets); // 分区标题 + 行标题
     expect(find.text('播放设置'), findsOneWidget);
     expect(find.text('工具'), findsOneWidget);
+    // G-07：订阅配置分区 + 管理订阅源入口。
+    expect(find.text('订阅配置'), findsOneWidget);
+    expect(find.text('管理订阅源'), findsOneWidget);
     expect(find.text('存储管理'), findsOneWidget);
     expect(find.text('日志调试'), findsOneWidget);
     expect(find.text('关于'), findsOneWidget);
