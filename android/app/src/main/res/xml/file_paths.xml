@@ -4,4 +4,9 @@
      即 <files-path> 相对 files 根的 "cache/"。仅授权该子目录，缩小暴露面。 -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <files-path name="live_export" path="cache/" />
+    <!-- 批次 K · K-01：自更新 APK 白名单。
+         updates/ 为 Dart 侧 getApplicationSupportDirectory() 下的更新包目录；
+         external 变体供 Android 10+ 免存储权限的 getExternalFilesDir 落盘。 -->
+    <files-path name="update_internal" path="updates/" />
+    <external-files-path name="update_external" path="updates/" />
 </paths>

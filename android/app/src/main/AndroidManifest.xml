@@ -10,6 +10,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 批次 K · K-01：自更新 APK 应用内安装（Android 8.0+ 需用户显式授权「安装未知应用」） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 仅 API ≤ 28 的旧设备在外部存储写入安装包时需要（29+ 走 app 私有目录，免权限） -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application
         android:label="vbox"
@@ -48,7 +54,8 @@
             android:name=".player.MediaPlaybackService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="false" />
-        <!-- E-04：直播源导出分享 FileProvider（缓存目录 content:// 授权，防 FileUriExposedException） -->
+        <!-- E-04：直播源导出分享 + K-01 自更新 APK 共用的 FileProvider
+             （content:// 授权，防 FileUriExposedException；路径白名单见 res/xml/file_paths.xml） -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

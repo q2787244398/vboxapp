@@ -8,5 +8,9 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<!-- 出网请求（远程源 / 播放器 / 更新检查）在沙箱下同样需要 client 权限；
+	     Debug 模板默认缺失，与 Release 对齐补齐（M-安1 同类缺口）。 -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>

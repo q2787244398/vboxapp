@@ -24,12 +24,14 @@ import '../../../data/datasources/local/tg_search_config_store.dart';
 import '../../../domain/entities/tg/tg_channel.dart';
 import '../../../domain/entities/spider/site_config.dart';
 import '../../../domain/usecases/content_browse_usecases.dart';
+import '../../../platform/update/update.dart';
 import '../../phone/remote_source_page.dart';
 import '../../theme/theme.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/backup_page.dart';
 import '../../widgets/library_views.dart';
 import '../../widgets/log_viewer_page.dart';
+import '../../widgets/update/update_sheet.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../cloud/auth_center.dart';
 import '../subscribe/subscribe_config_page.dart';
@@ -466,12 +468,36 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         VboxSettingsRow.navigation(
           title: '检查更新',
-          subtitle: '自更新将在 K 批次开放',
+          subtitle: '检查 GitHub Releases 最新版本',
           icon: Icons.system_update,
-          onTap: () => VboxToast.show(context, '当前版本 ${AppInfo.version} 已是最新版本'),
+          onTap: _checkUpdate,
         ),
       ],
     );
+  }
+
+  /// 检查更新（K-更1 真实链路）：拉取版本清单 → 有新版本弹更新弹窗，
+  /// 已最新 / 失败以 Toast 反馈。
+  Future<void> _checkUpdate() async {
+    final Updater updater = Updater.instance;
+    if (updater.isChecking) return;
+    final VoidCallback dismiss = VboxToast.show(
+      context,
+      '正在检查更新…',
+      duration: const Duration(seconds: 10),
+    );
+    await updater.check(force: true);
+    dismiss();
+    if (!mounted) return;
+    if (updater.hasUpdate) {
+      await showUpdateSheet(context);
+      return;
+    }
+    if (updater.updateError != null) {
+      VboxToast.show(context, updater.updateError!);
+      return;
+    }
+    VboxToast.show(context, '当前版本 ${AppInfo.version} 已是最新版本');
   }
 
   /// 待实现分区（如实标注，不虚标可用）。

@@ -29,5 +29,7 @@ class MainActivity : FlutterActivity() {
         BackgroundPlayPlugin.registerWith(flutterEngine)
         // E-04：注册直播本地文件导入/导出/分享通道（ActivityAware，需 plugins.add 挂 Activity 生命周期）
         flutterEngine.plugins.add(LiveFilePlugin())
+        // K-01：注册自更新安装通道（ActivityAware，需 Activity 拉起系统安装器）
+        flutterEngine.plugins.add(UpdatePlugin())
     }
 }

@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 
 import '../../../platform/player/danmaku/danmaku_settings.dart';
 import '../../theme/tokens/colors.dart';
+import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../ui_mode/ui_mode.dart';
 import 'danmaku/danmaku_settings_panel.dart';
@@ -146,7 +147,7 @@ class _LockButton extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             onTap: onTap,
-            borderRadius: const BorderRadius.all(Radius.circular(22)),
+            borderRadius: const BorderRadius.all(Radius.circular(VboxRadii.capsule)),
             child: SizedBox(
               width: 44,
               height: 44,
