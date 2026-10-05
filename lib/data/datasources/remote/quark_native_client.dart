@@ -139,7 +139,7 @@ class QuarkNativeClient {
     _cacheLoaded = true;
     Map<String, Object?> cache = <String, Object?>{};
     try {
-      final PrefsManager? p = _prefs ?? PrefsManager.instance;
+      final PrefsManager p = _prefs ?? PrefsManager.instance;
       final String raw = await p.getString(savedFidCacheKey);
       if (raw.isNotEmpty) {
         final Object? decoded = jsonDecode(raw);
@@ -173,7 +173,7 @@ class QuarkNativeClient {
     };
     _cacheMemory = capped;
     try {
-      final PrefsManager? p = _prefs ?? PrefsManager.instance;
+      final PrefsManager p = _prefs ?? PrefsManager.instance;
       await p.set(savedFidCacheKey, jsonEncode(capped));
     } catch (_) {
       // 落盘失败不阻断播放（下次重存）。
