@@ -177,10 +177,11 @@ class BaiduIBoxClient {
     if (input.toLowerCase().startsWith('cookie:')) {
       input = input.substring('cookie:'.length).trim();
     }
+    // `\r\n` 先作整体替换，避免被拆成两个分隔符而产生空的 `; ;` 条目。
     String normalizeCookie(String s) => s
+        .replaceAll('\r\n', '; ')
         .replaceAll('\n', '; ')
         .replaceAll('\r', '; ')
-        .replaceAll(RegExp(r'\s*;\s*'), '; ')
         .replaceAll(RegExp(r';+\s*$'), '');
 
     if (RegExp(r'BDUSS=([^;|]+)').hasMatch(input)) {
@@ -326,7 +327,7 @@ class BaiduIBoxClient {
 
   /// 严格查询编码（对齐 iOS `baiduQueryEncoded`：`urlQueryAllowed` 去掉 `&+=?#`）。
   static String queryEncodeStrict(String value) {
-    const String allowed = "-._~!$'()*,;:@/?";
+    const String allowed = r"-._~!$'()*,;:@/?";
     final StringBuffer sb = StringBuffer();
     for (final int rune in value.runes) {
       final String ch = String.fromCharCode(rune);
@@ -1211,7 +1212,7 @@ class BaiduIBoxClient {
   static String _queryEncoded(String value) {
     // 对齐 iOS `addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)`：
     // 空格 → %20（非 `+`），保留 `:/?&=` 等 query 常用字符。
-    const String allowed = "-._~!$&'()*+,;=:@/?";
+    const String allowed = r"-._~!$&'()*+,;=:@/?";
     final StringBuffer sb = StringBuffer();
     for (final int rune in value.runes) {
       final String ch = String.fromCharCode(rune);

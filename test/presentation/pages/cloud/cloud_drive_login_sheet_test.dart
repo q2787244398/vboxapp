@@ -62,6 +62,7 @@ class _SheetGateway implements CloudDriveLoginGateway {
     required CloudDriveLoginMode mode,
     required String account,
     required String password,
+    String captchaCode = '',
   }) async =>
       throw const CloudDriveLoginException('Node 常驻系统未就绪');
 
@@ -147,10 +148,13 @@ void main() {
       );
     });
 
-    testWidgets('缺省网关：获取验证码即报 Node 未就绪', (WidgetTester tester) async {
+    testWidgets('未接入网关：获取验证码即报 Node 未就绪', (WidgetTester tester) async {
       await _pump(
         tester,
-        const CloudDriveSmsLoginSheet(driveType: CloudDriveType.pan139),
+        const CloudDriveSmsLoginSheet(
+          driveType: CloudDriveType.pan139,
+          gateway: UnavailableCloudDriveLoginGateway(),
+        ),
       );
 
       await tester.enterText(
@@ -187,10 +191,13 @@ void main() {
       expect(find.textContaining('账号 + 密码'), findsOneWidget);
     });
 
-    testWidgets('缺省网关：填账号密码后点「登录并保存」即报 Node 未就绪', (WidgetTester tester) async {
+    testWidgets('未接入网关：填账号密码后点「登录并保存」即报 Node 未就绪', (WidgetTester tester) async {
       await _pump(
         tester,
-        const CloudDriveAccountLoginSheet(driveType: CloudDriveType.woniu4k),
+        const CloudDriveAccountLoginSheet(
+          driveType: CloudDriveType.woniu4k,
+          gateway: UnavailableCloudDriveLoginGateway(),
+        ),
       );
 
       await tester.enterText(

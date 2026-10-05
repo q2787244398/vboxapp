@@ -101,6 +101,7 @@ class _FakeGateway implements CloudDriveLoginGateway {
     required CloudDriveLoginMode mode,
     required String account,
     required String password,
+    String captchaCode = '',
   }) async {
     lastAccount = account;
     lastPassword = password;

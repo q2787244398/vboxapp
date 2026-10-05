@@ -169,19 +169,31 @@ class UcNativeClient {
   ///
   /// 仅对下载 CDN（`dl-c-` / 带 `response-content-disposition`）去 `sp` 限速；
   /// 流媒体 CDN 的 `sp` 是 profile ID，不可移除。
+  ///
+  /// 与 iOS 正则逐条替换的差异：这里按 query 参数逐个筛选，参数出现在首位
+  /// 或末位同样能被移除，且不会残留 `?` / `&` 悬挂分隔符。
   static String stripCdnSpeedLimit(String url) {
-    String result = url;
+    final int q = url.indexOf('?');
+    if (q < 0) return url;
     final bool isDownloadCdn =
-        result.contains('dl-c-') || result.contains('response-content-disposition');
-    if (isDownloadCdn) {
-      result = result.replaceAll(RegExp(r'&sp=\d+'), '');
-      result = result.replaceAll(RegExp(r'\?sp=\d+&'), '?');
-      result = result.replaceAll(RegExp(r'\?sp=\d+$'), '');
+        url.contains('dl-c-') || url.contains('response-content-disposition');
+    final int hash = url.indexOf('#', q);
+    final String base = url.substring(0, q);
+    final String query =
+        hash < 0 ? url.substring(q + 1) : url.substring(q + 1, hash);
+    final String fragment = hash < 0 ? '' : url.substring(hash);
+    final List<String> kept = <String>[];
+    for (final String part in query.split('&')) {
+      if (part.isEmpty) continue;
+      final int eq = part.indexOf('=');
+      final String key = (eq < 0 ? part : part.substring(0, eq)).toLowerCase();
+      if (key == 'response-content-disposition') continue;
+      if (key == 'x-oss-traffic-limit') continue;
+      if (key == 'sp' && isDownloadCdn) continue;
+      kept.add(part);
     }
-    result =
-        result.replaceAll(RegExp(r'&response-content-disposition=[^&]+'), '');
-    result = result.replaceAll(RegExp(r'&x-oss-traffic-limit=\d+'), '');
-    return result;
+    if (kept.isEmpty) return '$base$fragment';
+    return '$base?${kept.join('&')}$fragment';
   }
 
   /// 统一请求头（对齐 iOS `ucSetCommonHeaders`）。

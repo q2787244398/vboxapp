@@ -8,12 +8,11 @@ import 'package:vbox/presentation/pages/cloud/login_sheet.dart';
 class _FakeWebViewBridge implements WebViewBridge {
   _FakeWebViewBridge({
     this.available = true,
-    this.cookie = 'BDUSS=1; STOKEN=2',
     this.error,
   });
 
   final bool available;
-  final String cookie;
+  final String cookie = 'BDUSS=1; STOKEN=2';
   final String? error;
   int loadCalls = 0;
   int cookieCalls = 0;
@@ -106,7 +105,11 @@ void main() {
     testWidgets('桥可用：点击自动回收 Cookie 并落盘', (WidgetTester tester) async {
       final _FakeWebViewBridge bridge = _FakeWebViewBridge();
       String? saved;
-      await tester.pumpWidget(_host(bridge: bridge, onSecret: (String s) => saved = s));
+      await tester.pumpWidget(
+        _host(bridge: bridge, onSecret: (String s) async {
+          saved = s;
+        }),
+      );
       expect(find.text('内嵌登录并自动回收'), findsOneWidget);
       await tester.tap(find.text('内嵌登录并自动回收'));
       await tester.pumpAndSettle();
@@ -126,6 +129,8 @@ void main() {
         find.textContaining('Web-R1'),
         findsWidgets,
       );
+      // 错误路径会弹 Toast（内部 2s 定时器），推进时钟让其自然结束，避免遗留 pending timer。
+      await tester.pump(const Duration(seconds: 3));
     });
   });
 }

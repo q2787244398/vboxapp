@@ -102,7 +102,8 @@ void main() {
 
   group('UC 原生链（F-P03）', () {
     test('getShareToken / getShareDetail：解析 stoken 与选集', () async {
-      final UcNativeClient c = _client(_routeUc);
+      final UcNativeClient c =
+          _client(_FakeTransport((SpiderTransportRequest r) => _routeUc(r)));
       final String st = await c.getShareToken(
         pwdId: 'abc',
         passcode: '1234',
@@ -121,7 +122,8 @@ void main() {
     });
 
     test('ensureFolder：命中已存在 vbox 目录', () async {
-      final UcNativeClient c = _client(_routeUc);
+      final UcNativeClient c =
+          _client(_FakeTransport((SpiderTransportRequest r) => _routeUc(r)));
       expect(await c.ensureFolder(cookie: 'k=v'), 'vf');
     });
 
@@ -179,7 +181,8 @@ void main() {
     });
 
     test('未识别分享链接 → 明确报错', () async {
-      final UcNativeClient c = _client(_routeUc);
+      final UcNativeClient c =
+          _client(_FakeTransport((SpiderTransportRequest r) => _routeUc(r)));
       await expectLater(
         c.getFileList(shareUrl: '', cookie: 'k=v'),
         throwsA(isA<UcNativeException>()),

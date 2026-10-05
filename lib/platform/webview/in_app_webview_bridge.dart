@@ -175,7 +175,7 @@ class InAppWebViewBridge implements WebViewBridge {
     final List<Cookie> cs = domain == null || domain.isEmpty
         ? await cookieManager.getAllCookies()
         : await cookieManager.getCookies(
-            url: WebUri.https(domain, '/'),
+            url: WebUri('https://$domain/'),
           );
     return cs.map((Cookie c) => '${c.name}=${c.value}').join('; ');
   }

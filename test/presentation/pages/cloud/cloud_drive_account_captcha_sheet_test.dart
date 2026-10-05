@@ -22,11 +22,11 @@ class _WoniuGateway extends UnavailableCloudDriveLoginGateway {
 void main() {
   testWidgets('蜗牛：进入账号 Sheet 自动展示图形验证码输入框', (WidgetTester tester) async {
     await tester.pumpWidget(
-      MaterialApp(
+      const MaterialApp(
         home: Scaffold(
           body: CloudDriveAccountLoginSheet(
             driveType: CloudDriveType.woniu4k,
-            gateway: const _WoniuGateway(),
+            gateway: _WoniuGateway(),
           ),
         ),
       ),
