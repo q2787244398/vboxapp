@@ -461,6 +461,11 @@ void main() {
       final NodeCloudDriveLoginGateway gateway =
           gatewayWith((_, __) => <String, dynamic>{}, nodeTransport: node);
       await gateway.sendSmsCode(type: CloudDriveType.pan139, phone: '139');
+      // 139 触发滑块 → 网关暴露 captchaUrl 供 UI 内嵌（Web-R3）。
+      expect(
+        gateway.pendingCaptchaUrl(CloudDriveType.pan139),
+        'https://c/1',
+      );
       await gateway.submitSmsCode(
         type: CloudDriveType.pan139,
         taskId: '',

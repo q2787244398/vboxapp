@@ -49,6 +49,9 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   final Map<CloudDriveType, Map<String, String>> _loginHeaders =
       <CloudDriveType, Map<String, String>>{};
 
+  /// 短信登录所需滑块验证页地址（139 `captchaUrl`）。
+  final Map<CloudDriveType, String> _captchaUrl = <CloudDriveType, String>{};
+
   /// 该网关是否覆盖给定网盘 / 方式。
   static bool supports(CloudDriveType type, CloudDriveLoginMode mode) {
     if (type == CloudDriveType.bilibili) return mode.isQr;
@@ -190,6 +193,12 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
             await _node.new139SendSms(phone);
         _loginHeaders[type] = r.headers;
         _smsPhone[type] = phone;
+        // 139 若触发滑块，缓存 captchaUrl 供 UI 内嵌 WebView 过滑块（Web-R3）。
+        if (r.captchaUrl.isNotEmpty) {
+          _captchaUrl[type] = r.captchaUrl;
+        } else {
+          _captchaUrl.remove(type);
+        }
         // Node 139 不返回 taskId（后续登录以 phone+headers 提交）。
         return '';
       case CloudDriveType.xunlei:
@@ -251,6 +260,9 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     }
     await _recover();
   }
+
+  @override
+  String? pendingCaptchaUrl(CloudDriveType type) => _captchaUrl[type];
 }
 
 /// 缺省登录网关工厂：按网盘 / 方式路由到已接入实现。

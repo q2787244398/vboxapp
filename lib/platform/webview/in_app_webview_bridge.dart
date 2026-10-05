@@ -23,6 +23,7 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/widgets.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import 'webview_bridge.dart';
@@ -177,6 +178,18 @@ class InAppWebViewBridge implements WebViewBridge {
             url: WebUri.https(domain, '/'),
           );
     return cs.map((Cookie c) => '${c.name}=${c.value}').join('; ');
+  }
+
+  @override
+  Widget? buildView({required String url, String? userAgent}) {
+    if (!isAvailable) return null;
+    return InAppWebView(
+      initialUrlRequest: URLRequest(url: WebUri(url)),
+      initialSettings: InAppWebViewSettings(
+        userAgent: userAgent,
+        javaScriptEnabled: true,
+      ),
+    );
   }
 
   /// 同源承载页 origin（无法解析时退回 `about:blank`）。

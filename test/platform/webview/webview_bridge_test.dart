@@ -49,6 +49,10 @@ class _FakeWebViewBridge implements WebViewBridge {
     cookieCalls++;
     return cookie;
   }
+
+  @override
+  Widget? buildView({required String url, String? userAgent}) =>
+      available ? const SizedBox(key: ValueKey<String>('fake-webview')) : null;
 }
 
 Widget _host({required WebViewBridge bridge, Future<void> Function(String)? onSecret}) =>

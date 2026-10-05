@@ -17,6 +17,8 @@
 /// 待依赖引入并验证各平台后，实现一个 `InAppWebViewBridge` 即可生效。
 library;
 
+import 'package:flutter/widgets.dart';
+
 import '../../domain/entities/cloud/cloud_drive.dart';
 
 /// WebView 桥异常（文案面向用户）。
@@ -71,6 +73,9 @@ abstract interface class WebViewBridge {
 
   /// 读取 CookieJar 中指定域的 Cookie 串（HttpOnly 亦可读；空域读全部）。
   Future<String> currentCookieString({String? domain});
+
+  /// 构建**可见** WebView 视图（Web-R3：139 滑块需用户拖动；不可用返回 null）。
+  Widget? buildView({required String url, String? userAgent});
 }
 
 /// 缺省桥：未接入（对齐 iOS Node/WebView 未就绪文案）。
@@ -106,6 +111,9 @@ class UnavailableWebViewBridge implements WebViewBridge {
   @override
   Future<String> currentCookieString({String? domain}) async =>
       throw const WebViewBridgeException(_message);
+
+  @override
+  Widget? buildView({required String url, String? userAgent}) => null;
 }
 
 /// 网页登录承载策略（对齐 iOS `TokenWebView` 的 startURL / UA / cookieHosts）。

@@ -62,6 +62,9 @@ class _SheetGateway implements CloudDriveLoginGateway {
     required String password,
   }) async =>
       throw const CloudDriveLoginException('Node 常驻系统未就绪');
+
+  @override
+  String? pendingCaptchaUrl(CloudDriveType type) => null;
 }
 
 Future<void> _pump(WidgetTester tester, Widget child) async {

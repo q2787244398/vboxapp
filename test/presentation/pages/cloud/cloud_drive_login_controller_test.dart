@@ -103,6 +103,9 @@ class _FakeGateway implements CloudDriveLoginGateway {
     final String? error = accountError;
     if (error != null) throw CloudDriveLoginException(error);
   }
+
+  @override
+  String? pendingCaptchaUrl(CloudDriveType type) => null;
 }
 
 CloudDriveLoginController _qrController(

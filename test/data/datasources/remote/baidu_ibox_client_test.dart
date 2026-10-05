@@ -1,11 +1,13 @@
 import 'dart:convert';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/data/datasources/remote/baidu_ibox_client.dart';
 import 'package:vbox/platform/spider/spider_http_bridge.dart';
+import 'package:vbox/platform/webview/webview_bridge.dart';
 
 /// 假传输（离线；记录请求便于断言 Cookie 语义）。
 class _FakeTransport implements SpiderHttpTransport {
@@ -19,6 +21,58 @@ class _FakeTransport implements SpiderHttpTransport {
     requests.add(request);
     return handler(request);
   }
+}
+
+/// 假 WebView 桥（C3 回退用）：可配置 loadPage 返回的 html 与 XHR 响应。
+class _FakeWebViewBridge implements WebViewBridge {
+  _FakeWebViewBridge({
+    this.html = '',
+    this.xhr = const <String, String>{},
+  });
+
+  final String html;
+  final Map<String, String> xhr;
+  final List<String> loaded = <String>[];
+  final List<String> requested = <String>[];
+
+  @override
+  bool get isAvailable => true;
+
+  @override
+  Future<WebViewPageResult> loadPage({
+    required String url,
+    String? userAgent,
+    Map<String, String> cookies = const <String, String>{},
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    loaded.add(url);
+    return (html: html, url: url, cookie: '');
+  }
+
+  @override
+  Future<WebViewXhrResult> request({
+    required String url,
+    String method = 'GET',
+    Map<String, String> headers = const <String, String>{},
+    String? body,
+    String? hostUrl,
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    requested.add(url);
+    for (final MapEntry<String, String> e in xhr.entries) {
+      if (url.contains(e.key)) {
+        return (status: 200, body: e.value, headers: const <String, String>{});
+      }
+    }
+    return (status: 200, body: '{}', headers: const <String, String>{});
+  }
+
+  @override
+  Future<String> currentCookieString({String? domain}) async => '';
+
+  @override
+  Widget? buildView({required String url, String? userAgent}) =>
+      const SizedBox.shrink();
 }
 
 SpiderTransportResponse _res(
@@ -370,6 +424,62 @@ void main() {
       expect(r.source, contains('locatedownload'));
       // 必经过转存（而非命中已存在文件）。
       expect(r.source, contains('main-transfer'));
+    });
+  });
+
+  group('百度 iBox C3 WebView 回退', () {
+    late PrefsManager prefs;
+
+    setUp(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      FlutterSecureStorage.setMockInitialValues(<String, String>{});
+      prefs = PrefsManager.instance;
+      await prefs.init();
+      await prefs.clearAll();
+    });
+
+    test('fetchUserBdstoken：本地失败 → WebView 回退取 bdstoken', () async {
+      final _FakeTransport t = _FakeTransport((SpiderTransportRequest r) =>
+          _res(r.url.toString().contains('/disk/main')
+              ? '<html></html>'
+              : '{}'));
+      final _FakeWebViewBridge web = _FakeWebViewBridge(
+        html: '<script>bdstoken="webtok"</script>',
+      );
+      final BaiduIBoxClient c =
+          BaiduIBoxClient(transport: t, prefs: prefs, webView: web);
+      expect(await c.fetchUserBdstoken(cookie: 'BDUSS=u'), 'webtok');
+      expect(web.loaded.any((String u) => u.contains('/disk/main')), isTrue);
+    });
+
+    test('findExistingVboxPath：本地 errno!=0 → WebView 回退列目录', () async {
+      final _FakeTransport t =
+          _FakeTransport((SpiderTransportRequest r) => _res('{"errno":-6}'));
+      final _FakeWebViewBridge web = _FakeWebViewBridge(
+        html: '<html></html>',
+        xhr: <String, String>{
+          '/api/list':
+              '{"errno":0,"data":{"list":[{"server_filename":"EP01.mp4","path":"/vbox/EP01.mp4"}]}}',
+        },
+      );
+      final BaiduIBoxClient c =
+          BaiduIBoxClient(transport: t, prefs: prefs, webView: web);
+      expect(
+        await c.findExistingVboxPath(fileName: 'EP01.mp4', cookie: 'BDUSS=u'),
+        '/vbox/EP01.mp4',
+      );
+      expect(web.requested.any((String u) => u.contains('/api/list')), isTrue);
+    });
+
+    test('桥不可用 → 保持失败即抛（不改变原语义）', () async {
+      final _FakeTransport t = _FakeTransport(
+          (SpiderTransportRequest r) => _res('{"errno":-6}'));
+      final BaiduIBoxClient c = BaiduIBoxClient(transport: t, prefs: prefs);
+      expect(
+        await c.findExistingVboxPath(fileName: 'EP01.mp4', cookie: 'BDUSS=u'),
+        isNull,
+      );
     });
   });
 }

@@ -163,4 +163,7 @@ class AliyunPgLoginGateway implements CloudDriveLoginGateway {
     required String password,
   }) async =>
       throw const CloudDriveLoginException('PG 扫码登录仅支持扫码档');
+
+  @override
+  String? pendingCaptchaUrl(CloudDriveType type) => null;
 }

@@ -67,6 +67,8 @@ Future<void> openCloudDriveLoginSheet(
           driveType: type,
           mode: mode,
           gateway: gateway,
+          // Web-R3：支持平台内嵌滑块验证页（139）；不支持平台不展示滑块面板。
+          bridge: webViewBridge ?? InAppWebViewBridge(),
         ),
       CloudDriveLoginMode.nodeAccount => CloudDriveAccountLoginSheet(
           driveType: type,
@@ -265,6 +267,7 @@ class CloudDriveSmsLoginSheet extends StatefulWidget {
     required this.driveType,
     this.mode = CloudDriveLoginMode.nodeSms,
     this.gateway,
+    this.bridge = const UnavailableWebViewBridge(),
   });
 
   /// 目标网盘。
@@ -276,23 +279,28 @@ class CloudDriveSmsLoginSheet extends StatefulWidget {
   /// 登录网关（测试注入；缺省「未接入」）。
   final CloudDriveLoginGateway? gateway;
 
+  /// 内嵌 WebView 桥（Web-R3：139 滑块；不可用则不展示滑块面板）。
+  final WebViewBridge bridge;
+
   @override
   State<CloudDriveSmsLoginSheet> createState() => _CloudDriveSmsLoginSheetState();
 }
 
 class _CloudDriveSmsLoginSheetState extends State<CloudDriveSmsLoginSheet> {
   late final CloudDriveLoginController _controller;
+  late final CloudDriveLoginGateway _gateway;
   final TextEditingController _phone = TextEditingController();
   final TextEditingController _code = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    _gateway = widget.gateway ??
+        defaultCloudDriveLoginGateway(widget.driveType, widget.mode);
     _controller = CloudDriveLoginController(
       driveType: widget.driveType,
       mode: widget.mode,
-      gateway: widget.gateway ??
-          defaultCloudDriveLoginGateway(widget.driveType, widget.mode),
+      gateway: _gateway,
     )..addListener(_onChanged);
     _phone.addListener(_onChanged);
     _code.addListener(_onChanged);
@@ -315,6 +323,9 @@ class _CloudDriveSmsLoginSheetState extends State<CloudDriveSmsLoginSheet> {
       _phone.text.trim().isNotEmpty &&
       _code.text.trim().isNotEmpty &&
       _controller.phase != CloudDriveLoginPhase.loading;
+
+  /// 139 滑块验证页（无则 null）。
+  String? get _captchaUrl => _gateway.pendingCaptchaUrl(widget.driveType);
 
   /// 短信档状态主行（按短信语义替换扫码档的 `phase.displayText`）。
   String get _statusTitle => switch (_controller.phase) {
@@ -354,6 +365,10 @@ class _CloudDriveSmsLoginSheetState extends State<CloudDriveSmsLoginSheet> {
               ),
               const SizedBox(height: VboxSpacing.lg),
               _formCard(scheme),
+              if (_captchaUrl != null && widget.bridge.isAvailable) ...<Widget>[
+                const SizedBox(height: VboxSpacing.lg),
+                _captchaCard(scheme, _captchaUrl!),
+              ],
               const SizedBox(height: VboxSpacing.lg),
               LoginStatusCard(
                 tone: phase.tone,
@@ -422,6 +437,44 @@ class _CloudDriveSmsLoginSheetState extends State<CloudDriveSmsLoginSheet> {
             controller: _code,
             hintText: '短信验证码',
             keyboardType: TextInputType.number,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 139 滑块验证面板（对齐 iOS `NodeCaptchaWebView`，Web-R3）。
+  Widget _captchaCard(ColorScheme scheme, String url) {
+    final Widget? view = widget.bridge.buildView(url: url);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(VboxRadii.r12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            '滑块验证（完成后请等待短信）',
+            style: TextStyle(
+              fontSize: VboxTypography.s12,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 300,
+            child: view ??
+                Center(
+                  child: Text(
+                    'WebView 不可用',
+                    style: TextStyle(
+                      fontSize: VboxTypography.s12,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
           ),
         ],
       ),

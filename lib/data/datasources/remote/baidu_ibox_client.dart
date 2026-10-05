@@ -37,6 +37,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart' as crypto;
 
 import '../../../platform/spider/spider_http_bridge.dart';
+import '../../../platform/webview/webview_bridge.dart';
 import '../local/prefs_manager.dart';
 
 /// 百度分享文件条目（对齐 iOS `BaiduFileItem`）。
@@ -124,9 +125,13 @@ class BaiduIBoxException implements Exception {
 /// 百度 iBox 本机链客户端（C1：分享上下文 + 文件列表）。
 class BaiduIBoxClient {
   /// 构造（[transport] / [prefs] 供测试注入）。
-  BaiduIBoxClient({SpiderHttpTransport? transport, PrefsManager? prefs})
-      : _transport = transport ?? IoSpiderHttpTransport(),
-        _prefs = prefs;
+  BaiduIBoxClient({
+    SpiderHttpTransport? transport,
+    PrefsManager? prefs,
+    WebViewBridge? webView,
+  })  : _transport = transport ?? IoSpiderHttpTransport(),
+        _prefs = prefs,
+        _webView = webView ?? const UnavailableWebViewBridge();
 
   /// 分享上下文缓存契约键（对齐 iOS `baidu_share_context_cache_v1`）。
   static const String shareContextCacheKey = 'baidu_share_context_cache_v1';
@@ -160,6 +165,9 @@ class BaiduIBoxClient {
 
   final SpiderHttpTransport _transport;
   final PrefsManager? _prefs;
+
+  /// 内嵌 WebView 桥（C3 回退：URLSession 失败时复刻 iOS WKWebView XHR）。
+  final WebViewBridge _webView;
 
   // ─────────────── 静态工具（对齐 iOS 同名函数）───────────────
 
@@ -656,7 +664,11 @@ class BaiduIBoxClient {
       headers: <String, String>{'Cookie': cookie, 'User-Agent': webUA},
       timeout: 12,
     );
-    return extractBdstokenFromHTML(page.text) ?? '';
+    final String fromHtml = extractBdstokenFromHTML(page.text) ?? '';
+    if (fromHtml.isNotEmpty) return fromHtml;
+    // C3 回退：WKWebView 载入 disk/main 复用 CookieJar
+    // （对齐 `baiduFetchUserBdstokenViaWebView`）。
+    return _webViewBdstoken(cookie);
   }
 
   /// `/vbox` 转存目录是否可列举（对齐 iOS `baiduCanListTransferDir`）。
@@ -741,6 +753,11 @@ class BaiduIBoxClient {
     )) {
       return;
     }
+    // C3 回退：WKWebView XHR 建目录 + 复检（对齐 `baiduCreateFolderViaWebView` /
+    // `baiduCanListTransferDirViaWebView`）。
+    if (await _webEnsureTransferDir(cookie: cookie, bdstoken: bdstoken)) {
+      return;
+    }
     throw BaiduIBoxException('百度 $transferDir 转存目录创建失败：$lastResponse');
   }
 
@@ -762,9 +779,12 @@ class BaiduIBoxClient {
       timeout: 12,
     );
     final Map<String, Object?>? json = _decodeMap(r.text);
-    if (json == null) return null;
-    if ((_asInt(json['errno']) ?? 0) != 0) return null;
-    return _matchedVboxPath(json, fileName);
+    final String? local = (json != null && (_asInt(json['errno']) ?? 0) == 0)
+        ? _matchedVboxPath(json, fileName)
+        : null;
+    if (local != null) return local;
+    // C3 回退：WKWebView XHR 列 /vbox（对齐 `baiduFindExistingVboxPathViaWebView`）。
+    return _webFindExistingVboxPath(cookie: cookie, fileName: fileName);
   }
 
   /// 转存落盘确认（对齐 iOS `baiduWaitForTransferredPath`）。
@@ -824,8 +844,12 @@ class BaiduIBoxClient {
           rawSekey.contains('%') ? rawSekey : queryEncodeStrict(rawSekey);
       query.add('sekey=$encodedSekey');
     }
+    final String transferUrl =
+        'https://pan.baidu.com/share/transfer?${query.join('&')}';
+    final String transferBody = 'fsidlist=${_queryEncoded('[$fsId]')}'
+        '&path=${_queryEncoded(transferDir)}&async=1&ondup=newcopy';
     final _Resp r = await _request(
-      'https://pan.baidu.com/share/transfer?${query.join('&')}',
+      transferUrl,
       method: 'POST',
       headers: <String, String>{
         'Cookie': transferCookie,
@@ -835,28 +859,38 @@ class BaiduIBoxClient {
         'X-Requested-With': 'XMLHttpRequest',
         'User-Agent': webUA,
       },
-      body: 'fsidlist=${_queryEncoded('[$fsId]')}'
-          '&path=${_queryEncoded(transferDir)}&async=1&ondup=newcopy',
+      body: transferBody,
       timeout: 25,
     );
     final Map<String, Object?>? json = _decodeMap(r.text);
+    final int errno = (r.status == 200 && json != null)
+        ? (_asInt(json['errno']) ?? -1)
+        : -1;
+    if (errno == 0) {
+      final Object? list = _asMap(json?['extra'])?['list'];
+      if (list is List && list.isNotEmpty) {
+        final String to = _asString(_asMap(list.first)?['to']) ?? '';
+        if (to.isNotEmpty) return to;
+      }
+      return waitForTransferredPath(
+        fileName: _lastPathSegment(fileName),
+        cookie: accountCookie,
+      );
+    }
+    // C3 回退：WKWebView XHR 转存（对齐 `baiduTransferFileViaWebView`）。
+    final String? webPath = await _webTransferFile(
+      transferUrl: transferUrl,
+      transferBody: transferBody,
+      cookie: transferCookie,
+      fileName: fileName,
+      accountCookie: accountCookie,
+    );
+    if (webPath != null) return webPath;
     if (r.status != 200 || json == null) {
       throw BaiduIBoxException('百度本机转存 HTTP ${r.status}');
     }
-    final int errno = _asInt(json['errno']) ?? -1;
-    if (errno != 0) {
-      throw BaiduIBoxException(
-        '百度本机转存失败：${errorMessage(errno, _asString(json['errmsg']) ?? _asString(json['show_msg']))}',
-      );
-    }
-    final Object? list = _asMap(json['extra'])?['list'];
-    if (list is List && list.isNotEmpty) {
-      final String to = _asString(_asMap(list.first)?['to']) ?? '';
-      if (to.isNotEmpty) return to;
-    }
-    return waitForTransferredPath(
-      fileName: _lastPathSegment(fileName),
-      cookie: accountCookie,
+    throw BaiduIBoxException(
+      '百度本机转存失败：${errorMessage(errno, _asString(json['errmsg']) ?? _asString(json['show_msg']))}',
     );
   }
 
@@ -1414,6 +1448,140 @@ class BaiduIBoxClient {
     } catch (_) {
       return null;
     }
+  }
+
+  // ─────────────── 内部：C3 WebView 回退 ───────────────
+
+  /// Cookie 串 → Map（WebView CookieJar 注入用）。
+  static Map<String, String> _cookieMap(String cookie) {
+    final Map<String, String> out = <String, String>{};
+    for (final String part in cookie.split(';')) {
+      final String item = part.trim();
+      final int eq = item.indexOf('=');
+      if (eq <= 0) continue;
+      out[item.substring(0, eq).trim()] = item.substring(eq + 1).trim();
+    }
+    return out;
+  }
+
+  /// 注入 Cookie 并载入 `pan.baidu.com` 承载页（WebView XHR 前置）。
+  Future<bool> _webSeed(String cookie) async {
+    if (!_webView.isAvailable) return false;
+    try {
+      await _webView.loadPage(
+        url: 'https://pan.baidu.com/disk/main',
+        userAgent: webUA,
+        cookies: _cookieMap(cookie),
+        timeout: const Duration(seconds: 15),
+      );
+      return true;
+    } on WebViewBridgeException {
+      return false;
+    }
+  }
+
+  /// WebView 页面上下文 XHR → JSON（对齐 iOS `BaiduWebViewBridge.request`）。
+  Future<Map<String, Object?>?> _webJson(
+    String url, {
+    required String cookie,
+    String method = 'POST',
+    String? body,
+  }) async {
+    if (!await _webSeed(cookie)) return null;
+    try {
+      final WebViewXhrResult r = await _webView.request(
+        url: url,
+        method: method,
+        headers: <String, String>{
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: body,
+        hostUrl: 'https://pan.baidu.com',
+        timeout: const Duration(seconds: 15),
+      );
+      return _decodeMap(r.body);
+    } on WebViewBridgeException {
+      return null;
+    }
+  }
+
+  /// WebView 取用户态 bdstoken（对齐 iOS `baiduFetchUserBdstokenViaWebView`）。
+  Future<String> _webViewBdstoken(String cookie) async {
+    if (!_webView.isAvailable) return '';
+    try {
+      final WebViewPageResult page = await _webView.loadPage(
+        url: 'https://pan.baidu.com/disk/main',
+        userAgent: webUA,
+        cookies: _cookieMap(cookie),
+        timeout: const Duration(seconds: 18),
+      );
+      return extractBdstokenFromHTML(page.html) ?? '';
+    } on WebViewBridgeException {
+      return '';
+    }
+  }
+
+  /// WebView 建 `/vbox` 目录并复检（对齐 iOS `baiduCreateFolderViaWebView` +
+  /// `baiduCanListTransferDirViaWebView`）。
+  Future<bool> _webEnsureTransferDir({
+    required String cookie,
+    required String bdstoken,
+  }) async {
+    final String listUrl =
+        'https://pan.baidu.com/api/list?dir=${_queryEncoded(transferDir)}'
+        '&order=time&desc=1&num=1&page=1&bdstoken=$bdstoken'
+        '&channel=chunlei&web=1&app_id=250528&clienttype=0';
+    final Map<String, Object?>? first =
+        await _webJson(listUrl, cookie: cookie, method: 'GET');
+    if (first != null && (_asInt(first['errno']) ?? 0) == 0) return true;
+    await _webJson(
+      'https://pan.baidu.com/api/create?a=commit&bdstoken=$bdstoken'
+      '&channel=chunlei&web=1&app_id=250528&clienttype=0',
+      cookie: cookie,
+      body: 'path=${_queryEncoded(transferDir)}&size=0&isdir=1'
+          '&block_list=${_queryEncoded('[]')}&method=post',
+    );
+    final Map<String, Object?>? reList =
+        await _webJson(listUrl, cookie: cookie, method: 'GET');
+    return reList != null && (_asInt(reList['errno']) ?? 0) == 0;
+  }
+
+  /// WebView 列 `/vbox` 匹配文件（对齐 `baiduFindExistingVboxPathViaWebView`）。
+  Future<String?> _webFindExistingVboxPath({
+    required String cookie,
+    required String fileName,
+  }) async {
+    final Map<String, Object?>? json = await _webJson(
+      'https://pan.baidu.com/api/list?bdstoken=&channel=chunlei&web=1'
+      '&app_id=250528&clienttype=0',
+      cookie: cookie,
+      body: 'dir=${_queryEncoded(transferDir)}&order=time&desc=1&num=200&page=1',
+    );
+    if (json == null || (_asInt(json['errno']) ?? 0) != 0) return null;
+    return _matchedVboxPath(json, fileName);
+  }
+
+  /// WebView 转存（对齐 iOS `baiduTransferFileViaWebView`）。
+  Future<String?> _webTransferFile({
+    required String transferUrl,
+    required String transferBody,
+    required String cookie,
+    required String fileName,
+    required String accountCookie,
+  }) async {
+    final Map<String, Object?>? json =
+        await _webJson(transferUrl, cookie: cookie, body: transferBody);
+    if (json == null || (_asInt(json['errno']) ?? -1) != 0) return null;
+    final Object? list = _asMap(json['extra'])?['list'];
+    if (list is List && list.isNotEmpty) {
+      final String to = _asString(_asMap(list.first)?['to']) ?? '';
+      if (to.isNotEmpty) return to;
+    }
+    return waitForTransferredPath(
+      fileName: _lastPathSegment(fileName),
+      cookie: accountCookie,
+    );
   }
 
   // ─────────────── 内部：缓存 ───────────────

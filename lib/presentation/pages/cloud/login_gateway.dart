@@ -78,6 +78,11 @@ abstract interface class CloudDriveLoginGateway {
     required String code,
   });
 
+  /// 短信登录过程中若需滑块验证，返回验证码页面地址（对齐 iOS 139 `captchaUrl`）。
+  ///
+  /// 供 UI 在短信 Sheet 内嵌 WebView 过滑块（Web-R3）；无则返回 null。
+  String? pendingCaptchaUrl(CloudDriveType type);
+
   /// 账号密码登录（Node 托管盘：123 / 蜗牛 / 天翼 等）。
   ///
   /// 对齐 iOS `NodePan123LoginView` / `NodeWoniu4kLoginView` 的
@@ -143,4 +148,7 @@ class UnavailableCloudDriveLoginGateway implements CloudDriveLoginGateway {
     required String password,
   }) async =>
       throw const CloudDriveLoginException('Node 常驻系统未就绪');
+
+  @override
+  String? pendingCaptchaUrl(CloudDriveType type) => null;
 }
