@@ -206,14 +206,27 @@ void main() {
       );
     });
 
-    test('原生盘 → 原生路链未接线明确报错', () async {
+    test('原生盘（UC）→ 原生路链未接线明确报错', () async {
       await expectLater(
-        player.resolveShare(CloudDriveType.baidu, 'https://pan.baidu/s/x'),
+        player.resolveShare(CloudDriveType.uc, 'https://drive.uc.cn/s/x'),
         throwsA(
           isA<PanPlayException>().having(
             (PanPlayException e) => e.message,
             'msg',
             contains('原生路链尚未接入'),
+          ),
+        ),
+      );
+    });
+
+    test('百度（未配置 Worker 代理）→ 明确报错「百度代理未接入」', () async {
+      await expectLater(
+        player.resolveShare(CloudDriveType.baidu, 'https://pan.baidu.com/s/x'),
+        throwsA(
+          isA<PanPlayException>().having(
+            (PanPlayException e) => e.message,
+            'msg',
+            contains('百度代理未接入'),
           ),
         ),
       );
