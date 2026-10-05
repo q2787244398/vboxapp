@@ -192,4 +192,75 @@ void main() {
       expect(c.username, '199114');
     });
   });
+
+  group('referral / avatar（M-账1 / M-账3）', () {
+    test('login：携带推荐码 → 落 referrer 键（去空格）', () async {
+      final InMemorySettingsStore store = InMemorySettingsStore();
+      final SessionController c = _controller(store);
+      expect(c.referral, isEmpty);
+
+      final String? error = await c.login(
+        account: '199114',
+        password: 'abc',
+        referral: '  VIP888 ',
+      );
+      expect(error, isNull);
+      expect(c.referral, 'VIP888');
+      expect(store.snapshot[SessionController.kReferralKey], 'VIP888');
+    });
+
+    test('login：推荐码仅空格 → 不落库', () async {
+      final InMemorySettingsStore store = InMemorySettingsStore();
+      final SessionController c = _controller(store);
+      expect(
+        await c.login(account: 'u1', password: 'p', referral: '   '),
+        isNull,
+      );
+      expect(c.referral, isEmpty);
+      expect(
+        store.snapshot.containsKey(SessionController.kReferralKey),
+        isFalse,
+      );
+    });
+
+    test('load：还原已保存的推荐码', () async {
+      final InMemorySettingsStore store = InMemorySettingsStore(<String, String>{
+        SessionController.kReferralKey: 'REF-1',
+      });
+      final SessionController c = _controller(store);
+      await c.load();
+      expect(c.referral, 'REF-1');
+    });
+
+    test('setReferral：去空格持久化；空串清空', () async {
+      final InMemorySettingsStore store = InMemorySettingsStore();
+      final SessionController c = _controller(store);
+
+      await c.setReferral('  A1 ');
+      expect(c.referral, 'A1');
+      expect(store.snapshot[SessionController.kReferralKey], 'A1');
+
+      await c.setReferral('');
+      expect(c.referral, isEmpty);
+      expect(store.snapshot[SessionController.kReferralKey], '');
+    });
+
+    test('setAvatar：非空落库；null / 空串清空', () async {
+      final InMemorySettingsStore store = InMemorySettingsStore();
+      final SessionController c = _controller(store);
+
+      await c.setAvatar('AAAA');
+      expect(c.avatarBase64, 'AAAA');
+      expect(store.snapshot[SessionController.kAvatarKey], 'AAAA');
+
+      await c.setAvatar(null);
+      expect(c.avatarBase64, isNull);
+      expect(store.snapshot[SessionController.kAvatarKey], '');
+
+      await c.setAvatar('BBBB');
+      expect(c.avatarBase64, 'BBBB');
+      await c.setAvatar('');
+      expect(c.avatarBase64, isNull);
+    });
+  });
 }

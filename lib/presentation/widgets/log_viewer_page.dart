@@ -24,6 +24,9 @@ class _LogViewerPageState extends State<LogViewerPage> {
   /// 最低级别过滤（null = 全部）。
   LogLevel? _minLevel;
 
+  /// 模块分类过滤（null = 全部；对齐 iOS `selectedCategory`）。
+  LogCategory? _category;
+
   /// 关键字过滤（标签 / 正文）。
   String _keyword = '';
 
@@ -48,6 +51,8 @@ class _LogViewerPageState extends State<LogViewerPage> {
     return AppLog.entries.where((LogEntry e) {
       final LogLevel? min = _minLevel;
       if (min != null && e.level.index < min.index) return false;
+      final LogCategory? cat = _category;
+      if (cat != null && e.category != cat) return false;
       if (kw.isEmpty) return true;
       return e.tag.toLowerCase().contains(kw) ||
           e.message.toLowerCase().contains(kw);
@@ -97,6 +102,8 @@ class _LogViewerPageState extends State<LogViewerPage> {
           _FilterBar(
             minLevel: _minLevel,
             onMinLevelChanged: (LogLevel? v) => setState(() => _minLevel = v),
+            category: _category,
+            onCategoryChanged: (LogCategory? v) => setState(() => _category = v),
             onKeywordChanged: (String v) => setState(() => _keyword = v),
           ),
           Expanded(
@@ -117,16 +124,23 @@ class _LogViewerPageState extends State<LogViewerPage> {
   }
 }
 
-/// 过滤栏：级别分段 + 关键字。
+/// 过滤栏：级别分段 + 模块分类 + 关键字。
 class _FilterBar extends StatefulWidget {
   const _FilterBar({
     required this.minLevel,
     required this.onMinLevelChanged,
+    required this.category,
+    required this.onCategoryChanged,
     required this.onKeywordChanged,
   });
 
   final LogLevel? minLevel;
   final ValueChanged<LogLevel?> onMinLevelChanged;
+
+  /// 模块分类过滤（null = 全部）。
+  final LogCategory? category;
+  final ValueChanged<LogCategory?> onCategoryChanged;
+
   final ValueChanged<String> onKeywordChanged;
 
   @override
@@ -178,6 +192,26 @@ class _FilterBarState extends State<_FilterBar> {
               ],
             ),
           ),
+          const SizedBox(height: 4),
+          // 模块筛选（对齐 iOS `LogViewerView` 的 `LogCategory.allCases` 菜单）。
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: <Widget>[
+                _LevelChip(
+                  label: '全部模块',
+                  selected: widget.category == null,
+                  onSelected: () => widget.onCategoryChanged(null),
+                ),
+                for (final LogCategory cat in LogCategory.values)
+                  _LevelChip(
+                    label: cat.displayName,
+                    selected: widget.category == cat,
+                    onSelected: () => widget.onCategoryChanged(cat),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -224,7 +258,7 @@ class _LogTile extends StatelessWidget {
         style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
       ),
       subtitle: Text(
-        '${entry.tag}  ·  ${_time(entry.time)}'
+        '${entry.category.codeName}  ·  ${entry.tag}  ·  ${_time(entry.time)}'
         '${entry.error != null ? '\n${entry.error}' : ''}',
         style: TextStyle(
           fontFamily: 'monospace',

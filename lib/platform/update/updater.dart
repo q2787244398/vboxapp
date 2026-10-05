@@ -138,6 +138,21 @@ class Updater extends ChangeNotifier {
   /// 当前平台安装包下载地址（无则 null）。
   String? get downloadUrl => _downloadUrl;
 
+  /// 分享用的下载地址（对齐 iOS `UpdateManager.shareURL`）。
+  ///
+  /// 与下载相同的代理顺序：主代理前缀 + 原始地址；未检查出下载地址时回退到
+  /// GitHub Releases 最新 IPA 直链。分享出去后对方可快速下载安装。
+  String get shareUrl {
+    final String fallback =
+        'https://github.com/$repoOwner/$repoName/releases/latest/download/vbox.ipa';
+    final String raw = _downloadUrl ?? fallback;
+    const List<ProxyHost> proxies = RemoteSourceStrategy.proxyHosts;
+    if (proxies.isNotEmpty) {
+      return '${proxies.first.host}/$raw';
+    }
+    return raw;
+  }
+
   /// Release 页面地址（浏览器兜底）。
   String? get releasePageUrl => _releasePageUrl;
 

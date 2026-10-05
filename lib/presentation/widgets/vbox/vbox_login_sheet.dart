@@ -31,6 +31,7 @@ class VboxLoginSheet extends StatefulWidget {
     super.key,
     required this.usernameController,
     required this.passwordController,
+    this.referralController,
     this.onSubmit,
     this.onCancel,
     this.error,
@@ -45,6 +46,9 @@ class VboxLoginSheet extends StatefulWidget {
 
   /// 密码输入控制器。
   final TextEditingController passwordController;
+
+  /// 上级推荐码输入控制器（M-账1；`null` → 不渲染该输入行）。
+  final TextEditingController? referralController;
 
   /// 点击主按钮回调（`null` 时按钮恒为禁用态）。
   final VoidCallback? onSubmit;
@@ -159,6 +163,19 @@ class _VboxLoginSheetState extends State<VboxLoginSheet> {
                       ),
                     ),
                   ),
+                  if (widget.referralController != null) ...<Widget>[
+                    const SizedBox(height: VboxSpacing.lg),
+                    _inputRow(
+                      icon: Icons.card_giftcard,
+                      background: inputBg,
+                      field: _field(
+                        controller: widget.referralController!,
+                        hint: '上级推荐码（选填）',
+                        textColor: scheme.onSurface,
+                        hintColor: secondary,
+                      ),
+                    ),
+                  ],
                   if (widget.error != null) ...<Widget>[
                     const SizedBox(height: VboxSpacing.lg),
                     Align(

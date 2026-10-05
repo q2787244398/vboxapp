@@ -35,6 +35,9 @@ class SessionController extends ChangeNotifier {
   static const String kLoggedInKey = 'isLoggedIn';
   static const String kAvatarKey = 'avatar_image';
 
+  /// 上级用户推荐码键（M-账1：登录/注册时填写，本机保存）。
+  static const String kReferralKey = 'referrer';
+
   /// 密码键（按账号分键，对齐 iOS `password_\(trimmed)`）。
   static String passwordKey(String account) => 'password_$account';
 
@@ -47,6 +50,7 @@ class SessionController extends ChangeNotifier {
   String _account = '';
   String _username = '';
   String? _avatarBase64;
+  String _referral = '';
   bool _loading = false;
 
   /// 是否已登录。
@@ -60,6 +64,9 @@ class SessionController extends ChangeNotifier {
 
   /// 头像 Base64（未设置时 `null`）。
   String? get avatarBase64 => _avatarBase64;
+
+  /// 上级用户推荐码（未填写时为空串）。
+  String get referral => _referral;
 
   /// 是否登录中（主按钮展示进度圈）。
   bool get loading => _loading;
@@ -82,6 +89,7 @@ class SessionController extends ChangeNotifier {
     }
     _loggedIn = (await _store.get(kLoggedInKey)) == 'true';
     _avatarBase64 = await _store.get(kAvatarKey);
+    _referral = await _store.get(kReferralKey) ?? '';
     notifyListeners();
   }
 
@@ -94,9 +102,12 @@ class SessionController extends ChangeNotifier {
   }
 
   /// 登录 / 注册（首次即注册）。返回错误文案，`null` 表示成功。
+  ///
+  /// [referral] 为可选的上级推荐码（M-账1）：非空时随登录一并落库。
   Future<String?> login({
     required String account,
     required String password,
+    String referral = '',
   }) async {
     final String trimmedAccount = account.trim();
     if (trimmedAccount.isEmpty) return '请输入用户名';
@@ -121,6 +132,9 @@ class SessionController extends ChangeNotifier {
       await _store.set(passwordKey(trimmedAccount), trimmedPassword);
     }
     await _applyLogin(trimmedAccount);
+    if (referral.trim().isNotEmpty) {
+      await setReferral(referral);
+    }
     return null;
   }
 
@@ -155,5 +169,24 @@ class SessionController extends ChangeNotifier {
     _username = trimmed;
     notifyListeners();
     await _store.set(kUsernameKey, trimmed);
+  }
+
+  /// 保存头像（Base64 图片；`null` / 空串表示清除）。
+  ///
+  /// 对齐 iOS：落 `avatar_image` 设置项，登出时**保留**。
+  Future<void> setAvatar(String? base64) async {
+    final String value = base64?.trim() ?? '';
+    _avatarBase64 = value.isEmpty ? null : value;
+    notifyListeners();
+    await _store.set(kAvatarKey, value);
+  }
+
+  /// 保存上级推荐码（M-账1；空串表示未填写）。
+  Future<void> setReferral(String code) async {
+    final String trimmed = code.trim();
+    if (trimmed == _referral) return;
+    _referral = trimmed;
+    notifyListeners();
+    await _store.set(kReferralKey, trimmed);
   }
 }

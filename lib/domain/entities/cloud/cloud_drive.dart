@@ -103,6 +103,45 @@ enum CloudDriveType {
     }
     return null;
   }
+
+  /// 由分享链接识别网盘类型（对齐 iOS 播放器 `handleDriveUrl` 的域名判定；
+  /// 域名清单与 `PushPlayStore.detectType` / iOS `cloudPatterns` 一致）。
+  ///
+  /// 无法识别返回 null。Node 派生盘不参与判定 —— 是否走 Node 链路
+  /// 由 `NodePanRouting.isNodeManaged` 在运行期决定。
+  static CloudDriveType? fromShareUrl(String? url) {
+    if (url == null || url.isEmpty) return null;
+    final String lower = url.toLowerCase();
+    for (final MapEntry<String, CloudDriveType> entry
+        in _shareUrlPatterns.entries) {
+      if (lower.contains(entry.key)) return entry.value;
+    }
+    return null;
+  }
+
+  /// 分享链接域名片段 → 网盘类型（先特异后通用，顺序即优先级）。
+  static const Map<String, CloudDriveType> _shareUrlPatterns =
+      <String, CloudDriveType>{
+    'alipan.com': ali,
+    'aliyundrive.com': ali,
+    'pan.quark.cn': quark,
+    'quark.cn': quark,
+    'pan.baidu.com': baidu,
+    'yun.baidu.com': baidu,
+    'baidu.com': baidu,
+    '115cdn.com': one15,
+    '115.com': one15,
+    'drive.uc.cn': uc,
+    'uc.cn': uc,
+    '123pan.com': pan123,
+    'caiyun.139.com': pan139,
+    '139.com': pan139,
+    'cloud.189.cn': pan189,
+    '189.cn': pan189,
+    'pan.xunlei.com': xunlei,
+    'xunlei.com': xunlei,
+    'bilibili.com': bilibili,
+  };
 }
 
 /// 登录方式（对齐 iOS `CloudDriveAuthType`）。

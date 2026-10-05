@@ -101,4 +101,41 @@ void main() {
     expect(LogLevel.fromValue(-1), LogLevel.debug);
     expect(LogLevel.fromValue(99), LogLevel.error);
   });
+
+  test('LogCategory.fromTag：按标签推断模块（S-设4，对齐 iOS LogCategory）', () {
+    expect(LogCategory.fromTag('network'), LogCategory.network);
+    expect(LogCategory.fromTag('HttpClient'), LogCategory.network);
+    expect(LogCategory.fromTag('SpiderManager'), LogCategory.spider);
+    expect(LogCategory.fromTag('zhanyuan'), LogCategory.spider);
+    expect(LogCategory.fromTag('PlayerPage'), LogCategory.player);
+    expect(LogCategory.fromTag('CloudDrive'), LogCategory.cloud);
+    expect(LogCategory.fromTag('pan'), LogCategory.cloud);
+    expect(LogCategory.fromTag('ProxyHost'), LogCategory.proxy);
+    expect(LogCategory.fromTag('DownloadMgr'), LogCategory.download);
+    expect(LogCategory.fromTag('Welfare'), LogCategory.welfare);
+    expect(LogCategory.fromTag('NodeRuntime'), LogCategory.node);
+    expect(LogCategory.fromTag('MusicHome'), LogCategory.music);
+    expect(LogCategory.fromTag('DbMgr'), LogCategory.db);
+    expect(LogCategory.fromTag('sqlite'), LogCategory.db);
+    expect(LogCategory.fromTag('Whatever'), LogCategory.app);
+  });
+
+  test('写入：未传分类按 tag 推断；显式分类优先', () {
+    AppLog.info('network', 'req');
+    expect(AppLog.entries.last.category, LogCategory.network);
+
+    AppLog.info('Whatever', 'x', category: LogCategory.welfare);
+    expect(AppLog.entries.last.category, LogCategory.welfare);
+  });
+
+  test('format 含 [category] 段；dump 支持分类过滤', () {
+    AppLog.info('network', 'net-line');
+    AppLog.info('music', 'music-line');
+
+    expect(AppLog.entries.first.format().contains('[network]'), isTrue);
+
+    final String netOnly = AppLog.dump(category: LogCategory.network);
+    expect(netOnly.contains('net-line'), isTrue);
+    expect(netOnly.contains('music-line'), isFalse);
+  });
 }

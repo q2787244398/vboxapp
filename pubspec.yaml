@@ -50,6 +50,10 @@ dependencies:
   # quickjs_dart 通过 FFI 绑定 vboxapp/quickjs
   ffi: ^2.1.3
 
+  # ── 分享与选图（Wave E：M-账2 分享 vbox / M-账3 头像更换）──
+  share_plus: ^12.0.2                # 系统分享面板（Android/TV/Windows/macOS）
+  image_picker: ^1.2.3               # 头像选图（各端相册 / 文件选择）
+
   # ── 工具 ──
   crypto: ^3.0.5                     # SHA-256 等
   intl: ^0.19.0
@@ -64,6 +68,8 @@ flutter:
   assets:
     - assets/
     - assets/splash/vbox_letter.png
+    # M-账3：默认头像用的软件图标（与各端 Launcher 图标同源，对齐 iOS AppIcon）
+    - assets/brand/app_icon.png
   fonts:
     # 品牌字体（A-13）：启动页字母图 + 品牌字标用；正文走系统字体（令牌口径「字体族不强制」）。
     - family: VboxBrand

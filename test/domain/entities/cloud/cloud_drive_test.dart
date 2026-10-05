@@ -82,6 +82,38 @@ void main() {
       );
     });
 
+    test('fromShareUrl：各网盘域名命中（E-12 播放器展开选集）', () {
+      expect(CloudDriveType.fromShareUrl('https://www.alipan.com/s/abc'),
+          CloudDriveType.ali);
+      expect(CloudDriveType.fromShareUrl('https://pan.quark.cn/s/abc'),
+          CloudDriveType.quark);
+      expect(CloudDriveType.fromShareUrl('https://pan.baidu.com/s/abc'),
+          CloudDriveType.baidu);
+      expect(CloudDriveType.fromShareUrl('https://115.com/s/abc'),
+          CloudDriveType.one15);
+      expect(CloudDriveType.fromShareUrl('https://drive.uc.cn/s/abc'),
+          CloudDriveType.uc);
+      expect(CloudDriveType.fromShareUrl('https://www.123pan.com/s/abc'),
+          CloudDriveType.pan123);
+      expect(CloudDriveType.fromShareUrl('https://caiyun.139.com/w/abc'),
+          CloudDriveType.pan139);
+      expect(CloudDriveType.fromShareUrl('https://cloud.189.cn/t/abc'),
+          CloudDriveType.pan189);
+      expect(CloudDriveType.fromShareUrl('https://pan.xunlei.com/s/abc'),
+          CloudDriveType.xunlei);
+      expect(CloudDriveType.fromShareUrl('https://www.bilibili.com/video/abc'),
+          CloudDriveType.bilibili);
+    });
+
+    test('fromShareUrl：大小写不敏感 + 无法识别/空/null 返回 null', () {
+      expect(CloudDriveType.fromShareUrl('HTTPS://PAN.QUARK.CN/s/abc'),
+          CloudDriveType.quark);
+      expect(CloudDriveType.fromShareUrl('https://cdn.example.com/v.m3u8'),
+          isNull);
+      expect(CloudDriveType.fromShareUrl(''), isNull);
+      expect(CloudDriveType.fromShareUrl(null), isNull);
+    });
+
     test('defaultSortOrder 8 家且顺序对齐 iOS defaultOrder', () {
       expect(CloudDriveType.defaultSortOrder, <CloudDriveType>[
         CloudDriveType.quark,

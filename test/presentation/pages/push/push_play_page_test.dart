@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vbox/data/datasources/local/push_play_store.dart';
+import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/domain/entities/push/push_play.dart';
 import 'package:vbox/presentation/pages/push/push_play_detail_page.dart';
 import 'package:vbox/presentation/pages/push/push_play_page.dart';
@@ -20,6 +21,17 @@ class _PlayRecorder {
   Future<void> call(String url, String title) async {
     urls.add(url);
     titles.add(title);
+  }
+}
+
+/// 网盘展开回调记录器（E-12）。
+class _CloudRecorder {
+  final List<CloudDriveType> types = <CloudDriveType>[];
+  final List<String> urls = <String>[];
+
+  Future<void> call(CloudDriveType type, String url) async {
+    types.add(type);
+    urls.add(url);
   }
 }
 
@@ -273,6 +285,59 @@ void main() {
       await tester.pumpAndSettle();
       expect(recorder.urls, <String>['https://a.com/e2.m3u8']);
       expect(recorder.titles, <String>['测试剧 第2集']);
+    });
+
+    testWidgets('E-12：网盘分享链接 → 「展开选集」回调（识别网盘类型）',
+        (WidgetTester tester) async {
+      tallViewport(tester);
+      final _CloudRecorder recorder = _CloudRecorder();
+      await tester.pumpWidget(MaterialApp(
+        home: PushPlayDetailPage(
+          item: PushPlayItem(
+            title: '夸克分享',
+            url: 'https://pan.quark.cn/s/abc123',
+            type: PushPlayLinkType.cloud,
+            createdAt: DateTime.utc(2026, 1, 1),
+          ),
+          onOpenCloudFiles: recorder.call,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('展开选集'), findsOneWidget);
+      expect(find.text('立即播放'), findsNothing);
+
+      await tester.tap(find.text('展开选集'));
+      await tester.pumpAndSettle();
+      expect(recorder.types, <CloudDriveType>[CloudDriveType.quark]);
+      expect(recorder.urls, <String>['https://pan.quark.cn/s/abc123']);
+    });
+
+    testWidgets('E-12：网盘类型无法识别 → 回退「立即播放」', (WidgetTester tester) async {
+      tallViewport(tester);
+      final _PlayRecorder play = _PlayRecorder();
+      final _CloudRecorder cloud = _CloudRecorder();
+      await tester.pumpWidget(MaterialApp(
+        home: PushPlayDetailPage(
+          item: PushPlayItem(
+            title: '未知网盘',
+            url: 'https://unknown.example.com/s/abc',
+            type: PushPlayLinkType.cloud,
+            createdAt: DateTime.utc(2026, 1, 1),
+          ),
+          onPlay: play.call,
+          onOpenCloudFiles: cloud.call,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('立即播放'), findsOneWidget);
+      expect(find.text('展开选集'), findsNothing);
+
+      await tester.tap(find.text('立即播放'));
+      await tester.pumpAndSettle();
+      expect(play.urls, <String>['https://unknown.example.com/s/abc']);
+      expect(cloud.urls, isEmpty);
     });
   });
 }

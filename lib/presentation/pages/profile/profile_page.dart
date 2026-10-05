@@ -16,20 +16,25 @@
 library;
 
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/utils/result.dart';
 import '../../../domain/entities/library/library.dart';
 import '../../../domain/usecases/usecases.dart';
+import '../../../platform/update/update.dart';
 import '../../profile/session_controller.dart';
-import '../../theme/brand.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../welfare/welfare_controller.dart';
 import '../../widgets/backup_page.dart';
+import '../../widgets/download/download_overlay_widgets.dart';
 import '../../widgets/library_views.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
@@ -43,7 +48,10 @@ import 'welfare_sheet.dart';
 /// 「个人中心（我的）」页。
 class ProfilePage extends StatelessWidget {
   /// 构造。
-  const ProfilePage({super.key});
+  ///
+  /// [avatarPicker] / [shareLauncher] 为可注入钩子（单测用 fake 隔离插件）；
+  /// 缺省走 `image_picker` 相册选图与 `share_plus` 系统分享面板。
+  const ProfilePage({super.key, this.avatarPicker, this.shareLauncher});
 
   /// 头像直径（对齐 iOS `frame(width: 80, height: 80)`）。
   static const double _avatarSize = 80;
@@ -53,6 +61,18 @@ class ProfilePage extends StatelessWidget {
 
   /// 观看记录海报高（对齐 iOS `frame(height: 140)`）。
   static const double _posterHeight = 140;
+
+  /// 头像压缩后的最长边（对齐 iOS `resizeImage(maxSide: 200)`）。
+  static const int avatarMaxSide = 200;
+
+  /// 软件图标资源（M-账3：未登录默认头像使用软件图标，各端一致）。
+  static const String appIconAsset = 'assets/brand/app_icon.png';
+
+  /// 头像选图（返回压缩后的 PNG 字节；`null` = 用户取消）。
+  final Future<Uint8List?> Function()? avatarPicker;
+
+  /// 分享器（入参为分享地址；缺省走系统分享面板）。
+  final Future<void> Function(String url)? shareLauncher;
 
   @override
   Widget build(BuildContext context) {
@@ -121,7 +141,7 @@ class ProfilePage extends StatelessWidget {
     return Column(
       children: <Widget>[
         GestureDetector(
-          onTap: () => VboxToast.show(context, '头像更换将在后续批次开放'),
+          onTap: () => _changeAvatar(context, session),
           child: _avatar(scheme, session),
         ),
         const SizedBox(height: VboxSpacing.md),
@@ -177,11 +197,11 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
-  /// 头像：已存头像 → 展示名首字母圈 → 未登录回退软件图标。
+  /// 头像：已存头像 → 展示名首字母圈 → 未登录回退软件图标（对齐 iOS `loginSection`）。
   Widget _avatar(ColorScheme scheme, SessionController session) {
     const double radius = _avatarSize / 2;
     final String? base64 = session.avatarBase64;
-    if (session.isLoggedIn && base64 != null && base64.isNotEmpty) {
+    if (base64 != null && base64.isNotEmpty) {
       return ClipOval(
         child: Image.memory(
           base64Decode(base64),
@@ -197,9 +217,10 @@ class ProfilePage extends StatelessWidget {
     if (session.isLoggedIn && session.username.isNotEmpty) {
       return _letterAvatar(scheme, session);
     }
+    // 未登录：默认头像使用软件图标（读取失败回退 person 圈）。
     return ClipOval(
       child: Image.asset(
-        VboxBrand.splashLogoAsset,
+        appIconAsset,
         width: _avatarSize,
         height: _avatarSize,
         fit: BoxFit.cover,
@@ -311,12 +332,12 @@ class ProfilePage extends StatelessWidget {
         VboxQuickGridItem(
           icon: Icons.ios_share,
           label: '分享vbox',
-          onTap: () => VboxToast.show(context, '分享链接已复制'),
+          onTap: () => _shareVbox(context),
         ),
         VboxQuickGridItem(
           icon: Icons.download,
           label: '下载管理',
-          onTap: () => VboxToast.show(context, '下载管理将在后续批次开放'),
+          onTap: () => showDownloadManagementPopup(context),
         ),
         VboxQuickGridItem(
           icon: Icons.swap_vert,
@@ -352,6 +373,55 @@ class ProfilePage extends StatelessWidget {
           onTap: () => showVboxFeedbackSheet(context),
         ),
       ],
+    );
+  }
+
+  /// 更换头像（对齐 iOS `handlePhotoSelection` + `resizeImage`）。
+  ///
+  /// 选图 → 压缩到最长边 [avatarMaxSide] → PNG → Base64 落 `avatar_image`。
+  Future<void> _changeAvatar(
+    BuildContext context,
+    SessionController session,
+  ) async {
+    try {
+      final Future<Uint8List?> Function() picker =
+          avatarPicker ?? _pickAvatarBytes;
+      final Uint8List? bytes = await picker();
+      if (bytes == null || bytes.isEmpty) return;
+      await session.setAvatar(base64Encode(bytes));
+      if (!context.mounted) return;
+      VboxToast.show(context, '头像已更新');
+    } catch (e) {
+      if (!context.mounted) return;
+      VboxToast.show(context, '头像更新失败：$e');
+    }
+  }
+
+  /// 默认选图实现：`image_picker` 相册 → 压缩到最长边 [avatarMaxSide]。
+  Future<Uint8List?> _pickAvatarBytes() async {
+    final XFile? file =
+        await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (file == null) return null;
+    final Uint8List raw = await file.readAsBytes();
+    return resizeAvatarBytes(raw, maxSide: avatarMaxSide);
+  }
+
+  /// 分享 vbox（对齐 iOS `ShareLink(item: updateManager.shareURL)`）。
+  Future<void> _shareVbox(BuildContext context) async {
+    final String url = Updater.instance.shareUrl;
+    try {
+      final Future<void> Function(String url) launcher =
+          shareLauncher ?? _launchShare;
+      await launcher(url);
+    } catch (e) {
+      if (context.mounted) VboxToast.show(context, '分享失败：$e');
+    }
+  }
+
+  /// 默认分享实现：系统分享面板（`share_plus`）。
+  Future<void> _launchShare(String url) async {
+    await SharePlus.instance.share(
+      ShareParams(uri: Uri.parse(url), subject: 'VBox'),
     );
   }
 
@@ -415,6 +485,40 @@ class ProfilePage extends StatelessWidget {
   }
 }
 
+/// 将图片字节压缩到最长边 [maxSide]（对齐 iOS `ProfileView.resizeImage`）。
+///
+/// 最长边不超过 [maxSide] 时原样返回；解码失败时同样原样返回（不阻断更头像）。
+Future<Uint8List> resizeAvatarBytes(
+  Uint8List source, {
+  int maxSide = ProfilePage.avatarMaxSide,
+}) async {
+  ui.Image? probeImage;
+  ui.Image? resizedImage;
+  try {
+    final ui.Codec probe = await ui.instantiateImageCodec(source);
+    probeImage = (await probe.getNextFrame()).image;
+    final int w = probeImage.width;
+    final int h = probeImage.height;
+    final int longest = w > h ? w : h;
+    if (longest <= maxSide || longest == 0) return source;
+    final double scale = maxSide / longest;
+    final ui.Codec codec = await ui.instantiateImageCodec(
+      source,
+      targetWidth: (w * scale).round(),
+      targetHeight: (h * scale).round(),
+    );
+    resizedImage = (await codec.getNextFrame()).image;
+    final ByteData? data =
+        await resizedImage.toByteData(format: ui.ImageByteFormat.png);
+    return data?.buffer.asUint8List() ?? source;
+  } catch (_) {
+    return source;
+  } finally {
+    probeImage?.dispose();
+    resizedImage?.dispose();
+  }
+}
+
 /// 登录弹窗宿主：管理输入控制器 / 错误 / 加载态并驱动 [SessionController]。
 class _LoginSheetHost extends StatefulWidget {
   const _LoginSheetHost({required this.session});
@@ -428,6 +532,9 @@ class _LoginSheetHost extends StatefulWidget {
 class _LoginSheetHostState extends State<_LoginSheetHost> {
   final TextEditingController _username = TextEditingController();
   final TextEditingController _password = TextEditingController();
+
+  /// 上级推荐码输入（M-账1，选填）。
+  final TextEditingController _referral = TextEditingController();
   String? _error;
   bool _loading = false;
   bool _registered = false;
@@ -443,6 +550,7 @@ class _LoginSheetHostState extends State<_LoginSheetHost> {
     _username.removeListener(_refreshRegistered);
     _username.dispose();
     _password.dispose();
+    _referral.dispose();
     super.dispose();
   }
 
@@ -461,6 +569,7 @@ class _LoginSheetHostState extends State<_LoginSheetHost> {
     final String? error = await widget.session.login(
       account: _username.text,
       password: _password.text,
+      referral: _referral.text,
     );
     if (!mounted) return;
     if (error != null) {
@@ -478,6 +587,7 @@ class _LoginSheetHostState extends State<_LoginSheetHost> {
     return VboxLoginSheet(
       usernameController: _username,
       passwordController: _password,
+      referralController: _referral,
       onSubmit: _submit,
       onCancel: () => Navigator.of(context).pop(),
       error: _error,

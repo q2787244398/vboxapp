@@ -35,6 +35,75 @@ enum LogLevel {
   }
 }
 
+/// 日志模块分类（对齐 iOS `LogCategory`，序号与 `codeName` 逐位一致）。
+///
+/// 用于日志查看页的「模块筛选」与落盘行的 `[category]` 段；
+/// 调用方未显式传分类时，由 [fromTag] 按标签推断（如 `network` → 网络）。
+enum LogCategory {
+  /// 应用（默认分类）。
+  app('应用', 'app'),
+
+  /// 爬虫 / 站源。
+  spider('爬虫', 'spider'),
+
+  /// 播放器。
+  player('播放器', 'player'),
+
+  /// 网盘。
+  cloud('网盘', 'cloud'),
+
+  /// 代理。
+  proxy('代理', 'proxy'),
+
+  /// 网络。
+  network('网络', 'network'),
+
+  /// 数据库。
+  db('数据库', 'db'),
+
+  /// 下载。
+  download('下载', 'download'),
+
+  /// 福利区。
+  welfare('福利区', 'welfare'),
+
+  /// Node 常驻系统。
+  node('Node 常驻系统', 'node'),
+
+  /// 音乐。
+  music('音乐', 'music');
+
+  const LogCategory(this.displayName, this.codeName);
+
+  /// 中文显示名（筛选菜单展示）。
+  final String displayName;
+
+  /// 代码名（日志行 / 落盘文本）。
+  final String codeName;
+
+  /// 由标签推断分类（未显式传 [LogCategory] 时的兜底）。
+  static LogCategory fromTag(String tag) {
+    final String t = tag.toLowerCase();
+    if (t.contains('network') || t.contains('http')) return LogCategory.network;
+    if (t.contains('spider') || t.contains('zhanyuan')) return LogCategory.spider;
+    if (t.contains('play')) return LogCategory.player;
+    if (t.contains('cloud') ||
+        t.contains('drive') ||
+        t.contains('pan')) {
+      return LogCategory.cloud;
+    }
+    if (t.contains('proxy')) return LogCategory.proxy;
+    if (t.contains('download')) return LogCategory.download;
+    if (t.contains('welfare')) return LogCategory.welfare;
+    if (t.contains('node')) return LogCategory.node;
+    if (t.contains('music')) return LogCategory.music;
+    if (t.contains('db') || t.contains('sqlite') || t.contains('database')) {
+      return LogCategory.db;
+    }
+    return LogCategory.app;
+  }
+}
+
 /// 单条日志。
 class LogEntry {
   /// 构造。
@@ -43,6 +112,7 @@ class LogEntry {
     required this.level,
     required this.tag,
     required this.message,
+    this.category = LogCategory.app,
     this.error,
   });
 
@@ -51,6 +121,9 @@ class LogEntry {
 
   /// 级别。
   final LogLevel level;
+
+  /// 模块分类（默认 [LogCategory.app]）。
+  final LogCategory category;
 
   /// 标签（一般传类名/模块名）。
   final String tag;
@@ -61,12 +134,14 @@ class LogEntry {
   /// 关联错误（可空）。
   final Object? error;
 
-  /// 单行格式化。
+  /// 单行格式化（含 `[category]` 段，对齐 iOS `logLine`）。
   String format() {
     final StringBuffer sb = StringBuffer()
       ..write(_timestamp(time))
       ..write(' [')
       ..write(level.name.toUpperCase().padRight(5))
+      ..write('] [')
+      ..write(category.codeName)
       ..write('] ')
       ..write(tag)
       ..write(': ')
@@ -127,16 +202,20 @@ abstract final class AppLog {
   static Stream<LogEntry> get stream => _controller.stream;
 
   /// 写入一条日志。
+  ///
+  /// [category] 未显式传入时按 [tag] 推断（[LogCategory.fromTag]）。
   static void log(
     LogLevel level,
     String tag,
     String message, {
+    LogCategory? category,
     Object? error,
   }) {
     if (!_enabled || level.index < _minLevel.index) return;
     final LogEntry entry = LogEntry(
       time: DateTime.now(),
       level: level,
+      category: category ?? LogCategory.fromTag(tag),
       tag: tag,
       message: message,
       error: error,
@@ -152,29 +231,52 @@ abstract final class AppLog {
   }
 
   /// debug 级。
-  static void debug(String tag, String message, {Object? error}) =>
-      log(LogLevel.debug, tag, message, error: error);
+  static void debug(
+    String tag,
+    String message, {
+    LogCategory? category,
+    Object? error,
+  }) =>
+      log(LogLevel.debug, tag, message, category: category, error: error);
 
   /// info 级。
-  static void info(String tag, String message, {Object? error}) =>
-      log(LogLevel.info, tag, message, error: error);
+  static void info(
+    String tag,
+    String message, {
+    LogCategory? category,
+    Object? error,
+  }) =>
+      log(LogLevel.info, tag, message, category: category, error: error);
 
   /// warn 级。
-  static void warn(String tag, String message, {Object? error}) =>
-      log(LogLevel.warn, tag, message, error: error);
+  static void warn(
+    String tag,
+    String message, {
+    LogCategory? category,
+    Object? error,
+  }) =>
+      log(LogLevel.warn, tag, message, category: category, error: error);
 
   /// error 级。
-  static void error(String tag, String message, {Object? error}) =>
-      log(LogLevel.error, tag, message, error: error);
+  static void error(
+    String tag,
+    String message, {
+    LogCategory? category,
+    Object? error,
+  }) =>
+      log(LogLevel.error, tag, message, category: category, error: error);
 
   /// 清空缓冲（不影响订阅者）。
   static void clear() => _entries.clear();
 
   /// 导出文本（`limit` 为最大条数，取**最新**若干条）。
-  static String dump({LogLevel? minLevel, int? limit}) {
+  static String dump({LogLevel? minLevel, LogCategory? category, int? limit}) {
     Iterable<LogEntry> list = _entries;
     if (minLevel != null) {
       list = list.where((LogEntry e) => e.level.index >= minLevel.index);
+    }
+    if (category != null) {
+      list = list.where((LogEntry e) => e.category == category);
     }
     if (limit != null && list.length > limit) {
       list = list.skip(list.length - limit);

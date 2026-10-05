@@ -155,7 +155,9 @@ class HttpClient {
     }
 
     Object? lastError;
-    AppLog.debug(logTag, '$method $uri');
+    // 网络日志（S-设4）：统一网关按 `network` 分类记录 方法/地址/耗时/字节。
+    final Stopwatch sw = Stopwatch()..start();
+    AppLog.debug(logTag, '$method $uri', category: LogCategory.network);
     for (int attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         final http.Response res =
@@ -165,12 +167,19 @@ class HttpClient {
           AppLog.warn(
             logTag,
             'HTTP ${res.statusCode}，重试 ${attempt + 1}/$maxRetries：$method $uri',
+            category: LogCategory.network,
           );
           await Future<void>.delayed(backoff(attempt));
           continue;
         }
-        AppLog.debug(logTag, 'HTTP ${res.statusCode}：$method $uri');
-        return _decode(uri, res, metaCharsetOverride);
+        final HttpClientResponse decoded = _decode(uri, res, metaCharsetOverride);
+        AppLog.debug(
+          logTag,
+          'HTTP ${res.statusCode}（${sw.elapsedMilliseconds}ms / '
+          '${decoded.byteLength}B）：$method $uri',
+          category: LogCategory.network,
+        );
+        return decoded;
       } on TimeoutException catch (e) {
         lastError = e;
       } on SocketException catch (e) {
@@ -180,14 +189,21 @@ class HttpClient {
       }
       AppLog.warn(
         logTag,
-        '请求异常（第 ${attempt + 1}/${maxRetries + 1} 次）：$method $uri',
+        '请求异常（第 ${attempt + 1}/${maxRetries + 1} 次，'
+        '${sw.elapsedMilliseconds}ms）：$method $uri',
+        category: LogCategory.network,
         error: lastError,
       );
       if (attempt < maxRetries) {
         await Future<void>.delayed(backoff(attempt));
       }
     }
-    AppLog.error(logTag, '请求最终失败：$method $uri', error: lastError);
+    AppLog.error(
+      logTag,
+      '请求最终失败（${sw.elapsedMilliseconds}ms）：$method $uri',
+      category: LogCategory.network,
+      error: lastError,
+    );
     throw NetworkException(
       '请求失败：$uri',
       code: ErrorCode.networkUnreachable,
