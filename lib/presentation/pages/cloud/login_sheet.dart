@@ -56,30 +56,39 @@ Future<void> openCloudDriveLoginSheet(
     isScrollControlled: true,
     backgroundColor: scheme.surface,
     shape: const RoundedRectangleBorder(borderRadius: VboxRadii.panel),
-    builder: (BuildContext _) => switch (mode) {
-      CloudDriveLoginMode.webFallback => CloudDriveWebLoginSheet(
+    builder: (BuildContext _) {
+      // UCNode 两步扫码（对齐 iOS `NodeUcTwoStepLoginView`：Cookie → TV Token）。
+      if (type == CloudDriveType.ucNode && mode == CloudDriveLoginMode.nodeQr) {
+        return CloudDriveUcTwoStepQrSheet(
           driveType: type,
-          saver: webSaver,
-          // Web-R1：支持平台默认启用内嵌 WebView（不支持平台回退浏览器 + 粘贴）。
-          bridge: webViewBridge ?? InAppWebViewBridge(),
-        ),
-      CloudDriveLoginMode.nodeSms => CloudDriveSmsLoginSheet(
-          driveType: type,
-          mode: mode,
           gateway: gateway,
-          // Web-R3：支持平台内嵌滑块验证页（139）；不支持平台不展示滑块面板。
-          bridge: webViewBridge ?? InAppWebViewBridge(),
-        ),
-      CloudDriveLoginMode.nodeAccount => CloudDriveAccountLoginSheet(
-          driveType: type,
-          mode: mode,
-          gateway: gateway,
-        ),
-      _ => CloudDriveQrLoginSheet(
-          driveType: type,
-          mode: mode,
-          gateway: gateway,
-        ),
+        );
+      }
+      return switch (mode) {
+        CloudDriveLoginMode.webFallback => CloudDriveWebLoginSheet(
+            driveType: type,
+            saver: webSaver,
+            // Web-R1：支持平台默认启用内嵌 WebView（不支持平台回退浏览器 + 粘贴）。
+            bridge: webViewBridge ?? InAppWebViewBridge(),
+          ),
+        CloudDriveLoginMode.nodeSms => CloudDriveSmsLoginSheet(
+            driveType: type,
+            mode: mode,
+            gateway: gateway,
+            // Web-R3：支持平台内嵌滑块验证页（139）；不支持平台不展示滑块面板。
+            bridge: webViewBridge ?? InAppWebViewBridge(),
+          ),
+        CloudDriveLoginMode.nodeAccount => CloudDriveAccountLoginSheet(
+            driveType: type,
+            mode: mode,
+            gateway: gateway,
+          ),
+        _ => CloudDriveQrLoginSheet(
+            driveType: type,
+            mode: mode,
+            gateway: gateway,
+          ),
+      };
     },
   );
 }
@@ -257,6 +266,286 @@ class _CloudDriveQrLoginSheetState extends State<CloudDriveQrLoginSheet> {
         size: 88,
         color: scheme.onSurfaceVariant.withValues(alpha: 0.45),
       );
+}
+
+/// UCNode 两步扫码登录 Sheet（对齐 iOS `NodeUcTwoStepLoginView`）。
+///
+/// 第 1 步 `ucCookie`（基础登录态：转存 / 目录读取依赖）→ 第 2 步 `ucToken`
+/// （TV Token：非高会账号取流依赖）；本机已有 Cookie 时提供跳过第 1 步入口。
+class CloudDriveUcTwoStepQrSheet extends StatefulWidget {
+  /// 构造。
+  const CloudDriveUcTwoStepQrSheet({
+    super.key,
+    required this.driveType,
+    this.gateway,
+    this.hasExistingCookie,
+  });
+
+  /// 目标网盘（ucNode）。
+  final CloudDriveType driveType;
+
+  /// 登录网关（测试注入；缺省按 `nodeQr` 路由）。
+  final CloudDriveLoginGateway? gateway;
+
+  /// 本机是否已有 Cookie（缺省读安全存储；测试注入）。
+  final bool? hasExistingCookie;
+
+  @override
+  State<CloudDriveUcTwoStepQrSheet> createState() =>
+      _CloudDriveUcTwoStepQrSheetState();
+}
+
+class _CloudDriveUcTwoStepQrSheetState
+    extends State<CloudDriveUcTwoStepQrSheet> {
+  late final CloudDriveLoginGateway _gateway;
+  CloudDriveLoginController? _controller;
+  bool _stepTwo = false;
+  bool _hasCookie = false;
+  bool _finished = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _gateway = widget.gateway ??
+        defaultCloudDriveLoginGateway(
+          widget.driveType,
+          CloudDriveLoginMode.nodeQr,
+        );
+    _resolveExistingCookie();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startStep());
+  }
+
+  Future<void> _resolveExistingCookie() async {
+    bool has = widget.hasExistingCookie ?? false;
+    if (widget.hasExistingCookie == null) {
+      try {
+        final CloudDriveCredential? cred = await CloudDriveCredentialStore(
+          PrefsManager.instance,
+        ).credential(CloudDriveType.ucNode);
+        has = (cred?.cookie ?? '').isNotEmpty;
+      } catch (_) {
+        has = false;
+      }
+    }
+    if (!mounted) return;
+    setState(() => _hasCookie = has);
+  }
+
+  /// 当前步骤对应 provider（对齐 iOS 两步的 `ucCookie` / `ucToken`）。
+  String get _provider => _stepTwo ? 'ucToken' : 'ucCookie';
+
+  void _startStep() {
+    _controller?.removeListener(_onChanged);
+    _controller?.dispose();
+    _controller = CloudDriveLoginController(
+      driveType: widget.driveType,
+      mode: CloudDriveLoginMode.nodeQr,
+      gateway: _gateway,
+      providerOverride: _provider,
+    )..addListener(_onChanged);
+    _controller!.generateQr();
+  }
+
+  /// 切到第 2 步（对齐 iOS `goToTVStep`）。
+  void _goStepTwo() {
+    if (!mounted || _stepTwo) return;
+    setState(() => _stepTwo = true);
+    _startStep();
+  }
+
+  void _onChanged() {
+    final CloudDriveLoginController? c = _controller;
+    if (c != null && c.phase == CloudDriveLoginPhase.success && !_finished) {
+      if (!_stepTwo) {
+        // 第 1 步完成 → 短暂停留后自动切第 2 步（对齐 iOS `goToTVStep`）。
+        Future<void>.delayed(const Duration(milliseconds: 600), _goStepTwo);
+      } else {
+        _finished = true;
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _controller?.removeListener(_onChanged);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final CloudDriveLoginController? c = _controller;
+    final CloudDriveLoginPhase phase =
+        c?.phase ?? CloudDriveLoginPhase.loading;
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(VboxSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            LoginSheetHeader(
+              title: '${widget.driveType.displayName} 两步扫码登录',
+            ),
+            const SizedBox(height: VboxSpacing.md),
+            _stepIndicator(scheme),
+            const SizedBox(height: VboxSpacing.lg),
+            _qrCard(scheme, phase, c?.qrDataUrl),
+            const SizedBox(height: VboxSpacing.lg),
+            LoginStatusCard(
+              tone: phase.tone,
+              phase: phase,
+              message: c?.message ?? '',
+              error: c?.error,
+            ),
+            const SizedBox(height: VboxSpacing.md),
+            LoginTipCard(
+              text: _stepTwo
+                  ? '第 2 步 · 扫码授权 TV Token（非高会账号取流依赖）。'
+                  : '第 1 步 · 扫码获取 Cookie（转存与目录读取依赖）。',
+              tint: cloudDriveBrandColor(widget.driveType),
+            ),
+            const SizedBox(height: VboxSpacing.lg),
+            LoginPrimaryButton(
+              label: c?.primaryLabel ?? '生成二维码',
+              enabled: phase != CloudDriveLoginPhase.loading,
+              onTap: () => c?.generateQr(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 步骤指示器（对齐 iOS `stepIndicator`：chip + 箭头 + 说明 + 跳过入口）。
+  Widget _stepIndicator(ColorScheme scheme) {
+    Widget chip(int index, String text, {required bool active, required bool done}) {
+      final Color tint = (active || done)
+          ? VboxColors.selected
+          : scheme.onSurfaceVariant;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: (active || done)
+              ? tint.withValues(alpha: 0.1)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(VboxRadii.r8),
+        ),
+        child: Row(
+          spacing: 5,
+          children: <Widget>[
+            Icon(
+              done
+                  ? Icons.check_circle
+                  : (index == 1 ? Icons.looks_one : Icons.looks_two),
+              size: VboxTypography.s13,
+              color: tint,
+            ),
+            Text(
+              text,
+              style: TextStyle(fontSize: VboxTypography.s12, color: tint),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          spacing: 8,
+          children: <Widget>[
+            chip(1, 'Cookie', active: !_stepTwo, done: _stepTwo),
+            Icon(
+              Icons.arrow_forward,
+              size: VboxTypography.s11,
+              color: scheme.onSurfaceVariant,
+            ),
+            chip(2, 'TV Token', active: _stepTwo, done: false),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'UC网盘Node 播放需要 Cookie + TV Token 两项凭据，请按顺序完成两次扫码。',
+          style: TextStyle(
+            fontSize: VboxTypography.s12,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        if (!_stepTwo && _hasCookie) ...<Widget>[
+          const SizedBox(height: 6),
+          LoginSecondaryButton(
+            label: '本机已有 Cookie，直接进行第 2 步',
+            onTap: _goStepTwo,
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// 二维码卡片（结构对齐 iOS `qrCard`）。
+  Widget _qrCard(
+    ColorScheme scheme,
+    CloudDriveLoginPhase phase,
+    String? qrDataUrl,
+  ) {
+    final String? qrContent = qrContentOf(qrDataUrl);
+    final Uint8List? bytes =
+        qrContent == null ? _decodeQrDataUrl(qrDataUrl) : null;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(VboxSpacing.lg),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(VboxRadii.r16),
+      ),
+      child: Center(
+        child: Container(
+          width: 220,
+          height: 220,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(VboxRadii.r16),
+          ),
+          child: qrContent != null
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(VboxRadii.r16),
+                  child: QrImageView(
+                    data: qrContent,
+                    version: QrVersions.auto,
+                    size: 220,
+                    backgroundColor: scheme.surface,
+                  ),
+                )
+              : bytes != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(VboxRadii.r16),
+                      child: Image.memory(
+                        bytes,
+                        width: 220,
+                        height: 220,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
+                      ),
+                    )
+                  : phase == CloudDriveLoginPhase.loading
+                      ? const SizedBox(
+                          width: 36,
+                          height: 36,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        )
+                      : Icon(
+                          Icons.qr_code_2,
+                          size: 88,
+                          color: scheme.onSurfaceVariant.withValues(alpha: 0.45),
+                        ),
+        ),
+      ),
+    );
+  }
 }
 
 /// 短信验证码登录 Sheet（对齐 iOS `NodeGuangyaSMSLoginView`）。
@@ -509,20 +798,59 @@ class CloudDriveAccountLoginSheet extends StatefulWidget {
 class _CloudDriveAccountLoginSheetState
     extends State<CloudDriveAccountLoginSheet> {
   late final CloudDriveLoginController _controller;
+  late final CloudDriveLoginGateway _gateway;
   final TextEditingController _account = TextEditingController();
   final TextEditingController _password = TextEditingController();
+  final TextEditingController _verify = TextEditingController();
+  String? _captchaImage;
+  bool _captchaLoading = false;
 
   @override
   void initState() {
     super.initState();
+    _gateway = widget.gateway ??
+        defaultCloudDriveLoginGateway(widget.driveType, widget.mode);
     _controller = CloudDriveLoginController(
       driveType: widget.driveType,
       mode: widget.mode,
-      gateway: widget.gateway ??
-          defaultCloudDriveLoginGateway(widget.driveType, widget.mode),
+      gateway: _gateway,
     )..addListener(_onChanged);
     _account.addListener(_onChanged);
     _password.addListener(_onChanged);
+    _verify.addListener(_onChanged);
+    // 对齐 iOS `NodeWoniu4kLoginView.onAppear { fetchVerify() }`（首帧后拉取）。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadCaptcha());
+  }
+
+  /// 拉取 / 刷新图形验证码（无图形验证码的盘返回 null）。
+  Future<void> _loadCaptcha() async {
+    if (!mounted) return;
+    setState(() => _captchaLoading = true);
+    try {
+      final String? img = await _gateway.loadAccountCaptcha(widget.driveType);
+      if (!mounted) return;
+      setState(() {
+        _captchaImage = img;
+        _captchaLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _captchaLoading = false);
+    }
+  }
+
+  bool get _needsCaptcha => _captchaImage != null;
+
+  /// 提交账号登录；失败时刷新图形验证码（对齐 iOS 提交失败自动换图）。
+  Future<void> _submit() async {
+    await _controller.loginWithAccount(
+      _account.text,
+      _password.text,
+      captchaCode: _verify.text,
+    );
+    if (_needsCaptcha && _controller.phase == CloudDriveLoginPhase.failed) {
+      await _loadCaptcha();
+    }
   }
 
   void _onChanged() {
@@ -535,12 +863,14 @@ class _CloudDriveAccountLoginSheetState
     _controller.dispose();
     _account.dispose();
     _password.dispose();
+    _verify.dispose();
     super.dispose();
   }
 
   bool get _canLogin =>
       _account.text.trim().isNotEmpty &&
       _password.text.isNotEmpty &&
+      (!_needsCaptcha || _verify.text.trim().isNotEmpty) &&
       _controller.phase != CloudDriveLoginPhase.loading;
 
   /// 账号档状态主行（按账号语义替换扫码档的 `phase.displayText`）。
@@ -593,8 +923,7 @@ class _CloudDriveAccountLoginSheetState
               LoginPrimaryButton(
                 label: phase == CloudDriveLoginPhase.loading ? '登录中…' : '登录并保存',
                 enabled: _canLogin,
-                onTap: () =>
-                    _controller.loginWithAccount(_account.text, _password.text),
+                onTap: _submit,
               ),
               const SizedBox(height: VboxSpacing.lg),
               LoginTipCard(
@@ -630,10 +959,72 @@ class _CloudDriveAccountLoginSheetState
             hintText: '${widget.driveType.displayName}密码',
             obscureText: true,
           ),
+          // 图形验证码（对齐 iOS `NodeWoniu4kLoginView`：验证码输入 + 图 120×40）。
+          if (_needsCaptcha)
+            Row(
+              spacing: VboxSpacing.sm,
+              children: <Widget>[
+                Expanded(
+                  child: LoginTextField(
+                    key: const ValueKey<String>('cloud_login_verify'),
+                    controller: _verify,
+                    hintText: '验证码',
+                  ),
+                ),
+                SizedBox(
+                  width: 120,
+                  height: 40,
+                  child: _captchaButton(scheme),
+                ),
+              ],
+            ),
         ],
       ),
     );
   }
+
+  /// 图形验证码图（点击刷新，对齐 iOS 点击 `fetchVerify`）。
+  Widget _captchaButton(ColorScheme scheme) {
+    final Uint8List? bytes = _decodeQrDataUrl(_captchaImage);
+    return InkWell(
+      onTap: _captchaLoading ? null : _loadCaptcha,
+      borderRadius: BorderRadius.circular(VboxRadii.r8),
+      child: Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(VboxRadii.r8),
+        ),
+        child: _captchaLoading
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : bytes != null
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(VboxRadii.r8),
+                    child: Image.memory(
+                      bytes,
+                      width: 120,
+                      height: 40,
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                      errorBuilder: (_, __, ___) => _captchaText(scheme),
+                    ),
+                  )
+                : _captchaText(scheme),
+      ),
+    );
+  }
+
+  Widget _captchaText(ColorScheme scheme) => Text(
+        '获取验证码',
+        style: TextStyle(
+          fontSize: VboxTypography.s12,
+          color: scheme.onSurfaceVariant,
+        ),
+      );
 }
 
 /// 网页兜底凭据落盘回调（F-02 余项；测试注入替身，缺省写契约安全存储）。

@@ -52,6 +52,10 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   /// 短信登录所需滑块验证页地址（139 `captchaUrl`）。
   final Map<CloudDriveType, String> _captchaUrl = <CloudDriveType, String>{};
 
+  /// 蜗牛图形验证码的服务端 taskId（`loadAccountCaptcha` 缓存）。
+  final Map<CloudDriveType, String> _accountCaptchaTask =
+      <CloudDriveType, String>{};
+
   /// 该网关是否覆盖给定网盘 / 方式。
   static bool supports(CloudDriveType type, CloudDriveLoginMode mode) {
     if (type == CloudDriveType.bilibili) return mode.isQr;
@@ -88,12 +92,14 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   Future<CloudDriveQrTask> startQrLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
+    String? providerOverride,
   }) async {
-    if (_isBili(type, mode)) {
+    if (_isBili(type, mode) && providerOverride == null) {
       final BiliQrStart start = await _bili.startQrLogin();
       return (taskId: start.taskId, qrDataUrl: start.qrDataUrl ?? '');
     }
-    final String? provider = NodeLoginRouting.qrProviderFor(type);
+    final String? provider =
+        providerOverride ?? NodeLoginRouting.qrProviderFor(type);
     if (provider == null || !mode.isQr) {
       throw CloudDriveLoginException(_unavailableMessage(mode));
     }
@@ -107,11 +113,13 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String taskId,
+    String? providerOverride,
   }) async {
-    if (_isBili(type, mode)) {
+    if (_isBili(type, mode) && providerOverride == null) {
       return _pollBili(taskId);
     }
-    final String? provider = NodeLoginRouting.qrProviderFor(type);
+    final String? provider =
+        providerOverride ?? NodeLoginRouting.qrProviderFor(type);
     if (provider == null || !mode.isQr) {
       throw CloudDriveLoginException(_unavailableMessage(mode));
     }
@@ -243,6 +251,7 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     required CloudDriveLoginMode mode,
     required String account,
     required String password,
+    String captchaCode = '',
   }) async {
     switch (type) {
       case CloudDriveType.pan123:
@@ -255,6 +264,14 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
             r.msg.isEmpty ? '该账号需短信二次校验（189），请改用验证码登录' : r.msg,
           );
         }
+      case CloudDriveType.woniu4k:
+        // 对齐 iOS `NodeWoniu4kLoginView.submit`：account + password + verify + taskId。
+        await _node.woniuLogin(
+          account: account,
+          password: password,
+          verify: captchaCode,
+          taskId: _accountCaptchaTask[type] ?? '',
+        );
       default:
         throw CloudDriveLoginException(_unavailableMessage(mode));
     }
@@ -263,6 +280,15 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
 
   @override
   String? pendingCaptchaUrl(CloudDriveType type) => _captchaUrl[type];
+
+  @override
+  Future<String?> loadAccountCaptcha(CloudDriveType type) async {
+    // 仅蜗牛需图形验证码（对齐 iOS `NodeWoniu4kLoginView.fetchVerify`）。
+    if (type != CloudDriveType.woniu4k) return null;
+    final ({String image, String taskId}) r = await _node.woniuVerify();
+    _accountCaptchaTask[type] = r.taskId;
+    return r.image;
+  }
 }
 
 /// 缺省登录网关工厂：按网盘 / 方式路由到已接入实现。

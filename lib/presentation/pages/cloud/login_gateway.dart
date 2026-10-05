@@ -48,9 +48,12 @@ class CloudDriveLoginException implements Exception {
 /// 所有方法失败时抛 [CloudDriveLoginException]（UI 统一渲染到错误行）。
 abstract interface class CloudDriveLoginGateway {
   /// 发起扫码：返回任务句柄（[CloudDriveQrTask]）。
+  ///
+  /// [providerOverride] 覆盖默认 provider（UCNode 两步登录第 2 步用 `ucToken`）。
   Future<CloudDriveQrTask> startQrLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
+    String? providerOverride,
   });
 
   /// 轮询一次扫码任务：返回下一刻阶段。
@@ -60,6 +63,7 @@ abstract interface class CloudDriveLoginGateway {
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String taskId,
+    String? providerOverride,
   });
 
   /// 取消扫码任务（幂等；失败不抛）。
@@ -88,12 +92,21 @@ abstract interface class CloudDriveLoginGateway {
   /// 对齐 iOS `NodePan123LoginView` / `NodeWoniu4kLoginView` 的
   /// `PUT /website/api/pan123/account {account, password}` 语义，
   /// 成功后由实现侧回收凭据并同步到本机安全存储。
+  ///
+  /// [captchaCode] 为图形验证码（蜗牛 `woniu4k` 需要；其余传空）。
   Future<void> submitAccountLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String account,
     required String password,
+    String captchaCode = '',
   });
+
+  /// 获取账号登录所需的**图形验证码**图片（data URL；无则 null）。
+  ///
+  /// 对齐 iOS `NodeWoniu4kLoginView.fetchVerify`：进入页面即拉取，点击可刷新；
+  /// 实现侧同时缓存服务端 `taskId` 供 [submitAccountLogin] 使用。
+  Future<String?> loadAccountCaptcha(CloudDriveType type);
 }
 
 /// 缺省网关：登录链尚未接入，统一抛「未就绪」。
@@ -111,6 +124,7 @@ class UnavailableCloudDriveLoginGateway implements CloudDriveLoginGateway {
   Future<CloudDriveQrTask> startQrLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
+    String? providerOverride,
   }) async =>
       throw CloudDriveLoginException(_messageFor(mode));
 
@@ -119,6 +133,7 @@ class UnavailableCloudDriveLoginGateway implements CloudDriveLoginGateway {
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String taskId,
+    String? providerOverride,
   }) async =>
       throw CloudDriveLoginException(_messageFor(mode));
 
@@ -146,9 +161,13 @@ class UnavailableCloudDriveLoginGateway implements CloudDriveLoginGateway {
     required CloudDriveLoginMode mode,
     required String account,
     required String password,
+    String captchaCode = '',
   }) async =>
       throw const CloudDriveLoginException('Node 常驻系统未就绪');
 
   @override
   String? pendingCaptchaUrl(CloudDriveType type) => null;
+
+  @override
+  Future<String?> loadAccountCaptcha(CloudDriveType type) async => null;
 }

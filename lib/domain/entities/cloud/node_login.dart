@@ -81,10 +81,13 @@ abstract final class NodeLoginRouting {
     CloudDriveType.xunlei,
   };
 
-  /// 账号密码登录盘（123 / 189）。
+  /// 账号密码登录盘（123 / 189 / 蜗牛）。
+  ///
+  /// 蜗牛需图形验证码（`/woniou4k/verify`），由网关 `loadAccountCaptcha` 供图。
   static const Set<CloudDriveType> accountTypes = <CloudDriveType>{
     CloudDriveType.pan123,
     CloudDriveType.pan189,
+    CloudDriveType.woniu4k,
   };
 
   /// 取扫码 provider（不支持返回 null）。

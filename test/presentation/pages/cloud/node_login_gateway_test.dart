@@ -135,20 +135,17 @@ void main() {
       ]) {
         expect(sup(t, CloudDriveLoginMode.nodeSms), isTrue, reason: '$t');
       }
-      // 账号：123 / 189。
+      // 账号：123 / 189 / 蜗牛。
       for (final CloudDriveType t in <CloudDriveType>[
         CloudDriveType.pan123,
         CloudDriveType.pan189,
+        CloudDriveType.woniu4k,
       ]) {
         expect(sup(t, CloudDriveLoginMode.nodeAccount), isTrue, reason: '$t');
       }
       // 未接入 / 不匹配档。
       expect(sup(CloudDriveType.bilibili, CloudDriveLoginMode.nodeSms), isFalse);
       expect(sup(CloudDriveType.ali, CloudDriveLoginMode.nativeQr), isFalse);
-      expect(
-        sup(CloudDriveType.woniu4k, CloudDriveLoginMode.nodeAccount),
-        isFalse,
-      );
       expect(sup(CloudDriveType.pan123, CloudDriveLoginMode.nodeQr), isFalse);
     });
 
@@ -507,6 +504,41 @@ void main() {
         password: 'p',
       );
       expect(node.calls, contains('PUT ${NodeLoginPaths.pan123Account}'));
+      expect(cred.calls, <String>['GET /website/api/credentials']);
+    });
+
+    test('蜗牛：loadAccountCaptcha 供图 + submitAccountLogin 带 captchaCode', () async {
+      final _FakeNodeLoginTransport node =
+          _FakeNodeLoginTransport((String m, String p, Map<String, dynamic>? b) {
+        if (p == NodeLoginPaths.woniuVerify) {
+          return <String, dynamic>{
+            'code': 0,
+            'data': <String, dynamic>{
+              'taskId': 'W1',
+              'image': 'data:image/png;base64,AA',
+            },
+          };
+        }
+        return <String, dynamic>{'code': 0};
+      });
+      final _RecordingCredentialClient cred = _RecordingCredentialClient();
+      final NodeCloudDriveLoginGateway gateway = gatewayWith(
+        (_, __) => <String, dynamic>{},
+        nodeTransport: node,
+        credentialClient: cred,
+      );
+      expect(
+        await gateway.loadAccountCaptcha(CloudDriveType.woniu4k),
+        'data:image/png;base64,AA',
+      );
+      await gateway.submitAccountLogin(
+        type: CloudDriveType.woniu4k,
+        mode: CloudDriveLoginMode.nodeAccount,
+        account: 'a',
+        password: 'p',
+        captchaCode: '8888',
+      );
+      expect(node.calls, contains('PUT ${NodeLoginPaths.woniuLogin}'));
       expect(cred.calls, <String>['GET /website/api/credentials']);
     });
 

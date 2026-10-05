@@ -39,13 +39,16 @@ class _FakeGateway implements CloudDriveLoginGateway {
   String? lastCode;
   String? lastAccount;
   String? lastPassword;
+  String? lastProviderOverride;
 
   @override
   Future<CloudDriveQrTask> startQrLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
+    String? providerOverride,
   }) async {
     startCalls += 1;
+    lastProviderOverride = providerOverride;
     final String? error = startError;
     if (error != null) throw CloudDriveLoginException(error);
     return (taskId: 'qr-task-1', qrDataUrl: _qrDataUrl);
@@ -56,6 +59,7 @@ class _FakeGateway implements CloudDriveLoginGateway {
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String taskId,
+    String? providerOverride,
   }) async {
     pollCalls += 1;
     lastTaskId = taskId;
@@ -106,6 +110,9 @@ class _FakeGateway implements CloudDriveLoginGateway {
 
   @override
   String? pendingCaptchaUrl(CloudDriveType type) => null;
+
+  @override
+  Future<String?> loadAccountCaptcha(CloudDriveType type) async => null;
 }
 
 CloudDriveLoginController _qrController(

@@ -24,6 +24,7 @@ class CloudDriveLoginController extends ChangeNotifier {
     required this.driveType,
     required this.mode,
     CloudDriveLoginGateway gateway = const UnavailableCloudDriveLoginGateway(),
+    this.providerOverride,
     this.pollInterval = const Duration(seconds: 2),
     this.smsCooldown = const Duration(seconds: 60),
   }) : _gateway = gateway;
@@ -33,6 +34,9 @@ class CloudDriveLoginController extends ChangeNotifier {
 
   /// 登录方式（决定 UI 形态与网关分支）。
   final CloudDriveLoginMode mode;
+
+  /// 覆盖网关默认扫码 provider（UCNode 两步登录第 2 步用 `ucToken`）。
+  final String? providerOverride;
 
   /// 扫码轮询间隔。
   final Duration pollInterval;
@@ -108,6 +112,7 @@ class CloudDriveLoginController extends ChangeNotifier {
       final CloudDriveQrTask task = await _gateway.startQrLogin(
         type: driveType,
         mode: mode,
+        providerOverride: providerOverride,
       );
       if (_disposed) return;
       _taskId = task.taskId;
@@ -133,6 +138,7 @@ class CloudDriveLoginController extends ChangeNotifier {
         type: driveType,
         mode: mode,
         taskId: taskId,
+        providerOverride: providerOverride,
       );
       if (_disposed || _phase.isTerminal) return;
       if (next == _phase) return;
@@ -228,7 +234,13 @@ class CloudDriveLoginController extends ChangeNotifier {
   // ─────────────────────────────────────────────────────────
 
   /// 账号密码登录（对齐 iOS `NodePan123LoginView` / `NodeWoniu4kLoginView`）。
-  Future<void> loginWithAccount(String account, String password) async {
+  ///
+  /// [captchaCode] 为图形验证码（蜗牛 `woniu4k` 需要；其余留空）。
+  Future<void> loginWithAccount(
+    String account,
+    String password, {
+    String captchaCode = '',
+  }) async {
     final String user = account.trim();
     if (user.isEmpty) {
       _error = '请输入账号';
@@ -248,6 +260,7 @@ class CloudDriveLoginController extends ChangeNotifier {
         mode: mode,
         account: user,
         password: password,
+        captchaCode: captchaCode,
       );
       if (_disposed) return;
       _setPhase(CloudDriveLoginPhase.success, message: '登录成功');

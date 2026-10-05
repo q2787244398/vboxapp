@@ -25,6 +25,7 @@ class _SheetGateway implements CloudDriveLoginGateway {
   Future<CloudDriveQrTask> startQrLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
+    String? providerOverride,
   }) async =>
       (taskId: 'qr-1', qrDataUrl: _qrDataUrl);
 
@@ -33,6 +34,7 @@ class _SheetGateway implements CloudDriveLoginGateway {
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String taskId,
+    String? providerOverride,
   }) async =>
       CloudDriveLoginPhase.success;
 
@@ -65,6 +67,9 @@ class _SheetGateway implements CloudDriveLoginGateway {
 
   @override
   String? pendingCaptchaUrl(CloudDriveType type) => null;
+
+  @override
+  Future<String?> loadAccountCaptcha(CloudDriveType type) async => null;
 }
 
 Future<void> _pump(WidgetTester tester, Widget child) async {

@@ -43,6 +43,7 @@ class AliyunPgLoginGateway implements CloudDriveLoginGateway {
   Future<CloudDriveQrTask> startQrLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
+    String? providerOverride,
   }) async {
     if (!supports(type, mode)) {
       throw const CloudDriveLoginException('PG 扫码登录仅支持阿里云盘');
@@ -67,6 +68,7 @@ class AliyunPgLoginGateway implements CloudDriveLoginGateway {
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String taskId,
+    String? providerOverride,
   }) async {
     if (!supports(type, mode)) {
       throw const CloudDriveLoginException('PG 扫码登录仅支持阿里云盘');
@@ -161,9 +163,13 @@ class AliyunPgLoginGateway implements CloudDriveLoginGateway {
     required CloudDriveLoginMode mode,
     required String account,
     required String password,
+    String captchaCode = '',
   }) async =>
       throw const CloudDriveLoginException('PG 扫码登录仅支持扫码档');
 
   @override
   String? pendingCaptchaUrl(CloudDriveType type) => null;
+
+  @override
+  Future<String?> loadAccountCaptcha(CloudDriveType type) async => null;
 }
