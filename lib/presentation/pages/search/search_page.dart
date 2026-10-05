@@ -40,9 +40,11 @@ class _SearchPageState extends State<SearchPage> {
   late final ContentBrowseUseCases _uc;
   late final SearchHistoryUseCases _history;
 
-  /// 附加结果源（S-设2 占源并列 / S-设3 腾讯原生）；缺省注入时为空（测试环境）。
+  /// 附加结果源（S-设2 占源并列 / S-设3 腾讯原生 / Wave D 兜底切片源）；
+  /// 缺省注入时为空（测试环境）。
   ZhanyuanSearchUseCases? _zhanyuan;
   TencentVideoNativeSpider? _tencent;
+  SourceGovernanceUseCases? _governance;
 
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focus = FocusNode();
@@ -64,6 +66,7 @@ class _SearchPageState extends State<SearchPage> {
     _history = context.read<SearchHistoryUseCases>();
     _zhanyuan = _maybeRead<ZhanyuanSearchUseCases>(context);
     _tencent = _maybeRead<TencentVideoNativeSpider>(context);
+    _governance = _maybeRead<SourceGovernanceUseCases>(context);
     _init();
   }
 
@@ -162,7 +165,8 @@ class _SearchPageState extends State<SearchPage> {
   Future<void> _searchExtraSources(String keyword) async {
     final ZhanyuanSearchUseCases? zhanyuan = _zhanyuan;
     final TencentVideoNativeSpider? tencent = _tencent;
-    if (zhanyuan == null && tencent == null) return;
+    final SourceGovernanceUseCases? governance = _governance;
+    if (zhanyuan == null && tencent == null && governance == null) return;
 
     final List<Future<void>> tasks = <Future<void>>[];
     if (zhanyuan != null) {
@@ -196,6 +200,24 @@ class _SearchPageState extends State<SearchPage> {
             _error = null;
           });
         }).catchError((Object _) {}),
+      );
+    }
+    // Wave D · O-源1：兜底切片源（受 `fallback_enabled` 开关约束，内部自判）。
+    if (governance != null) {
+      tasks.add(
+        governance
+            .searchFallback(
+              keyword,
+              onBatch: (List<VodItem> items) {
+                if (!mounted || items.isEmpty) return;
+                setState(() {
+                  _mergeResults(items);
+                  _searched = true;
+                  _error = null;
+                });
+              },
+            )
+            .catchError((Object _) {}),
       );
     }
     await Future.wait(tasks);

@@ -298,7 +298,7 @@ class _VboxSplashViewState extends State<VboxSplashView>
             borderRadius: BorderRadius.circular(4),
             gradient: const LinearGradient(
               colors: <Color>[
-                Color(0x003B82F6),
+                Colors.transparent,
                 VboxColors.brandGradientStart,
                 VboxColors.brandGradientEnd,
               ],
@@ -327,7 +327,7 @@ class _VboxSplashViewState extends State<VboxSplashView>
       fontWeight: FontWeight.w700,
       color: Theme.of(context).brightness == Brightness.dark
           ? Colors.white
-          : const Color(0xFF1B1B1F),
+          : Theme.of(context).colorScheme.onSurface,
     );
     return AnimatedBuilder(
       animation: progress,

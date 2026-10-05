@@ -26,6 +26,7 @@ import 'data/datasources/local/database_manager.dart';
 import 'data/datasources/local/log_file_sink.dart';
 import 'data/datasources/local/prefs_manager.dart';
 import 'data/datasources/local/push_play_store.dart';
+import 'data/datasources/local/source_governance_store.dart';
 import 'data/datasources/local/subscribe_config_store.dart';
 import 'data/datasources/local/tg_search_config_store.dart';
 import 'data/datasources/local/tmdb_config_store.dart';
@@ -118,6 +119,9 @@ class _VBoxAppState extends State<VBoxApp> {
   /// 腾讯视频原生蜘蛛（S-设3：搜索附加结果源 + 详情原生解析，
   /// 对齐 iOS `TencentVideoNativeSpider.shared.search/detail`）。
   late final TencentVideoNativeSpider _tencentSpider;
+
+  /// 源治理用例（Wave D · O-源1/2/3：兜底切片源搜索 / 自定义解析器 / 站源启停）。
+  late final SourceGovernanceUseCases _sourceGovernanceUseCases;
 
   @override
   void initState() {
@@ -309,11 +313,26 @@ class _VBoxAppState extends State<VBoxApp> {
           AllSourcesDatasource(client: HttpClient(networkInfo: networkInfo));
       _cmsDatasource =
           CmsV10Datasource(client: HttpClient(networkInfo: networkInfo));
+      // Wave D：源治理（兜底开关 / 自定义切片源 / 自定义解析器 / 站源启停）；
+      // 复用契约键 `fallback_enabled` / `custom_fallback_sites` / `user_parsers`，
+      // 不新增契约；存储为 `ChangeNotifier` 单例（设置页即时刷新）。
+      final HttpClient governanceClient = HttpClient(networkInfo: networkInfo);
+      _sourceGovernanceUseCases = SourceGovernanceUseCases(
+        loadAllSources: _loadAllSources,
+        loadAllZhanyuanSites: _loadZhanyuanSites,
+        cmsDatasource: _cmsDatasource,
+        httpClient: governanceClient,
+      );
+      await SourceGovernanceStore.instance.load();
       _detailPlaybackUseCases = DetailPlaybackUseCases(
         loadAllSources: _loadAllSources,
         cmsDatasource: _cmsDatasource,
         scriptBaseUrl: () => _allSourcesUrl,
         tencentSpider: _tencentSpider,
+        // O-源2：非直链播放地址在返回前尝试解析器（远程默认 + 自定义）。
+        customParser: _sourceGovernanceUseCases.resolveWithParsers,
+        // O-源3：兜底切片源合成 key 的站点回退解析。
+        fallbackSiteResolver: _sourceGovernanceUseCases.findFallbackSite,
       );
       _contentBrowseUseCases = ContentBrowseUseCases(
         loadAllSources: _loadAllSources,
@@ -419,6 +438,10 @@ class _VBoxAppState extends State<VBoxApp> {
         ChangeNotifierProvider<TmdbConfigStore>.value(
           value: TmdbConfigStore.shared,
         ),
+        // Wave D：源治理（设置页切片资源分区即时刷新）。
+        ChangeNotifierProvider<SourceGovernanceStore>.value(
+          value: SourceGovernanceStore.instance,
+        ),
         Provider<FavoriteUseCases>.value(value: _favoriteUseCases),
         Provider<HistoryUseCases>.value(value: _historyUseCases),
         Provider<SubscriptionUseCases>.value(value: _subscriptionUseCases),
@@ -427,6 +450,10 @@ class _VBoxAppState extends State<VBoxApp> {
         Provider<ContentBrowseUseCases>.value(value: _contentBrowseUseCases),
         Provider<SearchHistoryUseCases>.value(value: _searchHistoryUseCases),
         Provider<ZhanyuanSearchUseCases>.value(value: _zhanyuanSearchUseCases),
+        // Wave D：源治理用例（搜索页兜底源搜索 / 设置页站源与切片源管理）。
+        Provider<SourceGovernanceUseCases>.value(
+          value: _sourceGovernanceUseCases,
+        ),
         Provider<TencentVideoNativeSpider>.value(value: _tencentSpider),
         Provider<DoubanUseCases>.value(value: _doubanUseCases),
         Provider<TmdbUseCases>.value(value: _tmdbUseCases),

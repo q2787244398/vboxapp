@@ -1,17 +1,21 @@
-/// 设置页（批次 I · I-03 分区骨架 + I-04 显示模式 + I-05 更新入口）。
+/// 设置页（批次 I · I-03 分区骨架 + I-04 显示模式 + I-05 更新入口；
+/// Wave D · O-源1/O-源2/O-源3 接入源治理分区）。
 ///
 /// 唯一真相源：iOS `vbox/Views/SettingsViews.swift`
 ///   · L106-L134（`titleBar` + `settingsContent` 分区顺序）；
 ///   · L136-L173（`skinSettingsSection`：皮肤四选 + 跟随系统）；
 ///   · L175-L220（`playbackSettingsSection`：自定义弹幕源 + 搜索调试面板）；
+///   · L398-L493（`fallbackSection` 切片资源 + `zhanyuanSiteSection` 站源管理）；
 ///   · 各 `SettingsSection` / `SettingsToggleRow` / `SettingsNavigationRow`。
 ///
 /// **落地范围（如实登记）**：本轮落地「皮肤（B4 组件 + 跟随系统）」「显示模式（I-04）」
-/// 「播放设置」「工具入口（承接自个人中心迁出的远程源 / 网盘管理 / 备份还原）」
-/// 「存储管理」「日志调试」「关于」「站点诊断（G-08）」「TMDB（G-06）」九个分区；
-/// iOS 侧其余域分区（切片源 / 站点管理）在 Flutter 侧对应域功能尚未实现，故以
-/// **「更多设置（待实现）」**分组显式列出并标注，不虚标为可用（见交付回执遗留项）。
+/// 「播放设置」「切片资源（Wave D）」「站源管理（Wave D）」「TG 搜索」「订阅配置」
+/// 「工具入口（承接自个人中心迁出的远程源 / 网盘管理 / 备份还原）」「站点诊断（G-08）」
+/// 「TMDB（G-06）」「存储管理」「日志调试」「关于」十三个分区；
+/// iOS 侧其余域分区（福利 / 账号等）在 Flutter 侧对应域功能尚未实现。
 library;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -19,11 +23,13 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/result.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
+import '../../../data/datasources/local/source_governance_store.dart';
 import '../../../data/datasources/local/subscribe_config_store.dart';
 import '../../../data/datasources/local/tg_search_config_store.dart';
 import '../../../domain/entities/tg/tg_channel.dart';
 import '../../../domain/entities/spider/site_config.dart';
 import '../../../domain/usecases/content_browse_usecases.dart';
+import '../../../domain/usecases/source_governance_usecases.dart';
 import '../../../platform/update/update.dart';
 import '../../phone/remote_source_page.dart';
 import '../../theme/theme.dart';
@@ -35,9 +41,12 @@ import '../../widgets/update/update_sheet.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../cloud/auth_center.dart';
 import '../subscribe/subscribe_config_page.dart';
+import 'fallback_slice_source_page.dart';
+import 'parser_manage_page.dart';
 import 'tg_channel_list_page.dart';
 import '../diagnostics/site_diagnostics_page.dart';
 import '../tmdb/tmdb_settings_section.dart';
+import 'zhanyuan_site_manage_page.dart';
 
 /// 设置页。
 class SettingsPage extends StatefulWidget {
@@ -58,6 +67,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 站点总数（G-08 站点诊断入口副文本；来自 `ContentBrowseUseCases.listSites()`）。
   int _siteTotal = 0;
+
+  /// 已启用站源数（Wave D；来自 `SourceGovernanceUseCases.activeZhanyuanCount()`）。
+  int _zhanyuanActive = 0;
 
   @override
   void initState() {
@@ -83,6 +95,9 @@ class _SettingsPageState extends State<SettingsPage> {
     final String tgProxy =
         await prefs.getString(TGSearchConfigStore.proxyUrlKey);
     final Result<List<SiteConfig>> sites = await browse.listSites();
+    // Wave D：恢复源治理配置（兜底开关 / 自定义切片源 / 解析器）。
+    await SourceGovernanceStore.instance.load();
+    final int active = await _maybeGovernance()?.activeZhanyuanCount() ?? 0;
     if (!mounted) return;
     setState(() {
       _danmakuEnabled = danmaku;
@@ -91,7 +106,24 @@ class _SettingsPageState extends State<SettingsPage> {
       _logEnabled = log;
       _tgProxy.text = tgProxy;
       _siteTotal = sites.valueOrNull?.length ?? 0;
+      _zhanyuanActive = active;
     });
+  }
+
+  /// 读取可选源治理用例（未注入时返回 null，便于 widget 测试无源治理运行）。
+  SourceGovernanceUseCases? _maybeGovernance() {
+    try {
+      return context.read<SourceGovernanceUseCases>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+  }
+
+  /// 刷新站源启用计数（Wave D；从站源管理页返回后调用）。
+  Future<void> _refreshZhanyuanCount() async {
+    final int active = await _maybeGovernance()?.activeZhanyuanCount() ?? 0;
+    if (!mounted) return;
+    setState(() => _zhanyuanActive = active);
   }
 
   @override
@@ -112,6 +144,10 @@ class _SettingsPageState extends State<SettingsPage> {
           _playbackSection(),
           _tgSection(),
           _subscribeSection(),
+          // Wave D：切片资源（O-源1 兜底开关 + O-源2 解析器 + O-源3 切片源）。
+          _sliceSourceSection(),
+          // Wave D：站源管理（O-源3 站源启停）。
+          _zhanyuanSection(),
           _toolsSection(),
           _diagnosticsSection(),
           // G-06：TMDB 封面 / 演职增强设置。
@@ -119,7 +155,6 @@ class _SettingsPageState extends State<SettingsPage> {
           _storageSection(),
           _developerSection(),
           _aboutSection(),
-          _pendingSection(),
         ],
       ),
     );
@@ -205,6 +240,65 @@ class _SettingsPageState extends State<SettingsPage> {
           onChanged: (bool value) async {
             setState(() => _searchDebug = value);
             await prefs.set('show_search_debug', value);
+          },
+        ),
+      ],
+    );
+  }
+
+  /// 切片资源（Wave D · O-源1/O-源2/O-源3；对齐 iOS `fallbackSection` L398-L464）。
+  ///
+  /// 三行：兜底切片资源开关（契约键 `fallback_enabled`）+
+  /// 「管理自定义切片源」（契约键 `custom_fallback_sites`）+
+  /// 「管理自定义解析器」（契约键 `user_parsers`）。
+  Widget _sliceSourceSection() {
+    final SourceGovernanceStore store = SourceGovernanceStore.instance;
+    return ListenableBuilder(
+      listenable: store,
+      builder: (BuildContext context, Widget? _) => VboxSettingsSection(
+        title: '切片资源',
+        children: <Widget>[
+          VboxSettingsRow.toggle(
+            title: '启用兜底切片资源',
+            subtitle: '主源无结果时并入自定义切片源搜索',
+            icon: Icons.dns,
+            value: store.fallbackEnabled,
+            onChanged: (bool value) => unawaited(store.setFallbackEnabled(value)),
+          ),
+          VboxSettingsRow.navigation(
+            title: '管理自定义切片源',
+            subtitle: '${store.customFallbackSites.length} 个',
+            icon: Icons.add_circle,
+            onTap: () => _push(const FallbackSliceSourcePage()),
+          ),
+          VboxSettingsRow.navigation(
+            title: '管理自定义解析器',
+            subtitle: '${store.userParsers.length} 个',
+            icon: Icons.auto_fix_high,
+            onTap: () => _push(const ParserManagePage()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 站源管理（Wave D · O-源3；对齐 iOS `zhanyuanSiteSection` L466-L493）。
+  Widget _zhanyuanSection() {
+    return VboxSettingsSection(
+      title: '站源管理',
+      children: <Widget>[
+        VboxSettingsRow.navigation(
+          title: '管理站源（启用/禁用）',
+          subtitle: '$_zhanyuanActive 个启用',
+          icon: Icons.public,
+          onTap: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) =>
+                    const ZhanyuanSiteManagePage(),
+              ),
+            );
+            await _refreshZhanyuanCount();
           },
         ),
       ],
@@ -498,26 +592,6 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
     VboxToast.show(context, '当前版本 ${AppInfo.version} 已是最新版本');
-  }
-
-  /// 待实现分区（如实标注，不虚标可用）。
-  Widget _pendingSection() {
-    const List<(IconData, String)> pending = <(IconData, String)>[
-      (Icons.content_cut, '切片源'),
-      (Icons.dns, '站点管理'),
-    ];
-    return VboxSettingsSection(
-      title: '更多设置（待实现）',
-      children: <Widget>[
-        for (final (IconData icon, String title) in pending)
-          VboxSettingsRow.navigation(
-            title: title,
-            subtitle: '对应域功能尚未实现，将在后续批次开放',
-            icon: icon,
-            onTap: () => VboxToast.show(context, '$title 将在后续批次开放'),
-          ),
-      ],
-    );
   }
 
   /// 显示模式选择（I-04）。

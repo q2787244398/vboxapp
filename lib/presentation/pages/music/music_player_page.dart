@@ -28,6 +28,7 @@ import 'package:flutter/material.dart';
 import '../../../domain/entities/music/music.dart';
 import '../../../platform/player/music_player.dart';
 import '../../theme/tokens/colors.dart';
+import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/music/music_queue_sheet.dart';
@@ -254,7 +255,7 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
-            fontSize: 20,
+            fontSize: VboxTypography.s18,
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
@@ -322,10 +323,10 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
     );
   }
 
-  static const TextStyle _timeStyle = TextStyle(
-    fontSize: 11,
-    fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
-    color: Color(0x99FFFFFF),
+  static final TextStyle _timeStyle = TextStyle(
+    fontSize: VboxTypography.s11,
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+    color: Colors.white.withValues(alpha: 0.6),
   );
 
   static String _formatTime(Duration d) {
@@ -548,7 +549,7 @@ class _PlaybackNoticeBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.78),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: const BorderRadius.all(Radius.circular(VboxRadii.capsule)),
         boxShadow: <BoxShadow>[
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.25),

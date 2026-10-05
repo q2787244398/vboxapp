@@ -9,6 +9,7 @@ export 'history_usecases.dart';
 export 'remote_source_usecases.dart';
 export 'resolve_site_mode.dart';
 export 'search_history_usecases.dart';
+export 'source_governance_usecases.dart';
 export 'subscription_usecases.dart';
 export 'tmdb_usecases.dart';
 export 'zhanyuan_search_usecases.dart';

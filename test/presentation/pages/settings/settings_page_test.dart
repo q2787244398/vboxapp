@@ -12,20 +12,31 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vbox/core/utils/result.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
+import 'package:vbox/data/datasources/local/source_governance_store.dart';
 import 'package:vbox/data/datasources/local/subscribe_config_store.dart';
 import 'package:vbox/data/datasources/local/tg_search_config_store.dart';
 import 'package:vbox/data/datasources/local/tmdb_config_store.dart';
+import 'package:vbox/data/models/zhanyuan.dart';
+import 'package:vbox/domain/entities/remote_source/remote_source.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
 import 'package:vbox/presentation/pages/diagnostics/site_diagnostics_page.dart';
+import 'package:vbox/presentation/pages/settings/fallback_slice_source_page.dart';
+import 'package:vbox/presentation/pages/settings/parser_manage_page.dart';
 import 'package:vbox/presentation/pages/settings/settings_page.dart';
+import 'package:vbox/presentation/pages/settings/zhanyuan_site_manage_page.dart';
 import 'package:vbox/presentation/theme/vbox_skin_controller.dart';
 import 'package:vbox/presentation/ui_mode/ui_mode.dart';
 import 'package:vbox/presentation/widgets/vbox/vbox.dart';
 
 import '../../../support/fakes.dart';
 
-Widget _page(UiFormController form, {ContentBrowseUseCases? browse}) {
+Widget _page(
+  UiFormController form, {
+  ContentBrowseUseCases? browse,
+  SourceGovernanceUseCases? governance,
+}) {
   return MultiProvider(
     providers: [
       ChangeNotifierProvider<VboxSkinController>.value(
@@ -50,6 +61,9 @@ Widget _page(UiFormController form, {ContentBrowseUseCases? browse}) {
       Provider<RemoteSourceUseCases>.value(
         value: RemoteSourceUseCases(InMemoryRemoteSourceRepository()),
       ),
+      // Wave D：源治理用例（切片资源页远程默认源 / 站源管理页清单）。
+      if (governance != null)
+        Provider<SourceGovernanceUseCases>.value(value: governance),
     ],
     child: const MaterialApp(home: SettingsPage()),
   );
@@ -76,10 +90,12 @@ void main() {
 
   setUp(() async {
     await prefs.clearAll();
+    // Wave D：源治理存储为全局单例，逐例复位避免跨例污染。
+    SourceGovernanceStore.instance.resetForTest();
   });
 
-  testWidgets('I-03：八大分区骨架齐备', (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(390, 2400);
+  testWidgets('I-03：分区骨架齐备', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
@@ -97,10 +113,145 @@ void main() {
     expect(find.text('存储管理'), findsOneWidget);
     expect(find.text('日志调试'), findsOneWidget);
     expect(find.text('关于'), findsOneWidget);
-    // 未实现域分区显式登记为「待实现」，不虚标可用。
-    expect(find.text('更多设置（待实现）'), findsOneWidget);
     expect(find.text('TMDB 设置'), findsOneWidget);
-    expect(find.text('站点管理'), findsOneWidget);
+    // Wave D：源治理分区（O-源1/2/3）落地，原「更多设置（待实现）」占位移除。
+    expect(find.text('切片资源'), findsOneWidget);
+    expect(find.text('站源管理'), findsOneWidget);
+    expect(find.text('更多设置（待实现）'), findsNothing);
+    expect(find.text('启用兜底切片资源'), findsOneWidget);
+    expect(find.text('管理自定义切片源'), findsOneWidget);
+    expect(find.text('管理自定义解析器'), findsOneWidget);
+    expect(find.text('管理站源（启用/禁用）'), findsOneWidget);
+  });
+
+  testWidgets('O-源1：兜底切片资源开关 → 写入契约键 fallback_enabled',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_page(UiFormController()));
+    await tester.pumpAndSettle();
+
+    // 契约键缺省 true（对齐 iOS `fallbackEnabled` 默认开启）。
+    await tester.tap(_switchInRow('启用兜底切片资源'));
+    await tester.pumpAndSettle();
+
+    expect(await prefs.getBool('fallback_enabled'), isFalse);
+  });
+
+  testWidgets('O-源3：管理自定义切片源 → 进入切片资源管理页', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_page(UiFormController()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('管理自定义切片源'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FallbackSliceSourcePage), findsOneWidget);
+    expect(find.text('切片资源管理'), findsOneWidget);
+    expect(find.text('添加自定义切片源'), findsOneWidget);
+  });
+
+  testWidgets('O-源2：管理自定义解析器 → 进入解析器管理页', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_page(UiFormController()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('管理自定义解析器'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ParserManagePage), findsOneWidget);
+    expect(find.text('解析器管理'), findsOneWidget);
+    expect(find.text('暂无自定义解析器'), findsOneWidget);
+  });
+
+  testWidgets('O-源3：管理站源 → 进入站源管理页', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_page(UiFormController()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('管理站源（启用/禁用）'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ZhanyuanSiteManagePage), findsOneWidget);
+    expect(find.text('站源管理'), findsWidgets);
+    expect(find.text('搜索站点'), findsOneWidget);
+    expect(find.text('全选'), findsOneWidget);
+  });
+
+  testWidgets('O-源3：切片资源管理页经 Provider 读取远程默认源',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final SourceGovernanceUseCases governance = SourceGovernanceUseCases(
+      loadAllSources: () async => const Success<AllSourcesContainer>(
+        AllSourcesContainer(
+          apiSources: <String, Object?>{
+            'sites': <Map<String, Object?>>[
+              <String, Object?>{
+                'key': 'api_1',
+                'name': '接口源',
+                'type': 0,
+                'api': 'https://api.example.com/api.php',
+              },
+            ],
+          },
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(_page(UiFormController(), governance: governance));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('管理自定义切片源'));
+    await tester.pumpAndSettle();
+
+    // 经 Provider 取得用例 → 远程默认源（apiEndpoint 站点）只读展示。
+    expect(find.text('远程默认源'), findsOneWidget);
+    expect(find.text('接口源'), findsOneWidget);
+  });
+
+  testWidgets('O-源3：站源管理页经 Provider 展示订阅站源清单',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final SourceGovernanceUseCases governance = SourceGovernanceUseCases(
+      loadAllSources: () async => const Success<AllSourcesContainer>(
+        AllSourcesContainer(),
+      ),
+      loadAllZhanyuanSites: () async => const <Zhanyuan>[
+        Zhanyuan(
+          key: 'zhan_1',
+          name: '订阅站源',
+          searchUrl: 'https://zhan.example.com',
+          isActive: true,
+          updatedAt: 0,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(_page(UiFormController(), governance: governance));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('管理站源（启用/禁用）'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('订阅站源'), findsOneWidget);
+    expect(find.text('启用 1/1 个站点'), findsOneWidget);
   });
 
   testWidgets('G-08：站点诊断入口展示接口总数并可进入诊断页', (WidgetTester tester) async {

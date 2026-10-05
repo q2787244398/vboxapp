@@ -10,6 +10,7 @@
 library;
 
 import '../../core/errors/failures.dart';
+import '../../core/utils/logger.dart';
 import '../../core/utils/result.dart';
 import '../../data/datasources/remote/all_sources_datasource.dart';
 import '../../data/datasources/remote/cms_v10_datasource.dart';
@@ -31,6 +32,8 @@ class DetailPlaybackUseCases {
   ///
   /// [loadAllSources] 注入站点聚合加载（清单 → allSources URL → 拉取解析），
   /// 便于表现层组装缓存/TTL 逻辑；引擎相关依赖均可注入（测试用 fake）。
+  /// [customParser] 注入自定义解析器（用户 `user_parsers`）：非直链播放地址在
+  /// 返回前先尝试解析为媒体直链（对齐 iOS `PlayerViewsV2` 解析器链路）。
   DetailPlaybackUseCases({
     required this.loadAllSources,
     SpiderEngineFactory engineFactory = const SpiderEngineFactory(),
@@ -40,12 +43,19 @@ class DetailPlaybackUseCases {
     this.scriptBaseUrl,
     TencentVideoNativeSpider? tencentSpider,
     ZhanyuanSearchService? zhanyuanService,
+    Future<String?> Function(String rawUrl)? customParser,
+    Future<SiteConfig?> Function(String key)? fallbackSiteResolver,
   })  : _engineFactory = engineFactory,
         _cmsDatasource = cmsDatasource,
         _quickJsBridge = quickJsBridge,
         _nodeClient = nodeClient,
         _tencentSpider = tencentSpider,
-        _zhanyuanService = zhanyuanService ?? ZhanyuanSearchService();
+        _zhanyuanService = zhanyuanService ?? ZhanyuanSearchService(),
+        _customParser = customParser,
+        _fallbackSiteResolver = fallbackSiteResolver;
+
+  /// 日志标签。
+  static const String logTag = 'playback';
 
   /// 站点聚合加载器（`Future<Result<AllSourcesContainer>>`）。
   final Future<Result<AllSourcesContainer>> Function() loadAllSources;
@@ -61,6 +71,8 @@ class DetailPlaybackUseCases {
   final NodeHttpClient? _nodeClient;
   final TencentVideoNativeSpider? _tencentSpider;
   final ZhanyuanSearchService _zhanyuanService;
+  final Future<String?> Function(String rawUrl)? _customParser;
+  final Future<SiteConfig?> Function(String key)? _fallbackSiteResolver;
 
   /// 腾讯站点合成配置（仅用于承载详情结果；不走 CMS/引擎路由）。
   static const SiteConfig _tencentSite = SiteConfig(
@@ -99,7 +111,7 @@ class DetailPlaybackUseCases {
       return const Err<PlaybackDetail>(UnknownFailure('站点聚合为空'));
     }
 
-    final SiteConfig? site = AllSourcesDatasource.findSite(container, siteKey);
+    final SiteConfig? site = await _resolveSite(container, siteKey);
     if (site == null) {
       return Err<PlaybackDetail>(ValidationFailure('未找到站点：$siteKey'));
     }
@@ -120,12 +132,70 @@ class DetailPlaybackUseCases {
     }
   }
 
+  /// 站点解析：allSources 优先；未命中时回退兜底切片源（`fallback_<host>` 合成
+  /// key，Wave D），对齐 iOS「兜底源结果可直接进详情」。
+  Future<SiteConfig?> _resolveSite(
+    AllSourcesContainer container,
+    String siteKey,
+  ) async {
+    final SiteConfig? found = AllSourcesDatasource.findSite(container, siteKey);
+    if (found != null) return found;
+    final Future<SiteConfig?> Function(String key)? resolver = _fallbackSiteResolver;
+    if (resolver == null) return null;
+    return resolver(siteKey);
+  }
+
   /// 解析单集实际播放地址。
   ///
   /// - 直链媒体 → 原地址返回（免二次解析）；
   /// - API/站源站点 → 地址即播放地址（CMS 已归一）；
-  /// - 脚本引擎站点 → `playerContent` 二次解析（对齐契约 §3.5）。
+  /// - 脚本引擎站点 → `playerContent` 二次解析（对齐契约 §3.5）；
+  /// - 兜底：结果仍为**非直链**时，依次尝试用户自定义解析器
+  ///   （对齐 iOS `PlayerViewsV2` L5552-L5581）。
   Future<Result<PlayerContentResult>> resolvePlayUrl({
+    required PlaybackDetail detail,
+    required PlaybackEpisode episode,
+  }) async {
+    final Result<PlayerContentResult> primary =
+        await _resolvePlayUrlCore(detail: detail, episode: episode);
+    return _applyCustomParser(primary);
+  }
+
+  /// 自定义解析器兜底：仅当结果地址非直链媒体时尝试；命中替换，未命中原样返回。
+  Future<Result<PlayerContentResult>> _applyCustomParser(
+    Result<PlayerContentResult> result,
+  ) async {
+    final Future<String?> Function(String rawUrl)? parse = _customParser;
+    final PlayerContentResult? value = result.valueOrNull;
+    if (parse == null || value == null) return result;
+    final String candidate = (value.playUrl?.trim().isNotEmpty ?? false)
+        ? value.playUrl!.trim()
+        : (value.url ?? '').trim();
+    if (candidate.isEmpty) return result;
+    // 已是媒体直链 → 免解析（对齐 iOS「直链优先」）。
+    if (PlaybackUrlParser.looksDirectMedia(candidate)) return result;
+    try {
+      final String? parsed = await parse(candidate);
+      if (parsed == null || parsed.trim().isEmpty) return result;
+      AppLog.debug(logTag, '自定义解析器命中：${_short(parsed)}');
+      return Success<PlayerContentResult>(PlayerContentResult(
+        parse: 0,
+        playUrl: value.playUrl,
+        url: parsed.trim(),
+        header: value.header,
+      ));
+    } catch (e) {
+      AppLog.warn(logTag, '自定义解析器解析失败，回落原地址', error: e);
+      return result;
+    }
+  }
+
+  /// 日志用短地址。
+  static String _short(String url) =>
+      url.length <= 60 ? url : '${url.substring(0, 60)}…';
+
+  /// 主解析链路（不含自定义解析器兜底）。
+  Future<Result<PlayerContentResult>> _resolvePlayUrlCore({
     required PlaybackDetail detail,
     required PlaybackEpisode episode,
   }) async {
