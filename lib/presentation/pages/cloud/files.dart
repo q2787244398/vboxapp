@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import '../../../data/datasources/local/cloud_drive_cleanup_queue_store.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_files.dart';
+import '../../../platform/player/pan_player.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
@@ -33,6 +34,8 @@ class CloudDriveFilesPage extends StatefulWidget {
     this.controller,
     this.lister,
     this.cleanupStore,
+    this.shareUrl,
+    this.panPlayer,
   });
 
   /// 目标网盘。
@@ -46,6 +49,12 @@ class CloudDriveFilesPage extends StatefulWidget {
 
   /// 清理队列存储（controller 为 null 时生效）。
   final CloudDriveCleanupQueueStore? cleanupStore;
+
+  /// 分享链接（非空 → 分享模式：解析文件列表，点选即播放；对齐 iOS 分享选集）。
+  final String? shareUrl;
+
+  /// 网盘播放编排（分享模式用；controller 为 null 时生效）。
+  final PanPlayer? panPlayer;
 
   @override
   State<CloudDriveFilesPage> createState() => _CloudDriveFilesPageState();
@@ -64,6 +73,8 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
           driveType: widget.driveType,
           lister: widget.lister,
           cleanupStore: widget.cleanupStore,
+          shareUrl: widget.shareUrl,
+          panPlayer: widget.panPlayer,
         );
     _controller.load();
   }
@@ -79,8 +90,17 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
     if (!moved && mounted) Navigator.of(context).maybePop();
   }
 
-  /// 文件点击：转存 + 入清理队列（去重）。
-  Future<void> _onTransfer(CloudDriveFileEntry entry) async {
+  /// 文件点击：分享模式 → 取链播放；目录模式 → 转存 + 入清理队列（去重）。
+  Future<void> _onTapEntry(CloudDriveFileEntry entry) async {
+    if (_controller.isShareMode) {
+      try {
+        await _controller.playEntry(entry);
+      } catch (e) {
+        if (!mounted) return;
+        VboxToast.show(context, e is CloudDriveFilesException ? e.message : '$e');
+      }
+      return;
+    }
     final int added = await _controller.transferAndSchedule(
       <String>[entry.fileId],
     );
@@ -129,8 +149,11 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
               _breadcrumb(scheme),
               const SizedBox(height: VboxSpacing.md),
               _entrySection(scheme),
-              const SizedBox(height: VboxSpacing.lg),
-              _cleanupCard(scheme),
+              // 分享模式无转存/清理面（对齐 iOS 分享选集无清理队列）。
+              if (!_controller.isShareMode) ...<Widget>[
+                const SizedBox(height: VboxSpacing.lg),
+                _cleanupCard(scheme),
+              ],
             ],
           );
         },
@@ -196,7 +219,7 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
         borderRadius: BorderRadius.circular(VboxRadii.r10),
         onTap: entry.isFolder
             ? () => _controller.openFolder(entry)
-            : () => _onTransfer(entry),
+            : () => _onTapEntry(entry),
         child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: VboxSpacing.md,
@@ -239,7 +262,11 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
                 ),
               ),
               Icon(
-                entry.isFolder ? Icons.chevron_right : Icons.save_alt,
+                entry.isFolder
+                    ? Icons.chevron_right
+                    : (_controller.isShareMode
+                        ? Icons.play_circle_outline
+                        : Icons.save_alt),
                 size: VboxTypography.s16,
                 color: scheme.onSurfaceVariant,
               ),

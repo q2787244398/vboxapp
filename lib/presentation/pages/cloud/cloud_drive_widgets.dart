@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../../domain/entities/cloud/cloud_drive.dart';
+import '../../../domain/entities/cloud/node_pan.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
@@ -36,8 +37,11 @@ IconData cloudDriveIcon(CloudDriveType type) => switch (type) {
 
 /// 各网盘授权动作按钮（标签 + 图标，逐档对齐 iOS `providerAccountCard` /
 /// `nodeManagedAccountCard` 的分支文案；阿里与三张 Node 托管卡为单按钮）。
-List<(String, IconData)> cloudDriveAuthActions(CloudDriveType type) =>
-    switch (type) {
+///
+/// Node 托管盘额外追加「分享文件」动作（C-盘2：分享链接 → 文件列表 → 选集
+/// 播放，对齐 iOS `NodePanResolver` 的 `/spider/push/4/detail` 链路）。
+List<(String, IconData)> cloudDriveAuthActions(CloudDriveType type) {
+  final List<(String, IconData)> base = switch (type) {
       CloudDriveType.ali => <(String, IconData)>[
           ('PG扫码登录', Icons.qr_code_2),
         ],
@@ -78,6 +82,14 @@ List<(String, IconData)> cloudDriveAuthActions(CloudDriveType type) =>
           ('原生扫码', Icons.qr_code_2),
         ],
     };
+  if (NodePanRouting.isNodeManaged(type)) {
+    return <(String, IconData)>[
+      ...base,
+      ('分享文件', Icons.folder_open),
+    ];
+  }
+  return base;
+}
 
 /// 网盘品牌角标底色（未登记回退分类色板的云盘蓝）。
 Color cloudDriveBrandColor(CloudDriveType type) =>

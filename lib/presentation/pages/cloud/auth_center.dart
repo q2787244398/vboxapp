@@ -12,10 +12,13 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../../domain/entities/cloud/cloud_drive.dart';
+import '../../../platform/player/pan_player.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import 'cloud_drive_auth_controller.dart';
 import 'cloud_drive_widgets.dart';
+import 'files.dart';
 import 'login_gateway.dart';
 import 'login_sheet.dart';
 import 'sort.dart';
@@ -68,6 +71,11 @@ class _CloudDriveAuthCenterPageState extends State<CloudDriveAuthCenterPage> {
       callback(account, action);
       return;
     }
+    // C-盘2：Node 托管盘「分享文件」→ 分享链接解析文件列表（不走登录 Sheet）。
+    if (action == '分享文件') {
+      await _openShareFiles(account.type);
+      return;
+    }
     await openCloudDriveLoginSheet(
       context,
       type: account.type,
@@ -76,6 +84,43 @@ class _CloudDriveAuthCenterPageState extends State<CloudDriveAuthCenterPage> {
     );
     // 登录 / 网页兜底保存后刷新卡片态（凭据可能已被写入安全存储）。
     await _controller.load();
+  }
+
+  /// 打开分享文件列表（C-盘2，对齐 iOS 分享 → 文件列表 → 选集播放）。
+  Future<void> _openShareFiles(CloudDriveType type) async {
+    final TextEditingController input = TextEditingController();
+    final String? url = await showDialog<String>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: Text('${type.displayName} 分享文件'),
+        content: TextField(
+          controller: input,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '粘贴分享链接'),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(input.text.trim()),
+            child: const Text('打开'),
+          ),
+        ],
+      ),
+    );
+    input.dispose();
+    if (!mounted || url == null || url.isEmpty) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => CloudDriveFilesPage(
+          driveType: type,
+          shareUrl: url,
+          panPlayer: PanPlayer(),
+        ),
+      ),
+    );
   }
 
   @override

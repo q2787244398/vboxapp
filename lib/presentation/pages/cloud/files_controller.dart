@@ -15,6 +15,8 @@ import '../../../data/datasources/local/cloud_drive_cleanup_queue_store.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_files.dart';
+import '../../../domain/entities/cloud/node_pan.dart';
+import '../../../platform/player/pan_player.dart';
 
 /// 目录列举接缝（真实实现走 Node 常驻系统 / 网盘 OpenAPI）。
 abstract interface class CloudDriveFileLister {
@@ -58,17 +60,27 @@ class CloudDriveFilesController extends ChangeNotifier {
     CloudDriveFileLister? lister,
     CloudDriveCleanupQueueStore? cleanupStore,
     Duration cleanupDelay = const Duration(seconds: 180),
+    this.shareUrl,
+    PanPlayer? panPlayer,
   })  : _lister = lister ?? const UnavailableCloudDriveFileLister(),
         _cleanupStore =
             cleanupStore ?? CloudDriveCleanupQueueStore(PrefsManager.instance),
-        _cleanupDelay = cleanupDelay;
+        _cleanupDelay = cleanupDelay,
+        _pan = panPlayer;
 
   /// 目标网盘。
   final CloudDriveType driveType;
 
+  /// 分享链接（非空 → **分享模式**，对齐 iOS「分享 → 文件列表 → 选集播放」）。
+  final String? shareUrl;
+
   final CloudDriveFileLister _lister;
   final CloudDriveCleanupQueueStore _cleanupStore;
   final Duration _cleanupDelay;
+  final PanPlayer? _pan;
+
+  /// 分享资源标题（分享模式解析后填充）。
+  String _shareTitle = '';
 
   /// 当前目录 ID（根为空串）。
   String _parentId = '';
@@ -96,8 +108,17 @@ class CloudDriveFilesController extends ChangeNotifier {
   /// 当前路径 ID。
   String get parentId => _parentId;
 
+  /// 是否分享模式（对齐 iOS 分享 → 文件列表 → 选集）。
+  bool get isShareMode => (shareUrl ?? '').isNotEmpty;
+
+  /// 页面标题（分享模式优先分享标题，缺省网盘名）。
+  String get title => isShareMode && _shareTitle.isNotEmpty
+      ? _shareTitle
+      : driveType.displayName;
+
   /// 面包屑文本（根 = 网盘显示名）。
   String get breadcrumb {
+    if (isShareMode) return title;
     if (_path.isEmpty) return driveType.displayName;
     return '${driveType.displayName} / '
         '${_path.map(((String, String) e) => e.$2).join(' / ')}';
@@ -105,6 +126,10 @@ class CloudDriveFilesController extends ChangeNotifier {
 
   /// 加载当前目录 + 刷新队列计数。
   Future<void> load({String? parentId}) async {
+    if (isShareMode) {
+      await _loadShare();
+      return;
+    }
     if (parentId != null) _parentId = parentId;
     _loading = true;
     _error = null;
@@ -120,23 +145,68 @@ class CloudDriveFilesController extends ChangeNotifier {
       _entries = list;
     } catch (e) {
       _entries = <CloudDriveFileEntry>[];
-      _error = e is CloudDriveFilesException ? e.message : '$e';
+      _error = _messageOf(e);
     }
     _queueCount = await _cleanupStore.count();
     _loading = false;
     notifyListeners();
   }
 
-  /// 进入子目录。
+  /// 分享模式加载：`PanPlayer.resolveShare` → 文件条目列表。
+  Future<void> _loadShare() async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final PanPlayer? pan = _pan;
+      if (pan == null) {
+        throw const CloudDriveFilesException('网盘分享链路尚未接入');
+      }
+      final NodePanShare share = await pan.resolveShare(driveType, shareUrl!);
+      _shareTitle = share.title;
+      _entries = share.entries
+          .map((NodePanEntry e) =>
+              CloudDriveFileEntry(fileId: e.playID, name: e.name))
+          .toList(growable: false);
+    } catch (e) {
+      _entries = <CloudDriveFileEntry>[];
+      _error = _messageOf(e);
+    }
+    _queueCount = await _cleanupStore.count();
+    _loading = false;
+    notifyListeners();
+  }
+
+  /// 分享模式：播放选中条目（对齐 iOS 文件列表点选 → 取链播放）。
+  Future<void> playEntry(CloudDriveFileEntry entry) async {
+    final PanPlayer? pan = _pan;
+    if (pan == null || !isShareMode) {
+      throw const CloudDriveFilesException('网盘分享链路尚未接入');
+    }
+    await pan.open(
+      type: driveType,
+      shareUrl: shareUrl!,
+      entry: NodePanEntry(playID: entry.fileId, name: entry.name),
+    );
+  }
+
+  String _messageOf(Object e) {
+    if (e is CloudDriveFilesException) return e.message;
+    if (e is NodePanException) return e.displayMessage;
+    if (e is PanPlayException) return e.message;
+    return '$e';
+  }
+
+  /// 进入子目录（分享模式无目录层级，空操作）。
   Future<void> openFolder(CloudDriveFileEntry folder) async {
-    if (!folder.isFolder) return;
+    if (isShareMode || !folder.isFolder) return;
     _path.add((folder.fileId, folder.name));
     await load(parentId: folder.fileId);
   }
 
-  /// 返回上级目录（根目录时无操作，返回 false）。
+  /// 返回上级目录（根目录 / 分享模式时无操作，返回 false）。
   Future<bool> goUp() async {
-    if (_path.isEmpty) return false;
+    if (isShareMode || _path.isEmpty) return false;
     _path.removeLast();
     await load(parentId: _path.isEmpty ? '' : _path.last.$1);
     return true;

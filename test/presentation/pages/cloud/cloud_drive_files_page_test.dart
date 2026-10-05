@@ -12,8 +12,24 @@ import 'package:vbox/data/datasources/local/cloud_drive_cleanup_queue_store.dart
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive_files.dart';
+import 'package:vbox/domain/entities/cloud/node_pan.dart';
+import 'package:vbox/platform/player/pan_player.dart';
 import 'package:vbox/presentation/pages/cloud/files.dart';
 import 'package:vbox/presentation/pages/cloud/files_controller.dart';
+
+/// 假网盘播放编排：仅覆盖分享解析（C-盘2）。
+class _FakePanPlayer extends PanPlayer {
+  _FakePanPlayer(this.share);
+
+  final NodePanShare share;
+  int resolveCalls = 0;
+
+  @override
+  Future<NodePanShare> resolveShare(CloudDriveType type, String shareUrl) async {
+    resolveCalls++;
+    return share;
+  }
+}
 
 /// 内存目录列举替身（parentId → 条目）。
 class _FakeLister implements CloudDriveFileLister {
@@ -183,5 +199,64 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.textContaining('尚未接入'), findsOneWidget);
+  });
+
+  test('分享模式：resolveShare → 文件条目 + 标题（C-盘2）', () async {
+    final _FakePanPlayer pan = _FakePanPlayer(
+      const NodePanShare(title: '季风剧场', entries: <NodePanEntry>[
+        NodePanEntry(playID: 'p1', name: 'EP01.mp4'),
+        NodePanEntry(playID: 'p2', name: 'EP02.mp4'),
+      ]),
+    );
+    final CloudDriveFilesController c = CloudDriveFilesController(
+      driveType: CloudDriveType.one15,
+      cleanupStore: store,
+      shareUrl: 'https://share/abc',
+      panPlayer: pan,
+    );
+    await c.load();
+
+    expect(c.isShareMode, isTrue);
+    expect(c.title, '季风剧场');
+    expect(c.breadcrumb, '季风剧场');
+    expect(c.entries.map((CloudDriveFileEntry e) => e.name).toList(),
+        <String>['EP01.mp4', 'EP02.mp4']);
+    expect(await c.goUp(), isFalse); // 分享模式无目录层级
+    expect(pan.resolveCalls, 1);
+  });
+
+  test('分享模式：未注入 PanPlayer → 报错文案', () async {
+    final CloudDriveFilesController c = CloudDriveFilesController(
+      driveType: CloudDriveType.one15,
+      cleanupStore: store,
+      shareUrl: 'https://share/abc',
+    );
+    await c.load();
+    expect(c.error, contains('尚未接入'));
+    expect(c.entries, isEmpty);
+  });
+
+  testWidgets('分享模式页面：渲染条目 + 隐藏清理队列卡', (WidgetTester tester) async {
+    final _FakePanPlayer pan = _FakePanPlayer(
+      const NodePanShare(title: '季风剧场', entries: <NodePanEntry>[
+        NodePanEntry(playID: 'p1', name: 'EP01.mp4'),
+      ]),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudDriveFilesPage(
+          driveType: CloudDriveType.one15,
+          shareUrl: 'https://share/abc',
+          panPlayer: pan,
+          cleanupStore: store,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('季风剧场'), findsOneWidget);
+    expect(find.text('EP01.mp4'), findsOneWidget);
+    expect(find.text('清理队列'), findsNothing);
+    expect(find.text('当前目录没有文件'), findsNothing);
   });
 }
