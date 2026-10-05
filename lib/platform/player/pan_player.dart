@@ -13,7 +13,8 @@
 ///  - 阿里云盘 → PG 4kz 路链（批次 F · F-09 接线，本批次明确报错）；
 ///  - 原生盘（夸克 / 百度 / UC）→ 原生路链：**夸克已接入**（F-P01，
 ///    `QuarkNativeClient`：分享解析 → 文件列表 → 转存 → 取链）；**百度已接入**
-///    （F-P02，`BaiduProxyClient` Worker 代理：parse → play）；UC 待后续批次。
+///    （F-P02，`BaiduProxyClient` Worker 代理：parse → play）；**UC 已接入**
+///    （F-P03，`UcNativeClient`：分享解析 → 文件列表 → 转存 → v2/play/download）。
 library;
 
 import '../../data/datasources/local/cloud_drive_credential_store.dart';
@@ -22,6 +23,7 @@ import '../../data/datasources/local/prefs_manager.dart';
 import '../../data/datasources/remote/baidu_proxy_client.dart';
 import '../../data/datasources/remote/node_pan_client.dart';
 import '../../data/datasources/remote/quark_native_client.dart';
+import '../../data/datasources/remote/uc_native_client.dart';
 import '../../domain/entities/cloud/baidu_proxy.dart';
 import '../../domain/entities/cloud/cloud_drive.dart';
 import '../../domain/entities/cloud/cloud_play_item.dart';
@@ -66,6 +68,7 @@ class PanPlayer {
     PlayerController? controller,
     QuarkNativeClient? quarkClient,
     BaiduProxyClient? baiduClient,
+    UcNativeClient? ucClient,
     Future<String> Function(CloudDriveType type)? cookieFor,
   })  : _client = client ?? NodePanClient(),
         _cache = cacheStore ??
@@ -73,6 +76,7 @@ class PanPlayer {
         _controller = controller,
         _quark = quarkClient ?? QuarkNativeClient(),
         _baidu = baiduClient ?? BaiduProxyClient(),
+        _uc = ucClient ?? UcNativeClient(),
         _cookieFor = cookieFor;
 
   final NodePanClient _client;
@@ -84,6 +88,9 @@ class PanPlayer {
 
   /// 百度专用代理客户端（F-P02，Worker 方案对齐 iOS `BaiduProxyClient`）。
   final BaiduProxyClient _baidu;
+
+  /// UC 原生分享链客户端（F-P03，对齐 iOS `CloudDriveManager` UC 分支）。
+  final UcNativeClient _uc;
 
   /// 网盘 Cookie 提供者（缺省读凭据安全存储 `cloud_drive_credentials_v1`）。
   final Future<String> Function(CloudDriveType type)? _cookieFor;
@@ -164,6 +171,22 @@ class PanPlayer {
             throw PanPlayException(e.message);
           }
         }
+        if (type == CloudDriveType.uc) {
+          final String cookie = await _cookie(type);
+          final List<UcShareFile> files;
+          try {
+            files = await _uc.getFileList(shareUrl: shareUrl, cookie: cookie);
+          } on UcNativeException catch (e) {
+            throw PanPlayException(e.message);
+          }
+          return NodePanShare(
+            title: 'UC分享',
+            entries: files
+                .map((UcShareFile f) =>
+                    NodePanEntry(playID: f.fid, name: f.fileName))
+                .toList(growable: false),
+          );
+        }
         throw PanPlayException('${type.displayName} 原生路链尚未接入（待后续批次）');
       case PanPlayChannel.pgAli:
         throw const PanPlayException(
@@ -237,6 +260,22 @@ class PanPlayer {
           if (cookie.isNotEmpty) h['Cookie'] = cookie;
           headers = h;
           source = 'baidu-worker';
+        } else if (type == CloudDriveType.uc) {
+          final String cookie = await _cookie(type);
+          final UcPlayResult r;
+          try {
+            r = await _uc.resolvePlayUrl(
+              shareUrl: shareUrl,
+              cookie: cookie,
+              preferredFid: entry.playID,
+            );
+          } on UcNativeException catch (e) {
+            throw PanPlayException(e.message);
+          }
+          playURL = r.url;
+          fileName = entry.name;
+          headers = r.headers;
+          source = 'uc-native';
         } else {
           throw PanPlayException('${type.displayName} 原生路链尚未接入（待后续批次）');
         }
@@ -255,7 +294,7 @@ class PanPlayer {
       fileName: fileName,
       playURL: playURL,
       headers: headers,
-      compatibilityHint: source == 'node-pan' ? 'node-proxy' : 'quark-native',
+      compatibilityHint: source == 'node-pan' ? 'node-proxy' : source,
       preparedAt: stamp,
       updatedAt: stamp,
       source: source,

@@ -13,6 +13,7 @@ import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/data/datasources/remote/baidu_proxy_client.dart';
 import 'package:vbox/data/datasources/remote/node_pan_client.dart';
 import 'package:vbox/data/datasources/remote/quark_native_client.dart';
+import 'package:vbox/data/datasources/remote/uc_native_client.dart';
 import 'package:vbox/domain/entities/cloud/baidu_proxy.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/domain/entities/cloud/cloud_play_item.dart';
@@ -104,6 +105,30 @@ class _FakeQuarkClient extends QuarkNativeClient {
     String? preferredFid,
   }) async =>
       const QuarkPlayResult(url: 'https://v/play.m3u8', fileName: 'EP01.mp4');
+}
+
+/// 假 UC 原生客户端（F-P03）：仅覆盖分享解析与取链。
+class _FakeUcClient extends UcNativeClient {
+  @override
+  Future<List<UcShareFile>> getFileList({
+    required String shareUrl,
+    required String cookie,
+  }) async =>
+      <UcShareFile>[
+        const UcShareFile(fid: 'u1', fileName: 'EP01.mp4', shareFidToken: 'tk1'),
+      ];
+
+  @override
+  Future<UcPlayResult> resolvePlayUrl({
+    required String shareUrl,
+    required String cookie,
+    String? preferredFid,
+  }) async =>
+      const UcPlayResult(
+        url: 'https://uc/play.m3u8',
+        headers: <String, String>{'Referer': 'https://drive.uc.cn/'},
+        source: 'v2-play',
+      );
 }
 
 /// 假百度代理客户端（F-P02）。
@@ -201,19 +226,6 @@ void main() {
             (PanPlayException e) => e.message,
             'msg',
             contains('PG 4kz 路链'),
-          ),
-        ),
-      );
-    });
-
-    test('原生盘（UC）→ 原生路链未接线明确报错', () async {
-      await expectLater(
-        player.resolveShare(CloudDriveType.uc, 'https://drive.uc.cn/s/x'),
-        throwsA(
-          isA<PanPlayException>().having(
-            (PanPlayException e) => e.message,
-            'msg',
-            contains('原生路链尚未接入'),
           ),
         ),
       );
@@ -378,12 +390,43 @@ void main() {
       expect(item.compatibilityHint, 'quark-native');
       expect((await cache.load()).length, 1);
     });
+  });
 
-    test('UC 原生链仍未接入 → 明确报错（逐步接入）', () async {
-      await expectLater(
-        quarkPlayer.resolveShare(CloudDriveType.uc, 'https://drive.uc.cn/s/x'),
-        throwsA(isA<PanPlayException>()),
+  group('UC 原生链（F-P03）', () {
+    late PanPlayer ucPlayer;
+
+    setUp(() {
+      ucPlayer = PanPlayer(
+        client: NodePanClient(transport: _happyTransport()),
+        cacheStore: cache,
+        controller: controller,
+        ucClient: _FakeUcClient(),
+        cookieFor: (CloudDriveType _) async => 'k=v',
       );
+    });
+
+    test('resolveShare → 文件条目（fid 作 playID）', () async {
+      final NodePanShare share = await ucPlayer.resolveShare(
+        CloudDriveType.uc,
+        'https://drive.uc.cn/s/abc',
+      );
+      expect(share.title, 'UC分享');
+      expect(share.entries.single.playID, 'u1');
+      expect(share.entries.single.name, 'EP01.mp4');
+    });
+
+    test('prepare → 取链并落缓存（带 Cookie/Referer 头）', () async {
+      final CloudPlayItem item = await ucPlayer.prepare(
+        type: CloudDriveType.uc,
+        shareUrl: 'https://drive.uc.cn/s/abc',
+        entry: const NodePanEntry(playID: 'u1', name: 'EP01.mp4'),
+        now: t0,
+      );
+      expect(item.playURL, 'https://uc/play.m3u8');
+      expect(item.headers['Referer'], 'https://drive.uc.cn/');
+      expect(item.source, 'uc-native');
+      expect(item.compatibilityHint, 'uc-native');
+      expect((await cache.load()).length, 1);
     });
   });
 
