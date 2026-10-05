@@ -10,7 +10,8 @@
 /// 路由守卫（对齐 iOS `resolvePlayURL` 的分档）：
 ///  - Node 托管盘（115 / 123 / 139 / 189 / 迅雷 / 光鸭 / 蜗牛 / 夸克Node /
 ///    UC网盘Node / 百度网盘Node）→ Node 常驻系统链路；
-///  - 阿里云盘 → PG 4kz 路链（批次 F · F-09 接线，本批次明确报错）；
+///  - 阿里云盘 → PG 4kz 路链（F-P09，`AliyunAdriveClient`：ADrive 分享/转存 →
+///    转码 m3u8 / 原画直链；未授权时明确报错）；
 ///  - 原生盘（夸克 / 百度 / UC）→ 原生路链：**夸克已接入**（F-P01，
 ///    `QuarkNativeClient`：分享解析 → 文件列表 → 转存 → 取链）；**百度已接入**
 ///    （F-P02，`BaiduIBoxClient` iBox 本机链：分享验证 → 多文件选集 → 转存 →
@@ -21,6 +22,7 @@ library;
 import '../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../data/datasources/local/cloud_play_item_cache_store.dart';
 import '../../data/datasources/local/prefs_manager.dart';
+import '../../data/datasources/remote/aliyun_adrive_client.dart';
 import '../../data/datasources/remote/baidu_ibox_client.dart';
 import '../../data/datasources/remote/node_pan_client.dart';
 import '../../data/datasources/remote/quark_native_client.dart';
@@ -69,6 +71,7 @@ class PanPlayer {
     QuarkNativeClient? quarkClient,
     BaiduIBoxClient? baiduIBoxClient,
     UcNativeClient? ucClient,
+    AliyunAdriveClient? aliyunClient,
     Future<String> Function(CloudDriveType type)? cookieFor,
   })  : _client = client ?? NodePanClient(),
         _cache = cacheStore ??
@@ -77,6 +80,7 @@ class PanPlayer {
         _quark = quarkClient ?? QuarkNativeClient(),
         _baiduIBox = baiduIBoxClient ?? BaiduIBoxClient(),
         _uc = ucClient ?? UcNativeClient(),
+        _aliyun = aliyunClient ?? AliyunAdriveClient(),
         _cookieFor = cookieFor;
 
   final NodePanClient _client;
@@ -91,6 +95,9 @@ class PanPlayer {
 
   /// UC 原生分享链客户端（F-P03，对齐 iOS `CloudDriveManager` UC 分支）。
   final UcNativeClient _uc;
+
+  /// 阿里云盘 PG 4kz 播放链客户端（F-P09，对齐 iOS `AliyunPgPlayManager`）。
+  final AliyunAdriveClient _aliyun;
 
   /// 网盘 Cookie 提供者（缺省读凭据安全存储 `cloud_drive_credentials_v1`）。
   final Future<String> Function(CloudDriveType type)? _cookieFor;
@@ -120,6 +127,10 @@ class PanPlayer {
     if (_cookieFor != null) return '';
     return (await _credential(CloudDriveType.baidu))?.extra['pcs_cookie'] ?? '';
   }
+
+  /// 阿里云盘 PG 播放所需 Refresh Token（对齐 iOS `credential.refreshToken`）。
+  Future<String> _aliyunRefreshToken() async =>
+      (await _credential(CloudDriveType.ali))?.refreshToken ?? '';
 
   /// 播放控制器（缺省取全局单例）。
   PlayerController get controller => _controller ??= PlayerController.instance;
@@ -198,8 +209,25 @@ class PanPlayer {
         }
         throw PanPlayException('${type.displayName} 原生路链尚未接入（待后续批次）');
       case PanPlayChannel.pgAli:
-        throw const PanPlayException(
-          '阿里云盘需 PG 4kz 路链（批次 F · F-09 接线）',
+        final String refreshToken = await _aliyunRefreshToken();
+        if (refreshToken.isEmpty) {
+          throw const PanPlayException('阿里云盘未授权（缺少 Refresh Token），请先扫码登录');
+        }
+        final List<AliyunShareFile> files;
+        try {
+          files = await _aliyun.listPlayableFiles(
+            shareUrl: shareUrl,
+            refreshToken: refreshToken,
+          );
+        } on AliyunAdriveException catch (e) {
+          throw PanPlayException(e.message);
+        }
+        return NodePanShare(
+          title: '阿里云盘分享',
+          entries: files
+              .map((AliyunShareFile f) =>
+                  NodePanEntry(playID: f.fileId, name: f.name))
+              .toList(growable: false),
         );
       case PanPlayChannel.unsupported:
         throw PanPlayException('${type.displayName} 不支持网盘播放');
@@ -285,9 +313,24 @@ class PanPlayer {
           throw PanPlayException('${type.displayName} 原生路链尚未接入（待后续批次）');
         }
       case PanPlayChannel.pgAli:
-        throw const PanPlayException(
-          '阿里云盘需 PG 4kz 路链（批次 F · F-09 接线）',
-        );
+        final String refreshToken = await _aliyunRefreshToken();
+        if (refreshToken.isEmpty) {
+          throw const PanPlayException('阿里云盘未授权（缺少 Refresh Token），请先扫码登录');
+        }
+        final AliyunPlayResult r;
+        try {
+          r = await _aliyun.resolvePlayUrl(
+            shareUrl: shareUrl,
+            refreshToken: refreshToken,
+            preferredFileId: entry.playID,
+          );
+        } on AliyunAdriveException catch (e) {
+          throw PanPlayException(e.message);
+        }
+        playURL = r.url;
+        fileName = r.fileName.isEmpty ? entry.name : r.fileName;
+        headers = r.headers;
+        source = r.source;
       case PanPlayChannel.unsupported:
         throw PanPlayException('${type.displayName} 不支持网盘播放');
     }

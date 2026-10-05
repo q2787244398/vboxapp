@@ -25,6 +25,7 @@ import '../../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_login.dart';
+import '../../../platform/webview/in_app_webview_bridge.dart';
 import '../../../platform/webview/webview_bridge.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
@@ -59,7 +60,8 @@ Future<void> openCloudDriveLoginSheet(
       CloudDriveLoginMode.webFallback => CloudDriveWebLoginSheet(
           driveType: type,
           saver: webSaver,
-          bridge: webViewBridge ?? const UnavailableWebViewBridge(),
+          // Web-R1：支持平台默认启用内嵌 WebView（不支持平台回退浏览器 + 粘贴）。
+          bridge: webViewBridge ?? InAppWebViewBridge(),
         ),
       CloudDriveLoginMode.nodeSms => CloudDriveSmsLoginSheet(
           driveType: type,

@@ -39,6 +39,7 @@ class _FakeWebViewBridge implements WebViewBridge {
     String method = 'GET',
     Map<String, String> headers = const <String, String>{},
     String? body,
+    String? hostUrl,
     Duration timeout = const Duration(seconds: 15),
   }) async =>
       (status: 200, body: '', headers: const <String, String>{});

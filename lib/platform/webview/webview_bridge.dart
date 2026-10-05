@@ -58,11 +58,14 @@ abstract interface class WebViewBridge {
   });
 
   /// 在页面上下文发起 XHR（对齐 iOS 百度桥的 `XMLHttpRequest` 语义）。
+  ///
+  /// [hostUrl] 为承载页地址（须与 [url] 同源以规避 CORS）；缺省取 [url] 的 origin。
   Future<WebViewXhrResult> request({
     required String url,
     String method = 'GET',
     Map<String, String> headers = const <String, String>{},
     String? body,
+    String? hostUrl,
     Duration timeout = const Duration(seconds: 15),
   });
 
@@ -95,6 +98,7 @@ class UnavailableWebViewBridge implements WebViewBridge {
     String method = 'GET',
     Map<String, String> headers = const <String, String>{},
     String? body,
+    String? hostUrl,
     Duration timeout = const Duration(seconds: 15),
   }) async =>
       throw const WebViewBridgeException(_message);

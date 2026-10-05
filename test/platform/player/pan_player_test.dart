@@ -8,8 +8,10 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vbox/data/datasources/local/cloud_drive_credential_store.dart';
 import 'package:vbox/data/datasources/local/cloud_play_item_cache_store.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
+import 'package:vbox/data/datasources/remote/aliyun_adrive_client.dart';
 import 'package:vbox/data/datasources/remote/baidu_ibox_client.dart';
 import 'package:vbox/data/datasources/remote/node_pan_client.dart';
 import 'package:vbox/data/datasources/remote/quark_native_client.dart';
@@ -168,6 +170,40 @@ class _FailingBaiduIBoxClient extends BaiduIBoxClient {
       throw const BaiduIBoxException('百度登录态正常，但未取得用户态 bdstoken');
 }
 
+/// 假阿里云盘 PG 客户端（F-P09）：文件列表 + 取链。
+class _FakeAliyunClient extends AliyunAdriveClient {
+  @override
+  Future<List<AliyunShareFile>> listPlayableFiles({
+    required String shareUrl,
+    required String refreshToken,
+  }) async =>
+      <AliyunShareFile>[
+        const AliyunShareFile(
+          fileId: 'ali1',
+          name: 'EP01.mp4',
+          category: 'video',
+        ),
+        const AliyunShareFile(
+          fileId: 'ali2',
+          name: 'EP02.mp4',
+          category: 'video',
+        ),
+      ];
+
+  @override
+  Future<AliyunPlayResult> resolvePlayUrl({
+    required String shareUrl,
+    required String refreshToken,
+    String? preferredFileId,
+  }) async =>
+      const AliyunPlayResult(
+        url: 'https://cdn/ali.m3u8',
+        headers: <String, String>{},
+        source: 'ali-share-transcode',
+        fileName: 'EP01.mp4',
+      );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -219,14 +255,14 @@ void main() {
   });
 
   group('通道守卫', () {
-    test('阿里云盘 → PG 路链未接线明确报错', () async {
+    test('阿里云盘未授权 → 明确报错（缺 Refresh Token）', () async {
       await expectLater(
-        player.resolveShare(CloudDriveType.ali, 'https://pan/ali/s/x'),
+        player.resolveShare(CloudDriveType.ali, 'https://www.alipan.com/s/x'),
         throwsA(
           isA<PanPlayException>().having(
             (PanPlayException e) => e.message,
             'msg',
-            contains('PG 4kz 路链'),
+            contains('未授权'),
           ),
         ),
       );
@@ -478,6 +514,50 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('阿里云盘 PG 4kz（F-P09）', () {
+    late PanPlayer aliPlayer;
+
+    setUp(() async {
+      await CloudDriveCredentialStore(pm).save(
+        CloudDriveCredential(
+          driveType: CloudDriveType.ali.id,
+          refreshToken: 'rt',
+          updatedAt: DateTime.now(),
+        ),
+      );
+      aliPlayer = PanPlayer(
+        client: NodePanClient(transport: _happyTransport()),
+        cacheStore: cache,
+        controller: controller,
+        aliyunClient: _FakeAliyunClient(),
+      );
+    });
+
+    test('resolveShare → 文件条目（fileId 作 playID）', () async {
+      final NodePanShare share = await aliPlayer.resolveShare(
+        CloudDriveType.ali,
+        'https://www.alipan.com/s/abc',
+      );
+      expect(share.title, '阿里云盘分享');
+      expect(share.entries.length, 2);
+      expect(share.entries.first.playID, 'ali1');
+      expect(share.entries.first.name, 'EP01.mp4');
+    });
+
+    test('prepare → PG 取链（source 取自结果）', () async {
+      final CloudPlayItem item = await aliPlayer.prepare(
+        type: CloudDriveType.ali,
+        shareUrl: 'https://www.alipan.com/s/abc',
+        entry: const NodePanEntry(playID: 'ali1', name: 'EP01.mp4'),
+        now: t0,
+      );
+      expect(item.playURL, 'https://cdn/ali.m3u8');
+      expect(item.source, 'ali-share-transcode');
+      expect(item.fileName, 'EP01.mp4');
+      expect((await cache.load()).length, 1);
     });
   });
 }
