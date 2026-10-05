@@ -358,6 +358,22 @@ void main() {
       }
     });
 
+    test('相对路径插件脚本 → 以订阅源基址解析为绝对地址加载', () async {
+      final DetailPlaybackUseCases uc = DetailPlaybackUseCases(
+        loadAllSources: () async => Success<AllSourcesContainer>(
+          buildContainer(<Map<String, Object?>>[
+            siteJson(key: 'a3', type: 3, api: './local.js'),
+          ]),
+        ),
+        engineFactory: factory,
+        scriptBaseUrl: () => 'https://cdn.example.com/repo/all_sources.json',
+      );
+      final Result<PlaybackDetail> r =
+          await uc.loadDetail(siteKey: 'a3', vodId: '1');
+      expect(r.isSuccess, isTrue);
+      expect(engine.loadedUrl, 'https://cdn.example.com/repo/local.js');
+    });
+
     test('蜘蛛注册失败 → SpiderFailure', () async {
       engine.ready = false;
       final DetailPlaybackUseCases uc = DetailPlaybackUseCases(

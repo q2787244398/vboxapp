@@ -99,6 +99,9 @@ class _VBoxAppState extends State<VBoxApp> {
   /// 下载管理器（G-02：全局下载队列 / 进度 / 管理浮层；消费 `download` 表）。
   late final DownloadManager _downloadManager;
 
+  /// allSources 清单 URL（S-设1：脚本相对路径解析 base，对齐 iOS `subBaseURL`）。
+  String? _allSourcesUrl;
+
   @override
   void initState() {
     super.initState();
@@ -119,6 +122,7 @@ class _VBoxAppState extends State<VBoxApp> {
         ValidationFailure('清单缺少 allSources 文件条目'),
       );
     }
+    _allSourcesUrl = url;
     return _allSourcesDatasource.fetch(url);
   }
 
@@ -223,10 +227,12 @@ class _VBoxAppState extends State<VBoxApp> {
       _detailPlaybackUseCases = DetailPlaybackUseCases(
         loadAllSources: _loadAllSources,
         cmsDatasource: _cmsDatasource,
+        scriptBaseUrl: () => _allSourcesUrl,
       );
       _contentBrowseUseCases = ContentBrowseUseCases(
         loadAllSources: _loadAllSources,
         cmsDatasource: _cmsDatasource,
+        scriptBaseUrl: () => _allSourcesUrl,
       );
       // A9：首页默认内容 = 豆瓣推荐。
       _doubanUseCases = DoubanUseCases();

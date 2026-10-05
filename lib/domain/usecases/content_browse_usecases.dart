@@ -38,6 +38,7 @@ class ContentBrowseUseCases {
     CmsV10Datasource? cmsDatasource,
     QuickJsNativeBridge? quickJsBridge,
     NodeHttpClient? nodeClient,
+    this.scriptBaseUrl,
   })  : _engineFactory = engineFactory,
         _cmsDatasource = cmsDatasource,
         _quickJsBridge = quickJsBridge,
@@ -45,6 +46,12 @@ class ContentBrowseUseCases {
 
   /// 站点聚合加载器。
   final Future<Result<AllSourcesContainer>> Function() loadAllSources;
+
+  /// 脚本相对路径基址（`allSources` 清单 URL），对齐 iOS `subBaseURL`。
+  ///
+  /// 站源 `api` 为 `./x.js` / `x.js` / `x.py` 等相对路径时，以其为 base 解析；
+  /// 表现层注入（清单刷新后更新），缺省退回绝对 URL 场景（仅 http(s) 可用）。
+  final String? Function()? scriptBaseUrl;
 
   final SpiderEngineFactory _engineFactory;
   final CmsV10Datasource? _cmsDatasource;
@@ -409,24 +416,45 @@ class ContentBrowseUseCases {
       final bool isUrl =
           trimmed.startsWith('http://') || trimmed.startsWith('https://');
       if (!isUrl) {
-        throw const UnsupportedFailure('本地插件脚本暂未接线（本批仅支持 http(s) 脚本 URL）');
-      }
-      // G-04：TG 搜索蜘蛛注入用户配置——对齐 iOS `SpiderManager` L1391-L1400
-      // 在主脚本前 prepend `var __TG_CONFIG__ = {...};` 的语义；Flutter 以
-      // `loadLibrary`（不检查注册）先建立全局变量，再加载主脚本。
-      if (site.key == _tgSearchSiteKey &&
-          engineType == SpiderEngineType.quickJS) {
-        final String configJs = TGSearchConfigStore.shared.generateConfigJs();
-        if (configJs.isNotEmpty) {
-          await engine.loadLibrary(configJs);
+        // 相对路径脚本（`./x.js` / `x.js` / `x.py`）：以 allSources 清单 URL 为
+        // base 解析绝对地址，对齐 iOS `SpiderManager` 订阅源 subBaseURL 分支
+        // （`URL(string:).deletingLastPathComponent().appendingPathComponent(api)`）。
+        await engine.loadScriptFromURL(_resolveScriptUrl(trimmed, site));
+      } else {
+        // G-04：TG 搜索蜘蛛注入用户配置——对齐 iOS `SpiderManager` L1391-L1400
+        // 在主脚本前 prepend `var __TG_CONFIG__ = {...};` 的语义；Flutter 以
+        // `loadLibrary`（不检查注册）先建立全局变量，再加载主脚本。
+        if (site.key == _tgSearchSiteKey &&
+            engineType == SpiderEngineType.quickJS) {
+          final String configJs = TGSearchConfigStore.shared.generateConfigJs();
+          if (configJs.isNotEmpty) {
+            await engine.loadLibrary(configJs);
+          }
         }
+        await engine.loadScriptFromURL(trimmed);
       }
-      await engine.loadScriptFromURL(trimmed);
     }
     await engine.registerSpider();
     if (!engine.isSpiderReady) {
       throw const SpiderFailure('蜘蛛注册失败（未找到 __JS_SPIDER__）');
     }
+  }
+
+  /// 解析脚本地址：绝对 http(s) 直接用；相对路径以 [scriptBaseUrl] 为 base。
+  String _resolveScriptUrl(String api, SiteConfig site) {
+    final String? base = scriptBaseUrl?.call();
+    if (base == null || base.trim().isEmpty) {
+      throw UnsupportedFailure(
+        '本地插件脚本「${site.name}」缺少订阅源基址，无法解析相对路径「$api」',
+      );
+    }
+    final Uri? baseUri = Uri.tryParse(base.trim());
+    if (baseUri == null || baseUri.host.isEmpty) {
+      throw UnsupportedFailure(
+        '本地插件脚本「${site.name}」订阅源基址非法：$base',
+      );
+    }
+    return baseUri.resolve(api).toString();
   }
 
   SpiderEngineType _effectiveEngineType(SiteConfig site) {
