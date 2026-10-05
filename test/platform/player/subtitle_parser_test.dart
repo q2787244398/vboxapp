@@ -1,6 +1,9 @@
 /// 批次 C · C-08：字幕解析（SRT / WebVTT / ASS）+ 轨道时间查询。
 library;
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vbox/platform/player/subtitle_parser.dart';
 
@@ -136,6 +139,49 @@ B
       final SubtitleTrack t = SubtitleTrack.parse('1\n00:00:01,000 --> 00:00:02,000\nx');
       expect(t.cues, hasLength(1));
       expect(t.durationMs, 2000);
+    });
+  });
+
+  group('P-芯4 / P-芯5：SSA 识别 / 样式剥离 / 字节解码', () {
+    test('SSA [V4 Styles] → 识别为 ass 并可解析', () {
+      const String ssa = '[Script Info]\n[V4 Styles]\n\n[Events]\n'
+          'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
+          'Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,正文\n';
+      expect(SubtitleParser.sniff(ssa), SubtitleFormat.ass);
+      expect(SubtitleParser.parseAss(ssa).single.text, '正文');
+    });
+
+    test('cleanAssText：剥离 {\\...} 样式标签 + \\h → 空格', () {
+      expect(SubtitleParser.cleanAssText(r'{\an8}{\pos(10,20)}你好\h世界'), '你好 世界');
+    });
+
+    test('parseBytes：UTF-16 LE BOM 解码后解析', () {
+      const String srt = '1\n00:00:01,000 --> 00:00:02,000\nhello';
+      final List<int> raw = <int>[0xFF, 0xFE];
+      for (final int u in srt.codeUnits) {
+        raw..add(u & 0xFF)..add((u >> 8) & 0xFF);
+      }
+      final List<SubtitleCue> cues =
+          SubtitleParser.parseBytes(Uint8List.fromList(raw));
+      expect(cues, hasLength(1));
+      expect(cues.single.text, 'hello');
+    });
+
+    test('parseBytes：UTF-8 BOM', () {
+      final List<int> raw = <int>[
+        0xEF,
+        0xBB,
+        0xBF,
+        ...utf8.encode('1\n00:00:01,000 --> 00:00:02,000\nx'),
+      ];
+      expect(
+        SubtitleParser.parseBytes(Uint8List.fromList(raw)).single.text,
+        'x',
+      );
+    });
+
+    test('parseBytes：空字节 → 空结果', () {
+      expect(SubtitleParser.parseBytes(Uint8List(0)), isEmpty);
     });
   });
 }

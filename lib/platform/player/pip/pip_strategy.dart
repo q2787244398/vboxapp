@@ -31,14 +31,31 @@ enum PipStrategy {
   /// AVPlayer 代理 → 系统级画中画（iOS/macOS 主后端）。
   avPlayer,
 
+  /// 可视画中画不可用、但后台播放开启 → **仅保留后台声音**（无浮窗/无系统 PiP）。
+  ///
+  /// 对齐 iOS `PiPStrategy.backgroundAudioOnly`（PlayerViewsV2 中「不启动动态
+  /// PiP，改为后台声音」分支）：退后台时不应中断音频。
+  backgroundAudioOnly,
+
   /// 未启用 / 平台不可用 → 降级（调用方隐藏入口）。
   none;
 
   /// 是否走系统级画中画承载（true → 原生系统桥；false → 应用内浮窗）。
   bool get isSystemBased => switch (this) {
         PipStrategy.mdk || PipStrategy.vt || PipStrategy.avPlayer => true,
-        PipStrategy.mpv || PipStrategy.viewCapture || PipStrategy.none => false,
+        PipStrategy.mpv ||
+        PipStrategy.viewCapture ||
+        PipStrategy.backgroundAudioOnly ||
+        PipStrategy.none =>
+          false,
       };
+
+  /// 是否「仅后台声音」降级（不进画中画，仅保持音频）。
+  bool get isAudioOnly => this == PipStrategy.backgroundAudioOnly;
+
+  /// 是否提供可视画中画入口（false → 调用方隐藏 PiP 按钮）。
+  bool get showsVisualPip =>
+      this != PipStrategy.none && this != PipStrategy.backgroundAudioOnly;
 }
 
 /// 画中画策略判定（C-05）。
@@ -56,24 +73,32 @@ class PipStrategyResolver {
   ///
   /// [backend] 为当前播放后端（未 open 时 null）；[systemPipAvailable]
   /// 由调用方经原生桥探测（Android API 26+ / macOS AVKit 能力）。
+  /// [backgroundPlayEnabled] 为后台播放开关（契约 `player_background_play`）：
+  /// 可视 PiP 不可用且其为 true 时，退化为 [PipStrategy.backgroundAudioOnly]
+  /// （P-芯7，对齐 iOS「不启动动态 PiP，改为后台声音」分支）。
   static PipStrategy resolve({
     required bool enabled,
     required String platform,
     required PlayerBackend? backend,
     required bool systemPipAvailable,
+    bool backgroundPlayEnabled = false,
   }) {
     if (!enabled) return PipStrategy.none;
+    // 可视 PiP 不可用时的降级档：后台播放开启 → 仅后台声音；否则 → 应用内浮窗兜底。
+    final PipStrategy unavailableFallback = backgroundPlayEnabled
+        ? PipStrategy.backgroundAudioOnly
+        : PipStrategy.viewCapture;
     switch (platform.toLowerCase()) {
       case 'ios':
       case 'macos':
-        return systemPipAvailable ? PipStrategy.avPlayer : PipStrategy.viewCapture;
+        return systemPipAvailable ? PipStrategy.avPlayer : unavailableFallback;
       case 'windows':
       case 'linux':
         // 无系统级 PiP API → libmpv 渲染的应用内浮窗承载。
         return PipStrategy.mpv;
       case 'android':
       case 'fuchsia':
-        if (!systemPipAvailable) return PipStrategy.viewCapture;
+        if (!systemPipAvailable) return unavailableFallback;
         return backend == PlayerBackend.media3 ? PipStrategy.mdk : PipStrategy.mpv;
       default:
         return PipStrategy.none;

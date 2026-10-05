@@ -69,13 +69,8 @@ class EnginePickerPanel extends StatelessWidget {
     );
   }
 
-  /// 后端显示名。
-  static String _title(PlayerBackend b) => switch (b) {
-        PlayerBackend.media3 => 'Media3（系统播放器）',
-        PlayerBackend.libVLC => 'libVLC（全格式）',
-        PlayerBackend.libmpv => 'libmpv',
-        PlayerBackend.nativeiOS => '原生播放器',
-      };
+  /// 后端显示名（P-芯6：读后端元数据，避免本处重复文案表）。
+  static String _title(PlayerBackend b) => b.displayName;
 }
 
 /// 单行内核项。

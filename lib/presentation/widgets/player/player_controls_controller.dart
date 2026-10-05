@@ -173,12 +173,7 @@ class PlayerControlsController extends ChangeNotifier {
   String get backendDisplayText {
     final PlayerBackend? b = currentBackend;
     if (b == null) return '内核';
-    return switch (b) {
-      PlayerBackend.media3 => 'Media3',
-      PlayerBackend.libVLC => 'VLC',
-      PlayerBackend.libmpv => 'MPV',
-      PlayerBackend.nativeiOS => '原生',
-    };
+    return b.shortName; // P-芯6：读后端元数据
   }
 
   /// 当前播放位置时间文案（`HH:MM:SS` / `MM:SS`）。

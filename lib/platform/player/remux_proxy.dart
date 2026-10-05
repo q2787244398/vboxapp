@@ -8,6 +8,11 @@
 ///  - `fmt=fmp4`    强制转封装（上游按 [RemuxPlan] 判定需转封装时默认即此）
 ///  - `fmt=passthrough` 强制透传（HEAD/Range 透传 + 流式转发）
 ///
+/// **鉴权头承载（P-芯3）**：需要 Cookie/Referer 等上游鉴权头的流，先经
+/// [RemuxProxy.registerStream] 注册（url + headers）拿到 `id`，再用
+/// `GET /remux?id=<id>` 请求——对齐 iOS `RemuxProxyServer.registerStream` 的
+/// id 注册模型；`src=` 直连形态保留（无 headers，兼容旧调用）。
+///
 /// 依赖注入：`client`（上游 HTTP，测试用 MockClient）与 `remuxer`
 /// （转封装实现；生产默认 [FfmpegRemuxer]，测试可注入假实现）。
 library;
@@ -199,6 +204,37 @@ class RemuxProxy {
 
   HttpServer? _server;
 
+  /// 已注册的上游流（`id → (url, headers)`，P-芯3）。
+  final Map<String, ({String url, Map<String, String> headers})> _streams =
+      <String, ({String url, Map<String, String> headers})>{};
+  int _nextStreamId = 0;
+
+  /// 注册带鉴权头的上游流，返回其 `id`（供 `/remux?id=` 使用）。
+  ///
+  /// 对齐 iOS `RemuxProxyServer.registerStream(url:headers:provider:)`：URL 里
+  /// 不放鉴权信息，代理按 id 取流并在上游请求中逐头注入。
+  String registerStream({
+    required String url,
+    Map<String, String>? headers,
+  }) {
+    final String id = 's${++_nextStreamId}';
+    _streams[id] = (
+      url: url,
+      headers: headers ?? const <String, String>{},
+    );
+    return id;
+  }
+
+  /// 注销已注册流（幂等）。
+  void unregisterStream(String id) {
+    _streams.remove(id);
+  }
+
+  /// 清空全部注册流。
+  void clearStreams() {
+    _streams.clear();
+  }
+
   /// 是否已启动。
   bool get isRunning => _server != null;
 
@@ -219,6 +255,7 @@ class RemuxProxy {
   Future<void> stop() async {
     final HttpServer? s = _server;
     _server = null;
+    _streams.clear(); // P-芯3：随服务停止清空注册流，避免悬挂。
     if (s != null) {
       await s.close(force: true);
     }
@@ -245,9 +282,24 @@ class RemuxProxy {
         await _error(req, HttpStatus.notFound, '未知端点');
         return;
       }
-      final String? src = req.uri.queryParameters['src'];
+      final String? id = req.uri.queryParameters['id'];
+      final String? srcParam = req.uri.queryParameters['src'];
+      String? src;
+      Map<String, String> headers = const <String, String>{};
+      if (id != null && id.isNotEmpty) {
+        // P-芯3：按注册 id 取流（携带上游鉴权头）。
+        final ({String url, Map<String, String> headers})? entry = _streams[id];
+        if (entry == null) {
+          await _error(req, HttpStatus.notFound, '未知的流 id：$id');
+          return;
+        }
+        src = entry.url;
+        headers = entry.headers;
+      } else if (srcParam != null) {
+        src = srcParam;
+      }
       if (src == null || src.trim().isEmpty) {
-        await _error(req, HttpStatus.badRequest, '缺少 src 参数');
+        await _error(req, HttpStatus.badRequest, '缺少 src 或 id 参数');
         return;
       }
       if (!src.startsWith('http://') && !src.startsWith('https://')) {
@@ -262,6 +314,7 @@ class RemuxProxy {
               : RemuxFormat.passthrough;
       final RemuxPlan plan = RemuxPlan.decide(
         src,
+        headers: headers,
         overrideFormat: fmt == null ? null : format,
       );
       await _stream(req, plan);

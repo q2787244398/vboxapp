@@ -4,7 +4,9 @@
 /// 当前应显示的字幕（对齐 iOS `SubtitleParser` + `SubtitleTrack` 语义）。
 library;
 
+import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 /// 字幕格式。
 enum SubtitleFormat { srt, vtt, ass }
@@ -58,6 +60,44 @@ class SubtitleParser {
     };
   }
 
+  /// 字节流解析（P-芯5）：按 BOM / 编码嗅探解码后自动解析。
+  ///
+  /// 依次识别 UTF-8 BOM、UTF-16 LE / BE BOM；无 BOM 时按 UTF-8 宽容解码
+  /// （对齐 iOS `SubtitleParser.parse(url:)` 的编码兜底）。
+  static List<SubtitleCue> parseBytes(Uint8List bytes) {
+    if (bytes.isEmpty) return const <SubtitleCue>[];
+    final String content = decodeBytes(bytes);
+    if (content.isEmpty) return const <SubtitleCue>[];
+    return parseAuto(content);
+  }
+
+  /// 字节流 → 文本（编码嗅探，P-芯5）。
+  static String decodeBytes(Uint8List bytes) {
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xEF &&
+        bytes[1] == 0xBB &&
+        bytes[2] == 0xBF) {
+      return utf8.decode(bytes.sublist(3), allowMalformed: true);
+    }
+    if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
+      return _decodeUtf16(bytes.sublist(2), littleEndian: true);
+    }
+    if (bytes.length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
+      return _decodeUtf16(bytes.sublist(2), littleEndian: false);
+    }
+    return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  static String _decodeUtf16(Uint8List bytes, {required bool littleEndian}) {
+    final int n = bytes.length ~/ 2;
+    final List<int> units = List<int>.generate(n, (int i) {
+      final int lo = bytes[i * 2];
+      final int hi = bytes[i * 2 + 1];
+      return littleEndian ? (hi << 8) | lo : (lo << 8) | hi;
+    });
+    return String.fromCharCodes(units);
+  }
+
   /// 嗅探字幕格式（无法识别返回 null）。
   static SubtitleFormat? sniff(String content) {
     final String head = content.trimLeft();
@@ -65,7 +105,10 @@ class SubtitleParser {
       return sniff(head.substring(1));
     }
     if (head.startsWith('WEBVTT')) return SubtitleFormat.vtt;
-    if (head.contains('[Script Info]') || head.contains('[V4+ Styles]')) {
+    // P-芯4：SSA 用 `[V4 Styles]`（无 `+`），ASS 用 `[V4+ Styles]`，两者同构。
+    if (head.contains('[Script Info]') ||
+        head.contains('[V4+ Styles]') ||
+        head.contains('[V4 Styles]')) {
       return SubtitleFormat.ass;
     }
     // SRT 常见形态：编号行 + 时间行（`00:00:01,000 --> ...`）。
@@ -175,12 +218,21 @@ class SubtitleParser {
       out.add(SubtitleCue(
         startMs: start,
         endMs: end,
-        text: text.replaceAll(r'\N', '\n').replaceAll(r'\n', '\n'),
+        text: cleanAssText(text),
         position: 'style=${f[3]}|name=${f[4]}|margin=${f[7]}',
       ));
     }
     return out;
   }
+
+  /// 清理 ASS/SSA 文本（P-芯4，对齐 iOS `cleanASSText`）：
+  /// `\N`/`\n` → 换行、`\h` → 空格、剥离 `{\...}` 样式/定位标签。
+  static String cleanAssText(String raw) => raw
+      .replaceAll(r'\N', '\n')
+      .replaceAll(r'\n', '\n')
+      .replaceAll(r'\h', ' ')
+      .replaceAll(RegExp(r'\{[^}]*\}'), '')
+      .trim();
 
   // ─────────── 内部工具 ───────────
 

@@ -48,6 +48,7 @@ class PipController {
     required PlayerBackend? backend,
     required PipPlatformBridge systemBridge,
     required FloatingWindow floating,
+    bool backgroundPlayEnabled = false,
   }) async {
     final bool systemOk = await systemBridge.isSupported();
     return PipController(
@@ -57,6 +58,7 @@ class PipController {
         platform: platform,
         backend: backend,
         systemPipAvailable: systemOk,
+        backgroundPlayEnabled: backgroundPlayEnabled,
       ),
       systemBridge: systemBridge,
       floating: floating,
@@ -82,6 +84,9 @@ class PipController {
   /// 是否处于画中画。
   bool get isInPip => _state == PipState.active;
 
+  /// 是否「仅后台声音」降级（P-芯7：不进画中画，退后台仅保音频）。
+  bool get isAudioOnlyFallback => _strategy.isAudioOnly;
+
   /// 进入画中画。
   ///
   /// [title]/[isLive] 供浮窗策略展示媒体元信息；[width]/[height] 为
@@ -93,6 +98,8 @@ class PipController {
     int? height,
   }) async {
     if (!enabled || _strategy == PipStrategy.none) return false;
+    // P-芯7：仅后台声音降级不提供可视画中画（音频由后台播放通道保持）。
+    if (_strategy.isAudioOnly) return false;
     if (_state == PipState.active) return true;
     if (_strategy.isSystemBased) {
       final bool ok = await _system.enterPip(width: width, height: height);

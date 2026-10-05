@@ -252,4 +252,51 @@ void main() {
       await proxy.stop();
     });
   });
+
+  group('RemuxProxy 流注册（P-芯3）', () {
+    test('registerStream 返回唯一 id；unregisterStream / clearStreams 幂等', () {
+      final RemuxProxy proxy = RemuxProxy(port: 0);
+      final String id = proxy.registerStream(
+        url: 'http://x/a.mkv',
+        headers: <String, String>{'Cookie': 'k=v'},
+      );
+      expect(id, isNotEmpty);
+      proxy.unregisterStream(id);
+      final String id2 = proxy.registerStream(url: 'http://x/b.mkv');
+      expect(id2, isNot(id));
+      proxy.clearStreams();
+    });
+
+    test('GET /remux?id= 转发注册的上游鉴权头', () async {
+      final RemuxProxy proxy = RemuxProxy(
+        port: 0,
+        client: MockClient((http.Request r) async {
+          expect(r.headers['Cookie'], 'k=v');
+          return http.Response('ok', 200);
+        }),
+      );
+      await proxy.start();
+      final String id = proxy.registerStream(
+        url: 'http://x/a.mp4',
+        headers: <String, String>{'Cookie': 'k=v'},
+      );
+      final http.Response resp =
+          await http.get(Uri.parse('${proxy.baseUrl}/remux?id=$id'));
+      expect(resp.statusCode, 200);
+      expect(resp.body, 'ok');
+      await proxy.stop();
+    });
+
+    test('未知 id → 404', () async {
+      final RemuxProxy proxy = RemuxProxy(
+        port: 0,
+        client: MockClient((http.Request _) async => http.Response('x', 200)),
+      );
+      await proxy.start();
+      final http.Response resp =
+          await http.get(Uri.parse('${proxy.baseUrl}/remux?id=nope'));
+      expect(resp.statusCode, 404);
+      await proxy.stop();
+    });
+  });
 }

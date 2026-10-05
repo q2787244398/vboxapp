@@ -275,4 +275,85 @@ void main() {
       await ctrl.dispose();
     });
   });
+
+  group('P-芯2 内核切换 / 候选线路', () {
+    test('switchBackend → 以当前源在指定后端重开', () async {
+      final _FakeBridge bridge = _FakeBridge();
+      final PlayerController ctrl = PlayerController(
+        bridge: bridge,
+        backendChain: const <PlayerBackend>[
+          PlayerBackend.media3,
+          PlayerBackend.libVLC,
+        ],
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) =>
+            PlayerBackend.media3,
+      );
+      await ctrl.open(const PlayerSource(url: 'https://x/a.mp4'));
+      expect(ctrl.backend, PlayerBackend.media3);
+      await ctrl.switchBackend(PlayerBackend.libVLC);
+      expect(ctrl.backend, PlayerBackend.libVLC);
+      expect(bridge.calls.where((String m) => m == 'open').length, 2);
+      await ctrl.dispose();
+    });
+
+    test('未 open 时 switchBackend 为空操作', () async {
+      final _FakeBridge bridge = _FakeBridge();
+      final PlayerController ctrl = PlayerController(
+        bridge: bridge,
+        backendChain: const <PlayerBackend>[PlayerBackend.media3],
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) =>
+            PlayerBackend.media3,
+      );
+      await ctrl.switchBackend(PlayerBackend.libVLC);
+      expect(bridge.calls, isEmpty);
+      await ctrl.dispose();
+    });
+
+    test('availableBackends 暴露后端链', () {
+      final PlayerController ctrl = PlayerController(
+        bridge: _FakeBridge(),
+        backendChain: const <PlayerBackend>[
+          PlayerBackend.media3,
+          PlayerBackend.libVLC,
+        ],
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) =>
+            PlayerBackend.media3,
+      );
+      expect(ctrl.availableBackends,
+          <PlayerBackend>[PlayerBackend.media3, PlayerBackend.libVLC]);
+    });
+
+    test('openCandidates 空 → E_NO_CANDIDATE', () async {
+      final PlayerController ctrl = PlayerController(
+        bridge: _FakeBridge(),
+        backendChain: const <PlayerBackend>[PlayerBackend.media3],
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) =>
+            PlayerBackend.media3,
+      );
+      await expectLater(
+        ctrl.openCandidates(const <PlaybackRouteCandidate>[]),
+        throwsA(isA<PlayerOpenException>()
+            .having((e) => e.code, 'code', 'E_NO_CANDIDATE')),
+      );
+      await ctrl.dispose();
+    });
+
+    test('openCandidates 取优先级最高候选打开', () async {
+      final PlayerController ctrl = PlayerController(
+        bridge: _FakeBridge(),
+        backendChain: const <PlayerBackend>[PlayerBackend.media3],
+        selectInitialBackend: (PlayerSource source, PlaybackRoute route) =>
+            PlayerBackend.media3,
+      );
+      await ctrl.openCandidates(const <PlaybackRouteCandidate>[
+        PlaybackRouteCandidate(
+            route: PlaybackRoute.detail, url: 'https://x/low.mp4', priority: 0),
+        PlaybackRouteCandidate(
+            route: PlaybackRoute.detail, url: 'https://x/high.mp4', priority: 10),
+      ]);
+      expect(ctrl.route, PlaybackRoute.detail);
+      expect(ctrl.lastSource?.url, 'https://x/high.mp4');
+      await ctrl.dispose();
+    });
+  });
 }

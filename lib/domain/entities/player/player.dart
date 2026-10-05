@@ -21,6 +21,33 @@ enum PlayerBackend {
   nativeiOS,
 }
 
+/// 后端能力元数据（P-芯6：显示名 / 系统 PiP 支持单点内聚，避免 UI 重复文案表）。
+extension PlayerBackendMeta on PlayerBackend {
+  /// 长显示名（内核选择面板）。
+  String get displayName => switch (this) {
+        PlayerBackend.media3 => 'Media3（系统播放器）',
+        PlayerBackend.libVLC => 'libVLC（全格式）',
+        PlayerBackend.libmpv => 'libmpv',
+        PlayerBackend.nativeiOS => '原生播放器',
+      };
+
+  /// 短显示名（播放控制条内核按钮）。
+  String get shortName => switch (this) {
+        PlayerBackend.media3 => 'Media3',
+        PlayerBackend.libVLC => 'VLC',
+        PlayerBackend.libmpv => 'MPV',
+        PlayerBackend.nativeiOS => '原生',
+      };
+
+  /// 是否支持系统级画中画（对齐 PiP 策略的系统承载后端集合）。
+  bool get supportsSystemPip => switch (this) {
+        PlayerBackend.media3 => true,
+        PlayerBackend.nativeiOS => true,
+        PlayerBackend.libVLC => false,
+        PlayerBackend.libmpv => false,
+      };
+}
+
 /// 播放模式（对齐 `site_v1.json` 的 `playMode`）。
 enum PlayMode {
   /// 普通直链播放。

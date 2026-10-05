@@ -72,6 +72,7 @@ class PlayerController {
   ChannelPlayer? _player;
   PlayerState? _state;
   PlaybackRoute? _route;
+  PlayerSource? _lastSource;
 
   /// 当前播放器（未 open 为 null）。
   Player? get player => _player;
@@ -84,6 +85,12 @@ class PlayerController {
 
   /// 当前播放路由（未 open 为 null；C-01）。
   PlaybackRoute? get route => _route;
+
+  /// 可用后端链（P-芯2：内核选择面板数据源）。
+  List<PlayerBackend> get availableBackends => _backendChain;
+
+  /// 最近一次打开的播放源（P-芯2：切换内核时重开用）。
+  PlayerSource? get lastSource => _lastSource;
 
   void Function(PlayerState)? onStateChanged;
 
@@ -114,12 +121,62 @@ class PlayerController {
   /// [route] 为显式路由覆盖（批次 F · F-08 网盘播放：直链特征无法自证 pan 路由，
   /// 由调用方显式传入）；为 null 时按 [PlaybackRouteResolver] 从源推导。
   Future<void> open(PlayerSource source, {PlaybackRoute? route}) async {
-    await _disposePlayer();
     final PlaybackRoute resolved = route ?? PlaybackRouteResolver.resolve(source);
+    _lastSource = source;
+    await _openWithChain(source, resolved, _orderedChain(source, resolved));
+  }
+
+  /// 按候选线路优先级打开（P-芯1）：从高优先级候选起逐个尝试，全失败抛最后一个错误。
+  ///
+  /// 同一资源多条线路（原画 / 流畅 / localProxy 转封装）时使用；每候选的
+  /// `headers` 随线路下发播放后端。
+  Future<void> openCandidates(
+    List<PlaybackRouteCandidate> candidates, {
+    PlaybackRoute? route,
+  }) async {
+    if (candidates.isEmpty) {
+      throw const PlayerOpenException('E_NO_CANDIDATE', '无候选线路');
+    }
+    PlayerOpenException? last;
+    for (final PlaybackRouteCandidate c
+        in PlaybackRouteResolver.rank(candidates)) {
+      try {
+        await open(c.toSource(), route: route ?? c.route);
+        return;
+      } on PlayerOpenException catch (e) {
+        last = e;
+      }
+    }
+    throw last ?? const PlayerOpenException('E_NO_CANDIDATE', '全部候选线路打开失败');
+  }
+
+  /// 切换播放内核（P-芯2）：以当前播放源在指定后端上重开。
+  ///
+  /// 对齐 iOS `PlayerEngineController.switchEngine(reloadCurrentRoute:)`；
+  /// 未打开过媒体时为空操作。
+  Future<void> switchBackend(PlayerBackend backend) async {
+    final PlayerSource? source = _lastSource;
+    if (source == null) return;
+    if (_player?.backend == backend) return;
+    final PlaybackRoute resolved =
+        _route ?? PlaybackRouteResolver.resolve(source);
+    final List<PlayerBackend> chain = <PlayerBackend>[
+      backend,
+      ..._backendChain.where((PlayerBackend b) => b != backend),
+    ];
+    await _openWithChain(source, resolved, chain);
+  }
+
+  Future<void> _openWithChain(
+    PlayerSource source,
+    PlaybackRoute resolved,
+    List<PlayerBackend> chain,
+  ) async {
+    await _disposePlayer();
     _route = resolved;
     PlayerOpenException? last;
     PlayerBackend? previous;
-    for (final PlayerBackend backend in _orderedChain(source, resolved)) {
+    for (final PlayerBackend backend in chain) {
       if (previous != null) {
         // 上一后端失败，本次尝试即降级：先记降级事件再试新后端（C-06）。
         final String reason = last?.message ?? '';

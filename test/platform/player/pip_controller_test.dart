@@ -419,4 +419,76 @@ void main() {
       expect(c.strategy, PipStrategy.viewCapture);
     });
   });
+
+  group('P-芯7 仅后台声音降级', () {
+    test('系统 PiP 不可用 + 后台播放开 → backgroundAudioOnly', () {
+      expect(
+        PipStrategyResolver.resolve(
+          enabled: true,
+          platform: 'ios',
+          backend: null,
+          systemPipAvailable: false,
+          backgroundPlayEnabled: true,
+        ),
+        PipStrategy.backgroundAudioOnly,
+      );
+      expect(
+        PipStrategyResolver.resolve(
+          enabled: true,
+          platform: 'android',
+          backend: PlayerBackend.media3,
+          systemPipAvailable: false,
+          backgroundPlayEnabled: true,
+        ),
+        PipStrategy.backgroundAudioOnly,
+      );
+    });
+
+    test('未开后台播放 → 维持 viewCapture 兜底', () {
+      expect(
+        PipStrategyResolver.resolve(
+          enabled: true,
+          platform: 'android',
+          backend: PlayerBackend.media3,
+          systemPipAvailable: false,
+        ),
+        PipStrategy.viewCapture,
+      );
+    });
+
+    test('backgroundAudioOnly：isSystemBased=false / showsVisualPip=false', () {
+      expect(PipStrategy.backgroundAudioOnly.isSystemBased, isFalse);
+      expect(PipStrategy.backgroundAudioOnly.showsVisualPip, isFalse);
+      expect(PipStrategy.backgroundAudioOnly.isAudioOnly, isTrue);
+      expect(PipStrategy.mdk.showsVisualPip, isTrue);
+    });
+
+    test('backgroundAudioOnly：enter 返回 false 且不调任何承载', () async {
+      final FakePipBridge bridge = FakePipBridge();
+      final FakeFloatingWindow floating = FakeFloatingWindow();
+      final PipController c = PipController(
+        enabled: true,
+        strategy: PipStrategy.backgroundAudioOnly,
+        systemBridge: bridge,
+        floating: floating,
+      );
+      expect(await c.enter(), isFalse);
+      expect(bridge.calls, isEmpty);
+      expect(floating.calls, isEmpty);
+      expect(c.isInPip, isFalse);
+      expect(c.isAudioOnlyFallback, isTrue);
+    });
+
+    test('resolveAndCreate 透传 backgroundPlayEnabled', () async {
+      final PipController c = await PipController.resolveAndCreate(
+        enabled: true,
+        platform: 'android',
+        backend: PlayerBackend.media3,
+        systemBridge: FakePipBridge()..supported = false,
+        floating: FakeFloatingWindow(),
+        backgroundPlayEnabled: true,
+      );
+      expect(c.strategy, PipStrategy.backgroundAudioOnly);
+    });
+  });
 }

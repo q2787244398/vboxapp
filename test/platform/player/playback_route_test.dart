@@ -85,4 +85,49 @@ void main() {
       );
     });
   });
+
+  group('PlaybackRouteCandidate（P-芯1）', () {
+    test('fromSource 携带 url/headers/title/priority 与推导路由', () {
+      const PlayerSource s = PlayerSource(
+        url: 'https://x/a.mkv',
+        headers: <String, String>{'Referer': 'https://x'},
+        title: '片名',
+      );
+      final PlaybackRouteCandidate c =
+          PlaybackRouteResolver.fromSource(s, priority: 5);
+      expect(c.route, PlaybackRoute.detail);
+      expect(c.url, 'https://x/a.mkv');
+      expect(c.headers['Referer'], 'https://x');
+      expect(c.title, '片名');
+      expect(c.priority, 5);
+    });
+
+    test('toSource 回填 headers/title；live 路由置 isLive', () {
+      const PlaybackRouteCandidate c = PlaybackRouteCandidate(
+        route: PlaybackRoute.live,
+        url: 'https://x/live.flv',
+        headers: <String, String>{'UA': 'x'},
+        title: '直播',
+      );
+      final PlayerSource s = c.toSource();
+      expect(s.isLive, isTrue);
+      expect(s.headers['UA'], 'x');
+      expect(s.title, '直播');
+    });
+
+    test('rank 按优先级降序，同优先级保持原序', () {
+      final List<PlaybackRouteCandidate> raw = <PlaybackRouteCandidate>[
+        const PlaybackRouteCandidate(
+            route: PlaybackRoute.detail, url: 'a', priority: 1),
+        const PlaybackRouteCandidate(
+            route: PlaybackRoute.detail, url: 'b', priority: 9),
+        const PlaybackRouteCandidate(
+            route: PlaybackRoute.detail, url: 'c', priority: 1),
+      ];
+      final List<PlaybackRouteCandidate> ranked =
+          PlaybackRouteResolver.rank(raw);
+      expect(ranked.map((PlaybackRouteCandidate c) => c.url).toList(),
+          <String>['b', 'a', 'c']);
+    });
+  });
 }
