@@ -12,22 +12,43 @@ import 'package:vbox/data/datasources/local/cloud_drive_cleanup_queue_store.dart
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive_files.dart';
+import 'package:vbox/domain/entities/cloud/cloud_play_item.dart';
 import 'package:vbox/domain/entities/cloud/node_pan.dart';
 import 'package:vbox/platform/player/pan_player.dart';
 import 'package:vbox/presentation/pages/cloud/files.dart';
 import 'package:vbox/presentation/pages/cloud/files_controller.dart';
 
-/// 假网盘播放编排：仅覆盖分享解析（C-盘2）。
+/// 假网盘播放编排：覆盖分享解析（C-盘2）与取链（F-08 接播放页）。
 class _FakePanPlayer extends PanPlayer {
-  _FakePanPlayer(this.share);
+  _FakePanPlayer(this.share, {this.prepared});
 
   final NodePanShare share;
+
+  /// 取链返回值（null → 交由默认实现报错）。
+  final CloudPlayItem? prepared;
+
   int resolveCalls = 0;
+  int prepareCalls = 0;
 
   @override
   Future<NodePanShare> resolveShare(CloudDriveType type, String shareUrl) async {
     resolveCalls++;
     return share;
+  }
+
+  @override
+  Future<CloudPlayItem> prepare({
+    required CloudDriveType type,
+    required String shareUrl,
+    required NodePanEntry entry,
+    String? sourceKey,
+    DateTime? now,
+  }) async {
+    prepareCalls++;
+    if (prepared == null) {
+      throw const PanPlayException('未预置取链结果');
+    }
+    return prepared!;
   }
 }
 
@@ -258,5 +279,82 @@ void main() {
     expect(find.text('EP01.mp4'), findsOneWidget);
     expect(find.text('清理队列'), findsNothing);
     expect(find.text('当前目录没有文件'), findsNothing);
+  });
+
+  test('分享模式：resolveEntry 取链返回播放源（F-08 接播放页）', () async {
+    final CloudPlayItem item = CloudPlayItem(
+      provider: CloudDriveType.one15.id,
+      sourceKey: 'p1',
+      fileName: 'EP01.mp4',
+      playURL: 'https://cdn.example/x.m3u8',
+      headers: const <String, String>{'Referer': 'https://pan.example'},
+      updatedAt: DateTime(2026, 10, 5),
+    );
+    final _FakePanPlayer pan = _FakePanPlayer(
+      const NodePanShare(title: '季风剧场', entries: <NodePanEntry>[]),
+      prepared: item,
+    );
+    final CloudDriveFilesController c = CloudDriveFilesController(
+      driveType: CloudDriveType.one15,
+      cleanupStore: store,
+      shareUrl: 'https://share/abc',
+      panPlayer: pan,
+    );
+
+    final CloudPlayItem out = await c.resolveEntry(
+      const CloudDriveFileEntry(fileId: 'p1', name: 'EP01.mp4'),
+    );
+
+    expect(out.playURL, 'https://cdn.example/x.m3u8');
+    expect(out.headers['Referer'], 'https://pan.example');
+    expect(pan.prepareCalls, 1);
+  });
+
+  test('分享模式：取链为空地址 → 报错「播放地址为空」', () async {
+    final _FakePanPlayer pan = _FakePanPlayer(
+      const NodePanShare(title: '季风剧场', entries: <NodePanEntry>[]),
+      prepared: CloudPlayItem(
+        provider: CloudDriveType.one15.id,
+        sourceKey: 'p1',
+        fileName: 'EP01.mp4',
+        updatedAt: DateTime(2026, 10, 5),
+      ),
+    );
+    final CloudDriveFilesController c = CloudDriveFilesController(
+      driveType: CloudDriveType.one15,
+      cleanupStore: store,
+      shareUrl: 'https://share/abc',
+      panPlayer: pan,
+    );
+
+    await expectLater(
+      c.resolveEntry(const CloudDriveFileEntry(fileId: 'p1', name: 'EP01.mp4')),
+      throwsA(
+        isA<PanPlayException>().having(
+          (PanPlayException e) => e.message,
+          'message',
+          '播放地址为空',
+        ),
+      ),
+    );
+  });
+
+  test('分享模式：未注入 PanPlayer → resolveEntry 报「尚未接入」', () async {
+    final CloudDriveFilesController c = CloudDriveFilesController(
+      driveType: CloudDriveType.one15,
+      cleanupStore: store,
+      shareUrl: 'https://share/abc',
+    );
+
+    await expectLater(
+      c.resolveEntry(const CloudDriveFileEntry(fileId: 'p1', name: 'EP01.mp4')),
+      throwsA(
+        isA<CloudDriveFilesException>().having(
+          (CloudDriveFilesException e) => e.message,
+          'message',
+          contains('尚未接入'),
+        ),
+      ),
+    );
   });
 }

@@ -15,6 +15,7 @@ import '../../../data/datasources/local/cloud_drive_cleanup_queue_store.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_files.dart';
+import '../../../domain/entities/cloud/cloud_play_item.dart';
 import '../../../domain/entities/cloud/node_pan.dart';
 import '../../../platform/player/pan_player.dart';
 
@@ -177,17 +178,25 @@ class CloudDriveFilesController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 分享模式：播放选中条目（对齐 iOS 文件列表点选 → 取链播放）。
-  Future<void> playEntry(CloudDriveFileEntry entry) async {
+  /// 分享模式：解析选中条目的播放地址（对齐 iOS 文件列表点选 → 取链播放）。
+  ///
+  /// 仅做「取链 + 缓存」（[PanPlayer.prepare]），不在此打开播放器；画面承载由
+  /// 调用方进入全屏播放页（对齐 iOS `VideoPlayerViewV2`）完成，`pan` 路由由
+  /// 播放页显式传入。
+  Future<CloudPlayItem> resolveEntry(CloudDriveFileEntry entry) async {
     final PanPlayer? pan = _pan;
     if (pan == null || !isShareMode) {
       throw const CloudDriveFilesException('网盘分享链路尚未接入');
     }
-    await pan.open(
+    final CloudPlayItem item = await pan.prepare(
       type: driveType,
       shareUrl: shareUrl!,
       entry: NodePanEntry(playID: entry.fileId, name: entry.name),
     );
+    if (!item.hasPlayURL) {
+      throw const PanPlayException('播放地址为空');
+    }
+    return item;
   }
 
   String _messageOf(Object e) {

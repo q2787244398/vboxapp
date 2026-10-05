@@ -23,6 +23,7 @@ import '../../../domain/entities/playback/playback_detail.dart';
 import '../../../platform/player/channel_player.dart';
 import '../../../platform/player/danmaku/danmaku_settings.dart';
 import '../../../platform/player/player_controller.dart';
+import '../../../platform/player/playback_route.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/player/player_controls_controller.dart';
 import '../../widgets/player/player_controls_view.dart';
@@ -45,6 +46,7 @@ class PlayerPage extends StatefulWidget {
     this.initialEpisodeIndex = 0,
     this.qualities = const <String>[],
     this.onResolveEpisode,
+    this.route,
     this.controller,
   });
 
@@ -68,6 +70,9 @@ class PlayerPage extends StatefulWidget {
 
   /// 选集重开解析器（null 时选集只切 UI 不换源 → 面板禁用）。
   final EpisodeSourceResolver? onResolveEpisode;
+
+  /// 显式播放路由覆盖（F-08：网盘直链无法自证 `pan` 路由，由入口传入）。
+  final PlaybackRoute? route;
 
   /// 播放器控制器（缺省 `PlayerController.instance`；测试注入假实现）。
   final PlayerController? controller;
@@ -223,7 +228,7 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 打开播放源并起播；失败抛 [PlayerOpenException] 已在导航层处理，此处仅提示。
   Future<void> _openSource(PlayerSource source) async {
     try {
-      await _player.open(source);
+      await _player.open(source, route: widget.route);
       await _player.play();
       if (!mounted) return;
       _controls.currentBackend = _player.backend;

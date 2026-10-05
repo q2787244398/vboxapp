@@ -16,12 +16,16 @@ import 'package:flutter/material.dart';
 import '../../../data/datasources/local/cloud_drive_cleanup_queue_store.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_files.dart';
+import '../../../domain/entities/cloud/cloud_play_item.dart';
+import '../../../domain/entities/player/player.dart';
 import '../../../platform/player/pan_player.dart';
+import '../../../platform/player/playback_route.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/vbox/vbox.dart';
+import '../player/player_page.dart';
 import 'cloud_drive_widgets.dart';
 import 'files_controller.dart';
 
@@ -90,11 +94,28 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
     if (!moved && mounted) Navigator.of(context).maybePop();
   }
 
-  /// 文件点击：分享模式 → 取链播放；目录模式 → 转存 + 入清理队列（去重）。
+  /// 文件点击：分享模式 → 取链并进入全屏播放页；目录模式 → 转存 + 入清理队列（去重）。
   Future<void> _onTapEntry(CloudDriveFileEntry entry) async {
     if (_controller.isShareMode) {
       try {
-        await _controller.playEntry(entry);
+        final CloudPlayItem item = await _controller.resolveEntry(entry);
+        if (!mounted) return;
+        final String title =
+            item.fileName.isEmpty ? entry.name : item.fileName;
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (BuildContext context) => PlayerPage(
+              source: PlayerSource(
+                url: item.playURL!,
+                headers: item.headers,
+                title: title,
+              ),
+              // 直链特征无法自证 pan 路由，显式传入（对齐 F-08）。
+              route: PlaybackRoute.pan,
+              title: title,
+            ),
+          ),
+        );
       } catch (e) {
         if (!mounted) return;
         VboxToast.show(context, e is CloudDriveFilesException ? e.message : '$e');

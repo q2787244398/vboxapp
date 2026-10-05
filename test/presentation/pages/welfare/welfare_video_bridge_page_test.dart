@@ -8,8 +8,13 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/domain/entities/welfare/fuli_models.dart';
 import 'package:vbox/domain/services/fuli_base_service.dart';
+import 'package:vbox/platform/player/playback_route.dart';
+import 'package:vbox/platform/player/player_channel_bridge.dart';
+import 'package:vbox/platform/player/player_controller.dart';
+import 'package:vbox/presentation/pages/player/player_page.dart';
 import 'package:vbox/presentation/pages/welfare/welfare_video_bridge_page.dart';
 
 /// 假服务：可配置详情与播放结果。
@@ -61,6 +66,47 @@ class _PlayRecorder {
     urls.add(url);
     headersList.add(headers);
   }
+}
+
+/// 假播放器控制器：不触真实方法通道，仅记录 open 的播放源与显式路由。
+class _FakePlayerController extends PlayerController {
+  _FakePlayerController()
+      : super(
+          bridge: MethodChannelPlayerBridge(),
+          backendChain: const <PlayerBackend>[PlayerBackend.media3],
+          selectInitialBackend:
+              (PlayerSource s, PlaybackRoute r) => PlayerBackend.media3,
+        );
+
+  final List<PlayerSource> opened = <PlayerSource>[];
+  final List<PlaybackRoute?> routes = <PlaybackRoute?>[];
+
+  @override
+  PlayerBackend? get backend => PlayerBackend.media3;
+
+  @override
+  Future<void> open(PlayerSource source, {PlaybackRoute? route}) async {
+    opened.add(source);
+    routes.add(route);
+  }
+
+  @override
+  Future<void> play() async {}
+
+  @override
+  Future<void> togglePlay() async {}
+
+  @override
+  Future<void> seekTo(int positionMs) async {}
+
+  @override
+  Future<void> setSpeed(double speed) async {}
+
+  @override
+  Future<void> switchBackend(PlayerBackend backend) async {}
+
+  @override
+  Future<void> dispose() async {}
 }
 
 FuliVideo _video() => const FuliVideo(
@@ -290,5 +336,24 @@ void main() {
 
     expect(find.text('选择下载集数'), findsNothing);
     expect(find.text('已选择 2 集待下载'), findsOneWidget);
+  });
+
+  testWidgets('缺省播放：解析成功后进入全屏播放页 PlayerPage（对齐 iOS fullScreenCover）',
+      (WidgetTester tester) async {
+    final _FakePlayerController player = _FakePlayerController();
+    PlayerController.overrideForTest(player);
+
+    await tester.pumpWidget(_page(_FakeFuliService(detail: _singleDetail())));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('立即播放'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PlayerPage), findsOneWidget);
+    expect(player.opened, hasLength(1));
+    expect(player.opened.single.url, 'https://cdn.example.com/ep1.m3u8');
+
+    // 放掉播放页 5s 控制层自动隐藏定时器，避免 teardown 报 pending timer。
+    await tester.pump(const Duration(seconds: 6));
   });
 }
