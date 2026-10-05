@@ -11,9 +11,11 @@ import 'package:vbox/data/datasources/local/cloud_drive_credential_store.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/data/datasources/remote/bili_auth_client.dart';
 import 'package:vbox/data/datasources/remote/node_credential_sync_service.dart';
+import 'package:vbox/data/datasources/remote/node_login_client.dart';
 import 'package:vbox/domain/entities/cloud/bili_auth.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive_login.dart';
+import 'package:vbox/domain/entities/cloud/node_login.dart';
 import 'package:vbox/presentation/pages/cloud/aliyun_pg_login_gateway.dart';
 import 'package:vbox/presentation/pages/cloud/login_gateway.dart';
 import 'package:vbox/presentation/pages/cloud/node_login_gateway.dart';
@@ -31,6 +33,28 @@ class _FakeBiliTransport implements BiliAuthTransport {
     Map<String, dynamic>? body,
   }) async =>
       handler(method, path);
+}
+
+/// 假 Node 登录传输：按 (method,path,body) 返回预设 JSON，并记录调用。
+class _FakeNodeLoginTransport implements NodeLoginTransport {
+  _FakeNodeLoginTransport(this.handler);
+
+  final Map<String, dynamic> Function(
+    String method,
+    String path,
+    Map<String, dynamic>? body,
+  ) handler;
+  final List<String> calls = <String>[];
+
+  @override
+  Future<Map<String, dynamic>> requestJson(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    calls.add('$method $path');
+    return handler(method, path, body);
+  }
 }
 
 /// 记录调用的 Node 凭据客户端。
@@ -69,9 +93,16 @@ void main() {
   NodeCloudDriveLoginGateway gatewayWith(
     Map<String, dynamic> Function(String method, String path) handler, {
     _RecordingCredentialClient? credentialClient,
+    _FakeNodeLoginTransport? nodeTransport,
   }) =>
       NodeCloudDriveLoginGateway(
         biliClient: BiliAuthClient(transport: _FakeBiliTransport(handler)),
+        nodeClient: NodeLoginClient(
+          transport: nodeTransport ??
+              _FakeNodeLoginTransport((_, __, ___) => <String, dynamic>{
+                    'code': 0,
+                  }),
+        ),
         credentialSync: credentialClient == null
             ? null
             : NodeCredentialSyncService(
@@ -81,35 +112,44 @@ void main() {
       );
 
   group('supports / 文案', () {
-    test('仅 B 站扫码类受支持', () {
+    test('B 站扫码 + Node 托管盘（F-P16）受支持', () {
+      bool sup(CloudDriveType t, CloudDriveLoginMode m) =>
+          NodeCloudDriveLoginGateway.supports(t, m);
+      // B 站扫码（nativeQr 亦归 Node 网关）。
+      expect(sup(CloudDriveType.bilibili, CloudDriveLoginMode.nodeQr), isTrue);
+      expect(sup(CloudDriveType.bilibili, CloudDriveLoginMode.nativeQr), isTrue);
+      // 通用扫码：115 / 夸克Node / 百度Node / UCNode。
+      for (final CloudDriveType t in <CloudDriveType>[
+        CloudDriveType.one15,
+        CloudDriveType.quarkNode,
+        CloudDriveType.baiduNode,
+        CloudDriveType.ucNode,
+      ]) {
+        expect(sup(t, CloudDriveLoginMode.nodeQr), isTrue, reason: '$t');
+      }
+      // 短信：光鸭 / 139 / 迅雷。
+      for (final CloudDriveType t in <CloudDriveType>[
+        CloudDriveType.guangya,
+        CloudDriveType.pan139,
+        CloudDriveType.xunlei,
+      ]) {
+        expect(sup(t, CloudDriveLoginMode.nodeSms), isTrue, reason: '$t');
+      }
+      // 账号：123 / 189。
+      for (final CloudDriveType t in <CloudDriveType>[
+        CloudDriveType.pan123,
+        CloudDriveType.pan189,
+      ]) {
+        expect(sup(t, CloudDriveLoginMode.nodeAccount), isTrue, reason: '$t');
+      }
+      // 未接入 / 不匹配档。
+      expect(sup(CloudDriveType.bilibili, CloudDriveLoginMode.nodeSms), isFalse);
+      expect(sup(CloudDriveType.ali, CloudDriveLoginMode.nativeQr), isFalse);
       expect(
-        NodeCloudDriveLoginGateway.supports(
-          CloudDriveType.bilibili,
-          CloudDriveLoginMode.nodeQr,
-        ),
-        isTrue,
-      );
-      expect(
-        NodeCloudDriveLoginGateway.supports(
-          CloudDriveType.bilibili,
-          CloudDriveLoginMode.nativeQr,
-        ),
-        isTrue,
-      );
-      expect(
-        NodeCloudDriveLoginGateway.supports(
-          CloudDriveType.ali,
-          CloudDriveLoginMode.nativeQr,
-        ),
+        sup(CloudDriveType.woniu4k, CloudDriveLoginMode.nodeAccount),
         isFalse,
       );
-      expect(
-        NodeCloudDriveLoginGateway.supports(
-          CloudDriveType.bilibili,
-          CloudDriveLoginMode.nodeSms,
-        ),
-        isFalse,
-      );
+      expect(sup(CloudDriveType.pan123, CloudDriveLoginMode.nodeQr), isFalse);
     });
 
     test('不支持档：Node 方式报「未就绪」，原生方式报「未接入」', () async {
@@ -316,5 +356,174 @@ void main() {
       ),
       throwsA(isA<CloudDriveLoginException>()),
     );
+  });
+
+  group('Node 托管盘登录（F-P16）', () {
+    test('115 扫码：provider=pan115 且成功回收凭据', () async {
+      final _FakeNodeLoginTransport node =
+          _FakeNodeLoginTransport((String m, String p, Map<String, dynamic>? b) {
+        if (p == NodeLoginPaths.qrStart) {
+          return <String, dynamic>{
+            'code': 0,
+            'taskId': 'T1',
+            'qrImage': 'data:image/png;base64,AA',
+          };
+        }
+        if (p == NodeLoginPaths.qrPoll) {
+          return <String, dynamic>{
+            'code': 0,
+            'status': 'success',
+            'terminal': true,
+          };
+        }
+        return <String, dynamic>{'code': 0};
+      });
+      final _RecordingCredentialClient cred = _RecordingCredentialClient();
+      final NodeCloudDriveLoginGateway gateway = gatewayWith(
+        (_, __) => <String, dynamic>{},
+        nodeTransport: node,
+        credentialClient: cred,
+      );
+      final CloudDriveQrTask task = await gateway.startQrLogin(
+        type: CloudDriveType.one15,
+        mode: CloudDriveLoginMode.nodeQr,
+      );
+      expect(task.taskId, 'T1');
+      expect(task.qrDataUrl, 'data:image/png;base64,AA');
+      final CloudDriveLoginPhase phase = await gateway.pollQrLogin(
+        type: CloudDriveType.one15,
+        mode: CloudDriveLoginMode.nodeQr,
+        taskId: 'T1',
+      );
+      expect(phase, CloudDriveLoginPhase.success);
+      expect(cred.calls, <String>['GET /website/api/credentials']);
+    });
+
+    test('通用扫码 waiting + 「已扫码」→ scanned 阶段', () async {
+      final _FakeNodeLoginTransport node = _FakeNodeLoginTransport(
+        (_, __, ___) => <String, dynamic>{
+          'code': 0,
+          'status': 'waiting',
+          'msg': '已扫码，请在手机上确认',
+        },
+      );
+      final NodeCloudDriveLoginGateway gateway =
+          gatewayWith((_, __) => <String, dynamic>{}, nodeTransport: node);
+      final CloudDriveLoginPhase phase = await gateway.pollQrLogin(
+        type: CloudDriveType.ucNode,
+        mode: CloudDriveLoginMode.nodeQr,
+        taskId: 'T',
+      );
+      expect(phase, CloudDriveLoginPhase.scanned);
+    });
+
+    test('光鸭短信：send 返回 taskId，login 用暂存 taskId 并回收', () async {
+      final _FakeNodeLoginTransport node =
+          _FakeNodeLoginTransport((String m, String p, Map<String, dynamic>? b) {
+        if (p == NodeLoginPaths.guangyaSmsSend) {
+          return <String, dynamic>{'code': 0, 'taskId': 'G1', 'msg': '已发送'};
+        }
+        return <String, dynamic>{'code': 0};
+      });
+      final _RecordingCredentialClient cred = _RecordingCredentialClient();
+      final NodeCloudDriveLoginGateway gateway = gatewayWith(
+        (_, __) => <String, dynamic>{},
+        nodeTransport: node,
+        credentialClient: cred,
+      );
+      final String taskId = await gateway.sendSmsCode(
+        type: CloudDriveType.guangya,
+        phone: '13800000000',
+      );
+      expect(taskId, 'G1');
+      await gateway.submitSmsCode(
+        type: CloudDriveType.guangya,
+        taskId: '',
+        code: '1234',
+      );
+      expect(node.calls, contains('POST ${NodeLoginPaths.guangyaSmsLogin}'));
+      expect(cred.calls, <String>['GET /website/api/credentials']);
+    });
+
+    test('139 短信：send 缓存 headers，login 走 new139 端点', () async {
+      final _FakeNodeLoginTransport node =
+          _FakeNodeLoginTransport((String m, String p, Map<String, dynamic>? b) {
+        if (p == NodeLoginPaths.new139SmsSend) {
+          return <String, dynamic>{
+            'code': 0,
+            'loginHeaders': <String, dynamic>{'X-A': '1'},
+            'captchaUrl': 'https://c/1',
+            'msg': '已发送',
+          };
+        }
+        return <String, dynamic>{'code': 0};
+      });
+      final NodeCloudDriveLoginGateway gateway =
+          gatewayWith((_, __) => <String, dynamic>{}, nodeTransport: node);
+      await gateway.sendSmsCode(type: CloudDriveType.pan139, phone: '139');
+      await gateway.submitSmsCode(
+        type: CloudDriveType.pan139,
+        taskId: '',
+        code: '0000',
+      );
+      expect(node.calls, contains('POST ${NodeLoginPaths.new139Login}'));
+    });
+
+    test('迅雷短信：走 thunder 端点', () async {
+      final _FakeNodeLoginTransport node = _FakeNodeLoginTransport(
+        (_, __, ___) => <String, dynamic>{'code': 0},
+      );
+      final NodeCloudDriveLoginGateway gateway =
+          gatewayWith((_, __) => <String, dynamic>{}, nodeTransport: node);
+      await gateway.sendSmsCode(type: CloudDriveType.xunlei, phone: '139');
+      await gateway.submitSmsCode(
+        type: CloudDriveType.xunlei,
+        taskId: '',
+        code: '9999',
+      );
+      expect(node.calls, contains('POST ${NodeLoginPaths.thunderSmsSend}'));
+      expect(node.calls, contains('POST ${NodeLoginPaths.thunderSmsLogin}'));
+    });
+
+    test('123 账号登录并回收凭据', () async {
+      final _FakeNodeLoginTransport node = _FakeNodeLoginTransport(
+        (_, __, ___) => <String, dynamic>{'code': 0},
+      );
+      final _RecordingCredentialClient cred = _RecordingCredentialClient();
+      final NodeCloudDriveLoginGateway gateway = gatewayWith(
+        (_, __) => <String, dynamic>{},
+        nodeTransport: node,
+        credentialClient: cred,
+      );
+      await gateway.submitAccountLogin(
+        type: CloudDriveType.pan123,
+        mode: CloudDriveLoginMode.nodeAccount,
+        account: 'a',
+        password: 'p',
+      );
+      expect(node.calls, contains('PUT ${NodeLoginPaths.pan123Account}'));
+      expect(cred.calls, <String>['GET /website/api/credentials']);
+    });
+
+    test('189 账号需二次校验 → 抛错携带 Node msg', () async {
+      final _FakeNodeLoginTransport node = _FakeNodeLoginTransport(
+        (_, __, ___) =>
+            <String, dynamic>{'code': 0, 'sms': true, 'msg': '需短信'},
+      );
+      final NodeCloudDriveLoginGateway gateway =
+          gatewayWith((_, __) => <String, dynamic>{}, nodeTransport: node);
+      await expectLater(
+        gateway.submitAccountLogin(
+          type: CloudDriveType.pan189,
+          mode: CloudDriveLoginMode.nodeAccount,
+          account: 'a',
+          password: 'p',
+        ),
+        throwsA(
+          isA<CloudDriveLoginException>()
+              .having((CloudDriveLoginException e) => e.message, 'message', '需短信'),
+        ),
+      );
+    });
   });
 }

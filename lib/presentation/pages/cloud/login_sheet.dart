@@ -25,6 +25,7 @@ import '../../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_login.dart';
+import '../../../platform/webview/webview_bridge.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
@@ -45,6 +46,7 @@ Future<void> openCloudDriveLoginSheet(
   required String action,
   CloudDriveLoginGateway? gateway,
   CloudDriveWebCredentialSaver? webSaver,
+  WebViewBridge? webViewBridge,
 }) {
   final CloudDriveLoginMode mode = CloudDriveLoginMode.fromActionLabel(action);
   final ColorScheme scheme = Theme.of(context).colorScheme;
@@ -57,6 +59,7 @@ Future<void> openCloudDriveLoginSheet(
       CloudDriveLoginMode.webFallback => CloudDriveWebLoginSheet(
           driveType: type,
           saver: webSaver,
+          bridge: webViewBridge ?? const UnavailableWebViewBridge(),
         ),
       CloudDriveLoginMode.nodeSms => CloudDriveSmsLoginSheet(
           driveType: type,
@@ -620,6 +623,7 @@ class CloudDriveWebLoginSheet extends StatefulWidget {
     super.key,
     required this.driveType,
     this.saver,
+    this.bridge = const UnavailableWebViewBridge(),
   });
 
   /// 目标网盘。
@@ -627,6 +631,9 @@ class CloudDriveWebLoginSheet extends StatefulWidget {
 
   /// 凭据落盘回调（测试注入；缺省 [saveWebCredentialToStore]）。
   final CloudDriveWebCredentialSaver? saver;
+
+  /// 内嵌 WebView 桥（Web-R1；缺省未接入 → 回退「浏览器 + 粘贴」）。
+  final WebViewBridge bridge;
 
   @override
   State<CloudDriveWebLoginSheet> createState() =>
@@ -637,8 +644,10 @@ class _CloudDriveWebLoginSheetState extends State<CloudDriveWebLoginSheet> {
   final TextEditingController _secret = TextEditingController();
   bool _saving = false;
   bool _saved = false;
+  bool _autoRunning = false;
   String? _error;
   String? _launchError;
+  String? _autoError;
 
   @override
   void initState() {
@@ -690,6 +699,57 @@ class _CloudDriveWebLoginSheetState extends State<CloudDriveWebLoginSheet> {
     await Clipboard.setData(ClipboardData(text: url));
     if (!mounted) return;
     VboxToast.show(context, '已复制登录链接');
+  }
+
+  /// 内嵌 WebView 打开官方登录页并自动回收 HttpOnly Cookie（Web-R1）。
+  ///
+  /// 桥未接入（[UnavailableWebViewBridge]）时抛明确错误，不影响「浏览器 + 粘贴」。
+  Future<void> _autoFetch() async {
+    final String? url = _url;
+    if (url == null) return;
+    setState(() {
+      _autoRunning = true;
+      _autoError = null;
+    });
+    try {
+      final WebAuthPolicy? policy = WebAuthPolicy.of(widget.driveType);
+      final WebViewPageResult page = await widget.bridge.loadPage(
+        url: url,
+        userAgent: policy?.userAgent,
+        timeout: const Duration(seconds: 30),
+      );
+      final String cookie = await widget.bridge.currentCookieString(
+        domain: policy != null && policy.cookieHosts.isNotEmpty
+            ? policy.cookieHosts.first
+            : null,
+      );
+      final String secret = cookie.isNotEmpty ? cookie : page.cookie;
+      if (secret.isEmpty) {
+        throw const WebViewBridgeException('未回收到有效 Cookie，请在页面完成登录后重试');
+      }
+      await (widget.saver ?? saveWebCredentialToStore)(
+        type: widget.driveType,
+        secret: secret,
+      );
+      if (!mounted) return;
+      setState(() {
+        _autoRunning = false;
+        _saved = true;
+      });
+    } on WebViewBridgeException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _autoRunning = false;
+        _autoError = e.message;
+      });
+      VboxToast.show(context, e.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _autoRunning = false;
+        _autoError = '自动回收失败：$e';
+      });
+    }
   }
 
   /// 保存粘贴的 Token / Cookie 到安全存储（空凭据时主按钮禁用，不会进此分支）。
@@ -776,7 +836,8 @@ class _CloudDriveWebLoginSheetState extends State<CloudDriveWebLoginSheet> {
               const SizedBox(height: VboxSpacing.lg),
               LoginTipCard(
                 text: 'iOS 侧内嵌 WebView 可直接读取 HttpOnly Cookie；'
-                    'Flutter 端统一走「系统浏览器 + 粘贴」兜底，'
+                    'Flutter 端在 WebView 桥（Web-R1）接入后自动回收，'
+                    '未接入时走「系统浏览器 + 粘贴」兜底；'
                     '保存后凭据写入安全存储并即时出现在授权中心。',
                 tint: cloudDriveBrandColor(widget.driveType),
               ),
@@ -839,9 +900,24 @@ class _CloudDriveWebLoginSheetState extends State<CloudDriveWebLoginSheet> {
               ),
             ],
           ),
+          // Web-R1：桥可用时提供内嵌登录并自动回收 HttpOnly Cookie。
+          if (widget.bridge.isAvailable)
+            LoginSecondaryButton(
+              label: _autoRunning ? '自动回收中…' : '内嵌登录并自动回收',
+              enabled: !_autoRunning && _url != null,
+              onTap: _autoFetch,
+            ),
           if (_launchError != null)
             Text(
               _launchError!,
+              style: TextStyle(
+                fontSize: VboxTypography.s12,
+                color: scheme.error,
+              ),
+            ),
+          if (_autoError != null)
+            Text(
+              _autoError!,
               style: TextStyle(
                 fontSize: VboxTypography.s12,
                 color: scheme.error,

@@ -45,30 +45,33 @@ List<(String, IconData)> cloudDriveAuthActions(CloudDriveType type) {
       CloudDriveType.ali => <(String, IconData)>[
           ('PG扫码登录', Icons.qr_code_2),
         ],
-      CloudDriveType.uc || CloudDriveType.ucNode => <(String, IconData)>[
+      // 原生盘：走原生链（非 Node）。
+      CloudDriveType.uc => <(String, IconData)>[
           ('原生扫码', Icons.qr_code_2),
           ('网页登录兜底', Icons.language),
         ],
-      CloudDriveType.baidu || CloudDriveType.baiduNode => <(String, IconData)>[
+      CloudDriveType.baidu => <(String, IconData)>[
           ('扫码授权', Icons.qr_code_2),
           ('网页兜底', Icons.language),
         ],
-      CloudDriveType.quark || CloudDriveType.quarkNode => <(String, IconData)>[
+      CloudDriveType.quark => <(String, IconData)>[
           ('扫码登录', Icons.qr_code_2),
           ('网页登录兜底', Icons.language),
         ],
-      CloudDriveType.one15 => <(String, IconData)>[
+      // Node 托管派生卡：动作须落到 Node 模式（F-P16）。
+      CloudDriveType.ucNode ||
+      CloudDriveType.baiduNode ||
+      CloudDriveType.quarkNode ||
+      CloudDriveType.one15 =>
+        <(String, IconData)>[
           ('Node扫码登录', Icons.phone_iphone),
           ('网页兜底', Icons.language),
         ],
-      CloudDriveType.pan123 => <(String, IconData)>[
+      CloudDriveType.pan123 || CloudDriveType.pan189 => <(String, IconData)>[
           ('Node账号登录', Icons.phone_iphone),
           ('网页兜底', Icons.language),
         ],
-      CloudDriveType.pan139 ||
-      CloudDriveType.pan189 ||
-      CloudDriveType.xunlei =>
-        <(String, IconData)>[
+      CloudDriveType.pan139 || CloudDriveType.xunlei => <(String, IconData)>[
           ('Node验证码登录', Icons.phone_iphone),
           ('网页兜底', Icons.language),
         ],

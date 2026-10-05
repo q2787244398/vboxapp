@@ -13,18 +13,18 @@
 ///  - 阿里云盘 → PG 4kz 路链（批次 F · F-09 接线，本批次明确报错）；
 ///  - 原生盘（夸克 / 百度 / UC）→ 原生路链：**夸克已接入**（F-P01，
 ///    `QuarkNativeClient`：分享解析 → 文件列表 → 转存 → 取链）；**百度已接入**
-///    （F-P02，`BaiduProxyClient` Worker 代理：parse → play）；**UC 已接入**
+///    （F-P02，`BaiduIBoxClient` iBox 本机链：分享验证 → 多文件选集 → 转存 →
+///    DLNA/locatedownload 取链；失败抛出，WebView 回退见 C3/Web-R1）；**UC 已接入**
 ///    （F-P03，`UcNativeClient`：分享解析 → 文件列表 → 转存 → v2/play/download）。
 library;
 
 import '../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../data/datasources/local/cloud_play_item_cache_store.dart';
 import '../../data/datasources/local/prefs_manager.dart';
-import '../../data/datasources/remote/baidu_proxy_client.dart';
+import '../../data/datasources/remote/baidu_ibox_client.dart';
 import '../../data/datasources/remote/node_pan_client.dart';
 import '../../data/datasources/remote/quark_native_client.dart';
 import '../../data/datasources/remote/uc_native_client.dart';
-import '../../domain/entities/cloud/baidu_proxy.dart';
 import '../../domain/entities/cloud/cloud_drive.dart';
 import '../../domain/entities/cloud/cloud_play_item.dart';
 import '../../domain/entities/cloud/node_pan.dart';
@@ -67,7 +67,7 @@ class PanPlayer {
     CloudPlayItemCacheStore? cacheStore,
     PlayerController? controller,
     QuarkNativeClient? quarkClient,
-    BaiduProxyClient? baiduClient,
+    BaiduIBoxClient? baiduIBoxClient,
     UcNativeClient? ucClient,
     Future<String> Function(CloudDriveType type)? cookieFor,
   })  : _client = client ?? NodePanClient(),
@@ -75,7 +75,7 @@ class PanPlayer {
             CloudPlayItemCacheStore(PrefsManager.instance),
         _controller = controller,
         _quark = quarkClient ?? QuarkNativeClient(),
-        _baidu = baiduClient ?? BaiduProxyClient(),
+        _baiduIBox = baiduIBoxClient ?? BaiduIBoxClient(),
         _uc = ucClient ?? UcNativeClient(),
         _cookieFor = cookieFor;
 
@@ -86,8 +86,8 @@ class PanPlayer {
   /// 夸克原生分享链客户端（F-P01）。
   final QuarkNativeClient _quark;
 
-  /// 百度专用代理客户端（F-P02，Worker 方案对齐 iOS `BaiduProxyClient`）。
-  final BaiduProxyClient _baidu;
+  /// 百度 iBox 本机链客户端（F-P02，对齐 iOS `CloudDriveManager` 百度主路链）。
+  final BaiduIBoxClient _baiduIBox;
 
   /// UC 原生分享链客户端（F-P03，对齐 iOS `CloudDriveManager` UC 分支）。
   final UcNativeClient _uc;
@@ -99,14 +99,26 @@ class PanPlayer {
   Future<String> _cookie(CloudDriveType type) async {
     final Future<String> Function(CloudDriveType)? provider = _cookieFor;
     if (provider != null) return provider(type);
+    return (await _credential(type))?.cookie ?? '';
+  }
+
+  /// 取指定网盘凭据（缺省读凭据安全存储 `cloud_drive_credentials_v1`）。
+  Future<CloudDriveCredential?> _credential(CloudDriveType type) async {
     try {
       final CloudDriveCredentialStore store =
           CloudDriveCredentialStore(PrefsManager.instance);
-      final CloudDriveCredential? cred = await store.credential(type);
-      return cred?.cookie ?? '';
+      return await store.credential(type);
     } catch (_) {
-      return '';
+      return null;
     }
+  }
+
+  /// 百度 PCS 设备 Cookie（对齐 iOS `credential.extra["pcs_cookie"]`）。
+  ///
+  /// 注入 [cookieFor] 替身时无 extra，返回空串（行为等价 iOS `pair.pcs == nil`）。
+  Future<String> _baiduPcsCookie() async {
+    if (_cookieFor != null) return '';
+    return (await _credential(CloudDriveType.baidu))?.extra['pcs_cookie'] ?? '';
   }
 
   /// 播放控制器（缺省取全局单例）。
@@ -151,25 +163,22 @@ class PanPlayer {
         }
         if (type == CloudDriveType.baidu) {
           final String cookie = await _cookie(type);
+          final List<BaiduFileItem> files;
           try {
-            final BaiduProxyResponse r =
-                await _baidu.parseShareLink(url: shareUrl, cookie: cookie);
-            final BaiduProxyPlayData? data = r.data;
-            if (data == null || data.url.isEmpty) {
-              throw const PanPlayException('百度分享解析失败');
-            }
-            return NodePanShare(
-              title: data.fileName ?? '百度分享',
-              entries: <NodePanEntry>[
-                NodePanEntry(
-                  playID: 'baidu',
-                  name: data.fileName ?? '百度资源',
-                ),
-              ],
+            files = await _baiduIBox.getFileList(
+              shareUrl: shareUrl,
+              cookie: cookie,
             );
-          } on BaiduProxyException catch (e) {
+          } on BaiduIBoxException catch (e) {
             throw PanPlayException(e.message);
           }
+          return NodePanShare(
+            title: '百度分享',
+            entries: files
+                .map((BaiduFileItem f) =>
+                    NodePanEntry(playID: f.fsId, name: f.name))
+                .toList(growable: false),
+          );
         }
         if (type == CloudDriveType.uc) {
           final String cookie = await _cookie(type);
@@ -240,26 +249,22 @@ class PanPlayer {
           source = 'quark-native';
         } else if (type == CloudDriveType.baidu) {
           final String cookie = await _cookie(type);
-          final BaiduProxyPlayData? data;
+          final String pcsCookie = await _baiduPcsCookie();
+          final BaiduPlayResult r;
           try {
-            final BaiduProxyResponse r = await _baidu.getPlayURL(
-              shareURL: shareUrl,
-              fsId: entry.playID == 'baidu' ? '' : entry.playID,
-              cookie: cookie,
+            r = await _baiduIBox.resolvePlayURL(
+              shareUrl: shareUrl,
+              bduss: cookie,
+              fsId: entry.playID,
+              pcsCookie: pcsCookie,
             );
-            data = r.data;
-          } on BaiduProxyException catch (e) {
+          } on BaiduIBoxException catch (e) {
             throw PanPlayException(e.message);
           }
-          if (data == null || data.url.isEmpty) {
-            throw const PanPlayException('百度未返回可用播放地址');
-          }
-          playURL = data.url;
-          fileName = data.fileName ?? entry.name;
-          final Map<String, String> h = <String, String>{...?data.headers};
-          if (cookie.isNotEmpty) h['Cookie'] = cookie;
-          headers = h;
-          source = 'baidu-worker';
+          playURL = r.url;
+          fileName = entry.name;
+          headers = r.headers;
+          source = r.source;
         } else if (type == CloudDriveType.uc) {
           final String cookie = await _cookie(type);
           final UcPlayResult r;

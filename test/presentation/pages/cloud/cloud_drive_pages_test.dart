@@ -114,8 +114,8 @@ void main() {
       expect(find.text('网页登录兜底'), findsNWidgets(2)); // 夸克 / UC
       expect(find.text('网页兜底'), findsNWidgets(6)); // 百度/115/123/139/189/迅雷
       expect(find.text('Node扫码登录'), findsOneWidget); // 115
-      expect(find.text('Node账号登录'), findsOneWidget); // 123
-      expect(find.text('Node验证码登录'), findsNWidgets(3)); // 139/189/迅雷
+      expect(find.text('Node账号登录'), findsNWidgets(2)); // 123/189
+      expect(find.text('Node验证码登录'), findsNWidgets(2)); // 139/迅雷
       expect(find.text('手机验证码登录'), findsOneWidget); // 光鸭
       expect(find.text('账号登录'), findsOneWidget); // 蜗牛
     });

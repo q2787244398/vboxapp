@@ -10,11 +10,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/cloud_play_item_cache_store.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
-import 'package:vbox/data/datasources/remote/baidu_proxy_client.dart';
+import 'package:vbox/data/datasources/remote/baidu_ibox_client.dart';
 import 'package:vbox/data/datasources/remote/node_pan_client.dart';
 import 'package:vbox/data/datasources/remote/quark_native_client.dart';
 import 'package:vbox/data/datasources/remote/uc_native_client.dart';
-import 'package:vbox/domain/entities/cloud/baidu_proxy.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/domain/entities/cloud/cloud_play_item.dart';
 import 'package:vbox/domain/entities/cloud/node_pan.dart';
@@ -131,40 +130,42 @@ class _FakeUcClient extends UcNativeClient {
       );
 }
 
-/// 假百度代理客户端（F-P02）。
-class _FakeBaiduClient extends BaiduProxyClient {
+/// 假百度 iBox 客户端（F-P02）：多文件选集 + 取链。
+class _FakeBaiduIBoxClient extends BaiduIBoxClient {
   @override
-  Future<BaiduProxyResponse> parseShareLink({
-    required String url,
-    String pwd = '',
-    String cookie = '',
+  Future<List<BaiduFileItem>> getFileList({
+    required String shareUrl,
+    required String cookie,
   }) async =>
-      const BaiduProxyResponse(
-        success: true,
-        data: BaiduProxyPlayData(
-          url: 'https://pcs/parse.m3u8',
-          type: 'm3u8',
-          fileName: 'EP01.mp4',
-        ),
-      );
+      <BaiduFileItem>[
+        const BaiduFileItem(fsId: '111', name: 'EP01.mp4'),
+        const BaiduFileItem(fsId: '222', name: 'EP02.mp4'),
+      ];
 
   @override
-  Future<BaiduProxyResponse> getPlayURL({
-    required String shareURL,
-    String pwd = '',
-    String fsId = '',
-    String cookie = '',
+  Future<BaiduPlayResult> resolvePlayURL({
+    required String shareUrl,
+    required String bduss,
+    required String fsId,
     String pcsCookie = '',
   }) async =>
-      const BaiduProxyResponse(
-        success: true,
-        data: BaiduProxyPlayData(
-          url: 'https://pcs/play.m3u8',
-          type: 'm3u8',
-          fileName: 'EP01.mp4',
-          headers: <String, String>{'Referer': 'https://pan.baidu.com'},
-        ),
+      const BaiduPlayResult(
+        url: 'https://ibox/play.m3u8',
+        headers: <String, String>{'Referer': 'https://pan.baidu.com/'},
+        source: 'main-transfer-locatedownload',
       );
+}
+
+/// 假百度 iBox 客户端（取链失败，用于错误映射断言）。
+class _FailingBaiduIBoxClient extends BaiduIBoxClient {
+  @override
+  Future<BaiduPlayResult> resolvePlayURL({
+    required String shareUrl,
+    required String bduss,
+    required String fsId,
+    String pcsCookie = '',
+  }) async =>
+      throw const BaiduIBoxException('百度登录态正常，但未取得用户态 bdstoken');
 }
 
 void main() {
@@ -226,19 +227,6 @@ void main() {
             (PanPlayException e) => e.message,
             'msg',
             contains('PG 4kz 路链'),
-          ),
-        ),
-      );
-    });
-
-    test('百度（未配置 Worker 代理）→ 明确报错「百度代理未接入」', () async {
-      await expectLater(
-        player.resolveShare(CloudDriveType.baidu, 'https://pan.baidu.com/s/x'),
-        throwsA(
-          isA<PanPlayException>().having(
-            (PanPlayException e) => e.message,
-            'msg',
-            contains('百度代理未接入'),
           ),
         ),
       );
@@ -430,7 +418,7 @@ void main() {
     });
   });
 
-  group('百度原生链（F-P02，Worker 代理）', () {
+  group('百度原生链（F-P02，iBox 本机链）', () {
     late PanPlayer baiduPlayer;
 
     setUp(() {
@@ -438,43 +426,57 @@ void main() {
         client: NodePanClient(transport: _happyTransport()),
         cacheStore: cache,
         controller: controller,
-        baiduClient: _FakeBaiduClient(),
-        cookieFor: (CloudDriveType _) async => 'k=v',
+        baiduIBoxClient: _FakeBaiduIBoxClient(),
+        cookieFor: (CloudDriveType _) async => 'BDUSS=u',
       );
     });
 
-    test('resolveShare → 单条目（文件名为分享标题）', () async {
+    test('resolveShare → 多文件选集（fsId 作 playID）', () async {
       final NodePanShare share = await baiduPlayer.resolveShare(
         CloudDriveType.baidu,
         'https://pan.baidu.com/s/1abc',
       );
-      expect(share.title, 'EP01.mp4');
-      expect(share.entries.single.name, 'EP01.mp4');
+      expect(share.title, '百度分享');
+      expect(share.entries.length, 2);
+      expect(share.entries.first.playID, '111');
+      expect(share.entries.first.name, 'EP01.mp4');
     });
 
-    test('prepare → 取链并带代理响应头 + Cookie', () async {
+    test('prepare → iBox 取链（headers/source 取自结果）', () async {
       final CloudPlayItem item = await baiduPlayer.prepare(
         type: CloudDriveType.baidu,
         shareUrl: 'https://pan.baidu.com/s/1abc',
-        entry: const NodePanEntry(playID: 'baidu', name: 'EP01.mp4'),
+        entry: const NodePanEntry(playID: '111', name: 'EP01.mp4'),
         now: t0,
       );
-      expect(item.playURL, 'https://pcs/play.m3u8');
-      expect(item.headers['Referer'], 'https://pan.baidu.com');
-      expect(item.headers['Cookie'], 'k=v');
-      expect(item.source, 'baidu-worker');
+      expect(item.playURL, 'https://ibox/play.m3u8');
+      expect(item.headers['Referer'], 'https://pan.baidu.com/');
+      expect(item.source, 'main-transfer-locatedownload');
+      expect(item.compatibilityHint, 'main-transfer-locatedownload');
     });
 
-    test('默认无代理 → 映射为明确报错（百度代理未接入）', () async {
-      final PanPlayer noProxy = PanPlayer(
+    test('取链失败 → BaiduIBoxException 映射为 PanPlayException', () async {
+      final PanPlayer failing = PanPlayer(
         client: NodePanClient(transport: _happyTransport()),
         cacheStore: cache,
         controller: controller,
-        cookieFor: (CloudDriveType _) async => '',
+        baiduIBoxClient: _FailingBaiduIBoxClient(),
+        cookieFor: (CloudDriveType _) async => 'BDUSS=u',
       );
       await expectLater(
-        noProxy.resolveShare(CloudDriveType.baidu, 'https://pan.baidu.com/s/1a'),
-        throwsA(isA<PanPlayException>()),
+        failing.prepare(
+          type: CloudDriveType.baidu,
+          shareUrl: 'https://pan.baidu.com/s/1abc',
+          entry: const NodePanEntry(playID: '111', name: 'EP01.mp4'),
+          now: t0,
+        ),
+        throwsA(
+          isA<PanPlayException>().having(
+            (PanPlayException e) => e.message,
+            'msg',
+            contains('未取得用户态 bdstoken'),
+          ),
+        ),
       );
     });
   });

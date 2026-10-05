@@ -24,6 +24,12 @@
 ///
 /// 未移植项（如实登记）：iOS 在 URLSession 失败时回退 WKWebView XHR
 /// （create/list/transfer/bdstoken）——属 C3（Web-R1），本段不实现，失败即抛错。
+///
+/// C3 回退点（对齐 iOS 调用点，待 WebView 桥接入后逐点补）：
+///   · `fetchUserBdstoken` ← `baiduFetchUserBdstokenViaWebView`（CloudDriveManager L4724）；
+///   · `ensureTransferDir`  ← `baiduCreateFolderViaWebView`（L4873）+ `baiduCanListTransferDirViaWebView`（L4885）；
+///   · `findExistingVboxPath` ← `baiduFindExistingVboxPathViaWebView`（L5077/L5083/L5088）；
+///   · `transferFile`       ← `baiduTransferFileViaWebView`（L5224/L5240）。
 library;
 
 import 'dart:convert';
