@@ -157,8 +157,15 @@ class WelfarePlatformRouter {
       case WelfareServiceType.remoteCmsV10:
         return WelfareRemoteCmsV10Route(platform);
       case WelfareServiceType.welfareSpider:
-        // 对齐 iOS：JS 脚本 → JS 引擎页；其余 → 脚本状态页。
-        // 三重隔离前置（H-04）：违规平台一律进未支持页，杜绝进入普通链路。
+        // 对齐 iOS `makeWelfareSpiderDestination` 优先级：
+        // ① 已注册原生服务（如 lusushequ）→ 原生平台页；
+        // ② 三重隔离前置（H-04）：违规平台一律进未支持页；
+        // ③ JS 脚本 → JS 引擎页；其余 → 脚本状态页。
+        final FuliBaseService? native =
+            _registry.serviceFor(platform.platformKey);
+        if (native != null) {
+          return WelfareFuliBaseRoute(platform, native);
+        }
         final String? violation = WelfareIsolationPolicy.violationFor(platform);
         if (violation != null) {
           return WelfareUnsupportedRoute(platform, violation);

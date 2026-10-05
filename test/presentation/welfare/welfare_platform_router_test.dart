@@ -188,6 +188,22 @@ void main() {
       expect((miss as WelfareUnsupportedRoute).reason, contains('nope'));
     });
 
+    test('welfareSpider：已注册原生服务优先于 JS/状态页（对齐 iOS）', () {
+      final FuliBaseServiceRegistry registry = FuliBaseServiceRegistry();
+      registry.register(_FakeFuliService(platformKey: 'lusushequ'));
+      final WelfarePlatformRouter nativeRouter =
+          WelfarePlatformRouter(registry: registry);
+
+      final WelfareRoute native = nativeRouter.resolve(
+          platform(serviceType: 'welfare_spider', key: 'lusushequ'));
+      expect(native, isA<WelfareFuliBaseRoute>());
+      expect((native as WelfareFuliBaseRoute).service.platformKey, 'lusushequ');
+
+      final WelfareRoute fallback = nativeRouter
+          .resolve(platform(serviceType: 'welfare_spider', key: 'other'));
+      expect(fallback, isA<WelfareSpiderHomeRoute>());
+    });
+
     test('unknown：缺 serviceType 与未知串给出不同原因，均不兜底', () {
       final WelfarePlatformRouter router = WelfarePlatformRouter();
 
