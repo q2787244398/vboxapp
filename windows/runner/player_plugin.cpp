@@ -9,6 +9,7 @@
 
 #include <windows.h>
 
+#include <chrono>
 #include <cstdint>
 #include <utility>
 #include <variant>
@@ -84,12 +85,14 @@ bool MpvApi::Load() {
     return false;
   }
   bool ok = true;
-#define LOAD_MPV_SYM(Name)                                             \
-  do {                                                                 \
-    Name = reinterpret_cast<decltype(Name)>(::GetProcAddress(mod, #Name)); \
-    if (Name == nullptr) {                                             \
-      ok = false;                                                      \
-    }                                                                  \
+  // libmpv 导出符号统一带 `mpv_` 前缀（mpv_create / mpv_render_context_* 等）。
+#define LOAD_MPV_SYM(Name)                                                 \
+  do {                                                                     \
+    Name = reinterpret_cast<decltype(Name)>(                               \
+        ::GetProcAddress(mod, "mpv_" #Name));                              \
+    if (Name == nullptr) {                                                 \
+      ok = false;                                                          \
+    }                                                                      \
   } while (0)
   LOAD_MPV_SYM(create);
   LOAD_MPV_SYM(initialize);
@@ -109,6 +112,19 @@ bool MpvApi::Load() {
         L"vbox: mpv-2.dll 符号不完整，libmpv 后端不可用（D6 无降级，报错给 Dart）\n");
     return false;
   }
+  // render API 为可选增强（R-渲1）：旧 dll 缺失时保持 nullptr → 控制面可用但无
+  // 纹理输出，Dart 侧渲染深色占位（不误判为黑屏故障）。
+#define LOAD_MPV_RENDER_SYM(Name)                                          \
+  do {                                                                     \
+    Name = reinterpret_cast<decltype(Name)>(                               \
+        ::GetProcAddress(mod, "mpv_" #Name));                              \
+  } while (0)
+  LOAD_MPV_RENDER_SYM(render_context_create);
+  LOAD_MPV_RENDER_SYM(render_context_render);
+  LOAD_MPV_RENDER_SYM(render_context_set_update_callback);
+  LOAD_MPV_RENDER_SYM(render_context_update);
+  LOAD_MPV_RENDER_SYM(render_context_free);
+#undef LOAD_MPV_RENDER_SYM
   loaded = true;
   return true;
 }
@@ -127,6 +143,8 @@ PlayerPlugin::PlayerPlugin(flutter::PluginRegistrarWindows* registrar)
       events_(std::make_unique<flutter::EventChannel<flutter::EncodableValue>>(
           registrar->messenger(), "com.vbox.player/player/events",
           &flutter::StandardMethodCodec::GetInstance())) {
+  // R-渲1：纹理注册表（open 建纹理、dispose 释放；纹理进程内唯一）。
+  texture_registrar_ = registrar->texture_registrar();
   channel_->SetMethodCallHandler(
       [this](const auto& call, auto result) {
         HandleMethodCall(call, std::move(result));
@@ -255,7 +273,14 @@ void PlayerPlugin::Open(
   }
 
   EmitState("opening");
-  result->Success();
+  // R-渲1：把纹理句柄交回 Dart（`Texture(textureId:)` 承载画面）。
+  // 无渲染输出面（render API 缺失）时返回空 map → Dart textureId=null → 深色占位。
+  flutter::EncodableMap payload;
+  if (texture_id_ >= 0) {
+    payload[flutter::EncodableValue("textureId")] =
+        flutter::EncodableValue(texture_id_);
+  }
+  result->Success(flutter::EncodableValue(payload));
 }
 
 void PlayerPlugin::Play(
@@ -343,10 +368,12 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
   if (handle == nullptr) {
     return false;
   }
-  // 控制面语义：无窗口承载（视频纹理输出层为后续渲染任务，见文件头注释）。
+  // R-渲1：有 render API 时走 `vo=libmpv`（mpv_render_context 前置），
+  // 每帧软渲染为 BGRA 交 Flutter 纹理上屏；否则退回 `vo=null`（纯控制面）。
   // 注意：vo 属「初始化前生效」选项，必须早于 mpv_initialize 设置，
-  // 否则默认 vo 会在 Windows 弹出独立 mpv 渲染窗口，破坏无窗口控制面契约。
-  api_.set_option_string(handle, "vo", "null");
+  // 否则默认 vo 会在 Windows 弹出独立 mpv 渲染窗口，破坏无窗口契约。
+  const bool can_render = api_.render_context_create != nullptr;
+  api_.set_option_string(handle, "vo", can_render ? "libmpv" : "null");
   if (api_.initialize(handle) < 0) {
     api_.terminate_destroy(handle);
     return false;
@@ -364,6 +391,11 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
   api_.observe_property(mpv_, 0, "paused-for-cache", MPV_FORMAT_FLAG);
   api_.observe_property(mpv_, 0, "demuxer-cache-time", MPV_FORMAT_DOUBLE);
 
+  // 渲染输出面（R-渲1）：建 render_context + 注册纹理 + 起渲染线程。
+  if (can_render) {
+    SetupRenderContext();
+  }
+
   running_ = true;
   event_thread_ =
       std::make_unique<std::thread>(&PlayerPlugin::RunEventLoop, this);
@@ -371,6 +403,29 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
 }
 
 void PlayerPlugin::ShutdownMpv() {
+  // 先停渲染线程（避免释放 render_context 时仍在渲染）。
+  if (render_thread_ != nullptr) {
+    render_running_ = false;
+    render_cv_.notify_all();
+    render_thread_->join();
+    render_thread_.reset();
+  }
+  if (render_ctx_ != nullptr) {
+    api_.render_context_set_update_callback(render_ctx_, nullptr, nullptr);
+    api_.render_context_free(render_ctx_);
+    render_ctx_ = nullptr;
+  }
+  UnregisterTexture();
+  {
+    std::lock_guard<std::mutex> lock(frame_mutex_);
+    frame_buffer_.clear();
+    frame_width_ = 0;
+    frame_height_ = 0;
+    frame_locked_ = false;
+  }
+  last_video_width_ = 0;
+  last_video_height_ = 0;
+
   if (event_thread_ != nullptr) {
     running_ = false;
     event_thread_->join();
@@ -381,6 +436,164 @@ void PlayerPlugin::ShutdownMpv() {
     mpv_ = nullptr;
   }
   state_ = "idle";
+}
+
+// ─────────────── 渲染输出面（R-渲1）───────────────
+
+bool PlayerPlugin::SetupRenderContext() {
+  if (api_.render_context_create == nullptr || mpv_ == nullptr) {
+    return false;
+  }
+  const char* api_type = kRenderApiSw;
+  mpv_render_param params[] = {
+      {MPV_RENDER_PARAM_API_TYPE, const_cast<char*>(api_type)},
+      {MPV_RENDER_PARAM_INVALID, nullptr},
+  };
+  mpv_render_context* ctx = nullptr;
+  if (api_.render_context_create(&ctx, mpv_, params) < 0 || ctx == nullptr) {
+    // 无纹理输出：Dart 侧深色占位，控制面（播放/进度）不受影响。
+    return false;
+  }
+  render_ctx_ = ctx;
+  api_.render_context_set_update_callback(render_ctx_, &PlayerPlugin::OnRenderUpdate,
+                                          this);
+  RegisterTexture();
+  render_running_ = true;
+  render_thread_ =
+      std::make_unique<std::thread>(&PlayerPlugin::RunRenderLoop, this);
+  return true;
+}
+
+void PlayerPlugin::RegisterTexture() {
+  if (texture_registrar_ == nullptr || texture_ != nullptr) {
+    return;
+  }
+  texture_ = std::make_unique<flutter::TextureVariant>(flutter::PixelBufferTexture(
+      [this](size_t width, size_t height) -> const FlutterDesktopPixelBuffer* {
+        return CopyPixelBuffer(width, height);
+      }));
+  texture_id_ = texture_registrar_->RegisterTexture(texture_.get());
+}
+
+void PlayerPlugin::UnregisterTexture() {
+  if (texture_registrar_ != nullptr && texture_id_ >= 0) {
+    texture_registrar_->UnregisterTexture(texture_id_);
+  }
+  texture_id_ = -1;
+  texture_.reset();
+}
+
+void PlayerPlugin::OnRenderUpdate(void* callback_ctx) {
+  auto* self = static_cast<PlayerPlugin*>(callback_ctx);
+  if (self == nullptr) {
+    return;
+  }
+  self->render_requested_ = true;
+  self->render_cv_.notify_one();
+}
+
+void PlayerPlugin::RunRenderLoop() {
+  while (render_running_.load()) {
+    {
+      std::unique_lock<std::mutex> lock(render_mutex_);
+      render_cv_.wait_for(lock, std::chrono::milliseconds(100), [this] {
+        return render_requested_.load() || !render_running_.load();
+      });
+      if (!render_running_.load()) {
+        break;
+      }
+      render_requested_ = false;
+    }
+    if (render_ctx_ == nullptr) {
+      continue;
+    }
+    // update 返回 kRenderUpdateFrame=有新帧；返回 0 也可能是重绘请求，均渲染一帧。
+    api_.render_context_update(render_ctx_);
+    RenderFrame();
+  }
+}
+
+void PlayerPlugin::RenderFrame() {
+  if (render_ctx_ == nullptr || api_.render_context_render == nullptr) {
+    return;
+  }
+  // 视频目标尺寸：优先 coded 尺寸（width/height），回退 display 尺寸。
+  int64_t width = 0;
+  int64_t height = 0;
+  if (!GetInt64Property("width", &width) || width <= 0 ||
+      !GetInt64Property("height", &height) || height <= 0) {
+    if (!GetInt64Property("dwidth", &width) || width <= 0 ||
+        !GetInt64Property("dheight", &height) || height <= 0) {
+      return;  // 尚未解出视频轨（纯音频 / 加载中）。
+    }
+  }
+
+  const size_t pixel_width = static_cast<size_t>(width);
+  const size_t pixel_height = static_cast<size_t>(height);
+  // mpv SW 渲染参数 data 域为 void*（非 const），故 stride 需为可变左值。
+  int stride = static_cast<int>(pixel_width * 4);
+  std::vector<uint8_t> scratch(pixel_width * pixel_height * 4);
+
+  int size[2] = {static_cast<int>(pixel_width), static_cast<int>(pixel_height)};
+  const char* format = "bgra";
+  mpv_render_param params[] = {
+      {MPV_RENDER_PARAM_SW_SIZE, size},
+      {MPV_RENDER_PARAM_SW_FORMAT, const_cast<char*>(format)},
+      {MPV_RENDER_PARAM_SW_STRIDE, &stride},
+      {MPV_RENDER_PARAM_SW_POINTER, scratch.data()},
+      {MPV_RENDER_PARAM_INVALID, nullptr},
+  };
+  if (api_.render_context_render(render_ctx_, params) < 0) {
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(frame_mutex_);
+    if (frame_locked_.load()) {
+      return;  // 引擎正采样前缓冲，丢弃本帧（下一帧回调再补）。
+    }
+    frame_buffer_.swap(scratch);
+    frame_width_ = static_cast<int>(pixel_width);
+    frame_height_ = static_cast<int>(pixel_height);
+  }
+
+  if (texture_registrar_ != nullptr && texture_id_ >= 0) {
+    texture_registrar_->MarkTextureFrameAvailable(texture_id_);
+  }
+
+  // 视频尺寸变更上报（Dart 侧输出面纵横比自适应；去重避免抖动）。
+  const int vw = static_cast<int>(pixel_width);
+  const int vh = static_cast<int>(pixel_height);
+  if (vw != last_video_width_ || vh != last_video_height_) {
+    last_video_width_ = vw;
+    last_video_height_ = vh;
+    EmitVideoSize(vw, vh);
+  }
+}
+
+const FlutterDesktopPixelBuffer* PlayerPlugin::CopyPixelBuffer(size_t width,
+                                                               size_t height) {
+  (void)width;
+  (void)height;
+  std::lock_guard<std::mutex> lock(frame_mutex_);
+  if (frame_width_ <= 0 || frame_height_ <= 0 || frame_buffer_.empty()) {
+    return nullptr;
+  }
+  pixel_buffer_.buffer = frame_buffer_.data();
+  pixel_buffer_.width = static_cast<size_t>(frame_width_);
+  pixel_buffer_.height = static_cast<size_t>(frame_height_);
+  pixel_buffer_.release_callback = &PlayerPlugin::OnPixelBufferReleased;
+  pixel_buffer_.release_context = this;
+  frame_locked_ = true;
+  return &pixel_buffer_;
+}
+
+void PlayerPlugin::OnPixelBufferReleased(void* release_context) {
+  auto* self = static_cast<PlayerPlugin*>(release_context);
+  if (self == nullptr) {
+    return;
+  }
+  self->frame_locked_ = false;
 }
 
 void PlayerPlugin::RunEventLoop() {
@@ -520,6 +733,22 @@ void PlayerPlugin::EmitProgress() {
   }));
 }
 
+void PlayerPlugin::EmitVideoSize(int width, int height) {
+  std::shared_ptr<flutter::EventSink<flutter::EncodableValue>> sink =
+      SinkSnapshot();
+  if (sink == nullptr) {
+    return;
+  }
+  sink->Success(flutter::EncodableValue(flutter::EncodableMap{
+      {flutter::EncodableValue(std::string("type")),
+       flutter::EncodableValue(std::string("videoSize"))},
+      {flutter::EncodableValue(std::string("width")),
+       flutter::EncodableValue(width)},
+      {flutter::EncodableValue(std::string("height")),
+       flutter::EncodableValue(height)},
+  }));
+}
+
 void PlayerPlugin::EmitError(const std::string& message, bool fatal) {
   std::shared_ptr<flutter::EventSink<flutter::EncodableValue>> sink =
       SinkSnapshot();
@@ -535,8 +764,6 @@ void PlayerPlugin::EmitError(const std::string& message, bool fatal) {
        flutter::EncodableValue(fatal)},
   }));
 }
-
-// ─────────────── 属性辅助 ───────────────
 
 bool PlayerPlugin::GetDoubleProperty(const char* name, double* out) {
   if (mpv_ == nullptr) {
@@ -557,6 +784,19 @@ bool PlayerPlugin::GetFlagProperty(const char* name, int* out) {
   }
   int value = 0;
   const int rc = api_.get_property(mpv_, name, MPV_FORMAT_FLAG, &value);
+  if (rc < 0) {
+    return false;
+  }
+  *out = value;
+  return true;
+}
+
+bool PlayerPlugin::GetInt64Property(const char* name, int64_t* out) {
+  if (mpv_ == nullptr) {
+    return false;
+  }
+  int64_t value = 0;
+  const int rc = api_.get_property(mpv_, name, MPV_FORMAT_INT64, &value);
   if (rc < 0) {
     return false;
   }

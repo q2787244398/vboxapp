@@ -2,18 +2,18 @@
 ///
 /// 对齐 iOS `MDTVVideoDetailView`：16:9 封面（点击播放）+ 标题 + 信息行
 /// （播放量/点赞/时长/评分）+ 标签 + 简介。播放经 [MdtvPlayHandler] 接入，
-/// 缺省走 [PlayerController.instance]。
+/// 缺省进入全屏播放页 [PlayerPage]（Wave A · R-渲2）。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../../../domain/entities/mdtv/mdtv.dart';
 import '../../../domain/entities/player/player.dart';
-import '../../../platform/player/player_controller.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
+import '../player/player_page.dart';
 import 'mdtv_controller.dart';
 
 /// 麻豆播放回调（url → 打开并播放）。
@@ -103,9 +103,15 @@ class _MdtvVideoDetailPageState extends State<MdtvVideoDetailPage> {
   }
 
   Future<void> _defaultPlay(String url) async {
-    final PlayerController controller = PlayerController.instance;
-    await controller.open(PlayerSource(url: url, title: widget.video.title));
-    await controller.play();
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => PlayerPage(
+          source: PlayerSource(url: url, title: widget.video.title),
+          title: widget.video.title,
+        ),
+      ),
+    );
   }
 
   @override

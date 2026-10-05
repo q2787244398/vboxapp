@@ -22,6 +22,7 @@ import 'package:vbox/platform/download/download.dart';
 import 'package:vbox/platform/player/playback_route.dart';
 import 'package:vbox/platform/player/player_channel_bridge.dart';
 import 'package:vbox/platform/player/player_controller.dart';
+import 'package:vbox/presentation/pages/player/player_page.dart';
 import 'package:vbox/presentation/widgets/detail_page.dart';
 
 import '../../support/fakes.dart';
@@ -264,7 +265,7 @@ void main() {
     );
   });
 
-  testWidgets('点击播放：resolvePlayUrl → PlayerController.open/play', (WidgetTester tester) async {
+  testWidgets('点击播放：解析 → 进入全屏播放页并 open/play', (WidgetTester tester) async {
     final _FakeDetailUseCases uc = _FakeDetailUseCases(
       detailResult: () async => Success<PlaybackDetail>(detail()),
     );
@@ -274,9 +275,13 @@ void main() {
     await tester.tap(find.text('立即播放'));
     await tester.pumpAndSettle();
 
+    // Wave A · R-渲2：不在详情页直接起播，而是进入全屏播放页。
+    expect(find.byType(PlayerPage), findsOneWidget);
     expect(player.calls, <String>['open', 'play']);
     expect(player.openedUrl, 'https://v.com/1.m3u8');
-    expect(find.textContaining('开始播放：第1集'), findsOneWidget);
+
+    // 排空播放页控制层自动隐藏计时器（避免测试结束仍有 pending timer）。
+    await tester.pump(const Duration(seconds: 4));
   });
 
   testWidgets('解析失败：SnackBar 提示', (WidgetTester tester) async {

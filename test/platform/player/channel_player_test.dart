@@ -17,11 +17,15 @@ class _Call {
   final Object? arguments;
 }
 
-/// 假桥：记录全部调用，可配置「open 指定后端失败」。
+/// 假桥：记录全部调用，可配置「open 指定后端失败」与 open 返回值（纹理句柄）。
 class _FakeBridge implements PlayerChannelBridge {
-  _FakeBridge({this.failBackends = const <String>{}});
+  _FakeBridge({this.failBackends = const <String>{}, this.openResult});
 
   final Set<String> failBackends;
+
+  /// open 成功时的原生返回值（如 `{'textureId': 7}`）。
+  final Object? openResult;
+
   final List<_Call> calls = <_Call>[];
   final StreamController<Map<String, Object?>> _ctrl =
       StreamController<Map<String, Object?>>.broadcast();
@@ -38,6 +42,7 @@ class _FakeBridge implements PlayerChannelBridge {
           message: 'fake: $backend 不可用',
         );
       }
+      return openResult;
     }
     return null;
   }
@@ -93,6 +98,31 @@ void main() {
             .having((e) => e.code, 'code', 'E_BACKEND_UNAVAILABLE')
             .having((e) => e.message, 'message', contains('libVLC'))),
       );
+      await p.dispose();
+    });
+
+    test('open：解析原生返回的 textureId（R-渲1）', () async {
+      final _FakeBridge bridge =
+          _FakeBridge(openResult: <String, Object?>{'textureId': 7});
+      final ChannelPlayer p = ChannelPlayer(
+        backend: PlayerBackend.media3,
+        bridge: bridge,
+      );
+      expect(p.textureId, isNull); // 未开播
+      await p.open(const PlayerSource(url: 'https://x/a.mp4'));
+      expect(p.textureId, 7);
+      await p.dispose();
+      expect(p.textureId, isNull); // 释放后清空
+    });
+
+    test('open：原生返回 null → textureId 保持 null（无纹理输出后端）', () async {
+      final _FakeBridge bridge = _FakeBridge();
+      final ChannelPlayer p = ChannelPlayer(
+        backend: PlayerBackend.libmpv,
+        bridge: bridge,
+      );
+      await p.open(const PlayerSource(url: 'https://x/a.mp4'));
+      expect(p.textureId, isNull);
       await p.dispose();
     });
   });

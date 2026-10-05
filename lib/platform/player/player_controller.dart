@@ -80,6 +80,11 @@ class PlayerController {
   /// 当前后端（未 open 为 null）。
   PlayerBackend? get backend => _player?.backend;
 
+  /// 视频纹理输出面（R-渲1）：当前播放器的 Flutter textureId。
+  ///
+  /// `null` = 未开播或该后端无纹理输出；播放页据此选择 [VideoSurface] 承载。
+  int? get textureId => _player?.textureId;
+
   /// 最近状态。
   PlayerState? get state => _state;
 
@@ -95,6 +100,14 @@ class PlayerController {
   void Function(PlayerState)? onStateChanged;
 
   void Function(PlaybackProgress)? onProgress;
+
+  /// 输出面变更（R-渲1）：open 成功 / 释放时触发，携带新 textureId（可为 null）。
+  ///
+  /// 播放页据此刷新 [VideoSurface]（后端回退 / 选集重开都会换纹理句柄）。
+  void Function(int? textureId)? onSurfaceChanged;
+
+  /// 视频尺寸变更（R-渲1：输出面纵横比自适应）。
+  void Function(int width, int height)? onVideoSize;
 
   /// 后端降级事件（C-06：from → to + 原因；可观测/埋点目标）。
   void Function(PlayerBackend from, PlayerBackend to, String reason)?
@@ -192,6 +205,9 @@ class PlayerController {
       try {
         await p.open(source);
         _state = PlayerState.opening;
+        // R-渲1：open 后原生已创建输出面，先同步 textureId 再报状态，避免
+        // 控制层先于画面就绪渲染（后端回退时旧纹理已随上一实例释放）。
+        onSurfaceChanged?.call(p.textureId);
         onStateChanged?.call(_state!);
         return;
       } on PlayerOpenException catch (e) {
@@ -267,6 +283,10 @@ class PlayerController {
       onStateChanged?.call(s);
     };
     p.onProgress = onProgress;
+    p.onVideoSize = (int width, int height) {
+      if (width <= 0 || height <= 0) return;
+      onVideoSize?.call(width, height);
+    };
     p.onError = _onError;
   }
 
@@ -275,7 +295,9 @@ class PlayerController {
     _player = null;
     _state = null;
     if (p != null) {
+      final bool hadSurface = p.textureId != null;
       await p.dispose();
+      if (hadSurface) onSurfaceChanged?.call(null);
     }
   }
 }

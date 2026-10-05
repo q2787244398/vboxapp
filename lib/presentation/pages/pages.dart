@@ -26,6 +26,7 @@ export 'one_platform/one_platform_home_page.dart';
 export 'one_platform/one_platform_settings_page.dart';
 export 'one_platform/one_platform_video_detail_page.dart';
 export 'one_platform/one_platform_widgets.dart';
+export 'player/player_page.dart';
 export 'profile/feedback_sheet.dart';
 export 'profile/profile_page.dart';
 export 'push/push_play_detail_page.dart';

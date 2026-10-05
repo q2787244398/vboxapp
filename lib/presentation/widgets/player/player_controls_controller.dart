@@ -57,6 +57,10 @@ class PlayerControlsController extends ChangeNotifier {
   /// 是否全屏（决定是否显示顶栏「退出全屏」等）。
   bool isFullscreen;
 
+  /// 方向锁（对齐 iOS `isOrientationLocked`）：锁定后隐藏进度条 / 底栏，
+  /// 仅保留解锁按钮，防误触。
+  bool orientationLocked = false;
+
   /// 当前进度（毫秒）。
   int positionMs;
 
@@ -238,6 +242,27 @@ class PlayerControlsController extends ChangeNotifier {
   void setForm(UiForm form) {
     if (this.form == form) return;
     this.form = form;
+    notifyListeners();
+  }
+
+  /// 设置方向锁（播放页顶栏锁定按钮 / 状态同步）。
+  void setOrientationLocked(bool locked) {
+    if (orientationLocked == locked) return;
+    orientationLocked = locked;
+    notifyListeners();
+  }
+
+  /// 设置弹幕开关（会话级；播放页底栏「弹」按钮切换）。
+  void setDanmakuEnabled(bool enabled) {
+    if (showDanmaku == enabled) return;
+    showDanmaku = enabled;
+    notifyListeners();
+  }
+
+  /// 选集重开成功后回填（当前集 + 副标题；不再触发 [onSelectEpisode]）。
+  void applyEpisode(int index, {String? subtitle}) {
+    if (index >= 0 && index < episodes.length) currentEpisodeIndex = index;
+    if (subtitle != null) this.subtitle = subtitle;
     notifyListeners();
   }
 

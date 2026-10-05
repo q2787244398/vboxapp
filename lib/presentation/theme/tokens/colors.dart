@@ -134,6 +134,12 @@ class VboxColors {
   /// 弹幕文字描边 / 阴影（80% 黑，提升浅底可读性）。
   static const Color danmakuShadow = Color(0xCC000000);
 
+  /// 播放器强调绿（弹幕开关 / 倍速 / 更多菜单激活态；对齐 iOS `00BE06`）。
+  static const Color playerAccentGreen = Color(0xFF00BE06);
+
+  /// 播放器强调青（进度条 / 缓存片段 / 兼容内核文字；对齐 iOS `00BEFF`）。
+  static const Color playerAccentCyan = Color(0xFF00BEFF);
+
   /// 危险操作（文字 + 背景 @10%）。
   static const Color danger = Color(0xFFEF4444);
 

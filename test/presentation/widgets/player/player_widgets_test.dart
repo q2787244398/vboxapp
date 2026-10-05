@@ -32,7 +32,7 @@ Widget _host(Widget child, {Size size = const Size(1200, 800)}) => MaterialApp(
 
 void main() {
   group('PlayerTopBar', () {
-    testWidgets('竖屏：标题 + 副标题 + 投屏/更多按钮', (WidgetTester tester) async {
+    testWidgets('竖屏：标题 + 副标题 + 旋转/投屏/更多按钮', (WidgetTester tester) async {
       await tester.pumpWidget(_host(const PlayerTopBar(
         form: UiForm.portrait,
         title: '测试剧',
@@ -40,26 +40,27 @@ void main() {
       )));
       expect(find.text('测试剧'), findsOneWidget);
       expect(find.text('第 3 集 · 默认源'), findsOneWidget);
+      expect(find.byIcon(Icons.rotate_right_rounded), findsOneWidget);
       expect(find.byIcon(Icons.cast_rounded), findsOneWidget);
       expect(find.byIcon(Icons.more_vert_rounded), findsOneWidget);
+      // 顶栏不含方向锁按钮（锁定按钮为左缘覆盖层）。
       expect(find.byIcon(Icons.lock_rounded), findsNothing);
+      expect(find.byIcon(Icons.lock_open_rounded), findsNothing);
     });
 
-    testWidgets('横屏 showLock 显示锁定按钮，回调触发', (WidgetTester tester) async {
-      bool back = false, cast = false, lock = false, tools = false;
+    testWidgets('横屏：旋转图标为「转竖屏」，回调触发', (WidgetTester tester) async {
+      bool back = false, cast = false, rotate = false, tools = false;
       await tester.pumpWidget(_host(PlayerTopBar(
         form: UiForm.landscape,
         title: '剧',
-        showLock: true,
-        locked: true,
         onBack: () => back = true,
         onCast: () => cast = true,
-        onToggleLock: () => lock = true,
+        onRotate: () => rotate = true,
         onToolsMenu: () => tools = true,
       )));
-      expect(find.byIcon(Icons.lock_rounded), findsOneWidget);
-      await tester.tap(find.byIcon(Icons.lock_rounded));
-      expect(lock, isTrue);
+      expect(find.byIcon(Icons.rotate_left_rounded), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.rotate_left_rounded));
+      expect(rotate, isTrue);
       await tester.tap(find.byIcon(Icons.cast_rounded));
       expect(cast, isTrue);
       await tester.tap(find.byIcon(Icons.more_vert_rounded));
@@ -378,6 +379,49 @@ void main() {
       c.openToolsMenu();
       await tester.pump();
       expect(find.text('更多'), findsOneWidget);
+    });
+
+    testWidgets('横屏解锁态：左缘锁按钮可见且回调触发', (WidgetTester tester) async {
+      int toggles = 0;
+      final PlayerControlsController c = PlayerControlsController(
+        form: UiForm.landscape,
+      );
+      c.onToggleOrientationLock = () => toggles++;
+      await tester.pumpWidget(_host(PlayerControlsView(controller: c)));
+      expect(find.byIcon(Icons.lock_open_rounded), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.lock_open_rounded));
+      expect(toggles, 1);
+    });
+
+    testWidgets('锁定态：隐藏控制层，仅剩锁按钮', (WidgetTester tester) async {
+      final PlayerControlsController c = PlayerControlsController(
+        form: UiForm.landscape,
+        title: '剧名',
+        durationMs: 60000,
+      );
+      await tester.pumpWidget(_host(PlayerControlsView(controller: c)));
+      expect(find.byType(PlayerProgressBar), findsOneWidget);
+
+      c.setOrientationLocked(true);
+      await tester.pump();
+      // 控制层整体隐藏（顶栏标题 / 进度条 / 底栏均不渲染）。
+      expect(find.byType(PlayerProgressBar), findsNothing);
+      expect(find.byType(PlayerBottomBar), findsNothing);
+      expect(find.text('剧名'), findsNothing);
+      expect(find.byIcon(Icons.lock_rounded), findsOneWidget);
+    });
+
+    testWidgets('锁定态且锁按钮已自动隐藏：画面外无任何覆盖层', (WidgetTester tester) async {
+      final PlayerControlsController c = PlayerControlsController(
+        form: UiForm.landscape,
+      )..setOrientationLocked(true);
+      await tester.pumpWidget(_host(PlayerControlsView(
+        controller: c,
+        lockButtonVisible: false,
+      )));
+      expect(find.byIcon(Icons.lock_rounded), findsNothing);
+      expect(find.byIcon(Icons.lock_open_rounded), findsNothing);
+      expect(find.byType(PlayerProgressBar), findsNothing);
     });
   });
 

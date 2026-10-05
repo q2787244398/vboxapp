@@ -1,11 +1,16 @@
 /// 表现层：播放器控制层主视图（批次 C · C-02 / C-04）。
 ///
-/// 组装 [PlayerTopBar] ＋ 中央播放/暂停覆盖层 ＋ [PlayerProgressBar] ＋
-/// [PlayerBottomBar] ＋ 各类面板（选集 / 清晰度 / 倍速 / 内核 / 弹幕设置）。
+/// 组装 [PlayerTopBar] ＋ [PlayerProgressBar] ＋ [PlayerBottomBar] ＋ 各类面板
+/// （选集 / 清晰度 / 倍速 / 内核 / 弹幕设置），另含左缘方向锁定覆盖层。
 /// 面板摆放随形态：竖屏底部抽屉、横屏右侧滑出。
 ///
 /// 纯受控：全部状态与动作来自 [PlayerControlsController]；视频画面由调用方
 /// 经 [videoBuilder] 注入（控制层不关心具体渲染后端）。
+///
+/// 对齐 iOS `PlayerControlsView`（[PlayerViewsV2.swift](../../../../vbox/Views/PlayerViewsV2.swift#L8313)）：
+///  - 方向锁定按钮固定在**左缘垂直居中**（横屏），不在顶栏内；
+///  - 锁定态隐藏顶栏 / 进度条 / 底栏 / 面板，仅保留锁按钮（防误触）；
+///  - 锁定态点击屏幕仅短暂唤出锁按钮（由 [lockButtonVisible] 驱动，3s 自动隐藏）。
 library;
 
 import 'package:flutter/material.dart';
@@ -30,7 +35,8 @@ class PlayerControlsView extends StatelessWidget {
     this.videoBuilder,
     this.danmakuSettings,
     this.onDanmakuSettingsChanged,
-    this.showLock = false,
+    this.lockButtonVisible = true,
+    this.controlsVisible = true,
   });
 
   /// 控制层视图状态。
@@ -45,8 +51,13 @@ class PlayerControlsView extends StatelessWidget {
   /// 弹幕设置变更回调。
   final ValueChanged<DanmakuSettings>? onDanmakuSettingsChanged;
 
-  /// 是否显示顶栏锁定按钮。
-  final bool showLock;
+  /// 锁定态下锁按钮是否可见（对齐 iOS `showLockButton`：点击屏幕后短暂显示）。
+  final bool lockButtonVisible;
+
+  /// 控制层是否可见（自动隐藏用；`false` 时仅保留画面与弹幕层）。
+  ///
+  /// 任一面板打开时强制可见（面板不得被自动隐藏吞掉）。
+  final bool controlsVisible;
 
   @override
   Widget build(BuildContext context) {
@@ -55,46 +66,62 @@ class PlayerControlsView extends StatelessWidget {
       builder: (BuildContext context, Widget? _) {
         final UiForm form = controller.form;
         final bool landscape = form.isLandscape;
+        final bool locked = controller.orientationLocked;
+        // 锁定态：主控制层整体隐藏（对齐 iOS），仅锁按钮独立显隐。
+        final bool overlays =
+            !locked && (controlsVisible || controller.hasAnyPanelOpen);
+        // 锁按钮仅横屏出现；解锁态随控制层可见，锁定态由 lockButtonVisible 控制。
+        final bool showLock = landscape && (!locked || lockButtonVisible);
         return ColoredBox(
           color: VboxColors.playerBackground,
           child: Stack(
             fit: StackFit.expand,
             children: <Widget>[
-              // 视频画面（或占位）
+              // 视频画面（或占位）—— 常驻，不随控制层自动隐藏
               videoBuilder?.call(context) ??
                   const ColoredBox(color: VboxColors.playerBackground),
-              // 中央播放覆盖层
-              if (!controller.isPlaying) _CenterPlayOverlay(controller),
-              // 顶栏
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: PlayerTopBar(
-                  form: form,
-                  title: controller.title,
-                  subtitle: controller.subtitle,
-                  showLock: showLock,
-                  locked: false,
-                  onBack: controller.onBack,
-                  onCast: controller.onCast,
-                  onToolsMenu: controller.onToggleToolsMenu,
+              if (overlays) ...<Widget>[
+                // 顶栏
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: PlayerTopBar(
+                    form: form,
+                    title: controller.title,
+                    subtitle: controller.subtitle,
+                    onBack: controller.onBack,
+                    onCast: controller.onCast,
+                    onRotate: controller.onToggleFullscreen,
+                    onToolsMenu: controller.onToggleToolsMenu,
+                  ),
                 ),
-              ),
-              // 底部控制区（进度条 + 底栏）
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _BottomControls(controller: controller),
-              ),
-              // 面板层
-              _PanelHost(
-                controller: controller,
-                landscape: landscape,
-                danmakuSettings: danmakuSettings,
-                onDanmakuSettingsChanged: onDanmakuSettingsChanged,
-              ),
+                // 底部控制区（进度条 + 底栏）
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _BottomControls(controller: controller),
+                ),
+                // 面板层
+                _PanelHost(
+                  controller: controller,
+                  landscape: landscape,
+                  danmakuSettings: danmakuSettings,
+                  onDanmakuSettingsChanged: onDanmakuSettingsChanged,
+                ),
+              ],
+              // 方向锁定按钮（左缘垂直居中，对齐 iOS 覆盖层定位）
+              if (showLock)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: _LockButton(
+                    locked: locked,
+                    onTap: controller.onToggleOrientationLock,
+                  ),
+                ),
             ],
           ),
         );
@@ -103,30 +130,31 @@ class PlayerControlsView extends StatelessWidget {
   }
 }
 
-/// 中央播放/暂停覆盖层。
-class _CenterPlayOverlay extends StatelessWidget {
-  const _CenterPlayOverlay(this.controller);
+/// 方向锁定按钮（左缘垂直居中覆盖层；对齐 iOS `lock.open` / `lock.fill`）。
+class _LockButton extends StatelessWidget {
+  const _LockButton({required this.locked, this.onTap});
 
-  final PlayerControlsController controller;
+  final bool locked;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final bool enabled = controller.onTogglePlay != null;
     return Center(
-      child: Material(
-        color: Colors.black38,
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: enabled ? controller.togglePlay : null,
-          child: Padding(
-            padding: const EdgeInsets.all(VboxSpacing.xl),
-            child: Icon(
-              controller.isPlaying
-                  ? Icons.pause_rounded
-                  : Icons.play_arrow_rounded,
-              size: 40,
-              color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.only(left: VboxSpacing.xs),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: const BorderRadius.all(Radius.circular(22)),
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Icon(
+                locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                size: 20,
+                color: Colors.white.withValues(alpha: 0.9),
+              ),
             ),
           ),
         ),
@@ -135,7 +163,7 @@ class _CenterPlayOverlay extends StatelessWidget {
   }
 }
 
-/// 底部控制区（进度条 + 底栏，随形态留白）。
+/// 底部控制区（进度条 + 底栏；对齐 iOS：无渐变遮罩，直接叠于画面）。
 class _BottomControls extends StatelessWidget {
   const _BottomControls({required this.controller});
 
@@ -143,31 +171,19 @@ class _BottomControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool landscape = controller.form.isLandscape;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[
-            Colors.transparent,
-            Colors.black.withValues(alpha: landscape ? 0.55 : 0.70),
-          ],
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        PlayerProgressBar(
+          positionMs: controller.positionMs,
+          durationMs: controller.durationMs,
+          bufferedMs: controller.bufferedMs,
+          isLive: controller.isLive,
+          form: controller.form,
+          onSeek: controller.onSeek,
         ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          PlayerProgressBar(
-            positionMs: controller.positionMs,
-            durationMs: controller.durationMs,
-            bufferedMs: controller.bufferedMs,
-            isLive: controller.isLive,
-            onSeek: controller.onSeek,
-          ),
-          PlayerBottomBar(controller: controller),
-        ],
-      ),
+        PlayerBottomBar(controller: controller),
+      ],
     );
   }
 }

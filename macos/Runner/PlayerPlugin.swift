@@ -17,6 +17,7 @@
 import AVFoundation
 import FlutterMacOS
 import Foundation
+import QuartzCore
 
 @objc
 public class PlayerPlugin: NSObject, FlutterPlugin {
@@ -28,6 +29,20 @@ public class PlayerPlugin: NSObject, FlutterPlugin {
   private var itemObservers: [NSKeyValueObservation] = []
   private var endTimeObserver: NSObjectProtocol?
   private var eventSink: FlutterEventSink?
+
+  // MARK: - R-渲1：视频纹理输出面
+
+  /// Flutter 纹理注册表（open 注册 texture、dispose 注销）。
+  private var textureRegistry: FlutterTextureRegistry?
+  /// 当前输出面纹理句柄（随 open 返回给 Dart）。
+  private var textureId: Int64?
+  /// AVPlayer 像素输出面（BGRA），供 FlutterTexture.copyPixelBuffer 取帧。
+  private var videoOutput: AVPlayerItemVideoOutput?
+  /// 取帧轮询定时器（约 60Hz）。
+  private var frameTimer: Timer?
+  /// 最近一帧（等待 Flutter 采样；跨线程，加锁）。
+  private var latestPixelBuffer: CVPixelBuffer?
+  private let pixelBufferLock = NSLock()
 
   private static let methodChannelName = "com.vbox.player/player"
   private static let eventChannelName = "com.vbox.player/player/events"
@@ -44,6 +59,7 @@ public class PlayerPlugin: NSObject, FlutterPlugin {
       binaryMessenger: registrar.messenger
     )
     let instance = PlayerPlugin()
+    instance.textureRegistry = registrar.textures
     registrar.addMethodCallDelegate(instance, channel: channel)
     events.setStreamHandler(instance)
   }
@@ -102,14 +118,29 @@ public class PlayerPlugin: NSObject, FlutterPlugin {
     }
     let asset = AVURLAsset(url: url, options: assetOptions)
     let item = AVPlayerItem(asset: asset)
+    // R-渲1：挂视频像素输出面（BGRA），经 FlutterTexture 上屏到 Dart `Texture`。
+    let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+      kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+    ])
+    item.add(output)
+    videoOutput = output
     let newPlayer = AVPlayer(playerItem: item)
     // 注：iOS 的 AVPlayer.automaticallyWaitsForMinimizeStallingPlayback 为 iOS-only 属性，
     // macOS 不存在该成员（CI Xcode 16.4 / macOS SDK 15.5 编译实证），默认策略即等待最小化卡顿，无需设置。
     player = newPlayer
 
     observe(newPlayer)
+    startFramePolling()
     emitState("opening")
-    result(nil)
+    // R-渲1：注册 Flutter 纹理，并把句柄随 open 返回值交给 Dart。
+    // 注册失败（无纹理注册表）→ 返回 nil，Dart 侧 textureId=null → 深色占位。
+    if let registry = textureRegistry {
+      let id = registry.register(self)
+      textureId = id
+      result(["textureId": id])
+    } else {
+      result(nil)
+    }
   }
 
   private func seekTo(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -184,6 +215,13 @@ public class PlayerPlugin: NSObject, FlutterPlugin {
       self?.emitProgress()
     }
     if let item = player.currentItem {
+      // R-渲1：视频尺寸上报（Dart 侧输出面按纵横比自适应，对齐 videoGravity=.resizeAspect）。
+      itemObservers.append(item.observe(\.presentationSize, options: [.new]) { [weak self] item, _ in
+        let size = item.presentationSize
+        if size.width > 0 && size.height > 0 {
+          self?.emitVideoSize(Int(size.width), Int(size.height))
+        }
+      })
       endTimeObserver = NotificationCenter.default.addObserver(
         forName: .AVPlayerItemDidPlayToEndTime,
         object: item,
@@ -192,6 +230,36 @@ public class PlayerPlugin: NSObject, FlutterPlugin {
         self?.emitState("ended")
       }
     }
+  }
+
+  // MARK: - R-渲1：取帧与纹理输出
+
+  /// 启动取帧轮询（约 60Hz；主线程定时器）。
+  private func startFramePolling() {
+    frameTimer?.invalidate()
+    frameTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) {
+      [weak self] _ in
+      self?.pollFrame()
+    }
+  }
+
+  /// 拉取 AVPlayerItemVideoOutput 的新帧并通知 Flutter 纹理可采样。
+  private func pollFrame() {
+    guard let output = videoOutput, player?.currentItem != nil else { return }
+    let itemTime = output.itemTime(forHostTime: CACurrentMediaTime())
+    guard output.hasNewPixelBuffer(forItemTime: itemTime),
+          let buffer = output.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: nil)
+    else { return }
+    pixelBufferLock.lock()
+    latestPixelBuffer = buffer
+    pixelBufferLock.unlock()
+    if let id = textureId {
+      textureRegistry?.textureFrameAvailable(id)
+    }
+  }
+
+  private func emitVideoSize(_ width: Int, _ height: Int) {
+    eventSink?(["type": "videoSize", "width": width, "height": height])
   }
 
   private func emitState(_ value: String) {
@@ -222,6 +290,19 @@ public class PlayerPlugin: NSObject, FlutterPlugin {
   // MARK: - 释放
 
   private func disposePlayer() {
+    frameTimer?.invalidate()
+    frameTimer = nil
+    if let item = player?.currentItem, let output = videoOutput {
+      item.remove(output)
+    }
+    videoOutput = nil
+    pixelBufferLock.lock()
+    latestPixelBuffer = nil
+    pixelBufferLock.unlock()
+    if let id = textureId {
+      textureRegistry?.unregisterTexture(id)
+    }
+    textureId = nil
     itemObservers.removeAll()
     if let observer = timeObserver {
       player?.removeTimeObserver(observer)
@@ -263,5 +344,21 @@ extension PlayerPlugin: FlutterStreamHandler {
   public func onCancel(withArguments arguments: Any?) -> FlutterError? {
     eventSink = nil
     return nil
+  }
+}
+
+// MARK: - FlutterTexture（R-渲1）
+
+extension PlayerPlugin: FlutterTexture {
+  /// Flutter 采样回调（raster 线程）：交出最近一帧 BGRA 像素缓冲。
+  ///
+  /// 无新帧时返回 nil，引擎沿用上一帧画面；缓冲区以 `passRetained` 移交，
+  /// 由引擎负责释放。
+  public func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
+    pixelBufferLock.lock()
+    defer { pixelBufferLock.unlock() }
+    guard let buffer = latestPixelBuffer else { return nil }
+    latestPixelBuffer = nil
+    return Unmanaged.passRetained(buffer)
   }
 }

@@ -1,13 +1,15 @@
 /// 表现层：播放器顶栏（批次 C · C-02）。
 ///
 /// 对齐 iOS `PlayerTopBarView`（[PlayerViewsV2.swift](../../../../vbox/Views/PlayerViewsV2.swift#L7665)）：
-/// 左上「返回 + 标题 + 副标题（第 N 集 · 源）」；右上「投屏 + 更多 + 可选锁定」。
+/// 左上「返回 + 标题 + 副标题（第 N 集 · 源）」；右上「旋转（切换横竖屏）+ 投屏 + 更多」。
 /// 横竖共用同一结构，仅内边距 / 字号差异（表单态由 [form] 驱动）。
+///
+/// 注：iOS 的方向锁定按钮固定在**屏幕左缘垂直居中**，不在顶栏内，
+/// 由 [PlayerControlsView] 的锁屏覆盖层承载。
 library;
 
 import 'package:flutter/material.dart';
 
-import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
@@ -21,11 +23,9 @@ class PlayerTopBar extends StatelessWidget {
     required this.form,
     this.title,
     this.subtitle,
-    this.showLock = false,
-    this.locked = false,
     this.onBack,
     this.onCast,
-    this.onToggleLock,
+    this.onRotate,
     this.onToolsMenu,
   });
 
@@ -38,20 +38,14 @@ class PlayerTopBar extends StatelessWidget {
   /// 副标题（集数 · 源）。
   final String? subtitle;
 
-  /// 是否显示锁定按钮（仅横屏 / 竖屏全屏）。
-  final bool showLock;
-
-  /// 是否已锁定方向。
-  final bool locked;
-
   /// 返回回调。
   final VoidCallback? onBack;
 
   /// 投屏回调。
   final VoidCallback? onCast;
 
-  /// 锁定切换回调。
-  final VoidCallback? onToggleLock;
+  /// 旋转（切换横竖屏）回调。
+  final VoidCallback? onRotate;
 
   /// 更多菜单回调。
   final VoidCallback? onToolsMenu;
@@ -106,13 +100,14 @@ class PlayerTopBar extends StatelessWidget {
                 ],
               ),
             ),
-            if (showLock) ...<Widget>[
-              _IconButton(
-                icon: locked ? Icons.lock_rounded : Icons.lock_open_rounded,
-                color: locked ? VboxColors.chipSelected : foreground,
-                onTap: onToggleLock,
-              ),
-            ],
+            _IconButton(
+              // 对齐 iOS：竖屏「转横屏」，横屏「转竖屏」。
+              icon: landscape
+                  ? Icons.rotate_left_rounded
+                  : Icons.rotate_right_rounded,
+              color: foreground,
+              onTap: onRotate,
+            ),
             _IconButton(
               icon: Icons.cast_rounded,
               color: foreground,

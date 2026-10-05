@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../../ui_mode/ui_mode.dart';
 
 /// 播放器进度条。
 class PlayerProgressBar extends StatelessWidget {
@@ -20,8 +21,12 @@ class PlayerProgressBar extends StatelessWidget {
     required this.durationMs,
     this.bufferedMs = 0,
     this.isLive = false,
+    this.form = UiForm.portrait,
     this.onSeek,
   });
+
+  /// 显示形态（决定轨道粗细 / 滑块大小；对齐 iOS 竖 3pt / 横 4pt）。
+  final UiForm form;
 
   /// 当前进度（毫秒）。
   final int positionMs;
@@ -41,6 +46,7 @@ class PlayerProgressBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool seekable = !isLive && durationMs > 0;
+    final bool landscape = form.isLandscape;
     final double max = seekable ? durationMs.toDouble() : 1.0;
     final double value =
         seekable ? positionMs.toDouble().clamp(0.0, max) : 0.0;
@@ -48,22 +54,31 @@ class PlayerProgressBar extends StatelessWidget {
         seekable ? (bufferedMs / max).clamp(0.0, 1.0) : 0.0;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.md),
+      padding: EdgeInsets.symmetric(
+        horizontal: landscape ? VboxSpacing.lg : VboxSpacing.md,
+        vertical: landscape ? VboxSpacing.sm : VboxSpacing.xs,
+      ),
       child: Row(
         children: <Widget>[
-          _TimeLabel(text: _fmt(positionMs)),
+          _TimeLabel(
+            text: _fmt(positionMs),
+            landscape: landscape,
+          ),
           Expanded(
             child: SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                trackHeight: 2.5,
-                thumbShape: const RoundSliderThumbShape(
-                  enabledThumbRadius: 6,
+                // 轨道粗细 / 滑块大小对齐 iOS（竖 3pt·10pt，横 4pt·14pt）。
+                trackHeight: landscape ? 4.0 : 3.0,
+                thumbShape: RoundSliderThumbShape(
+                  enabledThumbRadius: landscape ? 7.0 : 5.0,
                 ),
-                activeTrackColor: VboxColors.skinPrimaryRose,
-                inactiveTrackColor: Colors.white24,
-                thumbColor: Colors.white,
-                overlayShape: const RoundSliderOverlayShape(
-                  overlayRadius: 14,
+                activeTrackColor: VboxColors.playerAccentCyan,
+                inactiveTrackColor: Colors.white30,
+                secondaryActiveTrackColor:
+                    VboxColors.playerAccentCyan.withValues(alpha: 0.28),
+                thumbColor: VboxColors.playerAccentCyan,
+                overlayShape: RoundSliderOverlayShape(
+                  overlayRadius: landscape ? 16.0 : 14.0,
                 ),
               ),
               child: Slider(
@@ -77,7 +92,11 @@ class PlayerProgressBar extends StatelessWidget {
               ),
             ),
           ),
-          _TimeLabel(text: isLive ? '直播' : _fmt(durationMs), secondary: true),
+          _TimeLabel(
+            text: isLive ? '直播' : _fmt(durationMs),
+            secondary: true,
+            landscape: landscape,
+          ),
         ],
       ),
     );
@@ -95,10 +114,15 @@ class PlayerProgressBar extends StatelessWidget {
 
 /// 时间标签。
 class _TimeLabel extends StatelessWidget {
-  const _TimeLabel({required this.text, this.secondary = false});
+  const _TimeLabel({
+    required this.text,
+    this.secondary = false,
+    this.landscape = false,
+  });
 
   final String text;
   final bool secondary;
+  final bool landscape;
 
   @override
   Widget build(BuildContext context) {
@@ -108,7 +132,8 @@ class _TimeLabel extends StatelessWidget {
         text,
         textAlign: secondary ? TextAlign.right : TextAlign.left,
         style: TextStyle(
-          fontSize: VboxTypography.s12,
+          // 对齐 iOS：竖屏 10pt / 横屏 12pt。
+          fontSize: landscape ? VboxTypography.s12 : VboxTypography.s10,
           color: secondary ? Colors.white70 : Colors.white,
           fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
         ),

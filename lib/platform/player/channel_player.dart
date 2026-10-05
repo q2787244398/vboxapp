@@ -43,6 +43,12 @@ class ChannelPlayer implements Player {
   @override
   final PlayerBackend backend;
 
+  /// 视频纹理输出面（R-渲1）：`open` 后由原生返回；`null` = 该后端无纹理输出。
+  int? _textureId;
+
+  @override
+  int? get textureId => _textureId;
+
   @override
   List<PlayerBackend> get availableBackends => <PlayerBackend>[backend];
 
@@ -53,6 +59,9 @@ class ChannelPlayer implements Player {
   void Function(PlaybackProgress)? onProgress;
 
   @override
+  void Function(int width, int height)? onVideoSize;
+
+  @override
   void Function(String message, {required bool fatal})? onError;
 
   // ─────────────── 控制面 ───────────────
@@ -60,16 +69,28 @@ class ChannelPlayer implements Player {
   @override
   Future<void> open(PlayerSource source) async {
     try {
-      await _bridge.invoke('open', <String, Object?>{
+      final Object? r = await _bridge.invoke('open', <String, Object?>{
         ...source.toJson(),
         'backend': backendWireValue(backend),
       });
+      _textureId = _parseTextureId(r);
     } on PlatformException catch (e) {
       throw PlayerOpenException(
         e.code,
         e.message ?? '播放器打开失败（${backend.name}）',
       );
     }
+  }
+
+  /// 解析原生 `open` 返回值中的纹理句柄（R-渲1）。
+  ///
+  /// 兼容旧原生实现（返回 null → 无纹理输出）与未来扩展（`textureId` 为 int）。
+  static int? _parseTextureId(Object? result) {
+    if (result is Map) {
+      final Object? id = result['textureId'];
+      if (id is num) return id.toInt();
+    }
+    return null;
   }
 
   @override
@@ -91,6 +112,7 @@ class ChannelPlayer implements Player {
   @override
   Future<void> dispose() async {
     await _sub.cancel();
+    _textureId = null;
     try {
       await _bridge.invoke('dispose');
     } on PlatformException {
@@ -123,6 +145,11 @@ class ChannelPlayer implements Player {
         onError?.call(
           (e['message'] ?? '').toString(),
           fatal: e['fatal'] as bool? ?? true,
+        );
+      case 'videoSize':
+        onVideoSize?.call(
+          (e['width'] as num?)?.toInt() ?? 0,
+          (e['height'] as num?)?.toInt() ?? 0,
         );
     }
   }

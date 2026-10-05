@@ -163,6 +163,51 @@ void main() {
       expect(notified, 1);
       expect(c.form, UiForm.landscape);
     });
+
+    test('setOrientationLocked 去重通知', () {
+      final PlayerControlsController c = PlayerControlsController();
+      int notified = 0;
+      c.addListener(() => notified++);
+      c.setOrientationLocked(false); // 已是 false
+      expect(notified, 0);
+      c.setOrientationLocked(true);
+      expect(c.orientationLocked, isTrue);
+      expect(notified, 1);
+    });
+
+    test('setDanmakuEnabled 去重通知', () {
+      final PlayerControlsController c = PlayerControlsController();
+      int notified = 0;
+      c.addListener(() => notified++);
+      c.setDanmakuEnabled(false); // 已是 false
+      expect(notified, 0);
+      c.setDanmakuEnabled(true);
+      expect(c.showDanmaku, isTrue);
+      expect(notified, 1);
+    });
+
+    test('applyEpisode 回填当前集与副标题（不触发 onSelectEpisode）', () {
+      const List<PlaybackEpisode> eps = <PlaybackEpisode>[
+        PlaybackEpisode(name: '1', url: 'u1'),
+        PlaybackEpisode(name: '2', url: 'u2'),
+      ];
+      int? selected;
+      final PlayerControlsController c = PlayerControlsController(episodes: eps);
+      c.onSelectEpisode = (int i) => selected = i;
+      c.applyEpisode(1, subtitle: '第 2 集');
+      expect(c.currentEpisodeIndex, 1);
+      expect(c.subtitle, '第 2 集');
+      expect(selected, isNull); // 回填不重入回调
+    });
+
+    test('applyEpisode 越界索引不改当前集', () {
+      const List<PlaybackEpisode> eps = <PlaybackEpisode>[
+        PlaybackEpisode(name: '1', url: 'u1'),
+      ];
+      final PlayerControlsController c = PlayerControlsController(episodes: eps);
+      c.applyEpisode(5);
+      expect(c.currentEpisodeIndex, 0);
+    });
   });
 
   group('选择动作', () {

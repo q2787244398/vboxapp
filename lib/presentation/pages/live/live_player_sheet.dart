@@ -1,12 +1,12 @@
-/// 直播播放接入 Sheet（批次 E · E-02）。
+/// 直播播放接入 Sheet（批次 E · E-02；Wave A · R-渲1 画面输出）。
 ///
 /// 对齐 iOS `LivePlayerSheet`：点击频道卡弹出，自动解析线路并连接首线路
 /// （`resolveAllSources` = 直接取 [LiveChannel.sources]）。顶部 16:9 预览区
-/// （视频画面由平台侧播放器渲染，Flutter 侧经 [PlayerController] 驱动，
-/// 此处仅展示连接状态占位）+ 线路列表切换。
+/// 内联渲染视频画面（对齐 iOS `MiniPlayerView`：sheet 内小窗，非全屏播放页），
+/// 下方为线路列表切换。
 ///
 /// [onPlayRoute] 供测试注入，避免单测触碰真实方法通道；缺省走
-/// [PlayerController.instance]（live 路由）。
+/// [PlayerController.instance]（live 路由）并订阅其纹理输出面。
 library;
 
 import 'package:flutter/material.dart';
@@ -17,6 +17,7 @@ import '../../../platform/player/player_controller.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../../widgets/player/video_surface.dart';
 
 /// 直播线路播放回调（url → 打开并播放）。
 typedef LiveRoutePlayHandler = Future<void> Function(String url);
@@ -48,11 +49,40 @@ class _LivePlayerSheetState extends State<LivePlayerSheet> {
   bool _connecting = true;
   String? _error;
 
+  /// 输出面纹理句柄（R-渲1；null = 无纹理 → 状态占位）。
+  int? _textureId;
+
+  /// 视频纵横比（宽 / 高；null = 未上报 → 按 16:9 容器铺满）。
+  double? _aspectRatio;
+
+  /// 是否订阅了 [PlayerController] 输出面（仅缺省回调时；注入回调不订阅）。
+  bool _bindController = false;
+
   @override
   void initState() {
     super.initState();
     _routes = _resolveRoutes();
+    if (widget.onPlayRoute == null) {
+      _bindController = true;
+      final PlayerController controller = PlayerController.instance;
+      controller.onSurfaceChanged = (int? id) {
+        if (mounted) setState(() => _textureId = id);
+      };
+      controller.onVideoSize = (int width, int height) {
+        if (mounted) setState(() => _aspectRatio = width / height);
+      };
+    }
     _autoPlay();
+  }
+
+  @override
+  void dispose() {
+    if (_bindController) {
+      final PlayerController controller = PlayerController.instance;
+      controller.onSurfaceChanged = null;
+      controller.onVideoSize = null;
+    }
+    super.dispose();
   }
 
   List<String> _resolveRoutes() {
@@ -164,7 +194,22 @@ class _LivePlayerSheetState extends State<LivePlayerSheet> {
   Widget _preview() {
     return ColoredBox(
       color: Colors.black,
-      child: Center(child: _previewBody()),
+      child: Center(
+        child: AspectRatio(
+          // 对齐 iOS：16:9 小窗（黑底 + 画面层 + 状态层叠加）。
+          aspectRatio: 16 / 9,
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              VideoSurface(
+                textureId: _textureId,
+                aspectRatio: _aspectRatio,
+              ),
+              if (_textureId == null) Center(child: _previewBody()),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

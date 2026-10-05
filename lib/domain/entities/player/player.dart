@@ -159,11 +159,23 @@ abstract class Player {
   /// 可用后端列表（按优先级）。
   List<PlayerBackend> get availableBackends;
 
+  /// 视频纹理输出面的 Flutter textureId。
+  ///
+  /// `null` 表示当前后端**无纹理输出**（Dart 侧渲染深色占位，避免「有声无画」
+  /// 时误判为黑屏故障）；非 null 时由 [VideoSurface] 以 `Texture(textureId:)`
+  /// 承载，对齐 iOS `PlayerContainerView` 的画面层语义（R-渲1）。
+  int? get textureId;
+
   /// 状态流式回调。
   set onStateChanged(void Function(PlayerState)? handler);
 
   /// 进度流式回调。
   set onProgress(void Function(PlaybackProgress)? handler);
+
+  /// 视频尺寸回调（R-渲1：输出面按纵横比自适应，对齐 iOS `videoGravity`）。
+  ///
+  /// 原生解出视频轨后上报（宽/高像素）；不上报时播放页按拉伸铺满处理。
+  set onVideoSize(void Function(int width, int height)? handler);
 
   /// 错误回调。
   set onError(void Function(String message, {bool fatal})? handler);

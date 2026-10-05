@@ -5,7 +5,7 @@
 ///   · 16:9 封面占位（主色渐变 + 类型图标，推送条目无图）；
 ///   · 标题 + 类型备注徽标（`☁️网盘` / `🎬 直链播放` / `🌐 网页解析`）；
 ///   · 剧集：已解析（episodes）→ 选集宫格，点击即播；未解析 → 单集直播；
-///   · 播放：接入项目现有播放器（[PlayerController]），与既有详情页一致。
+///   · 播放：缺省进入全屏播放页 [PlayerPage]（Wave A · R-渲2；有剧集时页内宫格选播）。
 ///
 /// 差异登记：
 ///   · iOS `VideoDetailView` 是通用详情页（支持本地 `VodItem`）；Flutter 既有
@@ -17,10 +17,10 @@ import 'package:flutter/material.dart';
 
 import '../../../domain/entities/player/player.dart';
 import '../../../domain/entities/push/push_play.dart';
-import '../../../platform/player/player_controller.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../player/player_page.dart';
 
 /// 推送播放回调（url + 标题 → 打开并播放；测试注入）。
 typedef PushPlayDetailHandler = Future<void> Function(String url, String title);
@@ -63,9 +63,15 @@ class _PushPlayDetailPageState extends State<PushPlayDetailPage> {
       await handler(url, title);
       return;
     }
-    final PlayerController controller = PlayerController.instance;
-    await controller.open(PlayerSource(url: url, title: title));
-    await controller.play();
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => PlayerPage(
+          source: PlayerSource(url: url, title: title),
+          title: title,
+        ),
+      ),
+    );
   }
 
   void _playEpisode(PushPlayEpisode ep) {

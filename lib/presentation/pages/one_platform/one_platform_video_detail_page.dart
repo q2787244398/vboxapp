@@ -2,17 +2,17 @@
 ///
 /// 对齐 iOS `OneVideoDetailView`：16:9 封面（点击播放 / 加载 / 错误三态）
 /// + 标题 + 信息行（时长 / 播放量 / 评分）+ 播放线路选择 + 标签 + 简介。
-/// 播放经 [OnePlayHandler] 接入，缺省走 [PlayerController.instance]。
+/// 播放经 [OnePlayHandler] 接入，缺省进入全屏播放页 [PlayerPage]（Wave A · R-渲2）。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../../../domain/entities/one_platform/one_platform.dart';
 import '../../../domain/entities/player/player.dart';
-import '../../../platform/player/player_controller.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
+import '../player/player_page.dart';
 import 'one_platform_controller.dart';
 import 'one_platform_widgets.dart';
 
@@ -110,9 +110,15 @@ class _OnePlatformVideoDetailPageState
   }
 
   Future<void> _defaultPlay(String url) async {
-    final PlayerController controller = PlayerController.instance;
-    await controller.open(PlayerSource(url: url, title: widget.video.title));
-    await controller.play();
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => PlayerPage(
+          source: PlayerSource(url: url, title: widget.video.title),
+          title: widget.video.title,
+        ),
+      ),
+    );
   }
 
   void _selectLine(int index) {

@@ -2,7 +2,7 @@
 ///
 /// 唯一真相源：iOS `vbox/Views/FuliVideoBridgeView.swift`。
 /// 点击视频卡片后直接进入本页：加载详情（封面 / 标题 / 剧集）→
-/// 线路分组 → 解析播放地址 → 调用项目现有播放器 [PlayerController]，
+/// 线路分组 → 解析播放地址 → 进入全屏播放页 [PlayerPage]，
 /// **不经过** 通用详情页（不影响网盘 / 切片 / 短剧等既有播放链路）。
 ///
 /// 布局对齐 iOS：
@@ -14,8 +14,8 @@
 ///   · 下载选集 Sheet（4 列多选网格 + 全选 + 底部确认，`FuliDownloadSheet`）。
 ///
 /// 移植口径与差异登记：
-///   · 播放接入沿用 Flutter 既有模式（[PlayerController.open] + [PlayerController.play]），
-///     与 iOS `VideoPlayerViewV2` 全屏播放等价；
+///   · 播放接入对齐 iOS `FuliVideoBridgeView`（`fullScreenCover → VideoPlayerViewV2`）：
+///     解析成功后进入全屏播放页 [PlayerPage]，播放生命周期由播放页持有；
 ///   · iOS `parse=1` 的 `SpiderManager.parsePlayUrl` 二次解析在 Flutter 尚无等价桥
 ///     （归 Spider 平台批次），本页直接取 `fetchPlayerURL` 返回地址交播放器，
 ///     与既有详情页 / 短剧 / 麻豆播放链路一致；
@@ -26,14 +26,15 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../../domain/entities/player/player.dart';
+import '../../../domain/entities/playback/playback_detail.dart';
 import '../../../domain/entities/welfare/fuli_models.dart';
 import '../../../domain/services/fuli_base_service.dart';
-import '../../../platform/player/player_controller.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
+import '../player/player_page.dart';
 
 /// 线路分组（UI 层概念，对齐 iOS `FuliLine`）。
 ///
@@ -52,7 +53,7 @@ class FuliLine {
 
 /// 福利播放回调（播放地址 + 请求头 → 打开并播放；测试注入）。
 ///
-/// 缺省走 [PlayerController.instance]，对齐 iOS `VideoPlayerViewV2` 播放入口。
+/// 缺省进入全屏播放页 [PlayerPage]（对齐 iOS `VideoPlayerViewV2` 播放入口）。
 typedef WelfarePlayHandler = Future<void> Function(
   String url,
   Map<String, String> headers,
@@ -74,7 +75,7 @@ class WelfareVideoBridgePage extends StatefulWidget {
   /// 点击的视频条目（封面 / 标题即时展示）。
   final FuliVideo video;
 
-  /// 播放回调（null → [PlayerController.instance]）。
+  /// 播放回调（null → 解析成功后进入 [PlayerPage]）。
   final WelfarePlayHandler? onPlay;
 
   @override
@@ -191,17 +192,56 @@ class _WelfareVideoBridgePageState extends State<WelfareVideoBridgePage> {
     await handler(url, result.headers);
   }
 
+  /// 缺省播放：解析成功后进入全屏播放页（对齐 iOS `fullScreenCover → VideoPlayerViewV2`）。
   Future<void> _defaultPlay(String url, Map<String, String> headers) async {
-    final PlayerController controller = PlayerController.instance;
-    await controller.open(
-      PlayerSource(
-        url: url,
-        title: '${widget.video.vodName} ${_selectedEpisode?.name ?? ''}'
-            .trim(),
-        headers: headers,
+    if (!mounted) return;
+    final List<PlaybackEpisode> episodes = _playbackEpisodes();
+    final int index = _selectedEpisodeIndex(episodes);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => PlayerPage(
+          source: PlayerSource(
+            url: url,
+            title: widget.video.vodName,
+            headers: headers,
+          ),
+          title: widget.video.vodName,
+          subtitle: _selectedEpisode?.name,
+          episodes: episodes,
+          initialEpisodeIndex: index,
+          onResolveEpisode:
+              episodes.isEmpty ? null : _resolveEpisodeSource,
+        ),
       ),
     );
-    await controller.play();
+  }
+
+  /// 当前线路剧集 → 播放页选集数据（[PlaybackEpisode] 与 [FuliEpisode] 同构）。
+  List<PlaybackEpisode> _playbackEpisodes() => _currentEpisodes
+      .map((FuliEpisode e) => PlaybackEpisode(name: e.name, url: e.url))
+      .toList(growable: false);
+
+  /// 当前选中集在 [episodes] 中的下标（缺失回退 0）。
+  int _selectedEpisodeIndex(List<PlaybackEpisode> episodes) {
+    final FuliEpisode? selected = _selectedEpisode;
+    if (selected == null || episodes.isEmpty) return 0;
+    final int i = episodes.indexWhere(
+      (PlaybackEpisode e) => e.url == selected.url && e.name == selected.name,
+    );
+    return i < 0 ? 0 : i;
+  }
+
+  /// 选集重开解析器：单集 → 播放源（复用 [FuliBaseService.fetchPlayerURL]）。
+  Future<PlayerSource?> _resolveEpisodeSource(PlaybackEpisode episode) async {
+    final FuliPlayerResult result = await widget.service.fetchPlayerURL(
+      FuliEpisode(name: episode.name, url: episode.url),
+    );
+    if (result.url.isEmpty) return null;
+    return PlayerSource(
+      url: result.url,
+      title: widget.video.vodName,
+      headers: result.headers,
+    );
   }
 
   void _retryResolve() {

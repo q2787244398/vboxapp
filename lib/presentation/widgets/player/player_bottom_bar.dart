@@ -10,6 +10,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../../domain/entities/player/player.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
@@ -124,7 +125,7 @@ class _DanmakuButton extends StatelessWidget {
             style: TextStyle(
               fontSize: VboxTypography.s16,
               fontWeight: FontWeight.w700,
-              color: on ? VboxColors.chipSelected : Colors.white60,
+              color: on ? VboxColors.playerAccentGreen : Colors.white60,
             ),
           ),
           if (on)
@@ -135,7 +136,7 @@ class _DanmakuButton extends StatelessWidget {
                 width: 10,
                 height: 10,
                 decoration: const BoxDecoration(
-                  color: VboxColors.chipSelected,
+                  color: VboxColors.playerAccentGreen,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -207,7 +208,7 @@ class _DanmakuInputPill extends StatelessWidget {
         '请文明发送弹幕',
         style: TextStyle(
           fontSize: VboxTypography.s13,
-          color: VboxColors.chipSelected,
+          color: VboxColors.playerAccentGreen,
         ),
       ),
     );
@@ -234,7 +235,7 @@ class _SpeedButton extends StatelessWidget {
         style: TextStyle(
           fontSize: VboxTypography.s14,
           fontWeight: FontWeight.w500,
-          color: active ? VboxColors.chipSelected : Colors.white,
+          color: active ? VboxColors.playerAccentGreen : Colors.white,
         ),
       ),
     );
@@ -248,7 +249,7 @@ class _QualityButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool active = controller.showQualityPicker;
+    // 对齐 iOS：清晰度按钮恒白，无激活高亮。
     return _BarButton(
       tooltip: '清晰度',
       onTap: controller.onSelectQuality != null
@@ -256,10 +257,10 @@ class _QualityButton extends StatelessWidget {
           : null,
       child: Text(
         controller.qualityDisplayText,
-        style: TextStyle(
+        style: const TextStyle(
           fontSize: VboxTypography.s14,
           fontWeight: FontWeight.w500,
-          color: active ? VboxColors.chipSelected : Colors.white,
+          color: Colors.white,
         ),
       ),
     );
@@ -273,18 +274,18 @@ class _EpisodeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool active = controller.showEpisodePicker;
+    // 对齐 iOS：选集按钮恒白，无激活高亮。
     return _BarButton(
       tooltip: '选集',
       onTap: controller.onSelectEpisode != null
           ? controller.openEpisodePicker
           : null,
-      child: Text(
+      child: const Text(
         '选集',
         style: TextStyle(
           fontSize: VboxTypography.s14,
           fontWeight: FontWeight.w500,
-          color: active ? VboxColors.selected : Colors.white,
+          color: Colors.white,
         ),
       ),
     );
@@ -298,8 +299,13 @@ class _EngineButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool active = controller.showEnginePicker;
     final bool enabled = controller.onSelectBackend != null;
+    // 对齐 iOS：兼容（回退）内核文字用青色标识，其余白；不可用灰。
+    final bool compatibility = controller.currentBackend == PlayerBackend.libVLC ||
+        controller.currentBackend == PlayerBackend.libmpv;
+    final Color color = !enabled
+        ? Colors.white38
+        : (compatibility ? VboxColors.playerAccentCyan : Colors.white);
     return _BarButton(
       tooltip: '内核',
       onTap: enabled ? controller.openEnginePicker : null,
@@ -310,9 +316,7 @@ class _EngineButton extends StatelessWidget {
         style: TextStyle(
           fontSize: VboxTypography.s14,
           fontWeight: FontWeight.w500,
-          color: active || !enabled
-              ? (active ? VboxColors.selected : Colors.white38)
-              : Colors.white,
+          color: color,
         ),
       ),
     );

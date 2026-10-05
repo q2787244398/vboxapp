@@ -6,7 +6,7 @@
 /// - 演职人员（导演 / 主演 chips 横滑；G-06 TMDB 有则整体替换豆瓣）；
 /// - 线路 chips（`vod_play_from` 拆分）横滑切源；
 /// - 剧集宫格（自适应列数 + 折叠/展开）+ 单集点击选中；
-/// - 「立即播放」解析单集播放地址（`PlayerContent` → [PlayerController]）；
+/// - 「立即播放」解析单集播放地址后进入全屏播放页 [PlayerPage]（Wave A · R-渲2）；
 /// - 「下载」弹出选集多选 sheet（含全选），确认后解析直链并交
 ///   [DownloadManager] 入队下载（G-02 接线，对齐 iOS `handleBatchDownload`）。
 ///
@@ -29,7 +29,7 @@ import '../../domain/entities/spider/spider_models.dart';
 import '../../domain/entities/tmdb/tmdb_models.dart';
 import '../../domain/usecases/usecases.dart';
 import '../../platform/download/download.dart';
-import '../../platform/player/player_controller.dart';
+import '../pages/player/player_page.dart';
 import '../theme/tokens/colors.dart';
 import '../theme/tokens/radii.dart';
 import '../theme/tokens/spacing.dart';
@@ -191,25 +191,46 @@ class _DetailPageState extends State<DetailPage> {
         return;
       }
 
-      final PlayerController controller = PlayerController.instance;
-      await controller.open(
-        PlayerSource(
-          url: url,
-          title: episode.name.isEmpty
-              ? d.vod.vodName
-              : '${d.vod.vodName} - ${episode.name}',
-          headers: pc?.header ?? const <String, String>{},
+      if (!mounted) return;
+      // Wave A · R-渲2：解析成功后进入全屏播放页（播放生命周期由播放页持有）。
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) => PlayerPage(
+            source: PlayerSource(
+              url: url,
+              title: d.vod.vodName,
+              headers: pc?.header ?? const <String, String>{},
+            ),
+            title: d.vod.vodName,
+            subtitle: episode.name,
+            episodes: visible,
+            initialEpisodeIndex: _episodeIndex.clamp(0, visible.length - 1),
+            onResolveEpisode: _resolveEpisodeSource,
+          ),
         ),
       );
-      await controller.play();
-      if (!mounted) return;
-      _toast('开始播放：${episode.name}');
     } catch (e) {
       if (!mounted) return;
       _toast('播放失败：$e');
     } finally {
       if (mounted) setState(() => _playing = false);
     }
+  }
+
+  /// 选集重开解析器（Wave A · R-渲2）：单集 → 播放源（复用 [DetailPlaybackUseCases]）。
+  Future<PlayerSource?> _resolveEpisodeSource(PlaybackEpisode episode) async {
+    final PlaybackDetail? d = _detail;
+    if (d == null) return null;
+    final Result<PlayerContentResult> result =
+        await _uc.resolvePlayUrl(detail: d, episode: episode);
+    final PlayerContentResult? pc = result.valueOrNull;
+    final String? url = _firstUrl(pc);
+    if (url == null || url.isEmpty) return null;
+    return PlayerSource(
+      url: url,
+      title: d.vod.vodName,
+      headers: pc?.header ?? const <String, String>{},
+    );
   }
 
   String? _firstUrl(PlayerContentResult? pc) {
