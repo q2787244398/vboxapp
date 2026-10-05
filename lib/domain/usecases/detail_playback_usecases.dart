@@ -14,12 +14,16 @@ import '../../core/utils/result.dart';
 import '../../data/datasources/remote/all_sources_datasource.dart';
 import '../../data/datasources/remote/cms_v10_datasource.dart';
 import '../../data/datasources/remote/cms_v10_models.dart';
+import '../../data/models/zhanyuan.dart';
 import '../../platform/runtime/quickjs_ffi.dart';
 import '../../platform/spider/node_http_client.dart';
 import '../../platform/spider/spider_engine_factory.dart';
+import '../../platform/spider/tencent_video_spider.dart';
+import '../../platform/spider/zhanyuan_search_service.dart';
 import '../entities/playback/playback.dart';
 import '../entities/remote_source/remote_source.dart';
 import '../entities/spider/spider.dart';
+import 'zhanyuan_search_usecases.dart';
 
 /// 详情页·播放入口用例。
 class DetailPlaybackUseCases {
@@ -34,10 +38,14 @@ class DetailPlaybackUseCases {
     QuickJsNativeBridge? quickJsBridge,
     NodeHttpClient? nodeClient,
     this.scriptBaseUrl,
+    TencentVideoNativeSpider? tencentSpider,
+    ZhanyuanSearchService? zhanyuanService,
   })  : _engineFactory = engineFactory,
         _cmsDatasource = cmsDatasource,
         _quickJsBridge = quickJsBridge,
-        _nodeClient = nodeClient;
+        _nodeClient = nodeClient,
+        _tencentSpider = tencentSpider,
+        _zhanyuanService = zhanyuanService ?? ZhanyuanSearchService();
 
   /// 站点聚合加载器（`Future<Result<AllSourcesContainer>>`）。
   final Future<Result<AllSourcesContainer>> Function() loadAllSources;
@@ -51,6 +59,16 @@ class DetailPlaybackUseCases {
   final CmsV10Datasource? _cmsDatasource;
   final QuickJsNativeBridge? _quickJsBridge;
   final NodeHttpClient? _nodeClient;
+  final TencentVideoNativeSpider? _tencentSpider;
+  final ZhanyuanSearchService _zhanyuanService;
+
+  /// 腾讯站点合成配置（仅用于承载详情结果；不走 CMS/引擎路由）。
+  static const SiteConfig _tencentSite = SiteConfig(
+    key: TencentVideoNativeSpider.siteKey,
+    name: '腾讯视频',
+    type: 3,
+    api: 'https://v.qq.com',
+  );
 
   /// 加载详情播放数据。
   ///
@@ -65,6 +83,12 @@ class DetailPlaybackUseCases {
     }
     if (vodId.trim().isEmpty) {
       return const Err<PlaybackDetail>(ValidationFailure('影片 ID 为空'));
+    }
+
+    // S-设3：腾讯视频原生详情（对齐 iOS `SpiderManager.getDetail` step 0，
+    // 对非 http id 先走 `TencentVideoNativeSpider.detail`，不走站点解析）。
+    if (siteKey == TencentVideoNativeSpider.siteKey) {
+      return _loadViaTencentNative(vodId, initialIndex);
     }
 
     final Result<AllSourcesContainer> sourcesResult = await loadAllSources();
@@ -82,8 +106,9 @@ class DetailPlaybackUseCases {
 
     switch (site.resolveSiteMode()) {
       case SiteMode.apiEndpoint:
-      case SiteMode.zhanyuan:
         return _loadViaCms(site, vodId, initialIndex);
+      case SiteMode.zhanyuan:
+        return _loadViaZhanyuan(site, vodId, initialIndex);
       case SiteMode.node:
       case SiteMode.jsSpider:
       case SiteMode.pythonSpider:
@@ -136,6 +161,61 @@ class DetailPlaybackUseCases {
   }
 
   // ─────────────── 内部：Spider 引擎路径 ───────────────
+
+  /// 腾讯视频原生详情（S-设3）。
+  Future<Result<PlaybackDetail>> _loadViaTencentNative(
+    String vodId,
+    int initialIndex,
+  ) async {
+    final TencentVideoNativeSpider? spider = _tencentSpider;
+    if (spider == null) {
+      return const Err<PlaybackDetail>(
+        UnsupportedFailure('腾讯视频原生蜘蛛未接线（需注入 TencentVideoNativeSpider）'),
+      );
+    }
+    try {
+      final VodItem? item = await spider.detail(vodId);
+      if (item == null) {
+        return Err<PlaybackDetail>(ParseFailure('腾讯原生详情为空：$vodId'));
+      }
+      return Success<PlaybackDetail>(
+        PlaybackDetail.fromVod(
+          site: _tencentSite,
+          vod: item,
+          initialIndex: initialIndex,
+        ),
+      );
+    } catch (e) {
+      return Err<PlaybackDetail>(_asFailure(e));
+    }
+  }
+
+  /// 占源（type=2）详情：走 [ZhanyuanSearchService.fetchDetail]（HTML/XPath），
+  /// 对齐 iOS `SpiderManager.getDetail` 的 zhanyuan 分支。
+  Future<Result<PlaybackDetail>> _loadViaZhanyuan(
+    SiteConfig site,
+    String vodId,
+    int initialIndex,
+  ) async {
+    final Zhanyuan? z = zhanyuanFromSiteConfig(site);
+    if (z == null) {
+      return Err<PlaybackDetail>(
+        ValidationFailure('站源「${site.name}」配置不完整（缺少 searchUrl）'),
+      );
+    }
+    try {
+      final VodItem item = await _zhanyuanService.fetchDetail(vodId, z);
+      return Success<PlaybackDetail>(
+        PlaybackDetail.fromVod(
+          site: site,
+          vod: item,
+          initialIndex: initialIndex,
+        ),
+      );
+    } catch (e) {
+      return Err<PlaybackDetail>(_asFailure(e));
+    }
+  }
 
   Future<Result<PlaybackDetail>> _loadViaSpider(
     SiteConfig site,

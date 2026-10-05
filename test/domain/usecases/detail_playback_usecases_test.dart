@@ -21,6 +21,7 @@ import 'package:vbox/platform/runtime/jsc_ffi.dart';
 import 'package:vbox/platform/runtime/quickjs_ffi.dart';
 import 'package:vbox/platform/spider/node_http_client.dart';
 import 'package:vbox/platform/spider/spider_engine_factory.dart';
+import 'package:vbox/platform/spider/tencent_video_spider.dart';
 
 // ─────────────── 测试替身 ───────────────
 
@@ -166,6 +167,20 @@ void main() {
         (await uc.loadDetail(siteKey: 'k', vodId: '')).failureOrNull,
         isA<ValidationFailure>(),
       );
+    });
+  });
+
+  group('loadDetail：腾讯原生（S-设3）', () {
+    test('腾讯站点未注入原生蜘蛛 → UnsupportedFailure（不走站点解析）', () async {
+      final DetailPlaybackUseCases uc = DetailPlaybackUseCases(
+        loadAllSources: () async =>
+            const Success<AllSourcesContainer>(AllSourcesContainer()),
+      );
+      final Result<PlaybackDetail> r = await uc.loadDetail(
+        siteKey: TencentVideoNativeSpider.siteKey,
+        vodId: 'abc123',
+      );
+      expect(r.failureOrNull, isA<UnsupportedFailure>());
     });
   });
 

@@ -12,11 +12,54 @@
 /// `TencentVideoNativeSpider`（不参与本 usecase，走详情播放入口）。
 library;
 
+import 'dart:convert' show jsonDecode;
 import 'dart:math' show min;
 
 import '../../data/models/zhanyuan.dart';
 import '../../platform/spider/zhanyuan_search_service.dart';
 import '../entities/spider/spider_models.dart';
+import '../entities/spider/site_config.dart';
+
+/// 由订阅合成站点（`type == 2`，`ext` 为原始 JSON）还原 [Zhanyuan]。
+///
+/// 对齐 iOS `SpiderManager` 的订阅站点落库语义：可空字段缺失时退回站点名 /
+/// `api`（= searchUrl），UA 缺失时用 [Zhanyuan.defaultUA]。
+Zhanyuan? zhanyuanFromSiteConfig(SiteConfig site) {
+  if (site.type != 2) return null;
+  Map<String, Object?>? raw;
+  final String? ext = site.ext;
+  if (ext != null && ext.isNotEmpty) {
+    try {
+      final Object? decoded = jsonDecode(ext);
+      if (decoded is Map) raw = decoded.cast<String, Object?>();
+    } catch (_) {
+      // 脏数据 → 回退到 SiteConfig 字段。
+    }
+  }
+  final String name = (raw?['name'] ?? site.name).toString();
+  final String searchUrl = (raw?['searchUrl'] ?? site.api ?? '').toString();
+  if (name.isEmpty || searchUrl.isEmpty) return null;
+  String str(String k) => (raw?[k] ?? '').toString();
+  final Object? ua = raw?['searchUA'];
+  return Zhanyuan(
+    key: site.key,
+    name: name,
+    searchUrl: searchUrl,
+    searchUA: (ua is String && ua.isNotEmpty) ? ua : Zhanyuan.defaultUA,
+    playUA: str('playUA'),
+    websearchurl: str('websearchurl'),
+    searchname: str('searchname'),
+    searchid: str('searchid'),
+    searchpic: str('searchpic'),
+    searchstarr: str('searchstarr'),
+    detaillist: str('detaillist'),
+    detailxl: str('detailxl'),
+    detailjs: str('detailjs'),
+    detailjsurl: str('detailjsurl'),
+    dyurl: str('dyurl'),
+    updatedAt: (raw?['updatedAt'] as num?)?.toInt() ?? 0,
+  );
+}
 
 /// 站源原生搜索用例。
 class ZhanyuanSearchUseCases {
@@ -83,7 +126,13 @@ class ZhanyuanSearchUseCases {
         if (items.isNotEmpty) {
           log('✅ zhanyuan[${site.name}] +${items.length}条');
           successCount++;
-          onBatch(items);
+          // S-设2：回填来源站点 key（`zhan_N`），供搜索页按 engineKey 路由详情。
+          final List<VodItem> stamped = site.key.isEmpty
+              ? items
+              : items
+                  .map((VodItem v) => v.withEngineKey(site.key))
+                  .toList(growable: false);
+          onBatch(stamped);
         } else {
           log('⚠️ zhanyuan[${site.name}] 无结果');
           failCount++;

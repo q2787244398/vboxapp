@@ -63,6 +63,24 @@ void main() {
     expect(batches[1].single.vodRemarks, 'b');
   });
 
+  test('回填来源站点 key（engineKey，S-设2）', () async {
+    final ZhanyuanSearchService service =
+        ZhanyuanSearchService(bridge: SpiderHttpBridge(transport: _FakeTransport()));
+
+    final List<List<VodItem>> batches = <List<VodItem>>[];
+    final ZhanyuanSearchUseCases usecases = ZhanyuanSearchUseCases(
+      loadSites: () async => <Zhanyuan>[_site('a').copyWith(key: 'zhan_1')],
+      service: service,
+    );
+
+    await usecases.searchAll(
+      '功夫',
+      onBatch: (List<VodItem> items) => batches.add(items),
+    );
+
+    expect(batches.single.single.engineKey, 'zhan_1');
+  });
+
   test('空站点：跳过（不写历史、不回调）', () async {
     final ZhanyuanSearchService service =
         ZhanyuanSearchService(bridge: SpiderHttpBridge(transport: _FakeTransport()));

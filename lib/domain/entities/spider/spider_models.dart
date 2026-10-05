@@ -137,6 +137,29 @@ class VodItem {
         musicEntryType: asLooseString(j['musicEntryType']),
       );
 
+  /// 复制并设置 [engineKey]（占源/附加源搜索结果回填来源站点 key）。
+  VodItem withEngineKey(String key) => VodItem(
+        vodId: vodId,
+        vodName: vodName,
+        vodPic: vodPic,
+        vodRemarks: vodRemarks,
+        vodYear: vodYear,
+        vodArea: vodArea,
+        vodDirector: vodDirector,
+        vodActor: vodActor,
+        vodContent: vodContent,
+        vodPlayFrom: vodPlayFrom,
+        vodPlayUrl: vodPlayUrl,
+        customHeaders: customHeaders,
+        engineKey: key,
+        metaDuration: metaDuration,
+        albumName: albumName,
+        availQualities: availQualities,
+        musicPlatform: musicPlatform,
+        lxMusicInfo: lxMusicInfo,
+        musicEntryType: musicEntryType,
+      );
+
   Map<String, Object?> toJson() => <String, Object?>{
         'vod_id': vodId,
         'vod_name': vodName,

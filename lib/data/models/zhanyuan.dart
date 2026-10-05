@@ -11,6 +11,7 @@ class Zhanyuan {
 
   const Zhanyuan({
     this.id,
+    this.key = '',
     required this.name,
     required this.searchUrl,
     this.searchUA = defaultUA,
@@ -36,6 +37,10 @@ class Zhanyuan {
       'Mobile Safari/537.36';
 
   final int? id;
+
+  /// 站点唯一键（对齐订阅合成 key `zhan_N`；用于搜索结果回填 `engineKey`）。
+  final String key;
+
   final String name;
   final String searchUrl;
   final String searchUA;
@@ -95,6 +100,7 @@ class Zhanyuan {
 
   Zhanyuan copyWith({
     int? id,
+    String? key,
     String? name,
     String? searchUrl,
     String? searchUA,
@@ -114,6 +120,7 @@ class Zhanyuan {
   }) =>
       Zhanyuan(
         id: id ?? this.id,
+        key: key ?? this.key,
         name: name ?? this.name,
         searchUrl: searchUrl ?? this.searchUrl,
         searchUA: searchUA ?? this.searchUA,

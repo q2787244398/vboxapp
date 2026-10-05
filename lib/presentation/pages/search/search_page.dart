@@ -13,6 +13,7 @@ import '../../../core/errors/failures.dart';
 import '../../../core/utils/result.dart';
 import '../../../domain/entities/spider/spider.dart';
 import '../../../domain/usecases/usecases.dart';
+import '../../../platform/spider/spider.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
@@ -38,6 +39,11 @@ class _SearchPageState extends State<SearchPage> {
 
   late final ContentBrowseUseCases _uc;
   late final SearchHistoryUseCases _history;
+
+  /// 附加结果源（S-设2 占源并列 / S-设3 腾讯原生）；缺省注入时为空（测试环境）。
+  ZhanyuanSearchUseCases? _zhanyuan;
+  TencentVideoNativeSpider? _tencent;
+
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focus = FocusNode();
 
@@ -56,7 +62,18 @@ class _SearchPageState extends State<SearchPage> {
     super.initState();
     _uc = context.read<ContentBrowseUseCases>();
     _history = context.read<SearchHistoryUseCases>();
+    _zhanyuan = _maybeRead<ZhanyuanSearchUseCases>(context);
+    _tencent = _maybeRead<TencentVideoNativeSpider>(context);
     _init();
+  }
+
+  /// 读取可选 Provider（未注入返回 null，便于 widget 测试无附加源运行）。
+  T? _maybeRead<T extends Object>(BuildContext context) {
+    try {
+      return context.read<T>();
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   @override
@@ -136,6 +153,64 @@ class _SearchPageState extends State<SearchPage> {
         ..addAll(result.valueOrNull?.list ?? const <VodItem>[]);
       _searched = true;
     });
+    // S-设2/S-设3：附加结果源（占源并列 + 腾讯视频原生）并行并入，
+    // 对齐 iOS `SpiderManager.search` 的多源合并语义。
+    await _searchExtraSources(keyword);
+  }
+
+  /// 附加结果源搜索（逐批并入结果，不覆盖主源结果）。
+  Future<void> _searchExtraSources(String keyword) async {
+    final ZhanyuanSearchUseCases? zhanyuan = _zhanyuan;
+    final TencentVideoNativeSpider? tencent = _tencent;
+    if (zhanyuan == null && tencent == null) return;
+
+    final List<Future<void>> tasks = <Future<void>>[];
+    if (zhanyuan != null) {
+      tasks.add(
+        zhanyuan
+            .searchAll(
+              keyword,
+              onBatch: (List<VodItem> items) {
+                if (!mounted || items.isEmpty) return;
+                setState(() {
+                  _mergeResults(items);
+                  _searched = true;
+                  _error = null;
+                });
+              },
+            )
+            .catchError((Object _) {}),
+      );
+    }
+    if (tencent != null) {
+      tasks.add(
+        tencent.search(keyword).then((List<VodItem> items) {
+          if (!mounted || items.isEmpty) return;
+          final List<VodItem> stamped = items
+              .map((VodItem v) =>
+                  v.withEngineKey(TencentVideoNativeSpider.siteKey))
+              .toList(growable: false);
+          setState(() {
+            _mergeResults(stamped);
+            _searched = true;
+            _error = null;
+          });
+        }).catchError((Object _) {}),
+      );
+    }
+    await Future.wait(tasks);
+  }
+
+  /// 去重并入结果（按 `engineKey|vodId|vodName`）。
+  void _mergeResults(List<VodItem> items) {
+    final Set<String> seen = _results
+        .map((VodItem v) => '${v.engineKey ?? ''}|${v.vodId}|${v.vodName}')
+        .toSet();
+    for (final VodItem v in items) {
+      if (seen.add('${v.engineKey ?? ''}|${v.vodId}|${v.vodName}')) {
+        _results.add(v);
+      }
+    }
   }
 
   Future<void> _onSourceChanged(String key) async {
@@ -360,10 +435,15 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   void _openDetail(VodItem vod) {
+    // 附加源结果（占源/腾讯）按 `engineKey` 路由详情；缺省用当前选中站点。
+    final String? engineKey = vod.engineKey;
+    final String key = (engineKey != null && engineKey.isNotEmpty)
+        ? engineKey
+        : (_siteKey ?? '');
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => DetailPage(
-          siteKey: _siteKey ?? '',
+          siteKey: key,
           vodId: vod.vodId,
           title: vod.vodName,
         ),

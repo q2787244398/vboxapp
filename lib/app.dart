@@ -32,10 +32,14 @@ import 'data/datasources/local/tmdb_config_store.dart';
 import 'data/datasources/local/welfare_domain_store.dart';
 import 'data/datasources/local/welfare_proxy_store.dart';
 import 'data/datasources/remote/remote.dart';
+import 'data/models/zhanyuan.dart';
 import 'data/repositories/repositories.dart';
 import 'domain/entities/remote_source/remote_source.dart';
+import 'domain/entities/spider/spider.dart';
+import 'domain/entities/subscribe/subscribe.dart';
 import 'domain/usecases/usecases.dart';
 import 'platform/download/download.dart';
+import 'platform/spider/spider.dart';
 import 'platform/system/system.dart';
 import 'presentation/profile/session_controller.dart';
 import 'presentation/shell/home_shell_page.dart';
@@ -102,6 +106,13 @@ class _VBoxAppState extends State<VBoxApp> {
   /// allSources 清单 URL（S-设1：脚本相对路径解析 base，对齐 iOS `subBaseURL`）。
   String? _allSourcesUrl;
 
+  /// 占源（自建源）并列搜索用例（S-设2：来源 = 激活订阅配置的 type==2 站点）。
+  late final ZhanyuanSearchUseCases _zhanyuanSearchUseCases;
+
+  /// 腾讯视频原生蜘蛛（S-设3：搜索附加结果源 + 详情原生解析，
+  /// 对齐 iOS `TencentVideoNativeSpider.shared.search/detail`）。
+  late final TencentVideoNativeSpider _tencentSpider;
+
   @override
   void initState() {
     super.initState();
@@ -123,7 +134,67 @@ class _VBoxAppState extends State<VBoxApp> {
       );
     }
     _allSourcesUrl = url;
-    return _allSourcesDatasource.fetch(url);
+    final Result<AllSourcesContainer> fetched =
+        await _allSourcesDatasource.fetch(url);
+    final AllSourcesContainer? container = fetched.valueOrNull;
+    if (container == null) return fetched;
+    // S-设2 前置：订阅源站点并入站点宇宙（对齐 iOS `allSites`
+    // = 远程源 + 激活订阅站点），使占源（type=2，key `zhan_N`）可被解析/搜索。
+    return Success<AllSourcesContainer>(_mergeSubscriptionSites(container));
+  }
+
+  /// 把激活订阅配置的站点并入 [base]（按 key 去重；type==3 归 spider，其余归 api）。
+  AllSourcesContainer _mergeSubscriptionSites(AllSourcesContainer base) {
+    final SubscribeConfig? config = SubscribeConfigStore.shared.config;
+    if (config == null || config.sites.isEmpty) return base;
+    final Set<String> existing = base.sites
+        .map((Map<String, Object?> s) => (s['key'] ?? '').toString())
+        .where((String k) => k.isNotEmpty)
+        .toSet();
+    final List<Map<String, Object?>> extraApi = <Map<String, Object?>>[];
+    final List<Map<String, Object?>> extraSpider = <Map<String, Object?>>[];
+    for (final SiteConfig site in config.sites) {
+      if (site.key.isEmpty || existing.contains(site.key)) continue;
+      existing.add(site.key);
+      (site.type == 3 ? extraSpider : extraApi).add(site.toJson());
+    }
+    if (extraApi.isEmpty && extraSpider.isEmpty) return base;
+
+    Map<String, Object?>? withSites(
+      Map<String, Object?>? src,
+      List<Map<String, Object?>> extra,
+    ) {
+      if (extra.isEmpty) return src;
+      final Map<String, Object?> merged = <String, Object?>{...?src};
+      final Object? rawSites = merged['sites'];
+      merged['sites'] = <Object?>[
+        ...(rawSites is List ? rawSites : const <Object?>[]),
+        ...extra,
+      ];
+      return merged;
+    }
+
+    return AllSourcesContainer(
+      apiSources: withSites(base.apiSources, extraApi),
+      cloudSources: base.cloudSources,
+      spiderSources: withSites(base.spiderSources, extraSpider),
+      domainOverrides: base.domainOverrides,
+      parsers: base.parsers,
+      disabledSources: base.disabledSources,
+      welfarePlatforms: base.welfarePlatforms,
+    );
+  }
+
+  /// 占源站点加载器（S-设2）：激活订阅配置中的 `type == 2` 站点 → [Zhanyuan]。
+  Future<List<Zhanyuan>> _loadZhanyuanSites() async {
+    final SubscribeConfig? config = SubscribeConfigStore.shared.config;
+    if (config == null) return const <Zhanyuan>[];
+    final List<Zhanyuan> out = <Zhanyuan>[];
+    for (final SiteConfig site in config.sites) {
+      final Zhanyuan? z = zhanyuanFromSiteConfig(site);
+      if (z != null) out.add(z);
+    }
+    return out;
   }
 
   /// 初始化日志：按契约键配置闸门（`app_log_enabled` / `app_log_min_level`）
@@ -197,6 +268,12 @@ class _VBoxAppState extends State<VBoxApp> {
       //         `active_subscription_index` / `cached_subscribe_config` 三契约键）
       await SubscribeConfigStore.shared.load();
 
+      // S-设2/S-设3：占源并列搜索（来源=激活订阅配置的 type==2 站点）
+      // + 腾讯视频原生蜘蛛（搜索附加结果源 + 详情原生解析）。
+      _zhanyuanSearchUseCases =
+          ZhanyuanSearchUseCases(loadSites: _loadZhanyuanSites);
+      _tencentSpider = TencentVideoNativeSpider();
+
       // ②'''''''''''' TMDB 配置（G-06：启动恢复 `app_enable_tmdb` /
       //         `app_tmdb_proxy_url` / `app_tmdb_use_token` / `app_tmdb_proxy_token`
       //         四契约键；敏感 Token 键经 PrefsManager 路由安全存储）
@@ -228,6 +305,7 @@ class _VBoxAppState extends State<VBoxApp> {
         loadAllSources: _loadAllSources,
         cmsDatasource: _cmsDatasource,
         scriptBaseUrl: () => _allSourcesUrl,
+        tencentSpider: _tencentSpider,
       );
       _contentBrowseUseCases = ContentBrowseUseCases(
         loadAllSources: _loadAllSources,
@@ -304,6 +382,8 @@ class _VBoxAppState extends State<VBoxApp> {
         Provider<DetailPlaybackUseCases>.value(value: _detailPlaybackUseCases),
         Provider<ContentBrowseUseCases>.value(value: _contentBrowseUseCases),
         Provider<SearchHistoryUseCases>.value(value: _searchHistoryUseCases),
+        Provider<ZhanyuanSearchUseCases>.value(value: _zhanyuanSearchUseCases),
+        Provider<TencentVideoNativeSpider>.value(value: _tencentSpider),
         Provider<DoubanUseCases>.value(value: _doubanUseCases),
         Provider<TmdbUseCases>.value(value: _tmdbUseCases),
       ],
