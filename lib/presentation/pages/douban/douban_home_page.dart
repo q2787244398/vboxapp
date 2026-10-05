@@ -14,6 +14,7 @@ import '../../../core/errors/failures.dart';
 import '../../../core/utils/result.dart';
 import '../../../domain/entities/douban/douban_models.dart';
 import '../../../domain/usecases/douban_usecases.dart';
+import '../../shell/splash_gate_monitor.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
@@ -69,6 +70,11 @@ class _DoubanHomeViewState extends State<DoubanHomeView> {
       _error = result.failureOrNull;
       _feed = result.valueOrNull;
     });
+    // L-壳1 数据门控：首页默认内容（豆瓣）已有可展示数据 → 允许启动页淡出。
+    final DoubanHomeFeed? feed = result.valueOrNull;
+    if (feed != null && !feed.isEmpty) {
+      SplashGateMonitor.instance.markHomeReady();
+    }
   }
 
   @override

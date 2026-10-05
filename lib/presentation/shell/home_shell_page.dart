@@ -24,6 +24,7 @@ import '../welfare/welfare_controller.dart';
 import '../widgets/adaptive/adaptive.dart';
 import '../widgets/download/download_overlay_widgets.dart';
 import '../widgets/input/input.dart';
+import '../widgets/music/mini_player.dart';
 import 'app_tab.dart';
 
 /// 首页外壳：单一页树，全端统一底部悬浮胶囊 TabBar。
@@ -92,11 +93,22 @@ class _HomeShellPageState extends State<HomeShellPage> {
     // 下载 overlay（G-02 UI，对齐 iOS ContentView L91/L217-L227）：
     //   ① 全局胶囊通知（底部居中，5s 自动消失）
     //   ② 悬浮下载按键（有记录时显示；点击打开管理弹窗）
+    // 音乐 MiniPlayer 全局浮层（G-音2，对齐 iOS ContentView L140-L143）：
+    //   有播放队列时底部居中常驻；点击主体展开全屏播放器。
     return Stack(
       children: <Widget>[
         Positioned.fill(child: base),
         const Positioned.fill(
           child: DownloadCapsuleNotification(),
+        ),
+        Positioned.fill(
+          child: MiniPlayerBar(
+            onExpand: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => const MusicPlayerPage(),
+              ),
+            ),
+          ),
         ),
         FloatingVideoDownloadButton(
           onTap: () => showDownloadManagementPopup(context),

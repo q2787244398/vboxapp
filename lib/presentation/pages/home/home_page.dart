@@ -18,6 +18,7 @@ import '../../../core/errors/failures.dart';
 import '../../../core/utils/result.dart';
 import '../../../domain/entities/spider/spider.dart';
 import '../../../domain/usecases/usecases.dart';
+import '../../shell/splash_gate_monitor.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/detail_page.dart';
@@ -73,6 +74,10 @@ class _VboxHomePageState extends State<VboxHomePage> {
       _home = result.valueOrNull;
       _siteKey = siteKey;
     });
+    // L-壳1 数据门控：切换源后已有可展示内容 → 允许启动页淡出。
+    if ((result.valueOrNull?.list ?? const <VodItem>[]).isNotEmpty) {
+      SplashGateMonitor.instance.markHomeReady();
+    }
   }
 
   /// 回到豆瓣默认内容（A9）。

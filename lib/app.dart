@@ -40,14 +40,19 @@ import 'domain/entities/subscribe/subscribe.dart';
 import 'domain/services/native_fuli_services.dart';
 import 'domain/usecases/usecases.dart';
 import 'platform/download/download.dart';
+import 'platform/player/music_player.dart';
+import 'platform/runtime/runtime.dart';
 import 'platform/spider/spider.dart';
 import 'platform/system/system.dart';
 import 'presentation/profile/session_controller.dart';
 import 'presentation/shell/home_shell_page.dart';
+import 'presentation/shell/startup_gate.dart';
+import 'presentation/shell/startup_orchestrator.dart';
 import 'presentation/theme/theme.dart';
 import 'presentation/ui_mode/ui_mode_resolver.dart';
 import 'presentation/welfare/welfare_controller.dart';
 import 'presentation/welfare/welfare_platform_controller.dart';
+import 'presentation/widgets/brand/vbox_splash_view.dart';
 
 class VBoxApp extends StatefulWidget {
   const VBoxApp({super.key});
@@ -332,6 +337,39 @@ class _VBoxAppState extends State<VBoxApp> {
     }
   }
 
+  /// 启动编排（批次 L · L-壳2）。
+  ///
+  /// 顺序对齐 iOS 冷启动：**会话恢复 → 远程源同步 → 引擎就绪**；
+  /// 由 [StartupOrchestrator] 逐步收敛，**单步失败降级不阻断**（仅记日志），
+  /// 编排结束后照常进入首页（启动页门控在 [StartupGate]）。
+  Future<void> _runStartup() async {
+    const StartupOrchestrator orchestrator = StartupOrchestrator(logTag: _logTag);
+    await orchestrator.run(<StartupTask>[
+      // ① 会话恢复：音乐播放队列存档（对齐 iOS `AudioPlayerManager.restoreQueue`）。
+      StartupTask('会话恢复', () async {
+        await MusicPlayerController.instance.restore();
+      }),
+      // ② 远程源同步：清单按 TTL 预热（对齐 iOS `RemoteSourceConfigManager`）。
+      StartupTask('远程源同步', () async {
+        final Result<RemoteManifest> result = await _remoteSourceUseCases.refresh();
+        final Failure? failure = result.failureOrNull;
+        if (failure != null) throw failure;
+      }),
+      // ③ 引擎就绪：D6 JS 引擎探测（JSC 主 / QuickJS 降级位，降级可观测）。
+      StartupTask('引擎就绪', () async {
+        final bool jsc = DartFfiJsCoreBridge().isAvailable;
+        final bool quickjs = DartFfiQuickJsBridge().isAvailable;
+        AppLog.info(
+          _logTag,
+          'JS 引擎就绪：JSC=${jsc ? '可用' : '不可用'}，QuickJS=${quickjs ? '可用' : '不可用'}',
+        );
+        if (!jsc && !quickjs) {
+          throw StateError('JS 引擎均不可用（libvbox_jsc / libvbox_quickjs 均缺失）');
+        }
+      }),
+    ]);
+  }
+
   @override
   void dispose() {
     unawaited(_logSink?.stop());
@@ -353,8 +391,11 @@ class _VBoxAppState extends State<VBoxApp> {
       );
     }
     if (!_initialized) {
+      // L-壳1：依赖加载期铺品牌渐变底色（对齐 iOS 原生启动图角色），杜绝冷启动白屏；
+      // 初始化完成后由 [StartupGate] 叠加动画闪屏接续（同色，过渡无跳色）。
       return const MaterialApp(
-        home: Scaffold(body: Center(child: CircularProgressIndicator())),
+        debugShowCheckedModeBanner: false,
+        home: VboxSplashBackdrop(),
       );
     }
 
@@ -390,7 +431,7 @@ class _VBoxAppState extends State<VBoxApp> {
         Provider<DoubanUseCases>.value(value: _doubanUseCases),
         Provider<TmdbUseCases>.value(value: _tmdbUseCases),
       ],
-      child: const _RootRouter(),
+      child: _RootRouter(onStartup: _runStartup),
     );
   }
 }
@@ -400,7 +441,10 @@ class _VBoxAppState extends State<VBoxApp> {
 /// A-08「页面树收敛」后：**单一页树** [HomeShellPage]（内部按 `UiForm` 产出双排布），
 /// 本路由只负责主题装配；形态判定（竖/横 + 输入模态）下移到页树内部。
 class _RootRouter extends StatelessWidget {
-  const _RootRouter();
+  const _RootRouter({required this.onStartup});
+
+  /// 启动编排回调（L-壳2；由 [StartupGate] 挂载后触发一次）。
+  final Future<void> Function() onStartup;
 
   @override
   Widget build(BuildContext context) {
@@ -421,7 +465,11 @@ class _RootRouter extends StatelessWidget {
       themeMode: themeMode,
       // A5：全端统一 iOS 回弹滚动（BouncingScrollPhysics + 无辉光过卷）。
       scrollBehavior: const VboxScrollBehavior(),
-      home: const HomeShellPage(),
+      // L-壳1/L-壳2：品牌闪屏门控包裹首页外壳（3.5s 最短展示 + 数据就绪 + 10s 兜底）。
+      home: StartupGate(
+        onStartup: onStartup,
+        child: const HomeShellPage(),
+      ),
     );
   }
 }

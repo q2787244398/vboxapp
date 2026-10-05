@@ -34,6 +34,7 @@ import '../../widgets/library_views.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../cloud/sort.dart';
+import '../music/music_home_page.dart';
 import '../push/push_play_page.dart';
 import '../settings/settings_page.dart';
 import 'feedback_sheet.dart';
@@ -338,7 +339,12 @@ class ProfilePage extends StatelessWidget {
         VboxQuickGridItem(
           icon: Icons.music_note,
           label: '网络音乐',
-          onTap: () => VboxToast.show(context, '网络音乐将在后续批次开放'),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (BuildContext context) => const MusicHomePage(),
+            ),
+          ),
         ),
         VboxQuickGridItem(
           icon: Icons.bug_report,
