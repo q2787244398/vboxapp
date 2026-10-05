@@ -3,7 +3,10 @@ library;
 
 import 'dart:convert';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/data/datasources/remote/quark_native_client.dart';
 import 'package:vbox/platform/spider/spider_http_bridge.dart';
 
@@ -215,5 +218,79 @@ void main() {
       throwsA(predicate((Object e) =>
           e is QuarkNativeException && e.message.contains('分享已失效'))),
     );
+  });
+
+  test('转存 fid 缓存：二次解析跳过 save，并落契约键 quark_saved_fid_cache_v1',
+      () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    FlutterSecureStorage.setMockInitialValues(<String, String>{});
+    final PrefsManager pm = PrefsManager.instance;
+    await pm.init();
+    await pm.clearAll();
+
+    int saveCalls = 0;
+    final _FakeTransport t = _FakeTransport((String url, String _) {
+      if (url.contains('/share/sharepage/token')) {
+        return _json(<String, Object?>{
+          'code': 0,
+          'data': <String, Object?>{'stoken': 'st'},
+        });
+      }
+      if (url.contains('/share/sharepage/detail')) {
+        return _json(<String, Object?>{
+          'code': 0,
+          'data': <String, Object?>{
+            'list': <Object?>[
+              <String, Object?>{
+                'fid': 'f1',
+                'file_name': 'EP01.mp4',
+                'dir': false,
+                'share_fid_token': 'tk1',
+              },
+            ],
+          },
+        });
+      }
+      if (url.contains('/share/sharepage/save')) {
+        saveCalls++;
+        return _json(<String, Object?>{
+          'status': 200,
+          'code': 0,
+          'data': <String, Object?>{'file_ids': <String>['newfid']},
+        });
+      }
+      if (url.contains('/file/v2/play')) {
+        return _json(<String, Object?>{
+          'code': 0,
+          'data': <String, Object?>{
+            'video_list': <Object?>[
+              <String, Object?>{
+                'accessable': true,
+                'video_info': <String, Object?>{
+                  'resolution': 'low',
+                  'url': 'https://v/low.m3u8',
+                },
+              },
+            ],
+          },
+        });
+      }
+      return _json(<String, Object?>{'code': 0, 'data': <String, Object?>{}});
+    });
+
+    final QuarkNativeClient c =
+        QuarkNativeClient(bridge: SpiderHttpBridge(transport: t), prefs: pm);
+    await c.resolvePlayUrl(
+      shareUrl: 'https://pan.quark.cn/s/abc',
+      cookie: 'k=v',
+    );
+    await c.resolvePlayUrl(
+      shareUrl: 'https://pan.quark.cn/s/abc',
+      cookie: 'k=v',
+    );
+
+    expect(saveCalls, 1); // 第二次命中缓存，不再转存
+    expect(await pm.getString(QuarkNativeClient.savedFidCacheKey), isNotEmpty);
   });
 }

@@ -14,13 +14,21 @@
 ///   · `quarkRefreshVideoAuth`（L4211）：`POST /1/clouddrive/file/v2/play` →
 ///     `video_list` 按 `low→4k` 选流。
 ///
-/// 简化登记（如实）：iOS 的「夸克空间清理 / 转存 fid 缓存 / Set-Cookie 合并」未移植；
-/// 本客户端仅做**分享解析 → 文件列表 → 转存 → 取链**主链，Cookie 由调用方提供。
+/// 简化登记（如实）：
+///   · **Set-Cookie 合并**：由 HTTP 桥 `SpiderHttpBridge` 的 **cookie jar**
+///     （`storeFromResponse` + 每请求自动附加）等价覆盖，无需客户端显式合并；
+///   · **转存 fid 缓存**：已实现（契约键 `quark_saved_fid_cache_v1`，TTL 5 分钟、
+///     上限 300，键 `pwdId|sourceFid|folderId|cookieHash`）；
+///   · **夸克空间清理**（`quarkCleanShareOriginIfNeeded`，容量阈值触发删除
+///     「来自：分享」旧转存）**未移植**——属容量管理优化，不影响取链正确性。
 library;
 
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart' as crypto;
+
 import '../../../platform/spider/spider_http_bridge.dart';
+import '../local/prefs_manager.dart';
 
 /// 夸克分享文件条目（对齐 iOS `QuarkShareFile`）。
 class QuarkShareFile {
@@ -75,9 +83,19 @@ class QuarkNativeException implements Exception {
 
 /// 夸克原生分享链客户端。
 class QuarkNativeClient {
-  /// 构造（[bridge] 供测试注入假传输）。
-  QuarkNativeClient({SpiderHttpBridge? bridge})
-      : _bridge = bridge ?? SpiderHttpBridge();
+  /// 构造（[bridge] 供测试注入假传输；[prefs] 供测试注入偏好存储）。
+  QuarkNativeClient({SpiderHttpBridge? bridge, PrefsManager? prefs})
+      : _bridge = bridge ?? SpiderHttpBridge(),
+        _prefs = prefs;
+
+  /// 转存 fid 缓存契约键（对齐 iOS `quark_saved_fid_cache_v1`）。
+  static const String savedFidCacheKey = 'quark_saved_fid_cache_v1';
+
+  /// 转存 fid 缓存有效期（对齐 iOS `ttl: 5 * 60`）。
+  static const Duration savedFidTtl = Duration(minutes: 5);
+
+  /// 转存 fid 缓存上限（对齐 iOS `> 300` 裁剪）。
+  static const int savedFidCacheMax = 300;
 
   /// API 主机（对齐 iOS `quarkAPIURL`）。
   static const String apiHost = 'https://drive-pc.quark.cn';
@@ -96,6 +114,107 @@ class QuarkNativeClient {
   ];
 
   final SpiderHttpBridge _bridge;
+  final PrefsManager? _prefs;
+
+  // ─────────────── 转存 fid 缓存（契约键 `quark_saved_fid_cache_v1`）───────────────
+
+  Map<String, Object?>? _cacheMemory;
+  bool _cacheLoaded = false;
+
+  /// Cookie 摘要（对齐 iOS `String(cookie.hash)`：仅作缓存键区分，不含明文）。
+  static String cookieHash(String cookie) =>
+      crypto.sha256.convert(utf8.encode(cookie)).toString().substring(0, 16);
+
+  /// 缓存键 `pwdId|sourceFid|folderId|cookieHash`（对齐 iOS `quarkSavedFidCacheKey`）。
+  static String cacheKeyFor({
+    required String pwdId,
+    required String sourceFid,
+    required String folderId,
+    required String cookie,
+  }) =>
+      '$pwdId|$sourceFid|$folderId|${cookieHash(cookie)}';
+
+  Future<Map<String, Object?>> _loadCache() async {
+    if (_cacheLoaded && _cacheMemory != null) return _cacheMemory!;
+    _cacheLoaded = true;
+    Map<String, Object?> cache = <String, Object?>{};
+    try {
+      final PrefsManager? p = _prefs ?? PrefsManager.instance;
+      final String raw = await p.getString(savedFidCacheKey);
+      if (raw.isNotEmpty) {
+        final Object? decoded = jsonDecode(raw);
+        if (decoded is Map) cache = decoded.cast<String, Object?>();
+      }
+    } catch (_) {
+      // 存储不可用 → 退化为内存缓存。
+    }
+    _cacheMemory = cache;
+    return cache;
+  }
+
+  Future<void> _saveCache(Map<String, Object?> cache) async {
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    final List<MapEntry<String, Object?>> alive = cache.entries
+        .where((MapEntry<String, Object?> e) {
+          final Map<String, Object?>? v =
+              e.value is Map ? (e.value as Map).cast<String, Object?>() : null;
+          final int exp = (v?['expiresAt'] as num?)?.toInt() ?? 0;
+          return exp > now;
+        })
+        .toList()
+      ..sort((MapEntry<String, Object?> a, MapEntry<String, Object?> b) {
+        final int ta = ((a.value as Map)['createdAt'] as num?)?.toInt() ?? 0;
+        final int tb = ((b.value as Map)['createdAt'] as num?)?.toInt() ?? 0;
+        return tb.compareTo(ta);
+      });
+    final Map<String, Object?> capped = <String, Object?>{
+      for (final MapEntry<String, Object?> e in alive.take(savedFidCacheMax))
+        e.key: e.value,
+    };
+    _cacheMemory = capped;
+    try {
+      final PrefsManager? p = _prefs ?? PrefsManager.instance;
+      await p.set(savedFidCacheKey, jsonEncode(capped));
+    } catch (_) {
+      // 落盘失败不阻断播放（下次重存）。
+    }
+  }
+
+  /// 命中未过期的转存 fid（对齐 iOS `quarkCachedSavedTopFids`）。
+  Future<List<String>?> cachedSavedFids(String key) async {
+    final Map<String, Object?> cache = await _loadCache();
+    final Object? raw = cache[key];
+    if (raw is! Map) return null;
+    final Map<String, Object?> v = raw.cast<String, Object?>();
+    final int exp = (v['expiresAt'] as num?)?.toInt() ?? 0;
+    if (exp <= DateTime.now().millisecondsSinceEpoch) return null;
+    final Object? top = v['topLevelFids'];
+    if (top is! List) return null;
+    final List<String> ids =
+        top.map((Object? e) => '$e').toList(growable: false);
+    return ids.isEmpty ? null : ids;
+  }
+
+  /// 存入转存 fid（对齐 iOS `quarkStoreSavedItem`：空 / 全 `"0"` 不入缓存）。
+  Future<void> storeSavedFids(
+    String key,
+    List<String> topLevelFids, {
+    Duration? ttl,
+  }) async {
+    if (topLevelFids.isEmpty ||
+        topLevelFids.every((String id) => id == '0')) {
+      return;
+    }
+    final Map<String, Object?> cache =
+        Map<String, Object?>.of(await _loadCache());
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    cache[key] = <String, Object?>{
+      'topLevelFids': topLevelFids,
+      'createdAt': now,
+      'expiresAt': now + (ttl ?? savedFidTtl).inMilliseconds,
+    };
+    await _saveCache(cache);
+  }
 
   // ─────────────── 分享信息 ───────────────
 
@@ -582,12 +701,23 @@ class QuarkNativeClient {
             orElse: () => files.first,
           )
         : files.first;
-    final List<String> saved = await saveShare(
+    // 转存 fid 缓存命中则跳过本次转存（对齐 iOS `quarkCachedSavedTopFids`）。
+    final String cacheKey = cacheKeyFor(
       pwdId: info.pwdId,
-      stoken: stoken,
-      file: source,
+      sourceFid: source.fid,
+      folderId: '0',
       cookie: cookie,
     );
+    List<String> saved = await cachedSavedFids(cacheKey) ?? const <String>[];
+    if (saved.isEmpty) {
+      saved = await saveShare(
+        pwdId: info.pwdId,
+        stoken: stoken,
+        file: source,
+        cookie: cookie,
+      );
+      await storeSavedFids(cacheKey, saved);
+    }
     final String fid = saved.first;
     final String url = await getPlayUrl(fileId: fid, cookie: cookie);
     return QuarkPlayResult(url: url, fileName: source.fileName);
