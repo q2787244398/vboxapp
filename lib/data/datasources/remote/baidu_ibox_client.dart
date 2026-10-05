@@ -1,19 +1,29 @@
-/// 数据层：百度网盘 iBox 本机链客户端（批次 F · F-P02，C1 段）。
+/// 数据层：百度网盘 iBox 本机链客户端（批次 F · F-P02，C1 + C2 段）。
 ///
 /// 唯一真相源：`vbox/Services/CloudDriveManager.swift`
-///   · `parseBaiduToken`（L4471）：粘贴串 → (cookie, BDUSS)；
-///   · `baiduMergeCookieStrings`（L5619）：多段 Cookie 合并（忽略属性名）；
-///   · `baiduErrorMessage`（L5391）：errno → 中文文案；
-///   · `baiduExtractShareMeta`（L5906-L6376）：分享验证链
-///     `wap/init → (share/verify) → 桌面分享页 → gettemplatevariable → share/list(root + dirs)`。
+///   · C1：`parseBaiduToken`（L4471）粘贴串 → (cookie, BDUSS)；
+///     `baiduMergeCookieStrings`（L5619）多段 Cookie 合并（忽略属性名）；
+///     `baiduErrorMessage`（L5391）errno → 中文文案；
+///     `baiduExtractShareMeta`（L5906-L6376）分享验证链
+///     `wap/init → (share/verify) → 桌面分享页 → gettemplatevariable → share/list(root + dirs)`；
+///   · C2：`baiduFetchUserBdstokenLocal`（L4684）用户态 bdstoken；
+///     `baiduEnsureVboxFolderLocal`（L4832）建 `/vbox` 转存目录；
+///     `baiduFindExistingVboxPath`（L5034）/`baiduWaitForTransferredPath`（L5147）落盘确认；
+///     `baiduTransferFileOnDevice`（L5169）`share/transfer` 转存；
+///     `baiduRefreshTransferSekey`（L5320）账号态 verify 刷新 sekey；
+///     `baiduGetDLNADlinkOnDevice`（L5429）`api/mediainfo` DLNA 取链；
+///     `baiduGetLocatedownloadOnDevice`（L5477）`pcs/file?method=locatedownload` 原画取链。
 ///
-/// 本段（C1）只做**分享上下文 + 多文件选集列表**；转存链（建目录/转存/等待落盘）与
-/// DLNA 取链（mediainfo/locatedownload）见 C2；WebView 回退见 C3（Web-R1）。
+/// C1 只做**分享上下文 + 多文件选集列表**；C2 补**转存链（建目录/转存/等待落盘）+
+/// DLNA 取链（mediainfo/locatedownload）**；WebView 回退见 C3（Web-R1）。
 ///
 /// 实现说明（对齐口径）：直接使用 [SpiderHttpTransport]（**不经** `SpiderHttpBridge`
 /// 的 cookie jar）——因为 iOS 明确要求 `share/verify` **不带任何 Cookie**，而桥层会
 /// 自动附加 jar cookie；传输层同时显式返回 `setCookies`，便于按 iOS
 /// `baiduMergeCookieStrings` 语义手动合并。
+///
+/// 未移植项（如实登记）：iOS 在 URLSession 失败时回退 WKWebView XHR
+/// （create/list/transfer/bdstoken）——属 C3（Web-R1），本段不实现，失败即抛错。
 library;
 
 import 'dart:convert';
@@ -35,14 +45,8 @@ class BaiduFileItem {
   final String name;
 
   /// 是否可播放视频（对齐 iOS `baiduIsPlayableVideoFileName`）。
-  bool get isPlayableVideo {
-    final String lower = name.toLowerCase();
-    const List<String> exts = <String>[
-      '.mp4', '.mkv', '.avi', '.mov', '.flv', '.ts', '.m3u8', '.wmv',
-      '.webm', '.rmvb', '.m4v', '.3gp', '.mpg', '.mpeg',
-    ];
-    return exts.any(lower.endsWith);
-  }
+  bool get isPlayableVideo =>
+      BaiduIBoxClient.isPlayableVideoFileName(name);
 }
 
 /// 分享上下文（对齐 iOS `BaiduShareContext` 的核心字段）。
@@ -80,6 +84,25 @@ class BaiduShareMeta {
   final String randsk;
 }
 
+/// 百度取链结果（对齐 iOS `PlayResult` 的百度子集）。
+class BaiduPlayResult {
+  /// 构造。
+  const BaiduPlayResult({
+    required this.url,
+    required this.headers,
+    required this.source,
+  });
+
+  /// 播放地址。
+  final String url;
+
+  /// 播放请求头（Cookie / UA / Referer / Origin）。
+  final Map<String, String> headers;
+
+  /// 取链来源标记（诊断 / 缓存用）。
+  final String source;
+}
+
 /// 百度 iBox 本机链异常。
 class BaiduIBoxException implements Exception {
   /// 构造。
@@ -109,6 +132,25 @@ class BaiduIBoxClient {
   static const String webUA =
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
+
+  /// PCS 客户端 UA（对齐 iOS `baiduPCSUserAgent`：mediainfo / locatedownload 用）。
+  static const String pcsUserAgent =
+      'Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001) '
+      'AppleWebKit/537.36 (KHTML, like Gecko)'
+      '&channel=android_12_HD1900_bdnetdisktv_1025538l&version=1.21.1'
+      '&network_type=wifi&app_id=250528&size=c1080_u1600';
+
+  /// 转存目标目录（对齐 iOS `baiduIBoxTransferDir`：百度真实根路径 `/vbox`）。
+  static const String transferDir = '/vbox';
+
+  /// 转存落盘轮询上限（对齐 iOS `1...8`）。
+  static const int transferWaitAttempts = 8;
+
+  /// 可播放视频扩展名（对齐 iOS `baiduIsPlayableVideoFileName`）。
+  static const List<String> playableVideoExts = <String>[
+    'mp4', 'mkv', 'mov', 'm4v', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts',
+    'webm', 'mpg', 'mpeg', '3gp', 'rm', 'rmvb', 'asf', 'f4v', 'm3u8',
+  ];
 
   final SpiderHttpTransport _transport;
   final PrefsManager? _prefs;
@@ -216,6 +258,95 @@ class BaiduIBoxClient {
   static String shortSurl(String surl) =>
       surl.startsWith('1') ? surl.substring(1) : surl;
 
+  // ─────────────── 静态工具（C2，对齐 iOS 同名函数）───────────────
+
+  /// 是否为可播放视频（对齐 iOS `baiduIsPlayableVideoFileName`）。
+  static bool isPlayableVideoFileName(String fileName) {
+    final String lower = fileName.toLowerCase();
+    return playableVideoExts.any((String e) => lower.endsWith('.$e'));
+  }
+
+  /// 取 Cookie 指定字段值（对齐 iOS `baiduCookieValue`；空值视为不存在）。
+  static String? cookieValue(String cookie, String name) {
+    final String lowerName = name.toLowerCase();
+    for (final String part in cookie.split(';')) {
+      final String item = part.trim();
+      final int eq = item.indexOf('=');
+      if (eq <= 0) continue;
+      final String key = item.substring(0, eq).trim().toLowerCase();
+      final String value = item.substring(eq + 1).trim();
+      if (key == lowerName && value.isNotEmpty) return value;
+    }
+    return null;
+  }
+
+  /// 剔除分享态字段，仅保留账号态 Cookie（对齐 iOS `baiduPureAccountCookie`）。
+  ///
+  /// 私域接口（gettemplatevariable / api/create / filemanager / api/list）只允许
+  /// 账号态 Cookie；混入 BDCLND 等会触发 errno=-6/-9。
+  static String pureAccountCookie(String cookie) {
+    if (cookie.isEmpty) return cookie;
+    const Set<String> drop = <String>{
+      'bdclnd', 'bdclnd_bfess', 'share_pwd', 'share_pwd_bfess',
+    };
+    final String merged = mergeCookieStrings(<String>[cookie]);
+    return merged
+        .split(';')
+        .map((String p) => p.trim())
+        .where((String item) {
+          final int eq = item.indexOf('=');
+          if (eq <= 0) return false;
+          final String name = item.substring(0, eq).trim().toLowerCase();
+          return !drop.contains(name);
+        })
+        .join('; ');
+  }
+
+  /// 规范化 PCS Cookie（对齐 iOS `normalizeBaiduPCSCookie`）。
+  static String normalizePCSCookie(String raw) => raw
+      .trim()
+      .replaceAll('\n', '; ')
+      .replaceAll('\r', '; ')
+      .replaceAll(RegExp(r'\s*;\s*'), '; ')
+      .replaceAll(RegExp(r';+\s*$'), '');
+
+  /// 严格查询编码（对齐 iOS `baiduQueryEncoded`：`urlQueryAllowed` 去掉 `&+=?#`）。
+  static String queryEncodeStrict(String value) {
+    const String allowed = "-._~!$'()*,;:@/?";
+    final StringBuffer sb = StringBuffer();
+    for (final int rune in value.runes) {
+      final String ch = String.fromCharCode(rune);
+      final bool keep =
+          RegExp(r'[A-Za-z0-9]').hasMatch(ch) || allowed.contains(ch);
+      sb.write(keep ? ch : Uri.encodeComponent(ch));
+    }
+    return sb.toString();
+  }
+
+  /// 从 HTML 抓用户态 bdstoken（对齐 iOS `baiduExtractBdstokenFromHTML`）。
+  static String? extractBdstokenFromHTML(String html) {
+    const List<String> patterns = <String>[
+      r'''["']bdstoken["']\s*:\s*["']([^"']+)["']''',
+      r'''bdstoken\s*=\s*["']([^"']+)["']''',
+      r'bdstoken=([A-Za-z0-9_\-%.]+)',
+    ];
+    for (final String p in patterns) {
+      final RegExpMatch? m =
+          RegExp(p, caseSensitive: false).firstMatch(html);
+      if (m != null && m.group(1) != null) {
+        final String token = m.group(1)!.trim();
+        if (token.isNotEmpty) {
+          try {
+            return Uri.decodeComponent(token);
+          } catch (_) {
+            return token;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   // ─────────────── 分享上下文 + 文件列表（C1 主链）───────────────
 
   /// 分享链接 → 全部可播放文件（对齐 iOS `baiduGetFileList`）。
@@ -277,7 +408,7 @@ class BaiduIBoxClient {
 
     // ② POST /share/verify（对齐 iOS：**不带任何 Cookie**）
     if (pwd != null && pwd.isNotEmpty) {
-      final String encodedPwd = _pwdEncoded(pwd);
+      final String encodedPwd = queryEncodeStrict(pwd);
       final String verifyUrl =
           'https://pan.baidu.com/share/verify?t=${DateTime.now().millisecondsSinceEpoch}'
           '&surl=$shortSurl&channel=chunlei&web=1&app_id=250528'
@@ -490,6 +621,472 @@ class BaiduIBoxClient {
     return meta;
   }
 
+  // ─────────────── 转存链 + DLNA 取链（C2 主链）───────────────
+
+  /// 取用户态 bdstoken（对齐 iOS `baiduFetchUserBdstokenLocal`，WebView 回退属 C3）。
+  ///
+  /// 私域接口（api/create / filemanager / api/list）必须用登录态 bdstoken；
+  /// 分享页 yunData 里的 bdstoken 会被百度判越权（errno=-6）。
+  Future<String> fetchUserBdstoken({required String cookie}) async {
+    final _Resp tpl = await _request(
+      'https://pan.baidu.com/api/gettemplatevariable'
+      '?clienttype=0&app_id=250528&web=1'
+      '&fields=${Uri.encodeComponent('["bdstoken","token","uk","isdocuser","servertime"]')}',
+      headers: <String, String>{
+        'Cookie': cookie,
+        'User-Agent': webUA,
+        'Referer': 'https://pan.baidu.com/disk/main',
+      },
+      timeout: 12,
+    );
+    final Map<String, Object?>? json = _decodeMap(tpl.text);
+    if (json != null) {
+      final String token = _deepString(json, <String>{'bdstoken'});
+      if (token.isNotEmpty) return token;
+    }
+    // 回退：直接抓 disk/main 页面里的用户态 bdstoken。
+    final _Resp page = await _request(
+      'https://pan.baidu.com/disk/main',
+      headers: <String, String>{'Cookie': cookie, 'User-Agent': webUA},
+      timeout: 12,
+    );
+    return extractBdstokenFromHTML(page.text) ?? '';
+  }
+
+  /// `/vbox` 转存目录是否可列举（对齐 iOS `baiduCanListTransferDir`）。
+  Future<bool> canListTransferDir({
+    required String cookie,
+    required String bdstoken,
+    String referer = 'https://pan.baidu.com/disk/main',
+  }) async {
+    final _Resp r = await _request(
+      'https://pan.baidu.com/api/list?dir=${_queryEncoded(transferDir)}'
+      '&order=time&desc=1&num=1&page=1&bdstoken=$bdstoken'
+      '&channel=chunlei&web=1&app_id=250528&clienttype=0',
+      headers: <String, String>{
+        'Cookie': cookie,
+        'User-Agent': webUA,
+        'Referer': referer,
+      },
+      timeout: 12,
+    );
+    final Map<String, Object?>? json = _decodeMap(r.text);
+    if (json == null) return false;
+    return (_asInt(json['errno']) ?? 0) == 0;
+  }
+
+  /// 确保 `/vbox` 转存目录存在（对齐 iOS `baiduEnsureVboxFolderLocal`，WebView 回退属 C3）。
+  Future<void> ensureTransferDir({
+    required String cookie,
+    required String bdstoken,
+    String referer = 'https://pan.baidu.com/disk/main',
+  }) async {
+    if (await canListTransferDir(
+      cookie: cookie,
+      bdstoken: bdstoken,
+      referer: referer,
+    )) {
+      return;
+    }
+    String lastResponse = '';
+    // ① api/create（严格对齐 iBox 抓包：size=0、method=post，block_list 的 [] 也需编码）
+    final _Resp create = await _request(
+      'https://pan.baidu.com/api/create?a=commit&bdstoken=$bdstoken'
+      '&channel=chunlei&web=1&app_id=250528&clienttype=0',
+      method: 'POST',
+      headers: <String, String>{
+        'Cookie': cookie,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': webUA,
+        'Referer': referer,
+        'Origin': 'https://pan.baidu.com',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: 'path=${_queryEncoded(transferDir)}&size=0&isdir=1'
+          '&block_list=${_queryEncoded('[]')}&method=post',
+      timeout: 12,
+    );
+    lastResponse = _preview(create.text);
+    final int createErrno = _asInt(_decodeMap(create.text)?['errno']) ?? -1;
+    if (createErrno != 0 && createErrno != -8) {
+      // ② filemanager create 兜底（对齐 iOS `baiduCreateFolderByFileManager`）。
+      final _Resp fm = await _request(
+        'https://pan.baidu.com/api/filemanager?opera=create&bdstoken=$bdstoken'
+        '&channel=chunlei&web=1&app_id=250528&clienttype=0',
+        method: 'POST',
+        headers: <String, String>{
+          'Cookie': cookie,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': webUA,
+          'Referer': referer,
+          'Origin': 'https://pan.baidu.com',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: 'path=${_queryEncoded(transferDir)}&isdir=1'
+            '&block_list=${_queryEncoded('[]')}',
+        timeout: 12,
+      );
+      lastResponse = _preview(fm.text);
+    }
+    if (await canListTransferDir(
+      cookie: cookie,
+      bdstoken: bdstoken,
+      referer: referer,
+    )) {
+      return;
+    }
+    throw BaiduIBoxException('百度 $transferDir 转存目录创建失败：$lastResponse');
+  }
+
+  /// 在 `/vbox` 检索已转存文件路径（对齐 iOS `baiduFindExistingVboxPath`）。
+  Future<String?> findExistingVboxPath({
+    required String fileName,
+    required String cookie,
+  }) async {
+    final _Resp r = await _request(
+      'https://pan.baidu.com/api/list?bdstoken=&channel=chunlei&web=1'
+      '&app_id=250528&clienttype=0',
+      method: 'POST',
+      headers: <String, String>{
+        'Cookie': cookie,
+        'User-Agent': webUA,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'dir=${_queryEncoded(transferDir)}&order=time&desc=1&num=200&page=1',
+      timeout: 12,
+    );
+    final Map<String, Object?>? json = _decodeMap(r.text);
+    if (json == null) return null;
+    if ((_asInt(json['errno']) ?? 0) != 0) return null;
+    return _matchedVboxPath(json, fileName);
+  }
+
+  /// 转存落盘确认（对齐 iOS `baiduWaitForTransferredPath`）。
+  Future<String> waitForTransferredPath({
+    required String fileName,
+    required String cookie,
+    String? preferredPath,
+  }) async {
+    if (preferredPath != null && preferredPath.isNotEmpty) return preferredPath;
+    final String normalized = _lastPathSegment(fileName);
+    for (int attempt = 1; attempt <= transferWaitAttempts; attempt++) {
+      if (attempt > 1) {
+        final int factor = attempt < 4 ? attempt : 4;
+        await Future<void>.delayed(Duration(milliseconds: 650 * factor));
+      }
+      final String? path =
+          await findExistingVboxPath(fileName: normalized, cookie: cookie);
+      if (path != null) return path;
+    }
+    throw BaiduIBoxException('百度转存任务未确认落盘：$transferDir/$normalized');
+  }
+
+  /// `share/transfer` 转存单文件（对齐 iOS `baiduTransferFileOnDevice`，WebView 回退属 C3）。
+  Future<String> transferFile({
+    required String shareUrl,
+    required String shareid,
+    required String shareUk,
+    required String bdstoken,
+    required String? randsk,
+    required String fsId,
+    required String fileName,
+    required String cookie,
+    required String accountCookie,
+    required String referer,
+  }) async {
+    final String transferCookie =
+        await refreshTransferSekey(
+          shareUrl: shareUrl,
+          accountCookie: accountCookie,
+          existingCookie: cookie,
+        ) ??
+            cookie;
+    // sekey 优先 Cookie 里的 BDCLND 原始值（通常已是百分号编码，不能二次编码）。
+    final String rawSekey =
+        cookieValue(transferCookie, 'BDCLND') ?? randsk ?? '';
+    final List<String> query = <String>[
+      'shareid=${queryEncodeStrict(shareid)}',
+      'from=${queryEncodeStrict(shareUk)}',
+      'channel=chunlei',
+      'web=1',
+      'app_id=250528',
+      'clienttype=0',
+      'bdstoken=${queryEncodeStrict(bdstoken)}',
+    ];
+    if (rawSekey.isNotEmpty) {
+      final String encodedSekey =
+          rawSekey.contains('%') ? rawSekey : queryEncodeStrict(rawSekey);
+      query.add('sekey=$encodedSekey');
+    }
+    final _Resp r = await _request(
+      'https://pan.baidu.com/share/transfer?${query.join('&')}',
+      method: 'POST',
+      headers: <String, String>{
+        'Cookie': transferCookie,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Referer': referer,
+        'Origin': 'https://pan.baidu.com',
+        'X-Requested-With': 'XMLHttpRequest',
+        'User-Agent': webUA,
+      },
+      body: 'fsidlist=${_queryEncoded('[$fsId]')}'
+          '&path=${_queryEncoded(transferDir)}&async=1&ondup=newcopy',
+      timeout: 25,
+    );
+    final Map<String, Object?>? json = _decodeMap(r.text);
+    if (r.status != 200 || json == null) {
+      throw BaiduIBoxException('百度本机转存 HTTP ${r.status}');
+    }
+    final int errno = _asInt(json['errno']) ?? -1;
+    if (errno != 0) {
+      throw BaiduIBoxException(
+        '百度本机转存失败：${errorMessage(errno, _asString(json['errmsg']) ?? _asString(json['show_msg']))}',
+      );
+    }
+    final Object? list = _asMap(json['extra'])?['list'];
+    if (list is List && list.isNotEmpty) {
+      final String to = _asString(_asMap(list.first)?['to']) ?? '';
+      if (to.isNotEmpty) return to;
+    }
+    return waitForTransferredPath(
+      fileName: _lastPathSegment(fileName),
+      cookie: accountCookie,
+    );
+  }
+
+  /// 账号态 verify 刷新转存 sekey（对齐 iOS `baiduRefreshTransferSekey`）。
+  ///
+  /// `share/list` 可用匿名分享态验证，但 `share/transfer` 属账号转存动作：百度会
+  /// 校验 BDCLND/sekey 是否绑定当前账号会话，否则返回 errno=200025。
+  Future<String?> refreshTransferSekey({
+    required String shareUrl,
+    required String accountCookie,
+    required String existingCookie,
+  }) async {
+    final String? pwd = extractPwd(shareUrl);
+    final String? surl = extractSurl(shareUrl);
+    if (pwd == null || pwd.isEmpty || surl == null || surl.isEmpty) return null;
+    final String short = shortSurl(surl);
+    final _Resp r = await _request(
+      'https://pan.baidu.com/share/verify?t=${DateTime.now().millisecondsSinceEpoch}'
+      '&surl=$short&channel=chunlei&web=1&app_id=250528&bdstoken=&clienttype=0',
+      method: 'POST',
+      headers: <String, String>{
+        'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+        'Cookie': accountCookie,
+        'User-Agent': webUA,
+        'Origin': 'https://pan.baidu.com',
+        'Referer': 'https://pan.baidu.com/s/1$short',
+        'Accept': '*/*',
+        'Accept-Language': 'zh-Hans-001;q=1.0',
+      },
+      body: 'pwd=${queryEncodeStrict(pwd)}&vcode=&vcode_str=&channel=chunlei'
+          '&web=1&app_id=250528&clienttype=0&bdstoken=',
+      timeout: 18,
+    );
+    final Map<String, Object?>? json = _decodeMap(r.text);
+    if (json == null || (_asInt(json['errno']) ?? -1) != 0) return null;
+    String merged = mergeCookieStrings(
+      <String>[existingCookie, accountCookie, ...r.setCookies],
+    );
+    final String? rawRandsk = _asString(json['randsk']);
+    if (rawRandsk != null && rawRandsk.isNotEmpty) {
+      final String decoded = Uri.decodeComponent(rawRandsk);
+      merged = mergeCookieStrings(
+        <String>[merged, 'BDCLND=$rawRandsk; randsk=$decoded'],
+      );
+    }
+    return merged;
+  }
+
+  /// `api/mediainfo` DLNA 取链（对齐 iOS `baiduGetDLNADlinkOnDevice`）。
+  Future<BaiduPlayResult> getDLNADlink({
+    required String filePath,
+    required String cookie,
+    String source = 'local-mediainfo',
+  }) async {
+    final _Resp r = await _request(
+      'https://pan.baidu.com/api/mediainfo?clienttype=80&origin=dlna',
+      method: 'POST',
+      headers: <String, String>{
+        'Cookie': cookie,
+        'User-Agent': pcsUserAgent,
+        'Accept': '*/*',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'path=${_queryEncoded(filePath)}&type=M3U8_FLV_264_480',
+      timeout: 20,
+    );
+    if (r.status != 200) {
+      throw BaiduIBoxException('百度 DLNA HTTP ${r.status}');
+    }
+    final Map<String, Object?>? json = _decodeMap(r.text);
+    if (json == null) {
+      throw const BaiduIBoxException('百度 DLNA 返回非 JSON');
+    }
+    final Map<String, Object?>? info = _asMap(json['info']);
+    final String dlink = _asString(info?['dlink']) ??
+        _asString(json['dlink']) ??
+        _asString(json['url']) ??
+        '';
+    if (dlink.isNotEmpty) return _playResult(dlink, cookie, source);
+    final int errno = _asInt(json['errno']) ?? -1;
+    throw BaiduIBoxException(
+      '百度 DLNA 未返回 dlink：${errorMessage(errno, _asString(json['errmsg']) ?? _asString(json['show_msg']) ?? _asString(json['msg']))}',
+    );
+  }
+
+  /// `locatedownload` 原画取链（对齐 iOS `baiduGetLocatedownloadOnDevice`）。
+  Future<BaiduPlayResult> getLocatedownload({
+    required String filePath,
+    required String cookie,
+    String source = 'local-locatedownload',
+    bool enableFastestNode = false,
+  }) async {
+    final String url =
+        'https://d.pcs.baidu.com/rest/2.0/pcs/file?app_id=250528'
+        '&method=locatedownload&check_blue=1&path=${_queryEncoded(filePath)}';
+    final _Resp r = await _request(
+      url,
+      headers: <String, String>{
+        'Cookie': cookie,
+        'User-Agent': pcsUserAgent,
+        'Referer': 'https://pan.baidu.com/',
+        'Origin': 'https://pan.baidu.com',
+        'Accept': '*/*',
+      },
+      timeout: 20,
+    );
+    // 302 已由传输层跟随：CDN 落点即最终地址。
+    if ((r.status == 200 || r.status == 206) &&
+        r.finalUrl.isNotEmpty &&
+        r.finalUrl != url &&
+        !r.finalUrl.contains('d.pcs.baidu.com/rest/2.0/pcs/file')) {
+      return _playResult(r.finalUrl, cookie, source);
+    }
+    final String location = r.headers['location'] ?? '';
+    if (r.status >= 300 && r.status < 400 && location.isNotEmpty) {
+      return _playResult(location, cookie, source);
+    }
+    if (r.status != 200) {
+      throw BaiduIBoxException('百度本机取链 HTTP ${r.status}');
+    }
+    final Map<String, Object?>? json = _decodeMap(r.text);
+    if (json == null) {
+      throw const BaiduIBoxException('百度本机取链返回非 JSON');
+    }
+    final int errno = _asInt(json['errno']) ?? 0;
+    if (errno != 0) {
+      throw BaiduIBoxException(
+        '百度本机取链失败：${errorMessage(errno, _asString(json['errmsg']) ?? _asString(json['show_msg']) ?? _asString(json['msg']))}',
+      );
+    }
+    final Object? rawUrls = json['urls'];
+    final List<String> all = rawUrls is List
+        ? rawUrls
+            .whereType<Map<Object?, Object?>>()
+            .map((Map<Object?, Object?> m) => _asString(m['url']) ?? '')
+            .where((String u) => u.isNotEmpty)
+            .toList()
+        : const <String>[];
+    final String located = all.isNotEmpty
+        ? all.first
+        : (_asString(json['url']) ?? _asString(json['dlink']) ?? '');
+    if (located.isEmpty) {
+      throw const BaiduIBoxException('百度本机取链未返回播放地址');
+    }
+    if (enableFastestNode && all.length > 1) {
+      final _BaiduNodeSpeed? fastest = await _findFastestNode(all, cookie);
+      if (fastest != null && fastest.url != located) {
+        return _playResult(fastest.url, cookie, '$source-fastest');
+      }
+    }
+    return _playResult(located, cookie, source);
+  }
+
+  /// 分享链接 + fsId → 播放地址（对齐 iOS `resolveBaiduPlayURLViaMainRoute` 主链）。
+  ///
+  /// `wap/init → verify → 分享页/yunData → gettemplatevariable → share/list →
+  /// api/create → api/list → share/transfer → api/list → locatedownload(→mediainfo)`。
+  /// 不含 iOS 的 WebView 回退（C3）与 1 小时后清理调度（空间管理项）。
+  Future<BaiduPlayResult> resolvePlayURL({
+    required String shareUrl,
+    required String bduss,
+    required String fsId,
+    String pcsCookie = '',
+  }) async {
+    final ({String cookie, String bduss}) parsed = parseToken(bduss);
+    final String webCookie = parsed.cookie;
+    final String pcs = normalizePCSCookie(pcsCookie);
+    final String accountCookie = mergeCookieStrings(<String>[webCookie, pcs]);
+    final String pureCookie = pureAccountCookie(accountCookie);
+    final BaiduShareMeta context = await extractShareMeta(
+      shareUrl: shareUrl,
+      cookie: webCookie,
+      returnAll: true,
+    );
+    // 分享页解析与 bdstoken 获取可并行（对齐 iOS [优化2]）。
+    final String userBdstoken = await fetchUserBdstoken(cookie: pureCookie);
+    if (userBdstoken.isEmpty) {
+      throw const BaiduIBoxException(
+        '百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录',
+      );
+    }
+    final BaiduFileItem? selected = _selectFile(context.files, fsId);
+    if (selected == null) {
+      throw const BaiduIBoxException('主路链未找到可播放视频');
+    }
+    final String mergedCookie =
+        mergeCookieStrings(<String>[context.cookie, accountCookie]);
+    if (mergedCookie.isEmpty) {
+      throw const BaiduIBoxException('主路链缺少百度 Cookie');
+    }
+    await ensureTransferDir(
+      cookie: pureCookie,
+      bdstoken: userBdstoken,
+      referer: 'https://pan.baidu.com/disk/main',
+    );
+    final String? existing = await findExistingVboxPath(
+      fileName: selected.name,
+      cookie: pureCookie,
+    );
+    final String filePath;
+    final String sourcePrefix;
+    if (existing != null) {
+      filePath = existing;
+      sourcePrefix = 'main-existing';
+    } else {
+      filePath = await transferFile(
+        shareUrl: shareUrl,
+        shareid: context.shareid,
+        shareUk: context.shareUk,
+        bdstoken: userBdstoken,
+        randsk: context.randsk,
+        fsId: selected.fsId,
+        fileName: selected.name,
+        cookie: mergedCookie,
+        accountCookie: pureCookie,
+        referer: shareUrl,
+      );
+      sourcePrefix = 'main-transfer';
+    }
+    try {
+      return await getLocatedownload(
+        filePath: filePath,
+        cookie: mergedCookie,
+        source: '$sourcePrefix-locatedownload',
+        enableFastestNode: true,
+      );
+    } on BaiduIBoxException {
+      // locatedownload 失败 → mediainfo dlink 兜底（对齐 iOS）。
+      return getDLNADlink(
+        filePath: filePath,
+        cookie: mergedCookie,
+        source: '$sourcePrefix-mediainfo-fallback',
+      );
+    }
+  }
+
   // ─────────────── 内部：HTTP ───────────────
 
   Future<_Resp> _request(
@@ -509,7 +1106,13 @@ class BaiduIBoxClient {
       ),
     );
     final String text = utf8.decode(res.bodyBytes, allowMalformed: true);
-    return _Resp(text: text, setCookies: res.setCookies);
+    return _Resp(
+      text: text,
+      setCookies: res.setCookies,
+      status: res.status,
+      headers: res.headers,
+      finalUrl: res.finalUrl.isEmpty ? url : res.finalUrl,
+    );
   }
 
   // ─────────────── 内部：解析 ───────────────
@@ -569,19 +1172,6 @@ class BaiduIBoxClient {
     // 对齐 iOS `addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)`：
     // 空格 → %20（非 `+`），保留 `:/?&=` 等 query 常用字符。
     const String allowed = "-._~!$&'()*+,;=:@/?";
-    final StringBuffer sb = StringBuffer();
-    for (final int rune in value.runes) {
-      final String ch = String.fromCharCode(rune);
-      final bool keep =
-          RegExp(r'[A-Za-z0-9]').hasMatch(ch) || allowed.contains(ch);
-      sb.write(keep ? ch : Uri.encodeComponent(ch));
-    }
-    return sb.toString();
-  }
-
-  /// 提取码编码（对齐 iOS：从 `urlQueryAllowed` 再剔除 `&+=?#`）。
-  static String _pwdEncoded(String value) {
-    const String allowed = "-._~!$'()*,;:@/";
     final StringBuffer sb = StringBuffer();
     for (final int rune in value.runes) {
       final String ch = String.fromCharCode(rune);
@@ -700,6 +1290,126 @@ class BaiduIBoxClient {
     return _tryDecode(trimmed) ?? value;
   }
 
+  // ─────────────── 内部：C2 助手 ───────────────
+
+  /// 组装播放结果（对齐 iOS `baiduPlayResult`）。
+  BaiduPlayResult _playResult(String url, String cookie, String source) =>
+      BaiduPlayResult(
+        url: url,
+        headers: <String, String>{
+          'Cookie': cookie,
+          'User-Agent': pcsUserAgent,
+          'Referer': 'https://pan.baidu.com/',
+          'Origin': 'https://pan.baidu.com',
+        },
+        source: source,
+      );
+
+  /// 路径末段文件名。
+  static String _lastPathSegment(String path) {
+    final List<String> parts = path.split('/');
+    return parts.isEmpty ? path : parts.last;
+  }
+
+  /// 去扩展名（对齐 iOS `deletingPathExtension`）。
+  static String _deletePathExtension(String name) {
+    final int dot = name.lastIndexOf('.');
+    return dot > 0 ? name.substring(0, dot) : name;
+  }
+
+  /// 取扩展名（对齐 iOS `pathExtension`）。
+  static String _pathExtension(String name) {
+    final int dot = name.lastIndexOf('.');
+    return dot > 0 ? name.substring(dot + 1) : '';
+  }
+
+  /// 在 `/vbox` 列表中匹配目标文件（对齐 iOS `baiduFindExistingVboxPath.matchedPath`）。
+  static String? _matchedVboxPath(
+    Map<String, Object?> json,
+    String fileName,
+  ) {
+    final Map<String, Object?> root = _asMap(json['data']) ?? json;
+    final Object? rawList =
+        root['list'] ?? root['file_list'] ?? root['records'];
+    if (rawList is! List) return null;
+    final String normalizedTarget = _lastPathSegment(fileName);
+    final String targetBase = _deletePathExtension(normalizedTarget);
+    final String targetExt = _pathExtension(normalizedTarget);
+    for (final Object? raw in rawList) {
+      final Map<String, Object?>? item = _asMap(raw);
+      if (item == null) continue;
+      final String name = _asString(item['server_filename']) ??
+          _asString(item['filename']) ??
+          _asString(item['name']) ??
+          '';
+      final String nameBase = _deletePathExtension(name);
+      final String nameExt = _pathExtension(name);
+      if (name == normalizedTarget ||
+          (targetBase.isNotEmpty &&
+              nameBase.startsWith(targetBase) &&
+              (targetExt.isEmpty || nameExt == targetExt))) {
+        final String path = _asString(item['path']) ?? '';
+        return path.isNotEmpty ? path : '$transferDir/$normalizedTarget';
+      }
+    }
+    return null;
+  }
+
+  /// 选集：优先 fsId 命中的可播放文件，否则首个可播放文件（对齐 iOS 主路链判定）。
+  static BaiduFileItem? _selectFile(List<BaiduFileItem> files, String fsId) {
+    for (final BaiduFileItem f in files) {
+      if (f.fsId.trim() == fsId.trim() && f.isPlayableVideo) return f;
+    }
+    for (final BaiduFileItem f in files) {
+      if (f.isPlayableVideo) return f;
+    }
+    return null;
+  }
+
+  /// 多 CDN 节点 HEAD 测速选优（对齐 iOS `baiduFindFastestNode`，单节点 3s 超时）。
+  Future<_BaiduNodeSpeed?> _findFastestNode(
+    List<String> urls,
+    String cookie,
+  ) async {
+    final List<_BaiduNodeSpeed?> results = await Future.wait(
+      <Future<_BaiduNodeSpeed?>>[
+        for (final String url in urls) _probeNode(url, cookie),
+      ],
+    );
+    _BaiduNodeSpeed? best;
+    for (final _BaiduNodeSpeed? r in results) {
+      if (r == null) continue;
+      if (best == null || r.rttMs < best.rttMs) best = r;
+    }
+    return best;
+  }
+
+  Future<_BaiduNodeSpeed?> _probeNode(String url, String cookie) async {
+    final DateTime start = DateTime.now();
+    try {
+      final _Resp r = await _request(
+        url,
+        method: 'HEAD',
+        headers: <String, String>{
+          'Cookie': cookie,
+          'User-Agent': pcsUserAgent,
+          'Referer': 'https://pan.baidu.com/',
+        },
+        timeout: 3,
+      );
+      final bool ok = r.status == 200 ||
+          r.status == 206 ||
+          (r.status >= 300 && r.status < 400);
+      if (!ok) return null;
+      return _BaiduNodeSpeed(
+        url: url,
+        rttMs: DateTime.now().difference(start).inMilliseconds,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ─────────────── 内部：缓存 ───────────────
 
   String _shareContextKey(String shareUrl, String cookie) =>
@@ -808,12 +1518,29 @@ class BaiduIBoxClient {
       text.length <= 200 ? text : text.substring(0, 200);
 }
 
-/// 轻量响应（正文 + Set-Cookie）。
+/// CDN 节点测速结果（对齐 iOS `BaiduNodeSpeedResult`）。
+class _BaiduNodeSpeed {
+  const _BaiduNodeSpeed({required this.url, required this.rttMs});
+
+  final String url;
+  final int rttMs;
+}
+
+/// 轻量响应（正文 + Set-Cookie + 状态/头/最终 URL）。
 class _Resp {
-  const _Resp({required this.text, required this.setCookies});
+  const _Resp({
+    required this.text,
+    required this.setCookies,
+    this.status = 200,
+    this.headers = const <String, String>{},
+    this.finalUrl = '',
+  });
 
   final String text;
   final List<String> setCookies;
+  final int status;
+  final Map<String, String> headers;
+  final String finalUrl;
 }
 
 /// 便捷：去掉 surl 前导 1（顶层可读别名）。

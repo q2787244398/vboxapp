@@ -70,6 +70,32 @@ SpiderTransportResponse _route(SpiderTransportRequest r) {
   return _res('{}');
 }
 
+/// C2 响应链（`/api/list` · `share/transfer` · `locatedownload` · `mediainfo`）；
+/// 分享链段复用 [_route]。
+SpiderTransportResponse _routeC2(SpiderTransportRequest r) {
+  final String url = r.url.toString();
+  if (url.contains('/api/list')) {
+    return _res('{"errno":0,"data":{"list":[]}}');
+  }
+  if (url.contains('/share/transfer')) {
+    return _res('{"errno":0,"extra":{"list":[{"to":"/vbox/EP01.mp4"}]}}');
+  }
+  if (url.contains('method=locatedownload') || url.contains('/pcs/file')) {
+    return _res(
+      '{"errno":0,"urls":[{"url":"https://cdn.example.com/ep01.mp4"}]}',
+    );
+  }
+  if (url.contains('/api/mediainfo')) {
+    return _res('{"errno":0,"info":{"dlink":"https://dlna.example.com/ep01.m3u8"}}');
+  }
+  if (url.contains('/api/create') ||
+      url.contains('/api/filemanager') ||
+      url.contains('/disk/main')) {
+    return _res('{"errno":0}');
+  }
+  return _route(r);
+}
+
 void main() {
   group('百度 iBox 工具（对齐 iOS 同名函数）', () {
     test('parseToken：完整 Cookie（含 BDUSS/STOKEN）→ 原样规范化', () {
@@ -212,6 +238,138 @@ void main() {
         ),
         throwsA(isA<BaiduIBoxException>()),
       );
+    });
+  });
+
+  group('百度 iBox 转存 + DLNA 取链（C2）', () {
+    late PrefsManager prefs;
+    late _FakeTransport transport;
+    late BaiduIBoxClient client;
+
+    setUp(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      FlutterSecureStorage.setMockInitialValues(<String, String>{});
+      prefs = PrefsManager.instance;
+      await prefs.init();
+      await prefs.clearAll();
+      transport = _FakeTransport(_routeC2);
+      client = BaiduIBoxClient(transport: transport, prefs: prefs);
+    });
+
+    test('pureAccountCookie：剔除 BDCLND 分享态字段', () {
+      expect(
+        BaiduIBoxClient.pureAccountCookie('BDUSS=u; BDCLND=rnd%2Fsk; STOKEN=st'),
+        'BDUSS=u; STOKEN=st',
+      );
+    });
+
+    test('queryEncodeStrict：& / = / 空格均编码', () {
+      expect(BaiduIBoxClient.queryEncodeStrict('a&b=c d'), 'a%26b%3Dc%20d');
+    });
+
+    test('fetchUserBdstoken：templatevariable 返回用户态 bdstoken', () async {
+      expect(await client.fetchUserBdstoken(cookie: 'BDUSS=u'), 'tok123');
+    });
+
+    test('ensureTransferDir：目录可列举则不创建', () async {
+      await client.ensureTransferDir(cookie: 'BDUSS=u', bdstoken: 'tok123');
+      expect(
+        transport.requests
+            .any((SpiderTransportRequest r) => r.url.toString().contains('/api/create')),
+        isFalse,
+      );
+    });
+
+    test('ensureTransferDir：不可列举 → api/create → 再校验通过', () async {
+      int listCalls = 0;
+      final _FakeTransport t = _FakeTransport((SpiderTransportRequest r) {
+        final String url = r.url.toString();
+        if (url.contains('/api/list')) {
+          listCalls++;
+          return _res(listCalls == 1 ? '{"errno":-9}' : '{"errno":0}');
+        }
+        if (url.contains('/api/create')) return _res('{"errno":0}');
+        return _res('{}');
+      });
+      final BaiduIBoxClient c = BaiduIBoxClient(transport: t, prefs: prefs);
+      await c.ensureTransferDir(cookie: 'BDUSS=u', bdstoken: 'tok123');
+      final SpiderTransportRequest create = t.requests.firstWhere(
+          (SpiderTransportRequest r) => r.url.toString().contains('/api/create'));
+      expect(create.method, 'POST');
+      expect(create.body, contains('size=0'));
+      expect(create.body, contains('method=post'));
+      expect(create.body, contains('path=/vbox'));
+      expect(create.body, contains('block_list=%5B%5D'));
+    });
+
+    test('transferFile：BDCLND 原始 sekey 不二次编码 + 返回 extra.to', () async {
+      final String path = await client.transferFile(
+        shareUrl: 'https://pan.baidu.com/s/1abc?pwd=1234',
+        shareid: '777',
+        shareUk: '888',
+        bdstoken: 'tok123',
+        randsk: 'rnd/sk',
+        fsId: '111',
+        fileName: 'EP01.mp4',
+        cookie: 'BDCLND=rnd%2Fsk; BDUSS=u',
+        accountCookie: 'BDUSS=u',
+        referer: 'https://pan.baidu.com/s/1abc',
+      );
+      expect(path, '/vbox/EP01.mp4');
+      final SpiderTransportRequest tr = transport.requests.firstWhere(
+          (SpiderTransportRequest r) =>
+              r.url.toString().contains('/share/transfer'));
+      expect(tr.url.query.contains('sekey=rnd%2Fsk'), isTrue);
+      expect(tr.body, contains('fsidlist=%5B111%5D'));
+      expect(tr.body, contains('path=/vbox'));
+      expect(tr.body, contains('ondup=newcopy'));
+    });
+
+    test('getDLNADlink：mediainfo 返回 dlink + PCS UA', () async {
+      final BaiduPlayResult r = await client.getDLNADlink(
+        filePath: '/vbox/EP01.mp4',
+        cookie: 'BDUSS=u',
+      );
+      expect(r.url, 'https://dlna.example.com/ep01.m3u8');
+      expect(r.headers['User-Agent'], BaiduIBoxClient.pcsUserAgent);
+    });
+
+    test('getLocatedownload：urls[0] 取链', () async {
+      final BaiduPlayResult r = await client.getLocatedownload(
+        filePath: '/vbox/EP01.mp4',
+        cookie: 'BDUSS=u',
+      );
+      expect(r.url, 'https://cdn.example.com/ep01.mp4');
+      expect(r.source, contains('locatedownload'));
+    });
+
+    test('getLocatedownload：302 跟随后的 CDN 落点直接可用', () async {
+      final _FakeTransport t = _FakeTransport((SpiderTransportRequest r) =>
+          SpiderTransportResponse(
+            status: 200,
+            headers: const <String, String>{},
+            bodyBytes: utf8.encode(''),
+            finalUrl: 'https://cdn2.example.com/x.mp4',
+          ));
+      final BaiduIBoxClient c = BaiduIBoxClient(transport: t, prefs: prefs);
+      final BaiduPlayResult r = await c.getLocatedownload(
+        filePath: '/vbox/EP01.mp4',
+        cookie: 'BDUSS=u',
+      );
+      expect(r.url, 'https://cdn2.example.com/x.mp4');
+    });
+
+    test('resolvePlayURL：主路链端到端（分享 → 转存 → locatedownload）', () async {
+      final BaiduPlayResult r = await client.resolvePlayURL(
+        shareUrl: 'https://pan.baidu.com/s/1abc?pwd=1234',
+        bduss: 'BDUSS=u',
+        fsId: '111',
+      );
+      expect(r.url, 'https://cdn.example.com/ep01.mp4');
+      expect(r.source, contains('locatedownload'));
+      // 必经过转存（而非命中已存在文件）。
+      expect(r.source, contains('main-transfer'));
     });
   });
 }

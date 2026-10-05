@@ -291,12 +291,18 @@ class SpiderTransportResponse {
     required this.headers,
     required this.bodyBytes,
     this.setCookies = const <String>[],
+    this.finalUrl = '',
   });
 
   final int status;
   final Map<String, String> headers;
   final List<int> bodyBytes;
   final List<String> setCookies;
+
+  /// 跟随重定向后的最终 URL（未发生重定向 / fake 传输未填时为空）。
+  ///
+  /// 供 `locatedownload` 等「302 后取 CDN 直链」场景读取最终落点。
+  final String finalUrl;
 }
 
 /// HTTP 传输抽象：单测注入 fake（离线验证编码链 / cookie / 超时 / 组装）。
@@ -345,6 +351,10 @@ class IoSpiderHttpTransport implements SpiderHttpTransport {
       headers: headers,
       bodyBytes: bytes,
       setCookies: List<String>.from(res.headers[HttpHeaders.setCookieHeader] ?? <String>[]),
+      // 跟随重定向后的最终 URL（无重定向时回落到请求 URL）。
+      finalUrl: res.redirects.isNotEmpty
+          ? res.redirects.last.location.toString()
+          : request.url.toString(),
     );
   }
 
