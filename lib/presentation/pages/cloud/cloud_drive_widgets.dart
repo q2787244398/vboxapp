@@ -39,7 +39,7 @@ IconData cloudDriveIcon(CloudDriveType type) => switch (type) {
 List<(String, IconData)> cloudDriveAuthActions(CloudDriveType type) =>
     switch (type) {
       CloudDriveType.ali => <(String, IconData)>[
-          ('原生扫码', Icons.qr_code_2),
+          ('PG扫码登录', Icons.qr_code_2),
         ],
       CloudDriveType.uc || CloudDriveType.ucNode => <(String, IconData)>[
           ('原生扫码', Icons.qr_code_2),

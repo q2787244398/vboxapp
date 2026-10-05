@@ -14,6 +14,7 @@ import 'package:vbox/data/datasources/remote/node_credential_sync_service.dart';
 import 'package:vbox/domain/entities/cloud/bili_auth.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive_login.dart';
+import 'package:vbox/presentation/pages/cloud/aliyun_pg_login_gateway.dart';
 import 'package:vbox/presentation/pages/cloud/login_gateway.dart';
 import 'package:vbox/presentation/pages/cloud/node_login_gateway.dart';
 
@@ -260,6 +261,13 @@ void main() {
         CloudDriveLoginMode.nodeQr,
       ),
       isA<NodeCloudDriveLoginGateway>(),
+    );
+    expect(
+      defaultCloudDriveLoginGateway(
+        CloudDriveType.ali,
+        CloudDriveLoginMode.pgQr,
+      ),
+      isA<AliyunPgLoginGateway>(),
     );
     expect(
       defaultCloudDriveLoginGateway(

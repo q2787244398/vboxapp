@@ -13,7 +13,23 @@ import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_login.dart';
 
 /// 扫码任务句柄（Node/原生协议返回 `taskId` + 二维码 data URL）。
+///
+/// `qrDataUrl` 两种形态：
+/// - 图片 data URL（`data:image/png;base64,...` 或裸 base64）→ 直接渲染图片；
+/// - **`qr_data:<文本>`** 前缀 → 文本为待编码的授权链接，由表现层本地生成二维码
+///   （C-盘3：PG/extscreen 返回链接而非图片）。
 typedef CloudDriveQrTask = ({String taskId, String qrDataUrl});
+
+/// `qrDataUrl` 承载「待编码文本」的前缀（见 [CloudDriveQrTask]）。
+const String kQrDataContentPrefix = 'qr_data:';
+
+/// 取 [CloudDriveQrTask.qrDataUrl] 中的待编码文本（非该形态返回 null）。
+String? qrContentOf(String? qrDataUrl) {
+  if (qrDataUrl == null) return null;
+  if (!qrDataUrl.startsWith(kQrDataContentPrefix)) return null;
+  final String content = qrDataUrl.substring(kQrDataContentPrefix.length);
+  return content.isEmpty ? null : content;
+}
 
 /// 登录网关错误（文案对齐 iOS `NodeLoginError`）。
 class CloudDriveLoginException implements Exception {

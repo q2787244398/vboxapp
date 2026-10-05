@@ -18,6 +18,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../data/datasources/local/cloud_drive_credential_store.dart';
@@ -181,7 +182,11 @@ class _CloudDriveQrLoginSheetState extends State<CloudDriveQrLoginSheet> {
 
   /// 二维码卡片（对齐 iOS `qrCard`：220×220 + 圆角 16 + 阴影）。
   Widget _qrCard(ColorScheme scheme, CloudDriveLoginPhase phase) {
-    final Uint8List? bytes = _decodeQrDataUrl(_controller.qrDataUrl);
+    // C-盘1/C-盘3：`qr_data:` 形态为待编码的授权链接（PG），本地生成二维码；
+    // 其余为图片 data URL（B 站等由服务端出图）。
+    final String? qrContent = qrContentOf(_controller.qrDataUrl);
+    final Uint8List? bytes =
+        qrContent == null ? _decodeQrDataUrl(_controller.qrDataUrl) : null;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(VboxSpacing.lg),
@@ -205,25 +210,36 @@ class _CloudDriveQrLoginSheetState extends State<CloudDriveQrLoginSheet> {
               ),
             ],
           ),
-          child: switch (bytes) {
-            final Uint8List data => ClipRRect(
-                borderRadius: BorderRadius.circular(VboxRadii.r16),
-                child: Image.memory(
-                  data,
-                  width: 220,
-                  height: 220,
-                  fit: BoxFit.contain,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, __, ___) => _qrPlaceholder(scheme),
-                ),
-              ),
-            _ when phase == CloudDriveLoginPhase.loading => const SizedBox(
-                width: 36,
-                height: 36,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-            _ => _qrPlaceholder(scheme),
-          },
+          child: qrContent != null
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(VboxRadii.r16),
+                  child: QrImageView(
+                    data: qrContent,
+                    version: QrVersions.auto,
+                    size: 220,
+                    backgroundColor: scheme.surface,
+                    errorStateBuilder: (_, __) => _qrPlaceholder(scheme),
+                  ),
+                )
+              : switch (bytes) {
+                  final Uint8List data => ClipRRect(
+                      borderRadius: BorderRadius.circular(VboxRadii.r16),
+                      child: Image.memory(
+                        data,
+                        width: 220,
+                        height: 220,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
+                        errorBuilder: (_, __, ___) => _qrPlaceholder(scheme),
+                      ),
+                    ),
+                  _ when phase == CloudDriveLoginPhase.loading => const SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    ),
+                  _ => _qrPlaceholder(scheme),
+                },
         ),
       ),
     );

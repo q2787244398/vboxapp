@@ -223,6 +223,32 @@ class ExtscreenApiClient {
     throw const ExtscreenException('扫码超时，请重试');
   }
 
+  /// 单次查询扫码状态（非阻塞；供控制器按自身节奏轮询）。
+  ///
+  /// 返回 `(status, authCode)`：状态档 `New` / `Scaned` / `Expired` /
+  /// `LoginSuccess`；`authCode` 仅在 `LoginSuccess` 时非空。
+  /// 网络错误 / 非 200 / 解码失败按「未就绪」返回 `New`（不抛，交由上层重试）。
+  Future<({String status, String? authCode})> queryQrcodeStatus({
+    required String sid,
+  }) async {
+    final Uri url = Uri.parse('$openApiBase/oauth/qrcode/$sid/status');
+    ExtscreenHttpResult res;
+    try {
+      res = await _transport.request(method: 'GET', url: url);
+    } on Object {
+      return (status: 'New', authCode: null);
+    }
+    if (res.statusCode != 200) return (status: 'New', authCode: null);
+    final Object? decoded = _tryDecode(res.body);
+    if (decoded is! Map) return (status: 'New', authCode: null);
+    final String status = '${decoded['status'] ?? ''}';
+    final Object? authCode = decoded['authCode'];
+    return (
+      status: status.isEmpty ? 'New' : status,
+      authCode: authCode is String && authCode.isNotEmpty ? authCode : null,
+    );
+  }
+
   // ── Step 3：authCode 换 refresh_token ──────────────────
 
   /// 用 [authCode] 换取初始 `refresh_token`（对齐 `getRefreshToken`）。

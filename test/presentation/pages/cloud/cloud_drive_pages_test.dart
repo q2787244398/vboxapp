@@ -109,7 +109,8 @@ void main() {
 
       expect(find.text('扫码授权'), findsOneWidget); // 百度
       expect(find.text('扫码登录'), findsOneWidget); // 夸克
-      expect(find.text('原生扫码'), findsNWidgets(3)); // 阿里 / UC / B站
+      expect(find.text('原生扫码'), findsNWidgets(2)); // UC / B站
+      expect(find.text('PG扫码登录'), findsOneWidget); // 阿里（C-盘1：extscreen 链路）
       expect(find.text('网页登录兜底'), findsNWidgets(2)); // 夸克 / UC
       expect(find.text('网页兜底'), findsNWidgets(6)); // 百度/115/123/139/189/迅雷
       expect(find.text('Node扫码登录'), findsOneWidget); // 115

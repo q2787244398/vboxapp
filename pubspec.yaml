@@ -35,6 +35,9 @@ dependencies:
   connectivity_plus: ^6.1.0          # 网络可达性（A2；仅平台层使用，核心层走 NetworkInfo 抽象）
   enough_convert: ^1.6.0             # GBK/GB2312/Big5/Latin 编解码（B-09 HTTP 桥 5 级编码链，MPL-2.0）
 
+  # ── 二维码渲染（F-04/C-盘3：PG 阿里云盘返回授权链接 → 本地编码二维码）──
+  qr_flutter: ^4.1.0
+
   # ── 文件与路径 ──
   path: ^1.9.0
   path_provider: ^2.1.4

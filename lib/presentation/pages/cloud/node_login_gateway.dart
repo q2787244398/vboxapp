@@ -16,6 +16,7 @@ import '../../../data/datasources/remote/node_credential_sync_service.dart';
 import '../../../domain/entities/cloud/bili_auth.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_login.dart';
+import 'aliyun_pg_login_gateway.dart';
 import 'login_gateway.dart';
 
 /// Node 常驻系统登录网关（当前覆盖 B 站扫码）。
@@ -124,6 +125,8 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
 
 /// 缺省登录网关工厂：按网盘 / 方式路由到已接入实现。
 ///
+/// - 阿里云盘 PG 扫码（`ali` + `pgQr`）→ [AliyunPgLoginGateway]（extscreen 链路，
+///   C-盘1；成功后回收 refresh_token 到 `cloud_drive_credentials_v1`）；
 /// - B 站扫码（`bilibili` + 扫码类）→ [NodeCloudDriveLoginGateway]（走 Node
 ///   常驻系统，成功后由 [NodeCredentialSyncService.saveProfile] 回收 Cookie）；
 /// - 其余尚未接线的档位 → [UnavailableCloudDriveLoginGateway]（文案分档对齐 iOS）。
@@ -131,6 +134,9 @@ CloudDriveLoginGateway defaultCloudDriveLoginGateway(
   CloudDriveType type,
   CloudDriveLoginMode mode,
 ) {
+  if (AliyunPgLoginGateway.supports(type, mode)) {
+    return AliyunPgLoginGateway();
+  }
   if (NodeCloudDriveLoginGateway.supports(type, mode)) {
     return NodeCloudDriveLoginGateway(
       credentialSync: NodeCredentialSyncService(
