@@ -83,7 +83,7 @@ abstract class ProbedFuliService extends FuliBaseService {
 /// 熊猫视频（`panda_video`，POST API 类）。
 class PandaFuliService extends ProbedFuliService {
   /// 构造。
-  PandaFuliService({SpiderHttpBridge? bridge})
+  PandaFuliService({super.bridge})
       : super(
           platformKey: 'panda_video',
           platformName: '熊猫视频',
@@ -91,14 +91,13 @@ class PandaFuliService extends ProbedFuliService {
             'https://spiderscloudcn2.51111666.com',
             'https://spiderscloudcn1.51111666.com',
           ],
-          bridge: bridge,
         );
 }
 
 /// 4H 视频（`four_h_video`，HTML 类）。
 class FourHFuliService extends ProbedFuliService {
   /// 构造。
-  FourHFuliService({SpiderHttpBridge? bridge})
+  FourHFuliService({super.bridge})
       : super(
           platformKey: 'four_h_video',
           platformName: '4H视频',
@@ -107,14 +106,13 @@ class FourHFuliService extends ProbedFuliService {
             'https://4h04.cc',
             'https://4h03.cc',
           ],
-          bridge: bridge,
         );
 }
 
 /// FullHD（`full_hd`，HTML 类）。
 class FullHDFuliService extends ProbedFuliService {
   /// 构造。
-  FullHDFuliService({SpiderHttpBridge? bridge})
+  FullHDFuliService({super.bridge})
       : super(
           platformKey: 'full_hd',
           platformName: 'FullHD',
@@ -122,14 +120,13 @@ class FullHDFuliService extends ProbedFuliService {
             'https://www.fullhd.xxx',
             'https://fullhd.xxx',
           ],
-          bridge: bridge,
         );
 }
 
 /// 香蕉视频（`banana_video`，HTML 类；标题 XOR 解密，解析待补）。
 class BananaFuliService extends ProbedFuliService {
   /// 构造。
-  BananaFuliService({SpiderHttpBridge? bridge})
+  BananaFuliService({super.bridge})
       : super(
           platformKey: 'banana_video',
           platformName: '香蕉视频',
@@ -140,31 +137,28 @@ class BananaFuliService extends ProbedFuliService {
             'https://618010.xyz',
             'https://618009.xyz',
           ],
-          bridge: bridge,
         );
 }
 
 /// 艾旦福利视频（`aidan_video`，CMS V10 类）。
 class AidanFuliService extends ProbedFuliService {
   /// 构造。
-  AidanFuliService({SpiderHttpBridge? bridge})
+  AidanFuliService({super.bridge})
       : super(
           platformKey: 'aidan_video',
           platformName: '艾旦福利视频',
           defaultHosts: const <String>['https://www.lovedan.net'],
-          bridge: bridge,
         );
 }
 
 /// 六速社区（`lusushequ`，iOS 走 `welfare_spider` + 原生 Service）。
 class LusushequFuliService extends ProbedFuliService {
   /// 构造。
-  LusushequFuliService({SpiderHttpBridge? bridge})
+  LusushequFuliService({super.bridge})
       : super(
           platformKey: 'lusushequ',
           platformName: '六速社区',
           defaultHosts: const <String>['https://215.x89cneo.com:51111'],
-          bridge: bridge,
         );
 }
 

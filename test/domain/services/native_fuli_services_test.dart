@@ -15,17 +15,17 @@ class _FakeTransport implements SpiderHttpTransport {
   @override
   Future<SpiderTransportResponse> send(SpiderTransportRequest request) async =>
       okPredicate(request.url.toString())
-          ? SpiderTransportResponse(
+          ? const SpiderTransportResponse(
               status: 200,
-              headers: const <String, String>{
+              headers: <String, String>{
                 'content-type': 'text/html; charset=utf-8',
               },
-              bodyBytes: const <int>[1],
+              bodyBytes: <int>[1],
             )
-          : SpiderTransportResponse(
+          : const SpiderTransportResponse(
               status: 502,
-              headers: const <String, String>{},
-              bodyBytes: const <int>[],
+              headers: <String, String>{},
+              bodyBytes: <int>[],
             );
 }
 
