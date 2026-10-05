@@ -11,12 +11,15 @@
 ///  - Node 托管盘（115 / 123 / 139 / 189 / 迅雷 / 光鸭 / 蜗牛 / 夸克Node /
 ///    UC网盘Node / 百度网盘Node）→ Node 常驻系统链路；
 ///  - 阿里云盘 → PG 4kz 路链（批次 F · F-09 接线，本批次明确报错）；
-///  - 原生盘（夸克 / 百度 / UC）→ 原生路链（待后续批次接线，本批次明确报错）。
+///  - 原生盘（夸克 / 百度 / UC）→ 原生路链：**夸克已接入**（F-P01，
+///    `QuarkNativeClient`：分享解析 → 文件列表 → 转存 → 取链）；百度 / UC 待后续批次。
 library;
 
+import '../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../data/datasources/local/cloud_play_item_cache_store.dart';
 import '../../data/datasources/local/prefs_manager.dart';
 import '../../data/datasources/remote/node_pan_client.dart';
+import '../../data/datasources/remote/quark_native_client.dart';
 import '../../domain/entities/cloud/cloud_drive.dart';
 import '../../domain/entities/cloud/cloud_play_item.dart';
 import '../../domain/entities/cloud/node_pan.dart';
@@ -58,14 +61,38 @@ class PanPlayer {
     NodePanClient? client,
     CloudPlayItemCacheStore? cacheStore,
     PlayerController? controller,
+    QuarkNativeClient? quarkClient,
+    Future<String> Function(CloudDriveType type)? cookieFor,
   })  : _client = client ?? NodePanClient(),
         _cache = cacheStore ??
             CloudPlayItemCacheStore(PrefsManager.instance),
-        _controller = controller;
+        _controller = controller,
+        _quark = quarkClient ?? QuarkNativeClient(),
+        _cookieFor = cookieFor;
 
   final NodePanClient _client;
   final CloudPlayItemCacheStore _cache;
   PlayerController? _controller;
+
+  /// 夸克原生分享链客户端（F-P01）。
+  final QuarkNativeClient _quark;
+
+  /// 网盘 Cookie 提供者（缺省读凭据安全存储 `cloud_drive_credentials_v1`）。
+  final Future<String> Function(CloudDriveType type)? _cookieFor;
+
+  /// 取指定网盘的 Cookie。
+  Future<String> _cookie(CloudDriveType type) async {
+    final Future<String> Function(CloudDriveType)? provider = _cookieFor;
+    if (provider != null) return provider(type);
+    try {
+      final CloudDriveCredentialStore store =
+          CloudDriveCredentialStore(PrefsManager.instance);
+      final CloudDriveCredential? cred = await store.credential(type);
+      return cred?.cookie ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
 
   /// 播放控制器（缺省取全局单例）。
   PlayerController get controller => _controller ??= PlayerController.instance;
@@ -82,10 +109,39 @@ class PanPlayer {
     return PanPlayChannel.unsupported;
   }
 
-  /// 解析分享链接 → 条目列表（Node 托管盘）。
+  /// 解析分享链接 → 条目列表（Node 托管盘 / 夸克原生）。
   Future<NodePanShare> resolveShare(CloudDriveType type, String shareUrl) async {
-    _guardChannel(type);
-    return _client.resolveShare(shareUrl);
+    switch (channelFor(type)) {
+      case PanPlayChannel.nodePan:
+        return _client.resolveShare(shareUrl);
+      case PanPlayChannel.native:
+        if (type == CloudDriveType.quark) {
+          final String cookie = await _cookie(type);
+          final List<QuarkShareFile> files;
+          try {
+            files = await _quark.getFileList(
+              shareUrl: shareUrl,
+              cookie: cookie,
+            );
+          } on QuarkNativeException catch (e) {
+            throw PanPlayException(e.message);
+          }
+          return NodePanShare(
+            title: '夸克分享',
+            entries: files
+                .map((QuarkShareFile f) =>
+                    NodePanEntry(playID: f.fid, name: f.fileName))
+                .toList(growable: false),
+          );
+        }
+        throw PanPlayException('${type.displayName} 原生路链尚未接入（待后续批次）');
+      case PanPlayChannel.pgAli:
+        throw const PanPlayException(
+          '阿里云盘需 PG 4kz 路链（批次 F · F-09 接线）',
+        );
+      case PanPlayChannel.unsupported:
+        throw PanPlayException('${type.displayName} 不支持网盘播放');
+    }
   }
 
   /// 解析条目 → 播放地址，并写入统一缓存。
@@ -98,21 +154,59 @@ class PanPlayer {
     String? sourceKey,
     DateTime? now,
   }) async {
-    _guardChannel(type);
     final DateTime stamp = now ?? DateTime.now();
-    final NodePanPlayData data = await _client.resolvePlay(entry.playID);
+    final String playURL;
+    final String fileName;
+    final Map<String, String> headers;
+    final String source;
+    switch (channelFor(type)) {
+      case PanPlayChannel.nodePan:
+        final NodePanPlayData data = await _client.resolvePlay(entry.playID);
+        playURL = data.url;
+        fileName = entry.name;
+        headers = data.headers;
+        source = 'node-pan';
+      case PanPlayChannel.native:
+        if (type == CloudDriveType.quark) {
+          final String cookie = await _cookie(type);
+          try {
+            final QuarkPlayResult r = await _quark.resolvePlayUrl(
+              shareUrl: shareUrl,
+              cookie: cookie,
+              preferredFid: entry.playID,
+            );
+            playURL = r.url;
+            fileName = r.fileName.isEmpty ? entry.name : r.fileName;
+          } on QuarkNativeException catch (e) {
+            throw PanPlayException(e.message);
+          }
+          headers = <String, String>{
+            if (cookie.isNotEmpty) 'Cookie': cookie,
+            'Referer': QuarkNativeClient.defaultReferer,
+          };
+          source = 'quark-native';
+        } else {
+          throw PanPlayException('${type.displayName} 原生路链尚未接入（待后续批次）');
+        }
+      case PanPlayChannel.pgAli:
+        throw const PanPlayException(
+          '阿里云盘需 PG 4kz 路链（批次 F · F-09 接线）',
+        );
+      case PanPlayChannel.unsupported:
+        throw PanPlayException('${type.displayName} 不支持网盘播放');
+    }
     final CloudPlayItem item = CloudPlayItem(
       provider: type.id,
       sourceKey: sourceKey ?? entry.playID,
       shareURL: shareUrl,
       resourceId: entry.playID,
-      fileName: entry.name,
-      playURL: data.url,
-      headers: data.headers,
-      compatibilityHint: 'node-proxy',
+      fileName: fileName,
+      playURL: playURL,
+      headers: headers,
+      compatibilityHint: source == 'node-pan' ? 'node-proxy' : 'quark-native',
       preparedAt: stamp,
       updatedAt: stamp,
-      source: 'node-pan',
+      source: source,
     );
     await _cache.store(item);
     return item;
@@ -171,22 +265,4 @@ class PanPlayer {
 
   /// 按盘清空缓存。
   Future<void> clear(CloudDriveType type) => _cache.clear(type.id);
-
-  /// 通道守卫：非 Node 托管通道明确报错（对齐 iOS 的原生/Node 分支隔离）。
-  void _guardChannel(CloudDriveType type) {
-    switch (channelFor(type)) {
-      case PanPlayChannel.nodePan:
-        return;
-      case PanPlayChannel.pgAli:
-        throw const PanPlayException(
-          '阿里云盘需 PG 4kz 路链（批次 F · F-09 接线）',
-        );
-      case PanPlayChannel.native:
-        throw PanPlayException(
-          '${type.displayName} 原生路链尚未接入（待后续批次）',
-        );
-      case PanPlayChannel.unsupported:
-        throw PanPlayException('${type.displayName} 不支持网盘播放');
-    }
-  }
 }
