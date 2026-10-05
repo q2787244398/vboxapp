@@ -10,8 +10,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/cloud_play_item_cache_store.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
+import 'package:vbox/data/datasources/remote/baidu_proxy_client.dart';
 import 'package:vbox/data/datasources/remote/node_pan_client.dart';
 import 'package:vbox/data/datasources/remote/quark_native_client.dart';
+import 'package:vbox/domain/entities/cloud/baidu_proxy.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/domain/entities/cloud/cloud_play_item.dart';
 import 'package:vbox/domain/entities/cloud/node_pan.dart';
@@ -102,6 +104,42 @@ class _FakeQuarkClient extends QuarkNativeClient {
     String? preferredFid,
   }) async =>
       const QuarkPlayResult(url: 'https://v/play.m3u8', fileName: 'EP01.mp4');
+}
+
+/// 假百度代理客户端（F-P02）。
+class _FakeBaiduClient extends BaiduProxyClient {
+  @override
+  Future<BaiduProxyResponse> parseShareLink({
+    required String url,
+    String pwd = '',
+    String cookie = '',
+  }) async =>
+      const BaiduProxyResponse(
+        success: true,
+        data: BaiduProxyPlayData(
+          url: 'https://pcs/parse.m3u8',
+          type: 'm3u8',
+          fileName: 'EP01.mp4',
+        ),
+      );
+
+  @override
+  Future<BaiduProxyResponse> getPlayURL({
+    required String shareURL,
+    String pwd = '',
+    String fsId = '',
+    String cookie = '',
+    String pcsCookie = '',
+  }) async =>
+      const BaiduProxyResponse(
+        success: true,
+        data: BaiduProxyPlayData(
+          url: 'https://pcs/play.m3u8',
+          type: 'm3u8',
+          fileName: 'EP01.mp4',
+          headers: <String, String>{'Referer': 'https://pan.baidu.com'},
+        ),
+      );
 }
 
 void main() {
@@ -328,16 +366,58 @@ void main() {
       expect((await cache.load()).length, 1);
     });
 
-    test('百度 / UC 原生链仍未接入 → 明确报错（逐步接入）', () async {
+    test('UC 原生链仍未接入 → 明确报错（逐步接入）', () async {
       await expectLater(
         quarkPlayer.resolveShare(CloudDriveType.uc, 'https://drive.uc.cn/s/x'),
         throwsA(isA<PanPlayException>()),
       );
+    });
+  });
+
+  group('百度原生链（F-P02，Worker 代理）', () {
+    late PanPlayer baiduPlayer;
+
+    setUp(() {
+      baiduPlayer = PanPlayer(
+        client: NodePanClient(transport: _happyTransport()),
+        cacheStore: cache,
+        controller: controller,
+        baiduClient: _FakeBaiduClient(),
+        cookieFor: (CloudDriveType _) async => 'k=v',
+      );
+    });
+
+    test('resolveShare → 单条目（文件名为分享标题）', () async {
+      final NodePanShare share = await baiduPlayer.resolveShare(
+        CloudDriveType.baidu,
+        'https://pan.baidu.com/s/1abc',
+      );
+      expect(share.title, 'EP01.mp4');
+      expect(share.entries.single.name, 'EP01.mp4');
+    });
+
+    test('prepare → 取链并带代理响应头 + Cookie', () async {
+      final CloudPlayItem item = await baiduPlayer.prepare(
+        type: CloudDriveType.baidu,
+        shareUrl: 'https://pan.baidu.com/s/1abc',
+        entry: const NodePanEntry(playID: 'baidu', name: 'EP01.mp4'),
+        now: t0,
+      );
+      expect(item.playURL, 'https://pcs/play.m3u8');
+      expect(item.headers['Referer'], 'https://pan.baidu.com');
+      expect(item.headers['Cookie'], 'k=v');
+      expect(item.source, 'baidu-worker');
+    });
+
+    test('默认无代理 → 映射为明确报错（百度代理未接入）', () async {
+      final PanPlayer noProxy = PanPlayer(
+        client: NodePanClient(transport: _happyTransport()),
+        cacheStore: cache,
+        controller: controller,
+        cookieFor: (CloudDriveType _) async => '',
+      );
       await expectLater(
-        quarkPlayer.resolveShare(
-          CloudDriveType.baidu,
-          'https://pan.baidu.com/s/x',
-        ),
+        noProxy.resolveShare(CloudDriveType.baidu, 'https://pan.baidu.com/s/1a'),
         throwsA(isA<PanPlayException>()),
       );
     });

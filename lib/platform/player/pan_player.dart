@@ -12,14 +12,17 @@
 ///    UC网盘Node / 百度网盘Node）→ Node 常驻系统链路；
 ///  - 阿里云盘 → PG 4kz 路链（批次 F · F-09 接线，本批次明确报错）；
 ///  - 原生盘（夸克 / 百度 / UC）→ 原生路链：**夸克已接入**（F-P01，
-///    `QuarkNativeClient`：分享解析 → 文件列表 → 转存 → 取链）；百度 / UC 待后续批次。
+///    `QuarkNativeClient`：分享解析 → 文件列表 → 转存 → 取链）；**百度已接入**
+///    （F-P02，`BaiduProxyClient` Worker 代理：parse → play）；UC 待后续批次。
 library;
 
 import '../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../data/datasources/local/cloud_play_item_cache_store.dart';
 import '../../data/datasources/local/prefs_manager.dart';
+import '../../data/datasources/remote/baidu_proxy_client.dart';
 import '../../data/datasources/remote/node_pan_client.dart';
 import '../../data/datasources/remote/quark_native_client.dart';
+import '../../domain/entities/cloud/baidu_proxy.dart';
 import '../../domain/entities/cloud/cloud_drive.dart';
 import '../../domain/entities/cloud/cloud_play_item.dart';
 import '../../domain/entities/cloud/node_pan.dart';
@@ -62,12 +65,14 @@ class PanPlayer {
     CloudPlayItemCacheStore? cacheStore,
     PlayerController? controller,
     QuarkNativeClient? quarkClient,
+    BaiduProxyClient? baiduClient,
     Future<String> Function(CloudDriveType type)? cookieFor,
   })  : _client = client ?? NodePanClient(),
         _cache = cacheStore ??
             CloudPlayItemCacheStore(PrefsManager.instance),
         _controller = controller,
         _quark = quarkClient ?? QuarkNativeClient(),
+        _baidu = baiduClient ?? BaiduProxyClient(),
         _cookieFor = cookieFor;
 
   final NodePanClient _client;
@@ -76,6 +81,9 @@ class PanPlayer {
 
   /// 夸克原生分享链客户端（F-P01）。
   final QuarkNativeClient _quark;
+
+  /// 百度专用代理客户端（F-P02，Worker 方案对齐 iOS `BaiduProxyClient`）。
+  final BaiduProxyClient _baidu;
 
   /// 网盘 Cookie 提供者（缺省读凭据安全存储 `cloud_drive_credentials_v1`）。
   final Future<String> Function(CloudDriveType type)? _cookieFor;
@@ -134,6 +142,28 @@ class PanPlayer {
                 .toList(growable: false),
           );
         }
+        if (type == CloudDriveType.baidu) {
+          final String cookie = await _cookie(type);
+          try {
+            final BaiduProxyResponse r =
+                await _baidu.parseShareLink(url: shareUrl, cookie: cookie);
+            final BaiduProxyPlayData? data = r.data;
+            if (data == null || data.url.isEmpty) {
+              throw const PanPlayException('百度分享解析失败');
+            }
+            return NodePanShare(
+              title: data.fileName ?? '百度分享',
+              entries: <NodePanEntry>[
+                NodePanEntry(
+                  playID: 'baidu',
+                  name: data.fileName ?? '百度资源',
+                ),
+              ],
+            );
+          } on BaiduProxyException catch (e) {
+            throw PanPlayException(e.message);
+          }
+        }
         throw PanPlayException('${type.displayName} 原生路链尚未接入（待后续批次）');
       case PanPlayChannel.pgAli:
         throw const PanPlayException(
@@ -185,6 +215,28 @@ class PanPlayer {
             'Referer': QuarkNativeClient.defaultReferer,
           };
           source = 'quark-native';
+        } else if (type == CloudDriveType.baidu) {
+          final String cookie = await _cookie(type);
+          final BaiduProxyPlayData? data;
+          try {
+            final BaiduProxyResponse r = await _baidu.getPlayURL(
+              shareURL: shareUrl,
+              fsId: entry.playID == 'baidu' ? '' : entry.playID,
+              cookie: cookie,
+            );
+            data = r.data;
+          } on BaiduProxyException catch (e) {
+            throw PanPlayException(e.message);
+          }
+          if (data == null || data.url.isEmpty) {
+            throw const PanPlayException('百度未返回可用播放地址');
+          }
+          playURL = data.url;
+          fileName = data.fileName ?? entry.name;
+          final Map<String, String> h = <String, String>{...?data.headers};
+          if (cookie.isNotEmpty) h['Cookie'] = cookie;
+          headers = h;
+          source = 'baidu-worker';
         } else {
           throw PanPlayException('${type.displayName} 原生路链尚未接入（待后续批次）');
         }
