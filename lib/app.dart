@@ -37,6 +37,7 @@ import 'data/repositories/repositories.dart';
 import 'domain/entities/remote_source/remote_source.dart';
 import 'domain/entities/spider/spider.dart';
 import 'domain/entities/subscribe/subscribe.dart';
+import 'domain/services/native_fuli_services.dart';
 import 'domain/usecases/usecases.dart';
 import 'platform/download/download.dart';
 import 'platform/spider/spider.dart';
@@ -251,6 +252,8 @@ class _VBoxAppState extends State<VBoxApp> {
       //        服务层 `allHosts` / `applyProxyIfNeeded` 与设置页即时消费）
       await WelfareProxyStore.shared.load();
       await WelfareDomainStore.shared.load();
+      // Fuli-S1：注册原生福利平台服务（对齐 iOS makeFuliBaseDestination 的 key）。
+      registerNativeFuliServices();
 
       // ②''''''' 下载管理器（G-02：全局单例；存储走 `download` 表，目录走
       //        `StoragePaths.downloadDir`，依赖已在 ①/② 就绪）

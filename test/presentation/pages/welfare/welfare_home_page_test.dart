@@ -123,7 +123,8 @@ void main() {
     expect(find.text('该平台暂不可用'), findsOneWidget);
   });
 
-  testWidgets('点击已支持平台（kanliao）→ 提示目标页面族', (WidgetTester tester) async {
+  testWidgets('点击原生专用平台（kanliao）→ 进入未支持页并给出原因（W-福1）',
+      (WidgetTester tester) async {
     const WelfarePlatformConfig config = WelfarePlatformConfig(
       meta: <String, Object?>{'version': 'x'},
       platforms: <WelfarePlatform>[
@@ -139,12 +140,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('今日看料'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    expect(find.text('「今日看料」路由至 今日看料页'), findsOneWidget);
-
-    // 走完 Toast 计时器，避免测试结束时残留 pending timer。
-    await tester.pump(const Duration(seconds: 3));
+    // W-福1：不再弹 Toast，改为进入未支持页并说明原因（UI-C1 待落地）。
+    expect(find.text('今日看料页尚未接入（UI-C1）'), findsOneWidget);
   });
 
   testWidgets('点击 JS 福利 Spider 平台 → 进入 JS 引擎执行页', (WidgetTester tester) async {

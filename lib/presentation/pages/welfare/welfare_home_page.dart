@@ -23,6 +23,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../domain/entities/welfare/welfare.dart';
+import '../../../domain/services/fuli_base_service.dart';
 import '../../../domain/services/welfare_js_spider_service.dart';
 import '../../../domain/services/welfare_python_spider_service.dart';
 import '../../theme/tokens/spacing.dart';
@@ -220,7 +221,58 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
       );
       return;
     }
+    // Fuli-S1 / W-福1：fuli_base（服务已注册）→ 通用福利平台页。
+    if (route is WelfareFuliBaseRoute) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) => WelfareSpiderMainPage(
+            platform: platform,
+            service: route.service,
+          ),
+        ),
+      );
+      return;
+    }
+    // 艾旦（aidan_video）：取「aidan_video」原生服务；未注册则明确未支持。
+    if (route is WelfareAidanVideoRoute) {
+      final FuliBaseService? service =
+          FuliBaseServiceRegistry.shared.serviceFor('aidan_video');
+      if (service != null) {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (BuildContext context) => WelfareSpiderMainPage(
+              platform: platform,
+              service: service,
+            ),
+          ),
+        );
+        return;
+      }
+      _pushUnsupported(platform, 'aidan_video 服务未注册');
+      return;
+    }
+    // 远程 CMS V10 / 原生专用页（香蕉秀 / 大乱斗 / 看料）→ UI-C1 待落地。
+    if (route is WelfareRemoteCmsV10Route) {
+      _pushUnsupported(platform, '远程 CMS V10 页面尚未接入（UI-C1）');
+      return;
+    }
+    if (route is WelfareNativeRoute) {
+      _pushUnsupported(platform, '${route.kind.label}尚未接入（UI-C1）');
+      return;
+    }
     VboxToast.show(context, '「${platform.name}」路由至 ${route.destinationLabel}');
+  }
+
+  /// 进入未支持页（明确原因，替代静默 Toast）。
+  void _pushUnsupported(WelfarePlatform platform, String reason) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => UnsupportedPlatformPage(
+          platform: platform,
+          reason: reason,
+        ),
+      ),
+    );
   }
 }
 
