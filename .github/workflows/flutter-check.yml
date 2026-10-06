@@ -58,7 +58,7 @@ jobs:
       - name: Install crypto deps
         run: pip install cryptography
 
-      - name: Run 11 contract checks (check_coverage runs in flutter-analyze)
+      - name: Run 12 contract checks (check_coverage runs in flutter-analyze)
         run: |
           set -e
           for s in check_contract_sync \
@@ -71,7 +71,8 @@ jobs:
                    check_domain_remote_player \
                    check_docs_consistency \
                    check_dart_imports \
-                   check_ui_tokens; do
+                   check_ui_tokens \
+                   check_platform_wiring; do
             echo "===== $s ====="
             python3 scripts/$s.py
           done
