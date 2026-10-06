@@ -13,6 +13,7 @@ import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/domain/entities/welfare/welfare.dart';
 import 'package:vbox/domain/services/welfare_js_spider_service.dart';
 import 'package:vbox/domain/services/welfare_python_spider_service.dart';
+import 'package:vbox/presentation/pages/welfare/kanliao_home_page.dart';
 import 'package:vbox/presentation/pages/welfare/welfare_home_page.dart';
 import 'package:vbox/presentation/pages/welfare/welfare_spider_home_page.dart';
 import 'package:vbox/presentation/pages/welfare/welfare_spider_main_page.dart';
@@ -123,7 +124,7 @@ void main() {
     expect(find.text('该平台暂不可用'), findsOneWidget);
   });
 
-  testWidgets('点击原生专用平台（kanliao）→ 进入未支持页并给出原因（W-福1）',
+  testWidgets('点击原生专用平台（kanliao）→ 进入今日看料专页（UI-C1e）',
       (WidgetTester tester) async {
     const WelfarePlatformConfig config = WelfarePlatformConfig(
       meta: <String, Object?>{'version': 'x'},
@@ -142,8 +143,8 @@ void main() {
     await tester.tap(find.text('今日看料'));
     await tester.pumpAndSettle();
 
-    // W-福1：不再弹 Toast，改为进入未支持页并说明原因（UI-C1 待落地）。
-    expect(find.text('今日看料页尚未接入（UI-C1）'), findsOneWidget);
+    // UI-C1e：今日看料原生专用页已落地，路由直达专页（不再进未支持页）。
+    expect(find.byType(KanliaoHomePage), findsOneWidget);
   });
 
   testWidgets('点击 JS 福利 Spider 平台 → 进入 JS 引擎执行页', (WidgetTester tester) async {
