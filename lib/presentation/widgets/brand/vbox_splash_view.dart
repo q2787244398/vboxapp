@@ -1,29 +1,27 @@
 /// 表现层：品牌启动页（批次 L · L-壳1）。
 ///
-/// 唯一真相源：iOS `VboxSplashView.swift`
-/// （`vbox/Views/VboxSplashView.swift`）+ `ContentView.swift` L11-L15/L149-L190
-/// （最短展示 3.5s · 数据门控 · 10s 兜底）。
+/// 唯一真相源：iOS `vbox/Views/VboxSplashView.swift` + `ContentView.swift`
+/// （最短展示 3.5s · 首页数据门控 · 10s 兜底）。
 ///
-/// 对齐口径：
-///  - 深浅自适应渐变背景（浅 `0.97/0.90` 灰阶 · 深 `0.12/0.05` 灰阶，取 iOS 同值）；
-///  - 品牌字标四字母**四角飞入聚合**（V 左上 / b 左下 / o 右上 / x 右下，
-///    位移 500×(1,0.7)、旋转 ±30/±25、错峰 0/0.08/0.14/0.20s）；
-///  - swoosh 托底（从左向右扫入，0.30s 延时 · 0.55s easeOut · 顺时针 4°）；
-///  - 聚合后发光（0.7s）→ 呼吸缩放（2.4s，1.05×）+ 上下浮动（3.0s，±6pt）无限循环；
+/// 对齐口径（与 iOS **同源 PNG 素材**，1:1 复刻布局常量）：
+///  - 素材：`assets/splash/splash_letter_{V,b,o,x}.png` + `splash_swoosh.png`
+///    （四张字母同画布高 1010 / 同基线 860；swoosh 2446×469）；
+///  - 字标：V 显示高 100pt、box 三字母 ×0.85 = 85pt，按 iOS 的
+///    width/xOffset/yOffset 重叠聚拢（V 大一号），整体 -8° 上翘；
+///  - swoosh 托底：宽 182.2pt、相对字标左上 (0, 72.3)、顺时针 4° 压平；
+///  - 动画：四角飞入聚合（位移 500×(1,0.7)、旋转 ±30/±25、错峰 0/0.08/0.14/0.20s）
+///    + swoosh 从左扫入（0.30s 延时）→ 聚合后发光（0.7s）
+///    → 呼吸缩放（2.4s，1.05×）+ 上下浮动（3.0s，±6pt）无限循环；
 ///  - 底部两行小字 + 版本号（发光后淡入）。
-///
-/// 落地差异（如实登记）：iOS 用 5 张 PNG（`splash_letter_V/b/o/x` + `splash_swoosh`）
-/// 精确重叠装配；Flutter 侧无同源 PNG，改用品牌字体 [VboxBrand.fontFamily] 渲染
-/// 「V 大 box 小」字标 + 品牌蓝渐变圆条替代 swoosh，动画时序与位移/旋转参数保持一致。
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_constants.dart';
-import '../../theme/brand.dart';
-import '../../theme/tokens/colors.dart';
 
 /// 启动页渐变底色（深浅自适应；启动图与品牌闪屏共用同一取值）。
 List<Color> vboxSplashGradient(Brightness brightness) => brightness == Brightness.dark
@@ -82,20 +80,37 @@ enum _FlyDirection {
       };
 }
 
-/// 单个字母配置（对齐 iOS `LetterImageConfig` 的时序字段）。
+/// 单个字母配置（对齐 iOS `LetterImageConfig`）。
 class _LetterSpec {
-  const _LetterSpec(this.letter, this.size, this.direction, this.delay);
+  const _LetterSpec({
+    required this.asset,
+    required this.width,
+    required this.height,
+    required this.xOffset,
+    required this.yOffset,
+    required this.direction,
+    required this.delay,
+  });
 
-  /// 字面。
-  final String letter;
+  /// 素材路径。
+  final String asset;
 
-  /// 字号。
-  final double size;
+  /// 显示宽度（按归一化画布 1010 等比换算，对齐 iOS `frame(width:)`）。
+  final double width;
+
+  /// 显示高度（= 宽度 × 画布高/图宽，与 iOS `.scaledToFit()` 同值）。
+  final double height;
+
+  /// 聚合后的水平位置。
+  final double xOffset;
+
+  /// 聚合后的垂直位置（box 缩小后下移，墨迹底对齐基线）。
+  final double yOffset;
 
   /// 飞入方向。
   final _FlyDirection direction;
 
-  /// 延时（秒）。
+  /// 错峰延时（秒）。
   final double delay;
 }
 
@@ -113,12 +128,63 @@ class VboxSplashView extends StatefulWidget {
 
 class _VboxSplashViewState extends State<VboxSplashView>
     with TickerProviderStateMixin {
-  /// 字母配置（V 大一号，box 缩小，对齐 iOS v9 层级）。
+  /// 字标聚合宽度（对齐 iOS `compWidth`）。
+  static const double _compWidth = 182.2;
+
+  /// 字标高度基准（V 显示高 100pt，对齐 iOS `logoHeight`）。
+  static const double _logoHeight = 100;
+
+  /// 字标整体倾角（-8° 右端上翘，对齐 iOS `logoTilt`）。
+  static const double _logoTilt = -8;
+
+  /// swoosh 宽 / 高（2446×469 按 182.2pt 等比）。
+  static const double _swooshWidth = 182.2;
+  static const double _swooshHeight = 34.9;
+
+  /// swoosh 相对字标左上的偏移（对齐 iOS `swooshOffset`）。
+  static const Offset _swooshOffset = Offset(0, 72.3);
+
+  /// swoosh 顺时针压平角度（对齐 iOS `swooshTilt`）。
+  static const double _swooshTilt = 4;
+
+  /// 字母素材（v9：V 大一号，box 缩小 0.85；与 iOS 同源 PNG）。
   static const List<_LetterSpec> _letters = <_LetterSpec>[
-    _LetterSpec('V', 100, _FlyDirection.topLeft, 0.00),
-    _LetterSpec('b', 85, _FlyDirection.bottomLeft, 0.08),
-    _LetterSpec('o', 85, _FlyDirection.topRight, 0.14),
-    _LetterSpec('x', 85, _FlyDirection.bottomRight, 0.20),
+    _LetterSpec(
+      asset: 'assets/splash/splash_letter_V.png',
+      width: 81.0,
+      height: 100.0,
+      xOffset: 0.0,
+      yOffset: 0.0,
+      direction: _FlyDirection.topLeft,
+      delay: 0.00,
+    ),
+    _LetterSpec(
+      asset: 'assets/splash/splash_letter_b.png',
+      width: 43.6,
+      height: 85.0,
+      xOffset: 50.5,
+      yOffset: 12.7,
+      direction: _FlyDirection.bottomLeft,
+      delay: 0.08,
+    ),
+    _LetterSpec(
+      asset: 'assets/splash/splash_letter_o.png',
+      width: 37.8,
+      height: 85.0,
+      xOffset: 89.1,
+      yOffset: 12.7,
+      direction: _FlyDirection.topRight,
+      delay: 0.14,
+    ),
+    _LetterSpec(
+      asset: 'assets/splash/splash_letter_x.png',
+      width: 66.3,
+      height: 85.0,
+      xOffset: 115.9,
+      yOffset: 12.7,
+      direction: _FlyDirection.bottomRight,
+      delay: 0.20,
+    ),
   ];
 
   /// 进入（飞入聚合 + swoosh 扫入）。
@@ -194,9 +260,8 @@ class _VboxSplashViewState extends State<VboxSplashView>
 
   @override
   Widget build(BuildContext context) {
-    final bool isDark = Theme.of(context).brightness == Brightness.dark;
-    final List<Color> background = vboxSplashGradient(Theme.of(context).brightness);
-    final Color subtitleColor = isDark
+    final Brightness brightness = Theme.of(context).brightness;
+    final Color subtitleColor = brightness == Brightness.dark
         ? Colors.white.withValues(alpha: 0.25)
         : Colors.black.withValues(alpha: 0.18);
 
@@ -205,7 +270,7 @@ class _VboxSplashViewState extends State<VboxSplashView>
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: background,
+          colors: vboxSplashGradient(brightness),
         ),
       ),
       child: Stack(
@@ -225,43 +290,28 @@ class _VboxSplashViewState extends State<VboxSplashView>
   /// 字标：swoosh 托底 + 四字母飞入聚合 + 发光 + 呼吸浮动。
   Widget _logo() {
     return AnimatedBuilder(
-      animation: _breath,
+      animation: Listenable.merge(<Listenable>[_breath, _float]),
       builder: (BuildContext context, Widget? child) {
         final double scale = 1 + 0.05 * _breath.value;
-        return AnimatedBuilder(
-          animation: _float,
-          builder: (BuildContext context, Widget? _) {
-            final double dy = -6 + 12 * _float.value;
-            return Transform.translate(
-              offset: Offset(0, dy),
-              child: Transform.scale(scale: scale, child: child),
-            );
-          },
-          child: child,
+        final double dy = -6 + 12 * _float.value;
+        return Transform.translate(
+          offset: Offset(0, dy),
+          child: Transform.scale(scale: scale, child: child),
         );
       },
-      child: SizedBox(
-        width: 182.2,
-        height: 100,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: <Widget>[
-            _swoosh(),
-            // 字标总宽受 iOS 聚合宽度 182.2 约束；品牌字体自然宽度（≈217.6pt）
-            // 超出该宽度，等比缩至贴合（`scaleDown`），避免溢出且保持「V 大 box 小」层级。
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: _letters
-                    .map((_LetterSpec spec) => _letter(spec))
-                    .toList(growable: false),
-              ),
-            ),
-          ],
+      child: Transform.rotate(
+        angle: _logoTilt * math.pi / 180,
+        child: SizedBox(
+          width: _compWidth,
+          height: _logoHeight,
+          child: Stack(
+            alignment: Alignment.topLeft,
+            clipBehavior: Clip.none,
+            children: <Widget>[
+              _swoosh(),
+              for (final _LetterSpec spec in _letters) _letter(spec),
+            ],
+          ),
         ),
       ),
     );
@@ -277,9 +327,8 @@ class _VboxSplashViewState extends State<VboxSplashView>
       parent: _enter,
       curve: const Interval(0.33, 0.7),
     );
-    return Positioned(
-      left: 0,
-      top: 72.3,
+    return Transform.translate(
+      offset: _swooshOffset,
       child: AnimatedBuilder(
         animation: progress,
         builder: (BuildContext context, Widget? child) {
@@ -287,30 +336,18 @@ class _VboxSplashViewState extends State<VboxSplashView>
             opacity: opacity.value,
             child: Transform.translate(
               offset: Offset(-160 * (1 - progress.value), 0),
-              child: Transform.rotate(angle: 4 * 3.1415926535 / 180, child: child),
+              child: Transform.rotate(
+                angle: _swooshTilt * math.pi / 180,
+                child: child,
+              ),
             ),
           );
         },
-        child: Container(
-          width: 182.2,
-          height: 7,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(4),
-            gradient: const LinearGradient(
-              colors: <Color>[
-                Colors.transparent,
-                VboxColors.brandGradientStart,
-                VboxColors.brandGradientEnd,
-              ],
-            ),
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: VboxColors.brandGradientStart.withValues(alpha: 0.45),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
+        child: Image.asset(
+          'assets/splash/splash_swoosh.png',
+          width: _swooshWidth,
+          height: _swooshHeight,
+          fit: BoxFit.fill,
         ),
       ),
     );
@@ -320,21 +357,13 @@ class _VboxSplashViewState extends State<VboxSplashView>
   Widget _letter(_LetterSpec spec) {
     final Animation<double> progress = _letterProgress(spec.delay);
     final Animation<double> opacity = _letterOpacity(spec.delay);
-    final TextStyle style = TextStyle(
-      fontFamily: VboxBrand.fontFamily,
-      fontSize: spec.size,
-      height: 1,
-      fontWeight: FontWeight.w700,
-      color: Theme.of(context).brightness == Brightness.dark
-          ? Colors.white
-          : Theme.of(context).colorScheme.onSurface,
-    );
     return AnimatedBuilder(
       animation: progress,
       builder: (BuildContext context, Widget? child) {
         final double p = progress.value;
-        final Offset offset = spec.direction.offset * (1 - p);
-        final double rotation = spec.direction.rotation * (1 - p) * 3.1415926535 / 180;
+        final Offset offset =
+            spec.direction.offset * (1 - p) + Offset(spec.xOffset, spec.yOffset);
+        final double rotation = spec.direction.rotation * (1 - p) * math.pi / 180;
         return Opacity(
           opacity: opacity.value.clamp(0.0, 1.0),
           child: Transform.translate(
@@ -344,28 +373,29 @@ class _VboxSplashViewState extends State<VboxSplashView>
         );
       },
       child: Stack(
+        clipBehavior: Clip.none,
         children: <Widget>[
-          // 发光层（聚合完成后常亮）。
+          // 发光层（聚合后常亮；对齐 iOS blur(14) + opacity 0.5）。
           FadeTransition(
-            opacity: _glow,
-            child: Text(
-              spec.letter,
-              style: style.copyWith(
-                shadows: <Shadow>[
-                  Shadow(
-                    color: VboxColors.brandGradientStart.withValues(alpha: 0.5),
-                    blurRadius: 14,
-                  ),
-                ],
-                color: Colors.transparent,
-              ),
+            opacity: _glow.drive(Tween<double>(begin: 0.0, end: 0.5)),
+            child: ImageFiltered(
+              imageFilter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+              child: _letterImage(spec),
             ),
           ),
-          Text(spec.letter, style: style),
+          _letterImage(spec),
         ],
       ),
     );
   }
+
+  /// 字母位图（显式宽高 = iOS `frame(width:)` + `scaledToFit()` 的结果）。
+  Widget _letterImage(_LetterSpec spec) => Image.asset(
+        spec.asset,
+        width: spec.width,
+        height: spec.height,
+        fit: BoxFit.fill,
+      );
 
   /// 底部小字 + 版本号。
   Widget _subtitle(Color color) {

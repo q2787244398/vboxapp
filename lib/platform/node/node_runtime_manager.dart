@@ -227,8 +227,7 @@ class NodeRuntimeManager {
   Timer? _healthTimer;
   Timer? _lxHealthTimer;
 
-  /// 在途的「崩溃后自动重启」任务。[stop] 需等待其收敛，否则停止后仍会继续落盘，
-  /// 与调用方随后的目录清理 / 关闭竞态（如单测 tearDown 删除运行时目录）。
+  /// 在途的自动重启任务（[stop] 需等待其收敛，避免异步写盘与资源清理竞态）。
   Future<void>? _restartFuture;
 
   /// 状态变化广播（对齐 iOS `nodeRuntimeStatus` 通知）。
@@ -354,10 +353,14 @@ class NodeRuntimeManager {
     _healthTimer = null;
     _lxHealthTimer?.cancel();
     _lxHealthTimer = null;
-    // 等待在途自动重启收敛：其 prepareRuntimeFiles 仍在写盘，若不等，
-    // 停止后仍会继续写文件，与调用方随后的目录清理 / 关闭竞态。
-    final Future<void>? restart = _restartFuture;
-    if (restart != null) await restart;
+    // 先等待在途的自动重启收敛：其 `prepareRuntimeFiles` 是异步写盘，
+    // 若不等它完成就返回，外部（如单测目录删除）会在写入尚未结束时清理目录，
+    // 触发 `Directory not empty` 竞态。
+    final Future<void>? inflight = _restartFuture;
+    if (inflight != null) {
+      await inflight;
+      _restartFuture = null;
+    }
     await _host.stop();
     _isSystemReady = false;
     _isLXReady = false;

@@ -70,7 +70,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
-    - assets/splash/vbox_letter.png
+    # 品牌启动页素材（与 iOS Assets.xcassets 同源）：4 张字母 PNG + swoosh。
+    - assets/splash/
     # M-账3：默认头像用的软件图标（与各端 Launcher 图标同源，对齐 iOS AppIcon）
     - assets/brand/app_icon.png
     # ND-01：Node 常驻系统内置运行时（首次启动复制到 <appData>/noderuntime）。
