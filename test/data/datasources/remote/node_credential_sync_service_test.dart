@@ -4,6 +4,9 @@
 /// （push / pull / deleteNodeCredential 的协议与落库行为）。
 library;
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -284,6 +287,102 @@ void main() {
       expect(client.calls, isEmpty); // 无凭据不推
       await service.saveProfile();
       expect(client.calls, <String>['GET /website/api/credentials']);
+    });
+  });
+
+  group('onNodeReady 自动推送（NC-清5）', () {
+    test('首次推送 Node 托管凭据，再次调用短路（不重复 PUT）', () async {
+      await store.save(_cred(CloudDriveType.one15, cookie: 'CID=1'));
+      final _FakeClient client = _FakeClient();
+      final NodeCredentialSyncService service =
+          NodeCredentialSyncService(store: store, client: client);
+
+      expect(service.hasAutoSynced, isFalse);
+      final NodeCredentialSyncSummary? first = await service.onNodeReady();
+      expect(first, isNotNull);
+      expect(first!.pushedFields, 1);
+      expect(service.hasAutoSynced, isTrue);
+      expect(client.calls, <String>['PUT /website/api/credential/pan115/cookie']);
+
+      final NodeCredentialSyncSummary? second = await service.onNodeReady();
+      expect(second, isNull);
+      expect(client.calls.length, 1); // 去重：不再 PUT
+    });
+  });
+
+  group('wexfnwconfig.json 兜底（NC-清5）', () {
+    late Directory tmp;
+    late File cfg;
+
+    setUp(() async {
+      tmp = await Directory.systemTemp.createTemp('vbox_nodecfg');
+      cfg = File('${tmp.path}${Platform.pathSeparator}wexfnwconfig.json');
+    });
+
+    tearDown(() async {
+      if (await tmp.exists()) await tmp.delete(recursive: true);
+    });
+
+    test('pull 并读配置文件，覆盖 HTTP 不暴露的 guangya', () async {
+      await cfg.writeAsString(jsonEncode(<String, dynamic>{
+        'pan': <String, dynamic>{
+          'guangya': <String, dynamic>{'token': 'gy-token'},
+        },
+      }));
+      final _FakeClient client = _FakeClient(
+        getResponse: <String, dynamic>{
+          'code': 0,
+          'data': <String, dynamic>{
+            'pan115': <String, dynamic>{'cookie': 'CID=1'},
+          },
+        },
+      );
+      final NodeCredentialSyncSummary summary = await NodeCredentialSyncService(
+        store: store,
+        client: client,
+        configFilePath: cfg.path,
+      ).pull();
+
+      expect(summary.pulledDrives, <String>['115', 'guangya']);
+      expect(summary.succeeded, isTrue);
+      final CloudDriveCredential? gy =
+          await store.credential(CloudDriveType.guangya);
+      expect(gy, isNotNull);
+      expect(gy!.extra['token'], 'gy-token');
+    });
+
+    test('配置文件缺失：不报错、不落库', () async {
+      final _FakeClient client = _FakeClient();
+      final NodeCredentialSyncSummary summary = await NodeCredentialSyncService(
+        store: store,
+        client: client,
+        configFilePath: cfg.path,
+      ).pull();
+
+      expect(summary.succeeded, isTrue);
+      expect(summary.pulledDrives, isEmpty);
+      expect(await store.loadAll(), isEmpty);
+    });
+
+    test('deleteNodeCredential 兜底清理配置文件字段（保留兄弟键）', () async {
+      await cfg.writeAsString(jsonEncode(<String, dynamic>{
+        'pan': <String, dynamic>{
+          'pan115': <String, dynamic>{'cookie': 'CID=1', 'other': 'keep'},
+        },
+      }));
+      final _FakeClient client = _FakeClient();
+      await NodeCredentialSyncService(
+        store: store,
+        client: client,
+        configFilePath: cfg.path,
+      ).deleteNodeCredential(CloudDriveType.one15);
+
+      final Map<String, dynamic> root =
+          jsonDecode(await cfg.readAsString()) as Map<String, dynamic>;
+      final Map<String, dynamic> pan115 =
+          (root['pan'] as Map<String, dynamic>)['pan115'] as Map<String, dynamic>;
+      expect(pan115.containsKey('cookie'), isFalse);
+      expect(pan115['other'], 'keep');
     });
   });
 }

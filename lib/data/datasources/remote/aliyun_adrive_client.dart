@@ -14,18 +14,21 @@
 ///   6. 直链交付（不包 Go 代理）；
 ///   7. 请求头组装（L306-325）：**转码 m3u8 不注入 UA/Referer**，原画直链补
 ///      `UA + Referer=https://api.alipan.com`；
-///   8. 清理：转存路径 `scheduleCleanup`（L1222）——属空间管理，**本段未移植**。
+///   8. 清理：转存路径 `scheduleCleanup`（L1222）——**NC-清3 已移植**：内存队列
+///      + 到期 `moveToTrash`（`POST /adrive/v2/file/delete`），失败保留 ≤10 分钟
+///      重试；`autoCleanup` 由 [PgAutoConfig] 决定，转存失败路径无条件登记。
 ///
 /// 未移植项（如实登记）：
 ///   · **方案C（extscreen 刷新）**——Flutter 已由 `aliyun_extscreen_client.dart`
 ///     提供 extscreen OAuth；本客户端只做 A（官方）/B（WebApp）+ `verifyAdriveToken`；
-///   · **转存后清理队列**（`scheduleCleanup`/`processPendingCleanups`）——容量管理优化；
 ///   · **`/ali-stream` 本地代理**（iOS 原画直链走本地代理注入头）——Flutter 直接以
 ///     `headers` 交付播放器，不建本地代理（登记差异）。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
+import '../../../domain/entities/cloud/pg_auto.dart';
 import '../../../platform/spider/spider_http_bridge.dart';
 
 /// 阿里分享文件条目（对齐 iOS `PgShareFile`）。
@@ -106,11 +109,35 @@ class AliyunAdriveException implements Exception {
   String toString() => 'AliyunAdriveException($message)';
 }
 
+/// 待清理转存文件（对齐 iOS `PgCleanupItem`）。
+class AliyunCleanupItem {
+  /// 构造。
+  const AliyunCleanupItem({
+    required this.fileId,
+    required this.accessToken,
+    required this.createdAt,
+  });
+
+  /// 待删除文件 ID。
+  final String fileId;
+
+  /// 删除所需的 access_token（原画/转存链观众）。
+  final String accessToken;
+
+  /// 登记时间（用于延迟判定）。
+  final DateTime createdAt;
+}
+
 /// 阿里云盘 ADrive 播放链客户端。
 class AliyunAdriveClient {
   /// 构造（[transport] 供测试注入）。
-  AliyunAdriveClient({SpiderHttpTransport? transport})
-      : _transport = transport ?? IoSpiderHttpTransport();
+  ///
+  /// [startCleanupWorker] 为 `false` 时不自动起 30s 定时器（测试用），
+  /// 需显式调用 [processPendingCleanups]。
+  AliyunAdriveClient({
+    SpiderHttpTransport? transport,
+    this.startCleanupWorker = true,
+  }) : _transport = transport ?? IoSpiderHttpTransport();
 
   /// 阿里 API 基址（对齐 iOS `aliApiBase` / `aliPdsApiBase`，两者同值）。
   static const String apiBase = 'https://api.alipan.com';
@@ -137,6 +164,24 @@ class AliyunAdriveClient {
   ];
 
   final SpiderHttpTransport _transport;
+
+  /// 是否自动起 30s 清理工作线程（对齐 iOS `startCleanupWorker`）。
+  final bool startCleanupWorker;
+
+  /// 待清理转存文件（对齐 iOS `pendingCleanups`）。
+  final List<AliyunCleanupItem> _pendingCleanups = <AliyunCleanupItem>[];
+
+  /// 清理工作线程定时器（惰性创建）。
+  Timer? _cleanupTimer;
+
+  /// 清理重试上限窗口（对齐 iOS：失败保留 10 分钟后放弃）。
+  static const Duration cleanupRetryWindow = Duration(minutes: 10);
+
+  /// 工作线程轮询间隔（对齐 iOS 每 30 秒检查）。
+  static const Duration cleanupPollInterval = Duration(seconds: 30);
+
+  /// 待清理条目数（测试 / 诊断）。
+  int get pendingCleanupCount => _pendingCleanups.length;
 
   // ─────────────── 静态工具 ───────────────
 
@@ -724,11 +769,15 @@ class AliyunAdriveClient {
 
   // ─────────────── 主链编排（对齐 resolveViaPgChain）───────────────
 
-  /// 分享链接 → 取链（对齐 iOS `resolveViaPgChain` 8 步，清理未移植）。
+  /// 分享链接 → 取链（对齐 iOS `resolveViaPgChain` 8 步）。
+  ///
+  /// [pgConfig] 提供转存清理开关（`autoCleanup`）与延迟（`cleanupDelay`）；
+  /// 缺省 [PgAutoConfig.defaults]（契约缺省 `autoCleanup=false`，不登记）。
   Future<AliyunPlayResult> resolvePlayUrl({
     required String shareUrl,
     required String refreshToken,
     String? preferredFileId,
+    PgAutoConfig pgConfig = PgAutoConfig.defaults,
   }) async {
     final String shareId = parseShareId(shareUrl);
     if (shareId.isEmpty) throw const AliyunAdriveException('无法识别的分享链接');
@@ -794,32 +843,45 @@ class AliyunAdriveClient {
     }
 
     // 步骤5：转存兜底（仅 4 全失败）。
+    String? transferredFileId;
     if (transcodeUrl == null && download == null) {
-      final String driveId = await getDriveId(token.accessToken);
-      final String savedId = await saveFile(
-        accessToken: token.accessToken,
-        shareToken: shareToken,
-        shareId: shareId,
-        fileId: target.fileId,
-        driveId: driveId,
-      );
       try {
-        transcodeUrl = await getVideoPreviewUrl(
+        final String driveId = await getDriveId(token.accessToken);
+        final String savedId = await saveFile(
           accessToken: token.accessToken,
+          shareToken: shareToken,
+          shareId: shareId,
+          fileId: target.fileId,
           driveId: driveId,
-          fileId: savedId,
         );
-        source = 'ali-transfer-transcode';
-      } on AliyunAdriveException {
-        transcodeUrl = null;
-      }
-      if (transcodeUrl == null) {
-        download = await getDownloadInfo(
-          accessToken: token.accessToken,
-          driveId: driveId,
-          fileId: savedId,
-        );
-        source = 'ali-transfer-download';
+        transferredFileId = savedId;
+        try {
+          transcodeUrl = await getVideoPreviewUrl(
+            accessToken: token.accessToken,
+            driveId: driveId,
+            fileId: savedId,
+          );
+          source = 'ali-transfer-transcode';
+        } on AliyunAdriveException {
+          transcodeUrl = null;
+        }
+        if (transcodeUrl == null) {
+          download = await getDownloadInfo(
+            accessToken: token.accessToken,
+            driveId: driveId,
+            fileId: savedId,
+          );
+          source = 'ali-transfer-download';
+        }
+      } on AliyunAdriveException catch (e) {
+        // 转存失败也要清理可能已转存的文件（对齐 iOS L279-282）。
+        if (transferredFileId != null) {
+          scheduleCleanup(
+            fileId: transferredFileId,
+            accessToken: token.accessToken,
+          );
+        }
+        throw AliyunAdriveException('PG步骤4-5 获取播放直链失败: ${e.message}');
       }
     }
 
@@ -837,12 +899,113 @@ class AliyunAdriveClient {
       if (!base.containsKey('Referer')) base['Referer'] = 'https://api.alipan.com';
       headers = base;
     }
+
+    // 步骤8：转存路径按 `autoCleanup` 登记延迟清理（对齐 iOS）。
+    if (transferredFileId != null &&
+        PgAutoRules.shouldScheduleCleanup(pgConfig)) {
+      scheduleCleanup(
+        fileId: transferredFileId,
+        accessToken: token.accessToken,
+      );
+    }
     return AliyunPlayResult(
       url: url,
       headers: headers,
       source: source,
       fileName: target.name,
     );
+  }
+
+  // ─────────────── 转存清理（NC-清3，对齐 iOS `scheduleCleanup` /
+  //                 `processPendingCleanups` / `moveToTrash`）───────────────
+
+  /// 登记延迟清理（对齐 iOS `scheduleCleanup(fileId:accessToken:)`）。
+  ///
+  /// 首次登记时按需拉起工作线程（[startCleanupWorker] 为 true）。
+  void scheduleCleanup({
+    required String fileId,
+    required String accessToken,
+  }) {
+    if (fileId.isEmpty) return;
+    _pendingCleanups.add(
+      AliyunCleanupItem(
+        fileId: fileId,
+        accessToken: accessToken,
+        createdAt: DateTime.now(),
+      ),
+    );
+    _ensureCleanupWorker();
+  }
+
+  void _ensureCleanupWorker() {
+    if (!startCleanupWorker) return;
+    if (_cleanupTimer != null) return;
+    _cleanupTimer = Timer.periodic(cleanupPollInterval, (_) {
+      unawaited(processPendingCleanups());
+    });
+  }
+
+  /// 停止清理工作线程（释放资源 / 测试收尾）。
+  void disposeCleanupWorker() {
+    _cleanupTimer?.cancel();
+    _cleanupTimer = null;
+  }
+
+  /// 处理到期清理（对齐 iOS `processPendingCleanups`）。
+  ///
+  /// 到期条目尝试删除；失败条目在 [cleanupRetryWindow] 内保留重试，超窗放弃。
+  Future<int> processPendingCleanups({
+    required Duration delay,
+    DateTime? now,
+  }) async {
+    if (_pendingCleanups.isEmpty) return 0;
+    final DateTime stamp = now ?? DateTime.now();
+    final List<AliyunCleanupItem> remaining = <AliyunCleanupItem>[];
+    int deleted = 0;
+    for (final AliyunCleanupItem item in _pendingCleanups) {
+      final Duration age = stamp.difference(item.createdAt);
+      if (age < delay) {
+        remaining.add(item);
+        continue;
+      }
+      try {
+        await deleteFile(
+          accessToken: item.accessToken,
+          fileId: item.fileId,
+        );
+        deleted += 1;
+      } on AliyunAdriveException {
+        if (age < cleanupRetryWindow) remaining.add(item);
+      }
+    }
+    _pendingCleanups
+      ..clear()
+      ..addAll(remaining);
+    if (_pendingCleanups.isEmpty) disposeCleanupWorker();
+    return deleted;
+  }
+
+  /// 删除转存临时文件（对齐 iOS `moveToTrash`：
+  /// `POST {apiPds}/adrive/v2/file/delete`，需先取 drive_id）。
+  Future<void> deleteFile({
+    required String accessToken,
+    required String fileId,
+  }) async {
+    final String driveId = await getDriveId(accessToken);
+    final ({int status, Map<String, Object?>? json}) res = await _post(
+      '$apiBase/adrive/v2/file/delete',
+      headers: <String, String>{
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+      body: <String, Object?>{
+        'drive_id': driveId,
+        'file_id': fileId,
+      },
+    );
+    if (res.status != 200) {
+      throw AliyunAdriveException('file/delete HTTP ${res.status}');
+    }
   }
 
   // ─────────────── 内部：HTTP / JSON ───────────────

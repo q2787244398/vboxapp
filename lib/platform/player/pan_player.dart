@@ -21,6 +21,7 @@ library;
 
 import '../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../data/datasources/local/cloud_play_item_cache_store.dart';
+import '../../data/datasources/local/pg_auto_store.dart';
 import '../../data/datasources/local/prefs_manager.dart';
 import '../../data/datasources/remote/aliyun_adrive_client.dart';
 import '../../data/datasources/remote/baidu_ibox_client.dart';
@@ -30,6 +31,7 @@ import '../../data/datasources/remote/uc_native_client.dart';
 import '../../domain/entities/cloud/cloud_drive.dart';
 import '../../domain/entities/cloud/cloud_play_item.dart';
 import '../../domain/entities/cloud/node_pan.dart';
+import '../../domain/entities/cloud/pg_auto.dart';
 import '../../domain/entities/player/player.dart';
 import 'playback_route.dart';
 import 'player_controller.dart';
@@ -132,6 +134,27 @@ class PanPlayer {
   Future<String> _aliyunRefreshToken() async =>
       (await _credential(CloudDriveType.ali))?.refreshToken ?? '';
 
+  /// 阿里 PG 自动化配置（对齐 iOS `AliyunPgConfig.shared`，读取 `pg_ali_*`）。
+  ///
+  /// 读取失败回退契约缺省（与 iOS 未写入时的缺省行为一致：`enabled` 除外，
+  /// 契约缺省关闭且 Flutter 不做首次写入）。
+  Future<PgAutoConfig> _pgConfig() async {
+    try {
+      return await PgAutoStore(PrefsManager.instance).load();
+    } catch (_) {
+      return PgAutoConfig.defaults;
+    }
+  }
+
+  /// UC TV Token（对齐 iOS `credential.extra["uc_tv_token"]`）。
+  ///
+  /// 注入 [cookieFor] 替身时无 extra，返回空串（等价 iOS 无 TV Token，
+  /// 取链自动降级 v2/play → download_url）。
+  Future<String> _ucTvToken() async {
+    if (_cookieFor != null) return '';
+    return (await _credential(CloudDriveType.uc))?.extra['uc_tv_token'] ?? '';
+  }
+
   /// 播放控制器（缺省取全局单例）。
   PlayerController get controller => _controller ??= PlayerController.instance;
 
@@ -193,9 +216,14 @@ class PanPlayer {
         }
         if (type == CloudDriveType.uc) {
           final String cookie = await _cookie(type);
+          final String tvToken = await _ucTvToken();
           final List<UcShareFile> files;
           try {
-            files = await _uc.getFileList(shareUrl: shareUrl, cookie: cookie);
+            files = await _uc.getFileList(
+              shareUrl: shareUrl,
+              cookie: cookie,
+              tvToken: tvToken,
+            );
           } on UcNativeException catch (e) {
             throw PanPlayException(e.message);
           }
@@ -295,12 +323,14 @@ class PanPlayer {
           source = r.source;
         } else if (type == CloudDriveType.uc) {
           final String cookie = await _cookie(type);
+          final String tvToken = await _ucTvToken();
           final UcPlayResult r;
           try {
             r = await _uc.resolvePlayUrl(
               shareUrl: shareUrl,
               cookie: cookie,
               preferredFid: entry.playID,
+              tvToken: tvToken,
             );
           } on UcNativeException catch (e) {
             throw PanPlayException(e.message);
@@ -317,12 +347,14 @@ class PanPlayer {
         if (refreshToken.isEmpty) {
           throw const PanPlayException('阿里云盘未授权（缺少 Refresh Token），请先扫码登录');
         }
+        final PgAutoConfig pgConfig = await _pgConfig();
         final AliyunPlayResult r;
         try {
           r = await _aliyun.resolvePlayUrl(
             shareUrl: shareUrl,
             refreshToken: refreshToken,
             preferredFileId: entry.playID,
+            pgConfig: pgConfig,
           );
         } on AliyunAdriveException catch (e) {
           throw PanPlayException(e.message);

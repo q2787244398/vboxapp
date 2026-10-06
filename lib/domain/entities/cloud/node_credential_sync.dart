@@ -236,6 +236,82 @@ const Map<String, String> nodePullableProviders = <String, String>{
 bool isNodeManagedDrive(CloudDriveType type) =>
     nodeManagedProviders.containsKey(type.id);
 
+/// `wexfnwconfig.json` 字段标量转字符串（对齐 iOS `readConfigFileValues`）。
+///
+/// - 字符串原样；
+/// - 整数值的 num 转整数文本（JSON 中 `1.0` → `1`，与 iOS `Double.rounded()` 分支同口径）；
+/// - 其余走 `toString()`；
+/// - 去空白后为空串返回 null（视为无值）。
+String? nodeConfigScalarToString(Object? raw) {
+  if (raw == null) return null;
+  final String text;
+  if (raw is String) {
+    text = raw;
+  } else if (raw is num && raw == raw.roundToDouble()) {
+    text = raw.toInt().toString();
+  } else {
+    text = raw.toString();
+  }
+  final String trimmed = text.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+/// 按路径段在嵌套 JSON 中取值（对齐 iOS `valueAtPath`）。
+///
+/// 例：`['pan','pan115','cookie']` → `root['pan']['pan115']['cookie']`；
+/// 任一段非字典或缺键返回 null。
+Object? nodeConfigValueAtPath(Object? root, List<String> path) {
+  Object? current = root;
+  for (final String key in path) {
+    if (current is! Map) return null;
+    if (!current.containsKey(key)) return null;
+    current = current[key];
+  }
+  return current;
+}
+
+/// 按路径段移除嵌套 JSON 中的值（对齐 iOS `removeValueAtPath`）。
+///
+/// 返回是否发生变更（供调用方判定是否需回写文件）。
+bool nodeConfigRemoveAtPath(Map<String, dynamic> root, List<String> path) {
+  if (path.isEmpty) return false;
+  final String first = path.first;
+  if (path.length == 1) {
+    if (!root.containsKey(first)) return false;
+    root.remove(first);
+    return true;
+  }
+  final Object? child = root[first];
+  if (child is! Map) return false;
+  final Map<String, dynamic> childMap = <String, dynamic>{
+    for (final MapEntry<Object?, Object?> e in child.entries)
+      e.key.toString(): e.value,
+  };
+  final bool changed = nodeConfigRemoveAtPath(childMap, path.sublist(1));
+  if (changed) root[first] = childMap;
+  return changed;
+}
+
+/// 从 `wexfnwconfig.json` 根对象提取全部 Node 托管盘字段值。
+///
+/// 对齐 iOS `readConfigFileValues`：逐盘逐字段按 [NodeCredentialFieldMap.dbPath]
+/// 取值，非空方收录；返回 `driveType.id → {nodeField: value}`（空盘不收录）。
+Map<String, Map<String, String>> nodeConfigValuesByDrive(Object? root) {
+  final Map<String, Map<String, String>> result =
+      <String, Map<String, String>>{};
+  for (final MapEntry<String, NodeCredentialProviderSpec> entry
+      in nodeManagedProviders.entries) {
+    final Map<String, String> values = <String, String>{};
+    for (final NodeCredentialFieldMap field in entry.value.fields) {
+      final String? value =
+          nodeConfigScalarToString(nodeConfigValueAtPath(root, field.dbPath));
+      if (value != null) values[field.nodeField] = value;
+    }
+    if (values.isNotEmpty) result[entry.key] = values;
+  }
+  return result;
+}
+
 /// 读取凭据槽位值（槽位非法返回 null）。
 String? nodeCredentialSlotValue(CloudDriveCredential credential, String slot) {
   if (slot == 'cookie') return credential.cookie;

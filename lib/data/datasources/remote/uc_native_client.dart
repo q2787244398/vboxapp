@@ -15,20 +15,31 @@
 ///   · `ucGetDownloadURL`（L9154）+ `stripCDNSpeedLimit`（L9185）：下载直链 + 去限速参数；
 ///   · `resolveUCPlayURL`（L8366）：主链编排。
 ///
-/// 未移植项（如实登记）：
-///   · **TV Token 通道**（`ucGetPlayURLWithTVToken` / `ucListFilesWithTVToken`）——
-///     需 `open-api-drive.uc.cn` 的 x-pan 签名与设备指纹，属增强通道；缺省回退
-///     `v2/play`（m3u8）→ `download_url`，不影响可播放性；
-///   · **WebView / 清理**（`ucDeleteFiles` 等）——空间管理优化，非取链必需。
+/// 本批移植（NC-清2 / NC-清4，对齐 iOS）：
+///   · **TV Token 通道**（`ucGetPlayURLWithTVToken` L9211 / `ucListFilesWithTVToken`
+///     L9093）——`open-api-drive.uc.cn` 的 x-pan 签名（SHA256）+ `req_id`（MD5）
+///     设备指纹；取链优先级 TV Token streaming（原片最高画质）> `v2/play`
+///     （m3u8）> `download_url`；stoken 失效时作为选集兜底；
+///   · **空间清理**（`ucDeleteFiles` L8903）——`POST /1/clouddrive/file/delete`
+///     删除转存文件；转存链路按 iOS `resolveUCPlayResult` 登记 1 小时延迟清理。
 ///
 /// 说明：**Set-Cookie 合并**由 HTTP 桥 `SpiderHttpBridge` 的 cookie jar
 /// （`storeFromResponse` + 每请求自动附加）等价覆盖 iOS `quarkMergeSetCookie`，
 /// 与夸克客户端同一口径。
+///
+/// ⚠️ 差异登记（TV Token 设备指纹）：iOS 用 `UIDevice.identifierForVendor`；
+/// Flutter 无设备信息插件，本层用**每客户端实例稳定**的随机 32 位 hex
+/// （随进程会话稳定，语义等价 `req_id` 只需同会话内一致）。
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart' as crypto;
+
+import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../platform/spider/spider_http_bridge.dart';
+import 'cloud_drive_cleanup_scheduler.dart';
 
 /// UC 分享文件条目（对齐 iOS `UCShareFile`）。
 class UcShareFile {
@@ -107,7 +118,28 @@ class UcNativeClient {
     'mp4', 'mkv', 'mov', 'm3u8', 'avi', 'wmv', 'flv', 'ts', 'mp3', 'm4a',
   ];
 
+  /// TV Token x-pan 签名密钥（对齐 iOS `ucGetPlayURLWithTVToken` 内联常量）。
+  static const String tvSignKey = 'l3srvtd7p42l0d0x1u8d7yc8ye9kki4d';
+
+  /// TV Token x-pan 客户端 ID（对齐 iOS 内联常量）。
+  static const String tvClientId = '5acf882d27b74502b7040b0c65519aa7';
+
+  /// TV Token 端点主机（对齐 iOS `open-api-drive.uc.cn`）。
+  static const String tvApiHost = 'https://open-api-drive.uc.cn';
+
+  /// TV Token 请求 UA（对齐 iOS 内联 UA）。
+  static const String tvUserAgent =
+      'Mozilla/5.0 (Linux; U; Android 13; zh-cn; M2004J7AC '
+      'Build/UKQ1.231108.001) AppleWebKit/533.1 (KHTML, like Gecko) '
+      'Mobile Safari/533.1';
+
   final SpiderHttpBridge _bridge;
+
+  /// 转存后延迟清理调度（对齐 iOS `scheduleCleanup`；缺省不调度）。
+  CloudDriveCleanupScheduler? cleanupScheduler;
+
+  /// TV Token 设备指纹（每个客户端实例稳定；对齐 iOS `identifierForVendor`）。
+  String? _deviceIdCache;
 
   // ─────────────── 静态工具（对齐 iOS 同名函数）───────────────
 
@@ -370,10 +402,14 @@ class UcNativeClient {
     }
   }
 
-  /// 分享链接 → 全部可播放文件（对齐 iOS `ucGetFileList`，三层容错）。
+  /// 分享链接 → 全部可播放文件（对齐 iOS `ucGetFileList`，三层容错 + TV 兜底）。
+  ///
+  /// 三层容错：刷新 Cookie → stoken 失效重试 → 明确报错；若提供 [tvToken]，
+  /// 第三层失败后按 iOS `ucResolveUCShareFile` 走 TV Token 兜底列表。
   Future<List<UcShareFile>> getFileList({
     required String shareUrl,
     required String cookie,
+    String? tvToken,
   }) async {
     final ({String pwdId, String passcode}) info = extractShareInfo(shareUrl);
     if (info.pwdId.isEmpty) {
@@ -390,13 +426,24 @@ class UcNativeClient {
       passcode: info.passcode,
       cookie: cookie,
     );
-    // 第二层：stoken 失效刷新重试；第三层：明确报错。
-    return _collectWithRetry(
-      pwdId: info.pwdId,
-      passcode: info.passcode,
-      stoken: stoken,
-      cookie: cookie,
-    );
+    // 第二层：stoken 失效刷新重试；第三层：TV Token 兜底 → 明确报错。
+    try {
+      return await _collectWithRetry(
+        pwdId: info.pwdId,
+        passcode: info.passcode,
+        stoken: stoken,
+        cookie: cookie,
+      );
+    } on UcNativeException {
+      if (tvToken == null || tvToken.isEmpty) rethrow;
+      final List<UcShareFile> tvFiles =
+          await listFilesWithTVToken(tvToken: tvToken);
+      final List<UcShareFile> playable = tvFiles
+          .where((UcShareFile f) => !f.isDir && isPlayableFileName(f.fileName))
+          .toList(growable: false);
+      if (playable.isEmpty) rethrow;
+      return playable;
+    }
   }
 
   Future<List<UcShareFile>> _collectWithRetry({
@@ -728,11 +775,208 @@ class UcNativeClient {
     return '';
   }
 
-  /// 分享链接 → 取链（对齐 iOS `resolveUCPlayURL` 主链；TV Token/清理未移植）。
+  // ─────────────── TV Token 通道（NC-清4，对齐 iOS
+  //                 `ucGetPlayURLWithTVToken` / `ucListFilesWithTVToken`）───────────────
+
+  /// TV Token 稳定设备指纹（32 位 hex；对齐 iOS `identifierForVendor` 去横线）。
+  String _deviceId() =>
+      _deviceIdCache ??= List<String>.generate(
+        32,
+        (_) => math.Random.secure().nextInt(16).toRadixString(16),
+      ).join();
+
+  /// x-pan 签名 token（对齐 iOS：`SHA256("GET&/file&<tm>&<signKey>")`）。
+  static String _xPanToken(String timestamp) => crypto.sha256
+      .convert(utf8.encode('GET&/file&$timestamp&$tvSignKey'))
+      .toString();
+
+  /// `req_id`（对齐 iOS：`MD5(deviceId + timestamp)`）。
+  static String _tvReqId(String deviceId, String timestamp) =>
+      crypto.md5.convert(utf8.encode('$deviceId$timestamp')).toString();
+
+  /// TV Token 通用请求头（对齐 iOS x-pan 三件套 + Accept + UA）。
+  Map<String, String> _tvHeaders(String timestamp) => <String, String>{
+        'Accept': 'application/json, text/plain, */*',
+        'x-pan-client-id': tvClientId,
+        'x-pan-tm': timestamp,
+        'x-pan-token': _xPanToken(timestamp),
+        'User-Agent': tvUserAgent,
+      };
+
+  /// TV Token 设备指纹查询参数（对齐 iOS `components.queryItems` 公共段，iOS 端
+  /// `device_*` 固定为 Apple/iPhone 口径）。
+  Map<String, String> _tvDeviceQuery(String deviceId, String reqId) =>
+      <String, String>{
+        'app_ver': '1.6.8',
+        'device_id': deviceId,
+        'device_brand': 'Apple',
+        'platform': 'tv',
+        'device_name': 'iPhone',
+        'device_model': 'iPhone',
+        'build_device': 'iPhone',
+        'build_product': 'iPhone',
+        'device_gpu': 'Apple',
+        'activity_rect': '{}',
+        'channel': 'UCTVOFFICIALWEB',
+        'req_id': reqId,
+      };
+
+  /// 用 TV Token 列举云盘文件（对齐 iOS `ucListFilesWithTVToken`）。
+  ///
+  /// 用于 stoken 失效时的兜底选集：`GET /file?method=list`（签名走 [tvHeaders]）。
+  Future<List<UcShareFile>> listFilesWithTVToken({
+    required String tvToken,
+    String parentFid = '0',
+  }) async {
+    final String timestamp = '${_nowMs()}';
+    final String deviceId = _deviceId();
+    final Uri url = Uri.parse('$tvApiHost/file').replace(
+      queryParameters: <String, String>{
+        'method': 'list',
+        'parent_fid': parentFid,
+        'order_by': '3',
+        'desc': '1',
+        'category': '',
+        'source': '',
+        'ex_source': '',
+        'list_all': '0',
+        'page_size': '100',
+        'page_index': '0',
+        'access_token': tvToken,
+        ..._tvDeviceQuery(deviceId, _tvReqId(deviceId, timestamp)),
+      },
+    );
+    final SpiderHttpResult res = await _bridge.request(
+      url.toString(),
+      options: SpiderHttpOptions(headers: _tvHeaders(timestamp)),
+    );
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    if (json == null) throw const UcNativeException('TV Token 列表响应异常');
+    final int? status = _asInt(json['status']);
+    if (status == -1) {
+      throw UcNativeException(
+        'TV Token 列表失败：${_asString(json['error_info']) ?? 'status=-1'}',
+      );
+    }
+    final Object? files = _asMap(json['data'])?['files'];
+    if (files is! List) return const <UcShareFile>[];
+    return files
+        .whereType<Map<Object?, Object?>>()
+        .map((Map<Object?, Object?> raw) {
+          final Map<String, Object?> item = raw.cast<String, Object?>();
+          return UcShareFile(
+            fid: _asString(item['fid']) ?? '',
+            fileName:
+                _asString(item['filename']) ?? _asString(item['file_name']) ?? '',
+            isDir: (_asInt(item['isdir']) ?? 0) == 1,
+          );
+        })
+        .where((UcShareFile f) => f.fid.isNotEmpty && f.fileName.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  /// 用 TV Token 取原片流媒体直链（对齐 iOS `ucGetPlayURLWithTVToken`）。
+  ///
+  /// `GET /file?method=streaming`（x-pan 签名）：原片最高画质、不限速。返回
+  /// 地址已去 CDN 限速参数；`errno=10001 && status=-1` 视为 Token 过期。
+  Future<String> getPlayUrlWithTVToken({
+    required String fileId,
+    required String tvToken,
+  }) async {
+    final String timestamp = '${_nowMs()}';
+    final String deviceId = _deviceId();
+    final Uri url = Uri.parse('$tvApiHost/file').replace(
+      queryParameters: <String, String>{
+        'method': 'streaming',
+        'group_by': 'source',
+        'fid': fileId,
+        'resolution': 'low,normal,high,super,2k,4k',
+        'support': 'dolby_vision',
+        'access_token': tvToken,
+        ..._tvDeviceQuery(deviceId, _tvReqId(deviceId, timestamp)),
+      },
+    );
+    final SpiderHttpResult res = await _bridge.request(
+      url.toString(),
+      options: SpiderHttpOptions(headers: _tvHeaders(timestamp)),
+    );
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    if (json == null) throw const UcNativeException('TV Token streaming 响应异常');
+    final int? status = _asInt(json['status']);
+    if (status == -1 && _asInt(json['errno']) == 10001) {
+      throw const UcNativeException('TV Token 已过期，请重新授权 TV');
+    }
+    if (status == -1) {
+      throw UcNativeException(
+        'UCTV Token 获取播放地址失败：${_asString(json['error_info']) ?? _asString(json['message']) ?? 'status=-1'}',
+      );
+    }
+    final Map<String, Object?>? data = _asMap(json['data']);
+    if (data != null) {
+      for (final String key in <String>[
+        'download_url',
+        'stream_url',
+        'url',
+        'play_url',
+      ]) {
+        final String u = _asString(data[key]) ?? '';
+        if (u.isNotEmpty) return stripCdnSpeedLimit(u);
+      }
+      // streaming 端点：video_info 直接在 data 下。
+      final Object? videoInfo = data['video_info'];
+      if (videoInfo is List) {
+        for (final Object? item in videoInfo) {
+          final String u = _asString(_asMap(item)?['url']) ?? '';
+          if (u.isNotEmpty) return stripCdnSpeedLimit(u);
+        }
+      }
+      // download 端点：video_list 嵌套 video_info。
+      final Object? videoList = data['video_list'];
+      if (videoList is List) {
+        for (final Object? item in videoList) {
+          final String u =
+              _asString(_asMap(_asMap(item)?['video_info'])?['url']) ?? '';
+          if (u.isNotEmpty) return stripCdnSpeedLimit(u);
+        }
+      }
+    }
+    throw const UcNativeException('UCTV Token 返回中未找到播放地址');
+  }
+
+  // ─────────────── 空间清理（NC-清2，对齐 iOS `ucDeleteFiles`）───────────────
+
+  /// 删除转存文件（对齐 iOS `ucDeleteFiles`）。
+  ///
+  /// 返回提交删除的文件数（iOS 忽略响应结果，本层同样不解析）。
+  Future<int> deleteFiles({
+    required List<String> fileIds,
+    required String cookie,
+  }) async {
+    if (fileIds.isEmpty) return 0;
+    await _bridge.request(
+      apiUrl('/1/clouddrive/file/delete').toString(),
+      options: SpiderHttpOptions(
+        method: 'POST',
+        headers: _commonHeaders(cookie),
+        data: jsonEncode(<String, Object?>{
+          'action_type': 2,
+          'filelist': fileIds,
+          'exclude_fids': <String>[],
+        }),
+      ),
+    );
+    return fileIds.length;
+  }
+
+  /// 分享链接 → 取链（对齐 iOS `resolveUCPlayURL` 主链）。
+  ///
+  /// 取链优先级：TV Token streaming（原片最高画质）> `v2/play`（m3u8）>
+  /// `download_url`；转存后按 iOS `resolveUCPlayResult` 登记 1 小时延迟清理。
   Future<UcPlayResult> resolvePlayUrl({
     required String shareUrl,
     required String cookie,
     String? preferredFid,
+    String? tvToken,
   }) async {
     final ({String pwdId, String passcode}) info = extractShareInfo(shareUrl);
     if (info.pwdId.isEmpty) {
@@ -744,21 +988,33 @@ class UcNativeClient {
       passcode: info.passcode,
       cookie: cookie,
     );
-    final List<UcShareFile> files = await _collectWithRetry(
-      pwdId: info.pwdId,
-      passcode: info.passcode,
-      stoken: stoken,
-      cookie: cookie,
-    );
-    if (files.isEmpty) {
+
+    // 选集：正常路径失败 → TV Token 兜底（对齐 iOS `ucResolveUCShareFile`）。
+    List<UcShareFile> files;
+    try {
+      files = await _collectWithRetry(
+        pwdId: info.pwdId,
+        passcode: info.passcode,
+        stoken: stoken,
+        cookie: cookie,
+      );
+    } on UcNativeException {
+      if (tvToken == null || tvToken.isEmpty) rethrow;
+      files = await listFilesWithTVToken(tvToken: tvToken);
+    }
+    final List<UcShareFile> playable = files
+        .where((UcShareFile f) => !f.isDir && isPlayableFileName(f.fileName))
+        .toList(growable: false);
+    if (playable.isEmpty) {
       throw const UcNativeException('UC 分享内未找到可播放视频');
     }
-    final UcShareFile source = (preferredFid != null && preferredFid.isNotEmpty)
-        ? files.firstWhere(
-            (UcShareFile f) => f.fid == preferredFid,
-            orElse: () => files.first,
-          )
-        : files.first;
+    final UcShareFile source =
+        (preferredFid != null && preferredFid.isNotEmpty)
+            ? playable.firstWhere(
+                (UcShareFile f) => f.fid == preferredFid,
+                orElse: () => playable.first,
+              )
+            : playable.first;
 
     // 转存前查重，避免重复转存（对齐 iOS `ucResolveUCShareFile.trySave`）。
     final String? existing = await findExistingFileInVBox(
@@ -766,26 +1022,25 @@ class UcNativeClient {
       folderId: folderId,
       cookie: cookie,
     );
-    final String fileId;
+    final List<String> savedFids;
     if (existing != null) {
-      fileId = existing;
+      savedFids = <String>[existing];
     } else {
-      final List<String> ids = await saveShare(
+      savedFids = await saveShare(
         pwdId: info.pwdId,
         stoken: stoken,
         file: source,
         folderId: folderId,
         cookie: cookie,
       );
-      fileId = ids.first;
     }
+    final String fileId = savedFids.first;
 
-    // 优先级：v2/play（m3u8）→ download_url（对齐 iOS；TV Token 未移植）。
     String transcode = '';
     try {
       transcode = await getPlayUrl(fileId: fileId, cookie: cookie);
     } on UcNativeException {
-      // 忽略，继续尝试 download_url。
+      // 忽略，继续降级。
     }
     String download = '';
     try {
@@ -793,15 +1048,47 @@ class UcNativeClient {
     } on UcNativeException {
       // 忽略，可能 v2/play 已可用。
     }
-    final String url =
-        transcode.isNotEmpty ? transcode : download;
-    if (url.isEmpty) {
-      throw const UcNativeException('UC: download_url 与转码地址均为空');
+
+    // 优先级：TV Token streaming（原片最高画质）> v2/play（m3u8）> download_url。
+    String url = '';
+    String sourceTag = '';
+    if (tvToken != null && tvToken.isNotEmpty) {
+      try {
+        url = await getPlayUrlWithTVToken(fileId: fileId, tvToken: tvToken);
+        sourceTag = 'uc_tv_token';
+      } on UcNativeException {
+        // 忽略，降级到 v2/play。
+      }
     }
+    if (url.isEmpty && transcode.isNotEmpty) {
+      url = transcode;
+      sourceTag = 'v2-play';
+    }
+    if (url.isEmpty) {
+      url = download;
+      sourceTag = 'download_url';
+    }
+    if (url.isEmpty) {
+      throw const UcNativeException('UC: download_url、转码地址和 UCTV Token 兜底均为空');
+    }
+
+    // 转存成功后登记 1 小时延迟清理（对齐 iOS `resolveUCPlayResult`）。
+    if (existing == null) {
+      await cleanupScheduler?.schedule(
+        drive: CloudDriveType.uc,
+        fileIds: savedFids,
+        delay: const Duration(hours: 1),
+      );
+    }
+
+    // TV Token CDN 直链不传自定义 Header（对齐 iOS：让播放器原生网络栈处理
+    // Range）；v2/play 与 download_url 需 UC Cookie 头。
     return UcPlayResult(
       url: url,
-      headers: playbackHeaders(cookie),
-      source: transcode.isNotEmpty ? 'v2-play' : 'download_url',
+      headers: sourceTag == 'uc_tv_token'
+          ? const <String, String>{}
+          : playbackHeaders(cookie),
+      source: sourceTag,
     );
   }
 

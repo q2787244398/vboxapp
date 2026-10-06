@@ -19,16 +19,24 @@
 ///     （`storeFromResponse` + 每请求自动附加）等价覆盖，无需客户端显式合并；
 ///   · **转存 fid 缓存**：已实现（契约键 `quark_saved_fid_cache_v1`，TTL 5 分钟、
 ///     上限 300，键 `pwdId|sourceFid|folderId|cookieHash`）；
-///   · **夸克空间清理**（`quarkCleanShareOriginIfNeeded`，容量阈值触发删除
-///     「来自：分享」旧转存）**未移植**——属容量管理优化，不影响取链正确性。
+///   · **空间清理**（`quarkCleanShareOriginIfNeeded`，容量阈值触发删除
+///     「来自：分享」旧转存 + 根目录视频）——**NC-清1 已移植**：含
+///     `getQuotaInfo`（member → quota/info 双端点）、`file/sort` 收集、
+///     `file/delete` 分批删除（含转存缓存受保护 fid 排除）；另移植
+///     `deleteFiles`（对齐 iOS `quarkDeleteFiles`：删除 + 回收站彻底清理）。
+///     差异登记：iOS 返回合并后 Cookie，Flutter 由 HTTP 桥 cookie jar 等价
+///     承载，故本层改为返回清理条数（便于日志/测试断言）。
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart' as crypto;
 
+import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../platform/spider/spider_http_bridge.dart';
 import '../local/prefs_manager.dart';
+import 'cloud_drive_cleanup_scheduler.dart';
 
 /// 夸克分享文件条目（对齐 iOS `QuarkShareFile`）。
 class QuarkShareFile {
@@ -115,6 +123,9 @@ class QuarkNativeClient {
 
   final SpiderHttpBridge _bridge;
   final PrefsManager? _prefs;
+
+  /// 转存后延迟清理调度（对齐 iOS `scheduleCleanup`；缺省不调度）。
+  CloudDriveCleanupScheduler? cleanupScheduler;
 
   // ─────────────── 转存 fid 缓存（契约键 `quark_saved_fid_cache_v1`）───────────────
 
@@ -682,6 +693,12 @@ class QuarkNativeClient {
     if (info.pwdId.isEmpty) {
       throw const QuarkNativeException('无法识别的分享链接');
     }
+    // 播放前检测夸克空间，快满时清理「来自：分享」目录（对齐 iOS L2309）。
+    try {
+      await cleanShareOriginIfNeeded(cookie: cookie, thresholdGb: 2.0);
+    } catch (_) {
+      // 清理失败不阻断播放（容量管理为尽力而为）。
+    }
     final String stoken = await getShareToken(
       pwdId: info.pwdId,
       passcode: info.passcode,
@@ -717,10 +734,382 @@ class QuarkNativeClient {
         cookie: cookie,
       );
       await storeSavedFids(cacheKey, saved);
+      // 转存成功即安排 1 小时后清理，并清理历史转存对象（对齐 iOS L2350/L2353）。
+      await cleanupScheduler?.schedule(
+        drive: CloudDriveType.quark,
+        fileIds: saved,
+        delay: const Duration(hours: 1),
+      );
+      await cleanupPreviousSavedItems(excludingKey: cacheKey, cookie: cookie);
     }
     final String fid = saved.first;
     final String url = await getPlayUrl(fileId: fid, cookie: cookie);
     return QuarkPlayResult(url: url, fileName: source.fileName);
+  }
+
+  // ─────────────── 空间清理（NC-清1，对齐 iOS `quarkCleanShareOriginIfNeeded` /
+  //                 `quarkDeleteFiles`）───────────────
+
+  /// 根目录清理视频后缀白名单（对齐 iOS `quarkCleanShareOriginIfNeeded` 内联表）。
+  static const List<String> cleanupVideoExts = <String>[
+    '.mp4', '.mkv', '.avi', '.ts', '.mov', '.flv', '.wmv', '.m4v', '.3gp',
+  ];
+
+  /// 清理目标目录名变体（对齐 iOS 四种写法）。
+  static const List<String> shareOriginFolderNames = <String>[
+    '来自：分享', '来自:分享', '来自分享的文件', '来自分享',
+  ];
+
+  /// 读取容量信息（对齐 iOS `quarkGetQuotaInfo`：member → quota/info 双端点）。
+  ///
+  /// 返回 `(used, total)` 字节；全部失败时 `total == 0`（调用方按「容量未知」
+  /// 走保守清理）。Set-Cookie 合并由 HTTP 桥 cookie jar 等价承载。
+  Future<({int used, int total})> getQuotaInfo({required String cookie}) async {
+    final ({int used, int total})? member =
+        await _quotaFromMember(cookie: cookie);
+    if (member != null && member.total > 0) return member;
+
+    final Uri url = apiUrl(
+      '/1/clouddrive/quota/info',
+      extra: <(String, String)>[('ut', '${_nowMs()}')],
+    );
+    final SpiderHttpResult res = await _bridge.request(
+      url.toString(),
+      options: SpiderHttpOptions(
+        method: 'POST',
+        headers: _commonHeaders(cookie),
+        // iBox 抓包显示 quota/info 需要 dlt_keys，否则 405/参数错误。
+        data: jsonEncode(<String, Object?>{
+          'dlt_keys': <String>['uc_nor_dlt'],
+        }),
+      ),
+    );
+    if (!res.ok) return (used: 0, total: 0);
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    if (json == null) return (used: 0, total: 0);
+    final Map<String, Object?>? data = _asMap(json['data']);
+    final Map<String, Object?> cap = _asMap(data?['capinfo']) ??
+        _asMap(data?['capacity']) ??
+        _asMap(data?['account_capacity']) ??
+        data ??
+        json;
+    final int used =
+        _asInt(cap['used'] ?? cap['size_used'] ?? data?['used']) ?? 0;
+    int total =
+        _asInt(cap['total'] ?? cap['size_total'] ?? data?['total']) ?? 0;
+    if (total <= 0) {
+      final Map<String, Object?>? account = _asMap(data?['account']);
+      total = _asInt(account?['total_capacity'] ??
+              account?['capacity_total'] ??
+              account?['total']) ??
+          0;
+    }
+    return (used: used, total: total);
+  }
+
+  /// member 端点容量兜底（对齐 iOS `quarkGetQuotaFromMember`）。
+  Future<({int used, int total})?> _quotaFromMember(
+      {required String cookie}) async {
+    final Uri url = apiUrl(
+      '/1/clouddrive/member',
+      extra: <(String, String)>[
+        ('fetch_subscribe', 'true'),
+        ('fetch_identity', 'true'),
+        ('_ch', 'home'),
+        ('ve', '3.19.0'),
+      ],
+    );
+    final SpiderHttpResult res = await _bridge.request(
+      url.toString(),
+      options: SpiderHttpOptions(headers: _commonHeaders(cookie)),
+    );
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    final Map<String, Object?>? d = _asMap(json?['data']);
+    if (d == null) return null;
+    final Map<String, Object?>? cap = _asMap(d['capacity']) ??
+        _asMap(d['capinfo']) ??
+        _asMap(d['account_capacity']);
+    int used = _asInt(cap?['used'] ?? cap?['size_used'] ?? d['used']) ?? 0;
+    int total = _asInt(cap?['total'] ?? cap?['size_total'] ?? d['total']) ?? 0;
+    final Map<String, Object?>? account = _asMap(d['account']);
+    if (total <= 0) {
+      total = _asInt(account?['total_capacity'] ??
+              account?['capacity_total'] ??
+              account?['total']) ??
+          0;
+    }
+    if (used <= 0) {
+      used = _asInt(account?['used_capacity'] ??
+              account?['capacity_used'] ??
+              account?['used']) ??
+          0;
+    }
+    if (total > 0 && used <= 0) {
+      used = total - (_asInt(d['remain']) ?? 0);
+    }
+    if (total <= 0) return null;
+    return (used: used, total: total);
+  }
+
+  /// 容量阈值触发清理（对齐 iOS `quarkCleanShareOriginIfNeeded`）。
+  ///
+  /// 剩余空间低于 [thresholdGb] 时，删除「来自：分享」目录（含子文件夹）与
+  /// 根目录视频；容量未知时按保守策略清理根目录最新 100 个视频。转存 fid
+  /// 缓存中未过期的对象跳过，避免误删正在使用/待播放的转存文件。
+  ///
+  /// 返回清理条数。Set-Cookie 合并由 HTTP 桥 cookie jar 承载（差异登记）。
+  Future<int> cleanShareOriginIfNeeded({
+    required String cookie,
+    double thresholdGb = 1.0,
+  }) async {
+    final ({int used, int total}) quota =
+        await getQuotaInfo(cookie: cookie);
+    final bool quotaAvailable = quota.total > 0;
+    if (quotaAvailable) {
+      final double freeGb =
+          (quota.total - quota.used) / 1073741824.0;
+      if (freeGb >= thresholdGb) return 0;
+    }
+
+    List<String> shareFids = const <String>[];
+    for (final String name in shareOriginFolderNames) {
+      final String? folderId = await _findFolderId(name, cookie);
+      if (folderId != null) {
+        // 分享目录内同时清理子文件夹和文件，避免文件夹形式转存残留。
+        shareFids = await _collectFids(
+          folderId: folderId,
+          cookie: cookie,
+          includeFolders: true,
+        );
+        break;
+      }
+    }
+    // 容量未知时更激进：只清理根目录最新 100 个视频，避免空间爆掉。
+    final List<String> rootFids = await _collectFids(
+      folderId: '0',
+      cookie: cookie,
+      onlyVideo: true,
+      limit: quotaAvailable ? null : 100,
+    );
+
+    final Set<String> all = <String>{...shareFids, ...rootFids};
+    if (all.isEmpty) return 0;
+    final Set<String> protected = await protectedCachedFids();
+    final List<String> targets =
+        all.where((String fid) => !protected.contains(fid)).toList();
+    if (targets.isEmpty) return 0;
+    return _deleteFidsBatched(targets, cookie: cookie);
+  }
+
+  /// 转存 fid 缓存内未过期的对象 fid（对齐 iOS `protectedCachedFileIds`）。
+  Future<Set<String>> protectedCachedFids() async {
+    final Map<String, Object?> cache = await _loadCache();
+    final int now = _nowMs();
+    final Set<String> fids = <String>{};
+    for (final Object? raw in cache.values) {
+      final Map<String, Object?>? v = _asMap(raw);
+      if (v == null) continue;
+      if ((_asInt(v['expiresAt']) ?? 0) <= now) continue;
+      final Object? top = v['topLevelFids'];
+      if (top is List) {
+        for (final Object? e in top) {
+          fids.add('$e');
+        }
+      }
+      final String? playback = _asString(v['playbackFileId']);
+      if (playback != null && playback.isNotEmpty) fids.add(playback);
+    }
+    return fids;
+  }
+
+  /// 删除文件并彻底清理回收站（对齐 iOS `quarkDeleteFiles`）。
+  ///
+  /// 返回提交删除的文件数（回收站清理为尽力而为）。
+  Future<int> deleteFiles({
+    required List<String> fileIds,
+    required String cookie,
+  }) async {
+    if (fileIds.isEmpty) return 0;
+    final SpiderHttpResult res = await _bridge.request(
+      apiUrl('/1/clouddrive/file/delete').toString(),
+      options: SpiderHttpOptions(
+        method: 'POST',
+        headers: _commonHeaders(cookie),
+        data: jsonEncode(<String, Object?>{
+          'action_type': 2,
+          'filelist': fileIds,
+          'exclude_fids': <String>[],
+        }),
+      ),
+    );
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    final String taskId = _asString(json?['task_id']) ?? '';
+    if (taskId.isEmpty) return fileIds.length;
+
+    // 彻底清理回收站：等待删除任务落盘 → recycle/list → recycle/remove。
+    await Future<void>.delayed(const Duration(seconds: 1));
+    final SpiderHttpResult recycleRes = await _bridge.request(
+      apiUrl(
+        '/1/clouddrive/file/recycle/list',
+        extra: <(String, String)>[
+          ('_page', '1'),
+          ('_size', '100'),
+          ('_sort', 'move_recycle_at:desc'),
+        ],
+      ).toString(),
+      options: SpiderHttpOptions(headers: _commonHeaders(cookie)),
+    );
+    final Map<String, Object?>? recycleJson =
+        _decodeMap(recycleRes.content);
+    final Object? list = recycleJson?['data'];
+    if (list is! List) return fileIds.length;
+    final List<String> recordIds = <String>[];
+    for (final Object? raw in list) {
+      final Map<String, Object?>? item = _asMap(raw);
+      final String recordId = _asString(item?['record_id']) ?? '';
+      if (recordId.isEmpty) continue;
+      if (recordId.contains(taskId) ||
+          fileIds.any((String fid) => recordId.contains(fid))) {
+        recordIds.add(recordId);
+      }
+    }
+    if (recordIds.isEmpty) return fileIds.length;
+    await _bridge.request(
+      apiUrl('/1/clouddrive/file/recycle/remove').toString(),
+      options: SpiderHttpOptions(
+        method: 'POST',
+        headers: _commonHeaders(cookie),
+        data: jsonEncode(<String, Object?>{
+          'select_mode': 2,
+          'record_list': recordIds,
+        }),
+      ),
+    );
+    return fileIds.length;
+  }
+
+  /// 分批删除（对齐 iOS `deleteFids`：每批 100、批间 100ms 防风控）。
+  Future<int> _deleteFidsBatched(
+    List<String> fids, {
+    required String cookie,
+  }) async {
+    const int batchSize = 100;
+    int deleted = 0;
+    for (int i = 0; i < fids.length; i += batchSize) {
+      final List<String> batch =
+          fids.sublist(i, math.min(i + batchSize, fids.length));
+      final SpiderHttpResult res = await _bridge.request(
+        apiUrl('/1/clouddrive/file/delete').toString(),
+        options: SpiderHttpOptions(
+          method: 'POST',
+          headers: _commonHeaders(cookie),
+          data: jsonEncode(<String, Object?>{
+            'action_type': 2,
+            'filelist': batch,
+            'exclude_fids': <String>[],
+          }),
+        ),
+      );
+      final Map<String, Object?>? json = _decodeMap(res.content);
+      if ((_asInt(json?['code']) ?? 0) == 0) deleted += batch.length;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    return deleted;
+  }
+
+  /// 收集目录下文件 fid（对齐 iOS `collectFids`）。
+  Future<List<String>> _collectFids({
+    required String folderId,
+    required String cookie,
+    bool onlyVideo = false,
+    int? limit,
+    bool includeFolders = false,
+  }) async {
+    const int pageSize = 200;
+    final int maxPages =
+        limit != null ? math.min(10, (limit + pageSize - 1) ~/ pageSize) : 10;
+    final List<String> fids = <String>[];
+    for (int page = 1; page <= maxPages; page++) {
+      final List<Map<String, Object?>> list = await _fileSortList(
+        cookie: cookie,
+        query: <(String, String)>[
+          ('pdir_fid', folderId),
+          ('_sort', 'file_type:asc,updated_at:desc'),
+          ('_page', '$page'),
+          ('_size', '$pageSize'),
+          ('_fetch_total', '1'),
+        ],
+      );
+      if (list.isEmpty) break;
+      for (final Map<String, Object?> item in list) {
+        final bool isDir = (_asInt(item['file_type']) == 0) ||
+            (item['is_dir'] == true);
+        if (isDir && !includeFolders) continue;
+        if (onlyVideo && !isDir) {
+          final String name = (_asString(item['file_name']) ??
+                  _asString(item['name']) ??
+                  '')
+              .toLowerCase();
+          if (!cleanupVideoExts.any((String e) => name.endsWith(e))) continue;
+        }
+        final String fid = _asString(item['fid']) ??
+            _asString(item['file_id']) ??
+            (_asInt(item['fid']) != null ? '${item['fid']}' : '') ??
+            '';
+        if (fid.isNotEmpty) fids.add(fid);
+        if (limit != null && fids.length >= limit) break;
+      }
+      if (list.length < pageSize) break;
+      if (limit != null && fids.length >= limit) break;
+    }
+    return fids;
+  }
+
+  /// 按名称在根目录查找文件夹 fid（对齐 iOS `findFolderId`）。
+  Future<String?> _findFolderId(String name, String cookie) async {
+    final List<Map<String, Object?>> list = await _fileSortList(
+      cookie: cookie,
+      query: <(String, String)>[
+        ('pdir_fid', '0'),
+        ('_sort', 'file_type:asc,file_name:asc'),
+        ('_page', '1'),
+        ('_size', '200'),
+        ('_fetch_total', '1'),
+      ],
+    );
+    final String target = name.trim().toLowerCase();
+    for (final Map<String, Object?> item in list) {
+      final String itemName = (_asString(item['file_name']) ??
+              _asString(item['name']) ??
+              '')
+          .trim()
+          .toLowerCase();
+      if (itemName != target) continue;
+      final String fid = _asString(item['fid']) ??
+          _asString(item['file_id']) ??
+          (_asInt(item['fid']) != null ? '${item['fid']}' : '') ??
+          '';
+      if (fid.isNotEmpty) return fid;
+    }
+    return null;
+  }
+
+  /// `file/sort` 列表条目（对齐 iOS 清理辅助里的 GET 列表）。
+  Future<List<Map<String, Object?>>> _fileSortList({
+    required String cookie,
+    required List<(String, String)> query,
+  }) async {
+    final SpiderHttpResult res = await _bridge.request(
+      apiUrl('/1/clouddrive/file/sort', extra: query).toString(),
+      options: SpiderHttpOptions(headers: _commonHeaders(cookie)),
+    );
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    final Object? list = _asMap(json?['data'])?['list'];
+    if (list is! List) return const <Map<String, Object?>>[];
+    return list
+        .whereType<Map<Object?, Object?>>()
+        .map((Map<Object?, Object?> m) => m.cast<String, Object?>())
+        .toList(growable: false);
   }
 
   // ─────────────── JSON 助手 ───────────────

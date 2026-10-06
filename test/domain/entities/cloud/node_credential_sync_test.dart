@@ -191,4 +191,100 @@ void main() {
       ]);
     });
   });
+
+  group('wexfnwconfig 兜底（NC-清5）', () {
+    test('标量转字符串逐档对齐 iOS readConfigFileValues', () {
+      expect(nodeConfigScalarToString('abc'), 'abc');
+      expect(nodeConfigScalarToString('  x  '), 'x');
+      expect(nodeConfigScalarToString(1.0), '1'); // 整数 num → 整数文本
+      expect(nodeConfigScalarToString(42), '42');
+      expect(nodeConfigScalarToString(1.5), '1.5');
+      expect(nodeConfigScalarToString(''), isNull);
+      expect(nodeConfigScalarToString('   '), isNull);
+      expect(nodeConfigScalarToString(null), isNull);
+    });
+
+    test('按路径段取值（嵌套命中 / 缺键 / 中途非字典）', () {
+      final Map<String, dynamic> root = <String, dynamic>{
+        'pan': <String, dynamic>{
+          'pan115': <String, dynamic>{'cookie': 'CID=1'},
+          'scalar': 7,
+        },
+      };
+      expect(
+        nodeConfigValueAtPath(root, <String>['pan', 'pan115', 'cookie']),
+        'CID=1',
+      );
+      expect(nodeConfigValueAtPath(root, <String>['pan', 'pan115', 'miss']),
+          isNull);
+      expect(nodeConfigValueAtPath(root, <String>['pan', 'scalar', 'x']),
+          isNull);
+      expect(nodeConfigValueAtPath(root, <String>['missing', 'x']), isNull);
+    });
+
+    test('按路径段移除（叶子 / 嵌套 / 缺键 / 中途非字典）', () {
+      final Map<String, dynamic> root = <String, dynamic>{
+        'pan': <String, dynamic>{
+          'pan115': <String, dynamic>{'cookie': 'c', 'other': 'o'},
+        },
+        'siteCookie': <String, dynamic>{'bili': <String, dynamic>{'cookie': 'bc'}},
+      };
+      expect(nodeConfigRemoveAtPath(root, <String>['pan', 'pan115', 'cookie']),
+          isTrue);
+      final Map<String, dynamic> pan115 =
+          (root['pan'] as Map<String, dynamic>)['pan115'] as Map<String, dynamic>;
+      expect(pan115.containsKey('cookie'), isFalse);
+      expect(pan115['other'], 'o'); // 兄弟键保留
+
+      expect(nodeConfigRemoveAtPath(root, <String>['siteCookie', 'bili']),
+          isTrue);
+      expect((root['siteCookie'] as Map<String, dynamic>).containsKey('bili'),
+          isFalse);
+
+      expect(nodeConfigRemoveAtPath(root, <String>['pan', 'pan115', 'nope']),
+          isFalse);
+      expect(nodeConfigRemoveAtPath(root, <String>['pan', 'pan115', 'cookie']),
+          isFalse);
+    });
+
+    test('提取全部 Node 托管盘字段（覆盖 HTTP 不暴露的 thunder/guangya/woniu4k）',
+        () {
+      final Map<String, dynamic> root = <String, dynamic>{
+        'pan': <String, dynamic>{
+          'pan115': <String, dynamic>{'cookie': 'CID=1'},
+          'thunder': <String, dynamic>{'config': '{"xunlei":1}'},
+          'guangya': <String, dynamic>{'token': 'gy-token'},
+          'pan123': <String, dynamic>{'account': 'a', 'auth': 'tok'},
+          'uc': <String, dynamic>{
+            'cookie': 'uc-c',
+            'token': 'tv',
+            'refreshToken': 'rt',
+          },
+        },
+        'siteCookie': <String, dynamic>{
+          'woniu4k': <String, dynamic>{'account': 'wa', 'cookie': 'wc'},
+          'bili': <String, dynamic>{'cookie': 'bili-c'},
+        },
+      };
+      final Map<String, Map<String, String>> values =
+          nodeConfigValuesByDrive(root);
+
+      expect(values['115'], <String, String>{'cookie': 'CID=1'});
+      expect(values['xunlei'], <String, String>{'config': '{"xunlei":1}'});
+      expect(values['guangya'], <String, String>{'token': 'gy-token'});
+      expect(values['123pan'],
+          <String, String>{'account': 'a', 'auth': 'tok'});
+      expect(values['woniu4k'],
+          <String, String>{'account': 'wa', 'cookie': 'wc'});
+      expect(values['bilibili'], <String, String>{'cookie': 'bili-c'});
+      expect(values['ucNode'], <String, String>{
+        'cookie': 'uc-c',
+        'token': 'tv',
+        'refreshtoken': 'rt',
+      });
+      // 未出现的盘不收录。
+      expect(values.containsKey('139pan'), isFalse);
+      expect(values.containsKey('baiduNode'), isFalse);
+    });
+  });
 }
