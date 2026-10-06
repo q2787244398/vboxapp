@@ -52,23 +52,31 @@ target_link_libraries(vbox_jsc PRIVATE jsc)
 #   STL：libnode 以 libc++_shared 构建 → gradle 传 -DANDROID_STL=c++_shared 匹配 ABI
 #
 # 前置：scripts/fetch-nodejs-mobile-android.sh（同 iOS build-ipa.yml 的 NodeMobile 下载步骤）。
+#
+# 开关 VBOX_NODE_BRIDGE（缺省 ON）：App 构建（AGP）须编译 JNI 桥；而 build-jsc.yml 的
+# JSC 独立构建只需 vbox_jsc（且遍历含 x86 的四 ABI，nodejs-mobile 仅提供三 ABI），
+# 故该工作流转 -DVBOX_NODE_BRIDGE=OFF，避免因缺 libnode.so 触发下方 FATAL_ERROR。
 # ─────────────────────────────────────────────────────────────────────────────
-set(NODE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libnode/include/node")
-set(NODE_PREBUILT "${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libnode.so")
-if(NOT EXISTS "${NODE_PREBUILT}")
-    message(FATAL_ERROR
-        "libnode.so(${ANDROID_ABI}) 缺失：请先运行 scripts/fetch-nodejs-mobile-android.sh"
-        "（原生二进制不入 git，见同脚本头注释）")
+option(VBOX_NODE_BRIDGE "编译 Node 引擎 JNI 桥（需 libnode.so；JSC 独立构建可关闭）" ON)
+
+if(VBOX_NODE_BRIDGE)
+    set(NODE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libnode/include/node")
+    set(NODE_PREBUILT "${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libnode.so")
+    if(NOT EXISTS "${NODE_PREBUILT}")
+        message(FATAL_ERROR
+            "libnode.so(${ANDROID_ABI}) 缺失：请先运行 scripts/fetch-nodejs-mobile-android.sh"
+            "（原生二进制不入 git，见同脚本头注释）")
+    endif()
+
+    add_library(libnode SHARED IMPORTED)
+    set_target_properties(libnode PROPERTIES IMPORTED_LOCATION "${NODE_PREBUILT}")
+
+    add_library(node_bridge SHARED "${CMAKE_CURRENT_SOURCE_DIR}/node_bridge.cpp")
+
+    target_include_directories(node_bridge PRIVATE "${NODE_INCLUDE_DIR}")
+
+    target_link_libraries(node_bridge PRIVATE libnode)
+
+    find_library(log-lib log)
+    target_link_libraries(node_bridge PRIVATE ${log-lib})
 endif()
-
-add_library(libnode SHARED IMPORTED)
-set_target_properties(libnode PROPERTIES IMPORTED_LOCATION "${NODE_PREBUILT}")
-
-add_library(node_bridge SHARED "${CMAKE_CURRENT_SOURCE_DIR}/node_bridge.cpp")
-
-target_include_directories(node_bridge PRIVATE "${NODE_INCLUDE_DIR}")
-
-target_link_libraries(node_bridge PRIVATE libnode)
-
-find_library(log-lib log)
-target_link_libraries(node_bridge PRIVATE ${log-lib})

@@ -417,7 +417,7 @@ class _VBoxAppState extends State<VBoxApp> {
               await RemoteSourceConfigManager.cachedNodeBundleRefreshUrl();
           bundleVersionUrl =
               await RemoteSourceConfigManager.cachedNodeBundleVersionUrl();
-        } catch (Object e) {
+        } on Object catch (e) {
           AppLog.warn(_logTag, '读取 Node bundle 远端地址失败（回退本地资源）：$e');
         }
         unawaited(

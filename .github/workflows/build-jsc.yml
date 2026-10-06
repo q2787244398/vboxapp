@@ -96,6 +96,7 @@ jobs:
               -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
               -DANDROID_ABI="$ABI" \
               -DANDROID_PLATFORM=android-24 \
+              -DVBOX_NODE_BRIDGE=OFF \
               -DCMAKE_BUILD_TYPE=MinSizeRel
             cmake --build "$BUILD"
             cp "$BUILD/libvbox_jsc.so" "libvbox_jsc-$ABI.so"

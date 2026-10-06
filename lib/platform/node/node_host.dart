@@ -240,7 +240,9 @@ class ChannelNodeHost implements NodeHost {
 /// 不可用宿主（未接入平台 / 单测缺省；启动即报错，不 crash）。
 class UnavailableNodeHost implements NodeHost {
   /// 构造。
-  const UnavailableNodeHost();
+  ///
+  /// 非 `const`：[NodeHost.onLog] 为可变字段（宿主日志回调），无法声明常量构造。
+  UnavailableNodeHost();
 
   @override
   void Function(String)? onLog;

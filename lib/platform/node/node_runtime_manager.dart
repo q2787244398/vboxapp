@@ -438,7 +438,7 @@ class NodeRuntimeManager {
     }
     await bundle.writeAsBytes(builtin, flush: true);
     final String restored = md5.convert(builtin).toString();
-    await writeBundleManifest(md5: restored, source: 'bundled');
+    await writeBundleManifest(md5Hex: restored, source: 'bundled');
     _log('✅ bundle 已从内置资源恢复 MD5=${restored.substring(0, 8)}');
   }
 
@@ -513,7 +513,7 @@ class NodeRuntimeManager {
     await tmp.writeAsBytes(data, flush: true);
     if (await bundle.exists()) await bundle.delete();
     await tmp.rename(activeBundlePath);
-    await writeBundleManifest(md5: remoteMd5, source: 'remote', version: remoteVersion);
+    await writeBundleManifest(md5Hex: remoteMd5, source: 'remote', version: remoteVersion);
     _log('✅ bundle 已更新 MD5=${remoteMd5.substring(0, 8)}');
   }
 
