@@ -18,13 +18,14 @@ import 'fuli_base_service.dart';
 
 /// 带域名探测的原生福利平台服务基类。
 abstract class ProbedFuliService extends FuliBaseService {
-  /// 构造（[bridge] 供测试注入假传输）。
+  /// 构造（[bridge] 供测试注入假传输；[sslBypass] 供需要自签证书的源启用）。
   ProbedFuliService({
     required super.platformKey,
     required super.platformName,
     required super.defaultHosts,
     SpiderHttpBridge? bridge,
-  }) : _bridge = bridge ?? SpiderHttpBridge();
+    bool sslBypass = false,
+  }) : _bridge = bridge ?? SpiderHttpBridge(sslBypass: sslBypass);
 
   final SpiderHttpBridge _bridge;
 
