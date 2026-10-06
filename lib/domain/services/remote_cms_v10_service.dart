@@ -101,6 +101,12 @@ class RemoteCmsV10FuliService extends ProbedFuliService {
   @override
   bool get imageSSLBypass => _platform.imageSSLBypass;
 
+  /// 站点请求头覆写（子类固定修饰用；缺省 `null` → 走内置 JSON / 图文 UA 选择）。
+  ///
+  /// 艾旦（`aidan_video`）对齐 iOS `AidanVideoService.defaultHeaders`：
+  /// 固定 `User-Agent: Mozilla/5.0` + `Referer: {host}/`。
+  Map<String, String>? get siteHeaderOverrides => null;
+
   /// 是否图文 HTML 模式（`detailMode == article_html` 或 `apiKind == mac_art_html`）。
   bool get _isArticleHtmlMode {
     final String mode = (_platform.detailMode ?? '').trim().toLowerCase();
@@ -256,6 +262,9 @@ class RemoteCmsV10FuliService extends ProbedFuliService {
 
   /// 站点默认请求头（JSON：Android UA；图文：Safari UA + 白名单自定义头）。
   Map<String, String> _defaultHeaders() {
+    final Map<String, String>? overrides = siteHeaderOverrides;
+    if (overrides != null && overrides.isNotEmpty) return overrides;
+
     final bool article = _isArticleHtmlMode;
     final String host = currentHost;
     final Map<String, String> headers = <String, String>{
