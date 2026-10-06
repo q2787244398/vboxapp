@@ -107,6 +107,36 @@ void main() {
     );
   });
 
+  test('saveManifest 镜像 Node bundle 键（ND-02，对齐 iOS syncNow）', () async {
+    await PrefsManager.instance.set('remote_default_manifest_url', _url);
+    final RemoteSourceRepositoryImpl repo = repoWith(okServer());
+
+    // 下发 → 写入
+    final RemoteManifest withBundle = RemoteManifest.fromJson(<String, Object?>{
+      'configVersion': _version,
+      'files': <String, Object?>{
+        'allSources': 'https://example.com/all_sources.json',
+        'nodeRuntimeBundle': 'https://cdn/kstore_index.js',
+        'nodeRuntimeBundleVer': 'https://cdn/kstore_index.version',
+      },
+    });
+    await repo.saveManifest(withBundle);
+    expect(
+      await PrefsManager.instance.getString('remote_node_bundle_url'),
+      'https://cdn/kstore_index.js',
+    );
+    expect(
+      await PrefsManager.instance.getString('remote_node_bundle_ver'),
+      'https://cdn/kstore_index.version',
+    );
+
+    // 未下发 → 清除（启动回退本地内置资源）
+    final RemoteManifest plain = (await repo.fetchManifest()).valueOrNull!;
+    await repo.saveManifest(plain);
+    expect(await PrefsManager.instance.getString('remote_node_bundle_url'), isNull);
+    expect(await PrefsManager.instance.getString('remote_node_bundle_ver'), isNull);
+  });
+
   test('needsRefresh：无缓存恒 true；有缓存按 ttl 判定', () async {
     await PrefsManager.instance.set('remote_default_manifest_url', _url);
     final RemoteSourceRepositoryImpl repo = repoWith(okServer());

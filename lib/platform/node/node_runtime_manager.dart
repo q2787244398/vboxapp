@@ -80,7 +80,8 @@ class BundleNodeAssetSource implements NodeAssetSource {
       final ByteData data = await rootBundle.load(key);
       return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
     } catch (_) {
-      // 资源缺失（如 ND-02 尚未下发的 bundle）→ null，由调用方按可选处理。
+      // 资源缺失 → null，由调用方处理（代码/数据文件缺失即失败；
+      // bundle 缺失由 verifyBundleIntegrity 抛错，对齐 iOS bundleResourceMissing）。
       return null;
     }
   }
@@ -410,11 +411,13 @@ class NodeRuntimeManager {
 
   // ─────────────── bundle 完整性（对齐 iOS `verifyBundleIntegrity`） ───────────────
 
-  /// 校验落盘 bundle 与 manifest 的 MD5。
+  /// 校验落盘 bundle 与 manifest 的 MD5（对齐 iOS `verifyBundleIntegrity`）。
   ///
   /// · manifest 一致 → 放行；
-  /// · 不一致且内置资源可用 → 回退资源并重建 manifest；
-  /// · 内置资源缺失（ND-02 未下发，6.4MB 不随包）→ 记警告放行，不阻断启动。
+  /// · 不一致 / 未登记 → 从**随包内置资源**回退复制并重建 manifest（对齐 iOS
+  ///   `restoreBundleFromResource`，见 [assets/noderuntime/bundles/kstore_index.js]）；
+  /// · 内置资源也缺失 → 抛 [NodeHostException]，由 [start] 收敛为 `node-failed`
+  ///   （对齐 iOS `NodeRuntimeError.bundleResourceMissing`）。
   Future<void> verifyBundleIntegrity() async {
     final File bundle = File(activeBundlePath);
     final Map<String, Object?>? manifest = await readBundleManifest();
@@ -428,10 +431,10 @@ class NodeRuntimeManager {
       }
     }
 
+    _log('⚠️ bundle 与 manifest 不符或未登记，回退内置资源副本');
     final List<int>? builtin = await _assets.load('$assetRoot/bundles/kstore_index.js');
     if (builtin == null) {
-      _log('⚠️ bundle 未登记或与 manifest 不符，且内置资源未随包（等待 ND-02 下发）');
-      return;
+      throw const NodeHostException('Node 资源缺失: bundles/kstore_index.js');
     }
     await bundle.writeAsBytes(builtin, flush: true);
     final String restored = md5.convert(builtin).toString();

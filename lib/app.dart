@@ -407,8 +407,24 @@ class _VBoxAppState extends State<VBoxApp> {
             }),
           );
         });
+        // ND-02：先本地内置资源启动，再按缓存的远端地址做可选增量刷新
+        //    （对齐 iOS `VBoxApp.init` 读取 `cachedNodeBundleRefreshURL()` /
+        //    `cachedNodeBundleVersionURL()` 后传入 `start(...)`；未下发 → null 回退本地）。
+        String? bundleRefreshUrl;
+        String? bundleVersionUrl;
+        try {
+          bundleRefreshUrl =
+              await RemoteSourceConfigManager.cachedNodeBundleRefreshUrl();
+          bundleVersionUrl =
+              await RemoteSourceConfigManager.cachedNodeBundleVersionUrl();
+        } catch (Object e) {
+          AppLog.warn(_logTag, '读取 Node bundle 远端地址失败（回退本地资源）：$e');
+        }
         unawaited(
-          node.start().catchError((Object e) {
+          node.start(
+            bundleRefreshUrl: bundleRefreshUrl,
+            bundleVersionUrl: bundleVersionUrl,
+          ).catchError((Object e) {
             AppLog.warn(_logTag, 'Node 常驻系统启动失败（降级）：$e');
           }),
         );

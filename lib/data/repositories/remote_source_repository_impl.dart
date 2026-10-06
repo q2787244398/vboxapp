@@ -43,6 +43,12 @@ class RemoteSourceRepositoryImpl implements RemoteSourceRepository {
   /// 缓存包裹内的清单键。
   static const String manifestKey = 'manifest';
 
+  /// Node bundle 远端地址契约键（对齐 iOS `RemoteSourceConfigKeys.nodeBundleURL`）。
+  static const String _keyNodeBundleUrl = 'remote_node_bundle_url';
+
+  /// Node bundle 版本契约键（对齐 iOS `RemoteSourceConfigKeys.nodeBundleVer`）。
+  static const String _keyNodeBundleVer = 'remote_node_bundle_ver';
+
   PrefsManager get _p => _prefs ?? PrefsManager.instance;
 
   String get _cachePath =>
@@ -87,11 +93,37 @@ class RemoteSourceRepositoryImpl implements RemoteSourceRepository {
       });
       await _p.set('remote_default_last_config_version', manifest.configVersion);
       await _p.set('remote_default_last_sync_time', now);
+      // ND-02：同步成功后镜像 Node bundle 远端地址/版本（对齐 iOS
+      // `RemoteSourceConfigManager.syncNow` 的 `remote_node_bundle_url` /
+      // `remote_node_bundle_ver` 写入/清除），供启动时 NodeRuntimeManager 做
+      // 可选的远端增量刷新；未下发则清除，回退本地内置资源。
+      await _mirrorNodeBundleKeys(manifest);
       return const Success<bool>(true);
     } catch (e) {
       return Err<bool>(Failure.from(e));
     }
   }
+
+  /// Node bundle 键镜像（对齐 iOS `syncNow` 的 `remote_node_bundle_url` /
+  /// `remote_node_bundle_ver`：下发了就写入，未下发就清除）。
+  Future<void> _mirrorNodeBundleKeys(RemoteManifest manifest) async {
+    final String? bundleUrl =
+        _nonEmpty(manifest.files[RemoteManifest.keyNodeRuntimeBundle]);
+    if (bundleUrl != null) {
+      await _p.set(_keyNodeBundleUrl, bundleUrl);
+    } else {
+      await _p.remove(_keyNodeBundleUrl);
+    }
+    final String? bundleVer =
+        _nonEmpty(manifest.files[RemoteManifest.keyNodeRuntimeBundleVer]);
+    if (bundleVer != null) {
+      await _p.set(_keyNodeBundleVer, bundleVer);
+    } else {
+      await _p.remove(_keyNodeBundleVer);
+    }
+  }
+
+  static String? _nonEmpty(String? v) => (v == null || v.isEmpty) ? null : v;
 
   @override
   Future<Result<bool>> needsRefresh(int nowSeconds) async {

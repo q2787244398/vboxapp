@@ -59,6 +59,12 @@ class RemoteManifest {
   /// 必需文件键（契约 `files.required`）。
   static const String keyAllSources = 'allSources';
 
+  /// Node bundle 远端地址键（契约 `files.nodeRuntimeBundle`；ND-02）。
+  static const String keyNodeRuntimeBundle = 'nodeRuntimeBundle';
+
+  /// Node bundle 版本键（契约 `files.nodeRuntimeBundleVer`；版本探针用，ND-02）。
+  static const String keyNodeRuntimeBundleVer = 'nodeRuntimeBundleVer';
+
   /// 已知文件键（契约，10 个）。
   static const List<String> knownFileKeys = <String>[
     'allSources',

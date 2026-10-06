@@ -545,4 +545,28 @@ void main() {
       );
     });
   });
+
+  group('cachedNodeBundle*（ND-02 远端增量刷新地址，对齐 iOS cachedNodeBundleRefreshURL）',
+      () {
+    test('未写入 / 空串 → null；写入 → 返回去空格值', () async {
+      expect(await RemoteSourceConfigManager.cachedNodeBundleRefreshUrl(), isNull);
+      expect(await RemoteSourceConfigManager.cachedNodeBundleVersionUrl(), isNull);
+
+      await PrefsManager.instance
+          .set('remote_node_bundle_url', '  https://cdn/kstore_index.js  ');
+      await PrefsManager.instance
+          .set('remote_node_bundle_ver', 'https://cdn/kstore_index.version');
+      expect(
+        await RemoteSourceConfigManager.cachedNodeBundleRefreshUrl(),
+        'https://cdn/kstore_index.js',
+      );
+      expect(
+        await RemoteSourceConfigManager.cachedNodeBundleVersionUrl(),
+        'https://cdn/kstore_index.version',
+      );
+
+      await PrefsManager.instance.set('remote_node_bundle_url', '   ');
+      expect(await RemoteSourceConfigManager.cachedNodeBundleRefreshUrl(), isNull);
+    });
+  });
 }

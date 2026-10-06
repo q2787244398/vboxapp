@@ -7,7 +7,7 @@
 ///   4. 心跳连续失败判崩溃 → **自动重启**（Flutter 独立宿主能力）
 ///   5. 崩溃后心跳恢复自愈
 ///   6. 内存告警降级与恢复
-///   7. bundle MD5 完整性 + 远端版本探针刷新
+///   7. bundle 内置交付（随包，对齐 iOS folder reference）+ MD5 完整性 + 远端版本探针刷新
 ///   8. lx-mobile 桥接独立探活
 library;
 
@@ -87,8 +87,10 @@ void main() {
   late _FakeNodeHost host;
   late _FakeHttp http;
 
-  /// 内置资源（含 main.js / polyfill / db.json / lx 桥；不含 6.4MB bundle）。
-  Map<String, List<int>> assets({String? bundle}) => <String, List<int>>{
+  /// 内置资源（对齐 iOS `Resources/noderuntime` folder reference：含 6.4MB bundle）。
+  ///
+  /// [bundle] 传 null 可模拟「资源未随包」（对齐 iOS `bundleResourceMissing`）。
+  Map<String, List<int>> assets({String? bundle = 'builtin-bundle'}) => <String, List<int>>{
         'assets/noderuntime/main.js': utf8.encode('// main v2'),
         'assets/noderuntime/node-intl-polyfill.js': utf8.encode('// polyfill'),
         'assets/noderuntime/db.json': utf8.encode('{"k":1}'),
@@ -314,15 +316,27 @@ void main() {
     expect((await m.readBundleManifest())!['source'], 'bundled');
   });
 
-  test('bundle 完整性：不一致且内置缺失（ND-02 未下发）→ 放行不阻断', () async {
-    final NodeRuntimeManager m = build();
+  test('bundle 完整性：内置资源未随包 → 抛错（对齐 iOS bundleResourceMissing）', () async {
+    final NodeRuntimeManager m = build(files: assets(bundle: null));
     addTearDown(m.stop);
     await Directory(m.bundleDirPath).create(recursive: true);
     await File(m.activeBundlePath).writeAsBytes(utf8.encode('corrupted'));
 
-    await m.verifyBundleIntegrity(); // 不抛
-
+    expect(
+      () => m.verifyBundleIntegrity(),
+      throwsA(isA<NodeHostException>()),
+    );
     expect(await m.readBundleManifest(), isNull);
+  });
+
+  test('启动即用内置 bundle：落盘 + manifest(source=bundled) + BUNDLE_PATH 指向', () async {
+    final NodeRuntimeManager m = build(); // 缺省内置 bundle
+    addTearDown(m.stop);
+    await m.start();
+
+    expect(await File(m.activeBundlePath).readAsString(), 'builtin-bundle');
+    expect((await m.readBundleManifest())!['source'], 'bundled');
+    expect(host.lastConfig!.environment['BUNDLE_PATH'], m.activeBundlePath);
   });
 
   test('远端 bundle 刷新：版本一致 → 跳过下载', () async {

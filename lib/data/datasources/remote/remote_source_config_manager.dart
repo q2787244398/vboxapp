@@ -388,6 +388,29 @@ class RemoteSourceConfigManager {
     return '$manifestUrl.version';
   }
 
+  // ────────────── Node bundle 远端地址缓存读取（ND-02）──────────────
+  // 对齐 iOS `RemoteSourceConfigManager.cachedNodeBundleRefreshURL()` /
+  // `cachedNodeBundleVersionURL()`：供 `NodeRuntimeManager.start` 在本地内置资源
+  // 启动后做可选的远端增量刷新；未配置 / manifest 未下发 → null，回退本地资源。
+
+  /// 读取缓存的 Node bundle 远端地址。
+  static Future<String?> cachedNodeBundleRefreshUrl({PrefsManager? prefs}) async {
+    final Object? v = await (prefs ?? PrefsManager.instance).get(_keyNodeBundleUrl);
+    return _nonEmptyString(v);
+  }
+
+  /// 读取缓存的 Node bundle 版本文件远端地址（版本探针用）。
+  static Future<String?> cachedNodeBundleVersionUrl({PrefsManager? prefs}) async {
+    final Object? v = await (prefs ?? PrefsManager.instance).get(_keyNodeBundleVer);
+    return _nonEmptyString(v);
+  }
+
+  static String? _nonEmptyString(Object? v) {
+    if (v is! String) return null;
+    final String trimmed = v.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
   // ────────────── 6 合 1 聚合解析（B-03）──────────────
 
   /// 聚合 all_sources.json 的站点（`apiSources.sites` + `spiderSources.sites`，
