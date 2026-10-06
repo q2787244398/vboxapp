@@ -51,6 +51,14 @@ android {
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
         }
+
+        // 批次 I · ND-01-native：nodejs-mobile 的 libnode.so 以 libc++_shared 构建
+        // （官方 Android 集成口径），须向 CMake 传 ANDROID_STL=c++_shared 以匹配 STL ABI。
+        externalNativeBuild {
+            cmake {
+                arguments += "-DANDROID_STL=c++_shared"
+            }
+        }
     }
 
     // G-09 P4：有 key.properties 时使用固定 release keystore（本地发布构建），否则回退 debug。
