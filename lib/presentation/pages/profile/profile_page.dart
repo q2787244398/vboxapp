@@ -15,6 +15,7 @@
 /// [SettingsPage]（对齐 iOS：这些入口在设置页内，不进个人中心）。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
@@ -33,7 +34,9 @@ import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../welfare/welfare_controller.dart';
+import '../../welfare/welfare_replay_bridge.dart';
 import '../../widgets/backup_page.dart';
+import '../../widgets/detail_page.dart';
 import '../../widgets/download/download_overlay_widgets.dart';
 import '../../widgets/library_views.dart';
 import '../../widgets/platform_async_image.dart';
@@ -285,7 +288,17 @@ class ProfilePage extends StatelessWidget {
         ),
         const Spacer(),
         GestureDetector(
-          onTap: () => VboxToast.show(context, '观看记录将在后续批次开放'),
+          // W-福3：进入完整观看记录页（对齐 iOS `showWatchHistory` → `WatchHistoryView`）。
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => Scaffold(
+                  appBar: AppBar(title: const Text('观看记录')),
+                  body: const HistoryView(),
+                ),
+              ),
+            );
+          },
           child: Text(
             '查看更多 >',
             style: TextStyle(fontSize: VboxTypography.s12, color: scheme.outline),
@@ -705,32 +718,65 @@ class _WatchHistorySectionState extends State<_WatchHistorySection> {
   }
 
   Widget _poster(ColorScheme scheme, HistoryItem item) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        ClipRRect(
-          borderRadius: VboxRadii.button,
-          child: SizedBox(
-            width: widget.posterWidth,
-            height: widget.posterHeight,
-            child: PlatformAsyncImage(url: item.imgurl),
-          ),
-        ),
-        const SizedBox(height: VboxSpacing.xs),
-        SizedBox(
-          width: widget.posterWidth,
-          child: Text(
-            item.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: VboxTypography.s12,
-              color: scheme.onSurface,
+    return GestureDetector(
+      onTap: () => _handleTap(item),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          ClipRRect(
+            borderRadius: VboxRadii.button,
+            child: SizedBox(
+              width: widget.posterWidth,
+              height: widget.posterHeight,
+              child: PlatformAsyncImage(url: item.imgurl),
             ),
           ),
+          const SizedBox(height: VboxSpacing.xs),
+          SizedBox(
+            width: widget.posterWidth,
+            child: Text(
+              item.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: VboxTypography.s12,
+                color: scheme.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 海报点击（W-福2）：福利记录分流到「福利重播桥」（对齐 iOS
+  /// `watchHistorySection` 的 `[福利]` 分流），其余进入通用详情页续播。
+  void _handleTap(HistoryItem item) {
+    if (isWelfareReplayRecord(
+      laiyuan: item.laiyuan,
+      detailua: item.detailua,
+    )) {
+      unawaited(
+        openWelfareReplayBridge(
+          context,
+          platformKey: item.detailua,
+          vodId: item.detailurl,
+          vodName: item.name,
+          vodPic: item.imgurl,
         ),
-      ],
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => DetailPage(
+          siteKey: item.laiyuan,
+          vodId: item.detailurl,
+          initialIndex: item.jishu,
+          title: item.name,
+        ),
+      ),
     );
   }
 }

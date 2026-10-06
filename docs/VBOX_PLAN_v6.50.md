@@ -3578,7 +3578,7 @@ AliyunPlayer + IJK   ~30 MB
 | conformance runner | ✅ 已交付（45/45，见 P.8b） |
 | `lib/domain/{repositories,usecases}` · `lib/data/{datasources/remote,repositories}` | ✅ 已交付（接口 + **四个仓储实现**，v6.7） |
 
-### P.4 自动化校验体系（**14 脚本 + 1 runner，全部通过**）
+### P.4 自动化校验体系（**15 脚本 + 1 runner，全部通过**）
 
 | 脚本 | 验证内容 | 结果 |
 |------|---------|------|
@@ -3596,6 +3596,7 @@ AliyunPlayer + IJK   ~30 MB
 | `check_ui_tokens.py` | **UI 令牌守卫**（v6.33 新增）：**R-2** 圆角必须取档位 `{4,6,8,10,12,14,16,20}` · **R-3** 字号必须取档位 `{10,11,12,13,14,15,16,18,24,28}` · **R-4** 十六进制主色仅限令牌文件 | ✅ |
 | `check_engine_bundle.py` | **双引擎体积/许可核销**（Q-06 新增）：QuickJS MIT 许可 · JSC BSD-2 声明 · 产物体积区间登记 | ✅ |
 | `check_welfare_isolation.py` | **福利三重隔离守卫**（H-04 新增）：契约 allOf 约束 / 领域层实现一致性 / 模型三字段解析 / 路由接入 / sources 越界扫描 / 普通 Spider 链路引用（`--selftest` 负向自测） | ✅ |
+| `check_platform_wiring.py` | **平台层组件接线守卫**（S-07-a 新增）：登记 9 项平台能力（网盘编排/字幕解析/长按倍速/自动连播/转封装/Go 代理/直链校验/后台播放/画中画），逐项核对「类存在 + 消费域非零引用」；计数前剥离注释与字符串，防「注释提一句」误判为接线。存量未接线项走 `EXEMPT` 登记（点名不失败），拦截**新增**「组件建完零接线」回归 | ✅ |
 | **`conformance/runner/run_conformance.py`** | **fixture 消费：Spider ABI 20 + SQLite 6 + 备份 19 = 45 项** | ✅ **45/45** |
 
 > 另有 `check_mpv_installed_dependencies.py`（iOS CI 依赖检查，不属契约校验套件）。

@@ -6,16 +6,48 @@
 /// 错态重试、下载 Sheet 多选确认回补提示。
 library;
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:vbox/data/models/download.dart';
 import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/domain/entities/welfare/fuli_models.dart';
 import 'package:vbox/domain/services/fuli_base_service.dart';
+import 'package:vbox/platform/download/download_manager.dart';
+import 'package:vbox/platform/download/download_transport.dart';
+import 'package:vbox/platform/player/play_url_parser.dart';
 import 'package:vbox/platform/player/playback_route.dart';
 import 'package:vbox/platform/player/player_channel_bridge.dart';
 import 'package:vbox/platform/player/player_controller.dart';
 import 'package:vbox/presentation/pages/player/player_page.dart';
 import 'package:vbox/presentation/pages/welfare/welfare_video_bridge_page.dart';
+
+import '../../../support/fakes.dart';
+
+/// 瞬时完成的传输：任何请求返回 null / 空流（下载立即失败，不触网）。
+class _InstantDownloadTransport implements DownloadTransport {
+  @override
+  Future<String?> fetchString(Uri uri, Map<String, String> headers) async =>
+      null;
+
+  @override
+  Future<Uint8List?> fetchData(Uri uri, Map<String, String> headers) async =>
+      null;
+
+  @override
+  Future<DownloadStreamResponse?> openStream(
+    Uri uri,
+    Map<String, String> headers,
+  ) async =>
+      const DownloadStreamResponse(
+        statusCode: 200,
+        totalBytes: 0,
+        bytes: Stream<Uint8List>.empty(),
+      );
+}
 
 /// 假服务：可配置详情与播放结果。
 class _FakeFuliService extends FuliBaseService {
@@ -141,11 +173,18 @@ FuliDetail _multiLineDetail() => const FuliDetail(
       ],
     );
 
-Widget _page(_FakeFuliService service, {_PlayRecorder? recorder}) {
+Widget _page(
+  _FakeFuliService service, {
+  _PlayRecorder? recorder,
+  PlayUrlParser? parser,
+  DownloadManager? manager,
+}) {
   return MaterialApp(
     home: WelfareVideoBridgePage(
       service: service,
       video: _video(),
+      playUrlParser: parser,
+      downloadManager: manager,
       onPlay: recorder == null
           ? null
           : (String url, Map<String, String> headers) =>
@@ -153,6 +192,13 @@ Widget _page(_FakeFuliService service, {_PlayRecorder? recorder}) {
     ),
   );
 }
+
+/// 内存 store + 瞬时传输的下载管理器（不触网 / 不落盘）。
+DownloadManager _memoryManager(InMemoryDownloadStore store) => DownloadManager(
+      store: store,
+      transport: _InstantDownloadTransport(),
+      downloadsDirectory: '/tmp/vbox_test/welfare_dl',
+    );
 
 void main() {
   testWidgets('单线路：封面 + 标题 + 立即播放 + 下载，无选集/线路按钮',
@@ -309,9 +355,14 @@ void main() {
     expect(find.text('重试'), findsOneWidget);
   });
 
-  testWidgets('下载 Sheet：4 列网格多选 → 确认回补提示', (WidgetTester tester) async {
+  testWidgets('下载 Sheet：4 列网格多选 → 确认 → 逐集解析入队 DownloadManager（W-福4）',
+      (WidgetTester tester) async {
+    final InMemoryDownloadStore store = InMemoryDownloadStore();
+    final DownloadManager manager = _memoryManager(store);
+    addTearDown(manager.dispose);
+
     await tester.pumpWidget(
-      _page(_FakeFuliService(detail: _multiLineDetail())),
+      _page(_FakeFuliService(detail: _multiLineDetail()), manager: manager),
     );
     await tester.pumpAndSettle();
 
@@ -335,7 +386,89 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('选择下载集数'), findsNothing);
-    expect(find.text('已选择 2 集待下载'), findsOneWidget);
+    expect(find.text('已添加 2 集到下载'), findsOneWidget);
+
+    // 字段对齐 iOS `handleBatchDownload`：`[福利]<平台名>` / `__fuli_welfare__:<key>`。
+    expect(store.items, hasLength(2));
+    final Download first = store.items.first;
+    expect(first.name, '测试影片 第1集');
+    expect(first.laiyuan, '[福利]演示平台');
+    expect(first.engineKey, '__fuli_welfare__:demo');
+    expect(first.sourceType, 'normal');
+    expect(first.detailurl, 'v1');
+    expect(first.vodId, 'v1');
+    expect(first.jishu, 1);
+    expect(first.playurl, 'https://cdn.example.com/l1e1.m3u8');
+
+    // 放掉 2s 提示自动隐藏定时器，避免 teardown 报 pending timer。
+    await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('parse=1：先经 PlayUrlParser 提取直链再交播放器（W-福5）',
+      (WidgetTester tester) async {
+    final _FakeFuliService service = _FakeFuliService(
+      detail: _singleDetail(),
+      playerResult: const FuliPlayerResult(
+        url: 'https://page.example.com/play/123',
+        headers: <String, String>{'Referer': 'https://a.example.com'},
+        parse: 1,
+      ),
+    );
+    final PlayUrlParser parser = PlayUrlParser(
+      client: MockClient((http.Request request) async => http.Response(
+            '<html><body><video src="https://cdn.example.com/real.m3u8"></video></body></html>',
+            200,
+            headers: <String, String>{'content-type': 'text/html'},
+          )),
+    );
+    addTearDown(parser.dispose);
+
+    final _PlayRecorder recorder = _PlayRecorder();
+    await tester.pumpWidget(
+      _page(service, recorder: recorder, parser: parser),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('立即播放'));
+    await tester.pumpAndSettle();
+
+    expect(recorder.urls, hasLength(1));
+    expect(recorder.urls.single, 'https://cdn.example.com/real.m3u8');
+    // headers 保留原始值（对齐 iOS：解析后仍用原 headers）。
+    expect(recorder.headersList.single['Referer'], 'https://a.example.com');
+  });
+
+  testWidgets('parse=1 解析失败：回落原 URL 交播放器（W-福5）',
+      (WidgetTester tester) async {
+    final _FakeFuliService service = _FakeFuliService(
+      detail: _singleDetail(),
+      playerResult: const FuliPlayerResult(
+        url: 'https://page.example.com/play/123',
+        headers: <String, String>{},
+        parse: 1,
+      ),
+    );
+    // 播放页无直链 → parse 返回 null → 回落原 URL。
+    final PlayUrlParser parser = PlayUrlParser(
+      client: MockClient((http.Request request) async => http.Response(
+            '<html><body>no playable url</body></html>',
+            200,
+            headers: <String, String>{'content-type': 'text/html'},
+          )),
+    );
+    addTearDown(parser.dispose);
+
+    final _PlayRecorder recorder = _PlayRecorder();
+    await tester.pumpWidget(
+      _page(service, recorder: recorder, parser: parser),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('立即播放'));
+    await tester.pumpAndSettle();
+
+    expect(recorder.urls, hasLength(1));
+    expect(recorder.urls.single, 'https://page.example.com/play/123');
   });
 
   testWidgets('缺省播放：解析成功后进入全屏播放页 PlayerPage（对齐 iOS fullScreenCover）',

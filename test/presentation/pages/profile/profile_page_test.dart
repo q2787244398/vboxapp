@@ -81,6 +81,21 @@ void main() {
     expect(shared.single, contains('releases/latest/download/vbox.ipa'));
   });
 
+  testWidgets('W-福3：点击「查看更多 >」→ 进入完整观看记录页',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_host(session: _session()));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('查看更多 >'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('查看更多 >'));
+    await tester.pumpAndSettle();
+
+    // 新页 AppBar 标题 + 历史列表空态（内存仓储为空）。
+    expect(find.widgetWithText(AppBar, '观看记录'), findsOneWidget);
+    expect(find.text('暂无播放历史\n看完的片子会出现在这里'), findsOneWidget);
+  });
+
   testWidgets('M-账1：登录弹窗含上级推荐码字段，提交后落库',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(420, 1400);

@@ -16,8 +16,9 @@
 ///     + 标题 12 两行。
 ///
 /// 与 iOS 的差异（如实登记）：
-///   · 视频点击 → [WelfareVideoBridgePage]（本批初版，线路/选集页面内呈现，
-///     底部面板交互归 H-06）；漫画平台图片阅读器为简化版随本批落地；
+///   · 视频点击 → [WelfareVideoBridgePage]（线路/选集页面内呈现，底部面板交互归 H-06）；
+///     漫画平台（`contentCategory == comic`）点击 → [WelfareComicReaderPage] 长卷
+///     阅读器（UI-C1，对齐 iOS `ComicDirectReaderView` / `MangaReaderView`）；
 ///   · `FuliCategoryNavigatorView` 中 iOS 点击「有二级分类」仅切换展开动画
 ///     （展开内容未渲染，疑为 iOS 半成品），Flutter 补齐「展开二级分类区」，
 ///     选中子类回调对齐 iOS `onSelectSub`（设 `selectedSubId` + 刷新对应 Tab）；
@@ -33,6 +34,7 @@ import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
+import 'welfare_comic_reader_page.dart';
 import 'welfare_video_bridge_page.dart';
 
 /// 福利 Spider 引擎执行页（`welfare_spider` + JS/Python 脚本平台）。
@@ -145,12 +147,16 @@ class _WelfareSpiderMainPageState extends State<WelfareSpiderMainPage> {
   }
 
   void _openVideo(FuliVideo video) {
+    // 漫画平台（`contentCategory == comic`）→ 长卷阅读器（UI-C1，对齐 iOS
+    // `FuliPlatformMainView.videoCard` 的 `svc.contentCategory == .comic` 分支）；
+    // 其余 → 视频播放中转页。
+    final bool isComic =
+        widget.service.contentCategory == FuliContentCategory.comic;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => WelfareVideoBridgePage(
-          service: widget.service,
-          video: video,
-        ),
+        builder: (BuildContext context) => isComic
+            ? WelfareComicReaderPage(service: widget.service, video: video)
+            : WelfareVideoBridgePage(service: widget.service, video: video),
       ),
     );
   }

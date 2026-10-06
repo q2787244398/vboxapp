@@ -18,6 +18,7 @@ import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_files.dart';
 import '../../../domain/entities/cloud/cloud_play_item.dart';
 import '../../../domain/entities/player/player.dart';
+import '../../../platform/player/go_proxy_client.dart';
 import '../../../platform/player/pan_player.dart';
 import '../../../platform/player/playback_route.dart';
 import '../../theme/tokens/colors.dart';
@@ -102,14 +103,12 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
         if (!mounted) return;
         final String title =
             item.fileName.isEmpty ? entry.name : item.fileName;
+        final PlayerSource source = await _panSource(item, title);
+        if (!mounted) return;
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (BuildContext context) => PlayerPage(
-              source: PlayerSource(
-                url: item.playURL!,
-                headers: item.headers,
-                title: title,
-              ),
+              source: source,
               // 直链特征无法自证 pan 路由，显式传入（对齐 F-08）。
               route: PlaybackRoute.pan,
               title: title,
@@ -130,6 +129,43 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
       context,
       added > 0 ? '已转存并加入清理队列' : '该文件已在清理队列中',
     );
+  }
+
+  /// 网盘直链 → 播放源（C-10 Go 代理）。
+  ///
+  /// HLS（`m3u8`）经本地 Go 代理注册后再播放：代理完成分片重写 + 上游鉴权头
+  /// 注入，播放端只需拉本地地址（对齐 iOS `CloudDriveManager.registerQuarkStream`
+  /// / `AliyunPgPlayManager.registerStream`）；非 HLS / 代理不可用 / 未返回合法
+  /// 本地地址 → 回落直链并保留原请求头，不阻断播放。
+  Future<PlayerSource> _panSource(CloudPlayItem item, String title) async {
+    final String url = item.playURL ?? '';
+    final Map<String, String> headers = item.headers;
+    if (!url.toLowerCase().contains('.m3u8')) {
+      return PlayerSource(url: url, headers: headers, title: title);
+    }
+    try {
+      final GoProxyClient proxy = GoProxyRegistry.instance;
+      if (!proxy.isRunning) {
+        final String started = await proxy.start();
+        if (!started.startsWith('ok')) {
+          return PlayerSource(url: url, headers: headers, title: title);
+        }
+      }
+      final String proxied = widget.driveType == CloudDriveType.quark
+          ? await proxy.registerQuarkStream(
+              upstreamUrl: url,
+              cookie: headers['Cookie'] ?? '',
+              source: 'v2-play-m3u8',
+            )
+          : await proxy.registerStream(upstreamUrl: url, headers: headers);
+      if (proxied.startsWith('http://127.0.0.1')) {
+        // 代理已注入上游鉴权头 → 本地地址无需再带请求头。
+        return PlayerSource(url: proxied, title: title);
+      }
+    } catch (_) {
+      // 原生 Go 代理缺失 / 异常 → 回落直链。
+    }
+    return PlayerSource(url: url, headers: headers, title: title);
   }
 
   /// 立即清理到期条目。

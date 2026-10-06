@@ -4,9 +4,13 @@
 /// `fuli_base` 注册命中与未注册 / `unknown`（空 + 未知）兜底原因。
 library;
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vbox/domain/entities/welfare/welfare.dart';
 import 'package:vbox/domain/services/fuli_base_service.dart';
+import 'package:vbox/domain/services/remote_cms_v10_service.dart';
+import 'package:vbox/domain/services/welfare_python_spider_service.dart';
+import 'package:vbox/presentation/pages/welfare/welfare_video_bridge_page.dart';
 import 'package:vbox/presentation/welfare/welfare_platform_router.dart';
 
 /// 测试替身：最小可用的 `fuli_base` 服务。
@@ -20,6 +24,9 @@ class _FakeFuliService extends FuliBaseService {
   String _host = '';
   bool _ready = false;
 
+  /// `reprobe()` 调用计数（W-福6 断言）。
+  int reprobeCount = 0;
+
   @override
   String get currentHost => _host;
 
@@ -28,6 +35,7 @@ class _FakeFuliService extends FuliBaseService {
 
   @override
   void reprobe() {
+    reprobeCount++;
     _host = primaryHost;
     _ready = primaryHost.isNotEmpty;
   }
@@ -214,6 +222,255 @@ void main() {
       final WelfareRoute weird = router.resolve(platform(serviceType: 'x_y_z'));
       expect(weird, isA<WelfareUnsupportedRoute>());
       expect((weird as WelfareUnsupportedRoute).reason, contains('x_y_z'));
+    });
+  });
+
+  group('WelfarePlatformRouter.makeVideoBridgeView（W-福2 重播桥）', () {
+    test('fuli_base：注册命中 → 中转页；未注册 → null（不兜底）', () {
+      final FuliBaseServiceRegistry registry = FuliBaseServiceRegistry();
+      registry.register(_FakeFuliService(platformKey: 'panda'));
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: registry);
+
+      final Widget? hit = router.makeVideoBridgeView(
+        platform: platform(serviceType: 'fuli_base', key: 'panda'),
+        vodId: 'v1',
+        vodName: '片名',
+        vodPic: 'http://pic',
+      );
+      expect(hit, isA<WelfareVideoBridgePage>());
+      expect((hit! as WelfareVideoBridgePage).service.platformKey, 'panda');
+      expect((hit as WelfareVideoBridgePage).video.vodId, 'v1');
+
+      expect(
+        router.makeVideoBridgeView(
+          platform: platform(serviceType: 'fuli_base', key: 'nope'),
+          vodId: 'v1',
+          vodName: '片名',
+          vodPic: 'http://pic',
+        ),
+        isNull,
+      );
+    });
+
+    test('welfare_spider：JS 脚本 → 中转页；非 JS 无原生服务 → null', () {
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: FuliBaseServiceRegistry());
+
+      expect(
+        router.makeVideoBridgeView(
+          platform: platform(
+            serviceType: 'welfare_spider',
+            scriptType: 'javascript',
+            key: 'js1',
+          ),
+          vodId: 'v1',
+          vodName: '片名',
+          vodPic: '',
+        ),
+        isA<WelfareVideoBridgePage>(),
+      );
+      expect(
+        router.makeVideoBridgeView(
+          platform: platform(
+            serviceType: 'welfare_spider',
+            scriptType: 'python',
+            key: 'stat1',
+          ),
+          vodId: 'v1',
+          vodName: '片名',
+          vodPic: '',
+        ),
+        isNull,
+        reason: '非 JS 且无原生服务的 welfare_spider 无播放中转页',
+      );
+    });
+
+    test('welfare_spider：已注册原生服务优先于 JS 引擎', () {
+      final FuliBaseServiceRegistry registry = FuliBaseServiceRegistry();
+      registry.register(_FakeFuliService(platformKey: 'lusushequ'));
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: registry);
+
+      final Widget? view = router.makeVideoBridgeView(
+        platform: platform(serviceType: 'welfare_spider', key: 'lusushequ'),
+        vodId: 'v1',
+        vodName: '片名',
+        vodPic: '',
+      );
+      expect(view, isA<WelfareVideoBridgePage>());
+      expect((view! as WelfareVideoBridgePage).service.platformKey, 'lusushequ');
+    });
+
+    test('python_spider → 中转页', () {
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: FuliBaseServiceRegistry());
+      expect(
+        router.makeVideoBridgeView(
+          platform: platform(serviceType: 'python_spider', key: 'py1'),
+          vodId: 'v1',
+          vodName: '片名',
+          vodPic: '',
+        ),
+        isA<WelfareVideoBridgePage>(),
+      );
+    });
+
+    test('aidan_video：platformKey 未命中时回落固定键 aidan_video', () {
+      final FuliBaseServiceRegistry registry = FuliBaseServiceRegistry();
+      registry.register(_FakeFuliService(
+        platformKey: 'aidan_video',
+        platformName: '艾旦福利视频',
+      ));
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: registry);
+
+      final Widget? view = router.makeVideoBridgeView(
+        platform: platform(serviceType: 'aidan_video', key: 'aidan_remote'),
+        vodId: 'v1',
+        vodName: '片名',
+        vodPic: '',
+      );
+      expect(view, isA<WelfareVideoBridgePage>());
+      expect((view! as WelfareVideoBridgePage).service.platformKey, 'aidan_video');
+    });
+
+    test('remote_cms_v10 → 中转页（UI-C1c 页面已落地）', () {
+      RemoteCmsV10FuliService.clearCache();
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: FuliBaseServiceRegistry());
+      final Widget? view = router.makeVideoBridgeView(
+        platform: platform(serviceType: 'remote_cms_v10', key: 'cms1'),
+        vodId: 'v1',
+        vodName: '片名',
+        vodPic: '',
+      );
+      expect(view, isA<WelfareVideoBridgePage>());
+      expect(
+        (view! as WelfareVideoBridgePage).service.platformKey,
+        'cms1',
+      );
+      RemoteCmsV10FuliService.clearCache();
+    });
+
+    test('原生专用 / unknown → null（页面未落地，不兜底）', () {
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: FuliBaseServiceRegistry());
+      for (final String type in <String>[
+        'ybox_special',
+        'daily_battle',
+        'kanliao',
+        '',
+        'x_y_z',
+      ]) {
+        expect(
+          router.makeVideoBridgeView(
+            platform: platform(serviceType: type, key: 'k'),
+            vodId: 'v1',
+            vodName: '片名',
+            vodPic: '',
+          ),
+          isNull,
+          reason: type,
+        );
+      }
+    });
+  });
+
+  group('WelfarePlatformRouter.triggerServiceReset（W-福6）', () {
+    tearDown(WelfarePythonSpiderService.clearCache);
+
+    test('fuli_base：命中注册服务 → reprobe；未注册 → 无操作', () {
+      final FuliBaseServiceRegistry registry = FuliBaseServiceRegistry();
+      final _FakeFuliService fake = _FakeFuliService(platformKey: 'panda');
+      registry.register(fake);
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: registry);
+
+      router.triggerServiceReset(
+          platform(serviceType: 'fuli_base', key: 'panda'));
+      expect(fake.reprobeCount, 1);
+
+      // 未注册 key：不抛异常、不误触其他服务。
+      router.triggerServiceReset(
+          platform(serviceType: 'fuli_base', key: 'nope'));
+      expect(fake.reprobeCount, 1);
+    });
+
+    test('aidan_video：platformKey 不同时回落固定键 aidan_video', () {
+      final FuliBaseServiceRegistry registry = FuliBaseServiceRegistry();
+      final _FakeFuliService fake =
+          _FakeFuliService(platformKey: 'aidan_video');
+      registry.register(fake);
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: registry);
+
+      router.triggerServiceReset(
+          platform(serviceType: 'aidan_video', key: 'aidan_remote'));
+      expect(fake.reprobeCount, 1);
+    });
+
+    test('daily_battle / kanliao：命中同名注册服务 → reprobe', () {
+      final FuliBaseServiceRegistry registry = FuliBaseServiceRegistry();
+      final _FakeFuliService battle = _FakeFuliService(platformKey: 'daily');
+      final _FakeFuliService kanliao = _FakeFuliService(platformKey: 'kl');
+      registry.register(battle);
+      registry.register(kanliao);
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: registry);
+
+      router.triggerServiceReset(
+          platform(serviceType: 'daily_battle', key: 'daily'));
+      router.triggerServiceReset(
+          platform(serviceType: 'kanliao', key: 'kl'));
+      expect(battle.reprobeCount, 1);
+      expect(kanliao.reprobeCount, 1);
+    });
+
+    test('welfare_spider：已注册原生服务补重探测；纯 JS 脚本无操作', () {
+      final FuliBaseServiceRegistry registry = FuliBaseServiceRegistry();
+      final _FakeFuliService fake = _FakeFuliService(platformKey: 'lusushequ');
+      registry.register(fake);
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: registry);
+
+      router.triggerServiceReset(
+          platform(serviceType: 'welfare_spider', key: 'lusushequ'));
+      expect(fake.reprobeCount, 1);
+
+      // 纯 JS 脚本（无原生服务）→ 无操作，不误触已注册服务。
+      router.triggerServiceReset(
+          platform(
+            serviceType: 'welfare_spider',
+            key: 'js1',
+            scriptType: 'javascript',
+          ));
+      expect(fake.reprobeCount, 1);
+    });
+
+    test('unknown / ybox_special / remote_cms_v10：无操作不抛异常', () {
+      final WelfarePlatformRouter router = WelfarePlatformRouter();
+      for (final String type in <String>[
+        'unknown_x',
+        'ybox_special',
+        'remote_cms_v10',
+      ]) {
+        expect(
+          () => router.triggerServiceReset(platform(serviceType: type)),
+          returnsNormally,
+          reason: type,
+        );
+      }
+    });
+
+    test('python_spider：触发 Python 服务 reprobe（不抛异常）', () {
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: FuliBaseServiceRegistry());
+      expect(
+        () => router.triggerServiceReset(
+            platform(serviceType: 'python_spider', key: 'py1')),
+        returnsNormally,
+      );
     });
   });
 

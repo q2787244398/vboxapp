@@ -17,6 +17,8 @@
 /// URL（对齐 iOS `guard isRunning else { return upstreamURL }` 降级直链语义）。
 library;
 
+import 'dart:io' show Platform;
+
 import 'package:flutter/services.dart';
 
 /// Go 代理客户端抽象（可注入）。
@@ -235,4 +237,33 @@ class MethodChannelGoProxyClient implements GoProxyClient {
 
   /// 是否合法本地代理地址（`http://127.0.0.1` 前缀）。
   bool _validProxyUrl(String url) => url.startsWith('http://127.0.0.1');
+}
+
+/// 按平台解析默认 Go 代理客户端。
+///
+/// Android / macOS / Windows 走原生通道（[MethodChannelGoProxyClient]，
+/// 对齐 iOS `GoProxyManager` 的三端绑定）；iOS / Linux 等无原生绑定 → 降级
+/// [NoopGoProxyClient]（`registerStream` 原样返回上游，播放不受影响）。
+GoProxyClient createDefaultGoProxyClient() {
+  if (Platform.isAndroid || Platform.isWindows || Platform.isMacOS) {
+    return MethodChannelGoProxyClient();
+  }
+  return const NoopGoProxyClient();
+}
+
+/// Go 代理客户端注册表：app / 播放链路共享单例（首个消费方懒创建并按平台分派）。
+///
+/// 对齐 iOS `GoProxyManager.shared`（全局唯一，启动后复用）；懒创建等价 iOS
+/// 「启动即拉起」——首次播放前完成，语义一致且不阻塞首屏。
+class GoProxyRegistry {
+  GoProxyRegistry._();
+
+  static GoProxyClient? _instance;
+
+  /// 共享客户端（懒创建 + 按平台分派）。
+  static GoProxyClient get instance =>
+      _instance ??= createDefaultGoProxyClient();
+
+  /// 注入替身（测试 / 自定义绑定）。
+  static set instance(GoProxyClient value) => _instance = value;
 }
