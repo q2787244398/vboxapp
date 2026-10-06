@@ -8,8 +8,9 @@
 /// 门控前置：契约键 `fuli_remote_source_enabled` 由 [WelfarePlatformController]
 /// 异步读入，故本页先 `await bootstrap()` 再判定，避免「已关闭仍闪远程页」。
 ///
-/// 遗留（如实登记）：内置资源版 `WelfareHomeView` 尚未移植（依赖 H-02 路由 /
-/// H-03 Spider），当前以显式占位呈现；关闭远程源开关后的完整内置链路随 H-02/H-03 接入。
+/// 与 iOS 的差异登记：Flutter 端**只保留远程源版一套**，不移植内置资源版
+/// `WelfareHomeView`（依赖内置硬编码平台列表）。故开关关闭时不回退内置页，
+/// 改为显式「远程源已关闭」空态，引导用户在「我的 → 福利专区」重新开启。
 library;
 
 import 'package:flutter/material.dart';
@@ -51,13 +52,13 @@ class _WelfareGatePageState extends State<WelfareGatePage> {
         context.watch<WelfarePlatformController>();
     return controller.switchEnabled
         ? const WelfareHomePage()
-        : const _BuiltinWelfarePage();
+        : const _RemoteDisabledPage();
   }
 }
 
-/// 内置福利资源版占位（对齐 iOS `WelfareHomeView`，待 H-02 / H-03 接入）。
-class _BuiltinWelfarePage extends StatelessWidget {
-  const _BuiltinWelfarePage();
+/// 远程源关闭空态（Flutter 无内置资源版，故不回退内置页）。
+class _RemoteDisabledPage extends StatelessWidget {
+  const _RemoteDisabledPage();
 
   @override
   Widget build(BuildContext context) {
@@ -70,10 +71,10 @@ class _BuiltinWelfarePage extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(Icons.card_giftcard, size: 48, color: accent),
+              Icon(Icons.cloud_off_rounded, size: 48, color: accent),
               const SizedBox(height: VboxSpacing.lg),
               const Text(
-                '暂无福利内容',
+                '远程源已关闭',
                 style: TextStyle(
                   fontSize: VboxTypography.s16,
                   fontWeight: FontWeight.w600,
@@ -81,7 +82,7 @@ class _BuiltinWelfarePage extends StatelessWidget {
               ),
               const SizedBox(height: VboxSpacing.sm),
               Text(
-                '内置福利资源随 H-02 / H-03 接入；也可在「我的 → 福利专区」启用远程源',
+                '请到「我的 → 福利专区」开启「使用福利远程源」后返回',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: VboxTypography.s13,

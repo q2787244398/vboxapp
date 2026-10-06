@@ -1,7 +1,7 @@
 /// 呈现层单测：福利平台设置页 + 域名编辑页（批次 H · H-07）。
 ///
 /// 对齐 iOS `WelfareSettingsView` / `RemoteWelfareSettingsView`：
-///   · 远程源开关（开/关切换 remote ↔ builtin 主体）；
+///   · 远程源开关（开/关切换 remote 主体 / 远程源关闭态）；
 ///   · 远程源状态区（状态行 + 立即同步）；
 ///   · 代理设置（输入 + 保存 / 清除 + 平台代理开关折叠列表，未设代理置灰）；
 ///   · 平台列表按分类分组（名称 + `[platformKey]` + 描述 + 当前域名：自定义优先）；
@@ -154,7 +154,7 @@ void main() {
       expect(find.text('清空远程源缓存'), findsOneWidget);
     });
 
-    testWidgets('关闭开关 → 内置版主体（提示开启远程源，平台列表消失）',
+    testWidgets('关闭开关 → 远程源关闭态（提示开启远程源，平台列表消失）',
         (WidgetTester tester) async {
       final WelfarePlatformController controller = await _readyController(_config);
       await tester.pumpWidget(_page(controller, proxyStore: proxyStore, domainStore: domainStore));

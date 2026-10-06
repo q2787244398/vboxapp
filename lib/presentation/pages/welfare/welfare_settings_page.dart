@@ -13,9 +13,10 @@
 ///     + 描述 + 当前域名（自定义优先，回退默认首个）+ 进入「编辑域名」；
 ///   · ⑤「调试」：清空远程源缓存。
 ///
-/// 关闭远程源开关 → 切换到内置版（对齐 iOS `builtinSettingsBody`）：
-/// 开关 + 代理设置 + 「请开启上方「使用福利远程源」」提示（Flutter 无内置硬编码
-/// 平台，故不渲染平台列表）。
+/// 关闭远程源开关 → 远程源关闭态（沿用 iOS `builtinSettingsBody` 的「开关 + 代理」
+/// 布局）：开关 + 代理设置 + 「请开启上方「使用福利远程源」」提示。
+/// 差异登记：Flutter 端**只保留远程源一套**，不移植内置资源版，故关闭时既不渲染
+/// 也不回退任何内置平台列表。
 ///
 /// 数据与差异登记：
 ///   · 平台配置 / 开关来自 [WelfarePlatformController]（H-01，App 级 Provider）；
@@ -182,7 +183,7 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
         builder: (BuildContext context, Widget? _) {
           return controller.switchEnabled
               ? _remoteBody(context, controller)
-              : _builtinBody(context, controller);
+              : _remoteDisabledBody(context, controller);
         },
       ),
     );
@@ -226,8 +227,8 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
     );
   }
 
-  /// 内置版主体（对齐 iOS `WelfareSettingsView.builtinSettingsBody`）。
-  Widget _builtinBody(
+  /// 远程源关闭态（沿用 iOS `WelfareSettingsView.builtinSettingsBody` 的布局骨架）。
+  Widget _remoteDisabledBody(
     BuildContext context,
     WelfarePlatformController controller,
   ) {
@@ -319,7 +320,7 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
           subtitle: Text(
             controller.switchEnabled
                 ? '开启：使用远程源中的福利平台列表'
-                : '关闭：使用内置资源版本（与升级前一致）',
+                : '关闭：暂不加载远程源平台列表',
             style: TextStyle(fontSize: VboxTypography.s12, color: scheme.outline),
           ),
           trailing: Switch.adaptive(
@@ -330,7 +331,7 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
         ),
         _sectionFooter(
           context,
-          '关闭后，福利专区将回到内置资源版本，所有现有数据和播放功能不受影响。',
+          '关闭后不再加载远程源平台列表，福利专区将显示为「远程源已关闭」。',
         ),
       ],
     );
