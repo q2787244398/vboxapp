@@ -7,6 +7,9 @@ Build/
 vbox/Libraries/MPV/MPVKitDependencies/*.xcframework/
 vbox/Libraries/MPV/Freedom/*.xcframework/
 vbox/Libraries/NodeMobile/NodeMobile.xcframework/
+# Android Node 引擎预编译库与头文件（ND-01-native，CI 由 fetch-nodejs-mobile-android.sh 就位）
+android/app/src/main/jniLibs/**/libnode.so
+android/app/src/main/jni/libnode/
 __pycache__/
 
 # 编译产物（v6.1 补充：根目录曾误入库 6 个 .o）

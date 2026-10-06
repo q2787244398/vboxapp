@@ -23,11 +23,13 @@ import java.io.File
  *  - `stop` → `null`
  *  - `isRunning` → `bool`
  *
- * ## 引擎绑定（未接入时明确报错，不 crash）
- * Node 引擎（nodejs-mobile 的 `NodeJS` 类）**不在默认依赖内**——需按 `ND-01-native`
- * 步骤引入 AAR 与 `libnode.so`（四 ABI）后本插件才会真正拉起引擎；未接入时
- * 统一回 `E_NODE_UNAVAILABLE`，由 Dart 侧映射为 `node-failed` 降级（Node 站点暂不可用），
- * 不影响其余功能。引擎以**反射**方式绑定，故不引入编译期依赖、缺包也不影响构建。
+ * ## 引擎绑定（对齐 iOS NodeRunner）
+ * 引擎经 [NodeBridge]（JNI → nodejs-mobile `node::Start`）拉起，等价 iOS
+ * `NodeRunner.mm` → `node_start`。`libnode.so`（三 ABI）与 `node_bridge.cpp` 由
+ * `scripts/fetch-nodejs-mobile-android.sh` 就位（同 iOS `build-ipa.yml` 的 NodeMobile
+ * 下载步骤）。`node::Start` **阻塞且单实例不可重启**，故本插件在**独立后台线程**拉起，
+ * 并在拉起前**同步**触发 `System.loadLibrary`——缺包时回 `E_NODE_UNAVAILABLE`，
+ * 由 Dart 侧映射为 `node-failed` 降级（Node 站点暂不可用，不影响其余功能）。
  */
 class NodePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
@@ -83,18 +85,20 @@ class NodePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     // ─────────────── 引擎启动 ───────────────
 
     /**
-     * 在后台线程启动 nodejs-mobile 引擎（官方要求独立线程 + 大栈）。
+     * 启动 nodejs-mobile 引擎（对齐 iOS `NodeRuntimeManager.launchNodeEngine`）。
      *
      * 环境变量矩阵由 Dart 侧组装（`PORT` / `HEALTH_PORT` / `BUNDLE_PATH` / `LX_*`），
-     * 与 iOS `NodeRuntimeManager.launchNodeEngine` 的 `setenv` 1:1；Node 侧经
-     * `process.env` 读取，故此处保持不解释、原样透传。
+     * 与 iOS 的 `setenv` 1:1；Node 侧经 `process.env` 读取，故此处保持不解释、原样透传。
+     *
+     * `node::Start` 阻塞且单实例，故：① 先**同步**触发 `System.loadLibrary` 以便缺包时
+     * 立即回 `E_NODE_UNAVAILABLE`；② 再在**独立后台线程**拉起引擎。
      */
     private fun startEngine(
         runtimeDir: String,
         mainScript: String,
         environment: Map<String, String>
     ) {
-        val ctx = appContext ?: throw IllegalStateException("Node 插件未附着引擎")
+        appContext ?: throw IllegalStateException("Node 插件未附着引擎")
         if (runtimeDir.isEmpty()) throw IllegalStateException("Node 运行时目录为空")
         val script = File(runtimeDir, "main.js")
         if (!script.exists()) {
@@ -104,34 +108,33 @@ class NodePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             setEnv(k, v)
         }
 
-        val clazz = findEngineClass()
-            ?: throw IllegalStateException(
-                "Node 引擎未集成（缺 nodejs-mobile AAR + libnode.so 四 ABI）。" +
-                    "请按 ND-01-native 步骤引入后重试；入口脚本：$mainScript"
-            )
-
-        val instance = clazz.getDeclaredConstructor().newInstance()
-        val engineArgs = arrayOf(script.absolutePath)
+        // 同步预加载：缺 libnode.so / libnode_bridge.so 时在此抛错（不落到线程内的静默失败）
         try {
-            clazz.getMethod("start", Context::class.java, Array<String>::class.java)
-                .invoke(instance, ctx, engineArgs)
-        } catch (_: NoSuchMethodException) {
-            clazz.getMethod("start", Array<String>::class.java).invoke(instance, engineArgs)
+            NodeBridge.ensureLoaded()
+        } catch (e: UnsatisfiedLinkError) {
+            throw IllegalStateException(
+                "Node 引擎未集成（缺 libnode.so / libnode_bridge.so）。" +
+                    "请先运行 scripts/fetch-nodejs-mobile-android.sh；入口脚本：$mainScript",
+                e
+            )
         }
-        engine = instance
-        Log.i(TAG, "Node 引擎已启动：$mainScript")
-    }
 
-    /** 反射查找 nodejs-mobile 引擎类（未集成返回 null）。 */
-    private fun findEngineClass(): Class<*>? {
-        for (name in ENGINE_CLASS_CANDIDATES) {
-            try {
-                return Class.forName(name)
-            } catch (_: ClassNotFoundException) {
-                // 继续尝试下一个候选
-            }
+        if (NodeBridge.isStarted) {
+            Log.w(TAG, "Node 引擎已启动（单实例不可重启），忽略重复请求")
+            engine = NodeBridge
+            return
         }
-        return null
+
+        Thread({
+            try {
+                NodeBridge.start(script.absolutePath)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Node 引擎运行异常：${t.message}", t)
+            }
+        }, "vbox-node-engine").start()
+
+        engine = NodeBridge
+        Log.i(TAG, "Node 引擎线程已拉起：$mainScript")
     }
 
     /** `setenv` 反射调用（Android 上 `System.getenv` 只读，Node 侧读 process.env）。 */
@@ -149,12 +152,6 @@ class NodePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         const val CHANNEL = "com.vbox.node/host"
 
         private const val TAG = "vbox"
-
-        /** nodejs-mobile 引擎类候选（按版本差异依次尝试）。 */
-        private val ENGINE_CLASS_CANDIDATES = listOf(
-            "com.janeasystems.nodejsmobile.NodeJS",
-            "com.janeasystems.nodejs.NodeJS"
-        )
 
         /** 注册到引擎（MainActivity 调用，与 PlayerPlugin/GoProxyPlugin/PythonPlugin 同模式）。 */
         @JvmStatic

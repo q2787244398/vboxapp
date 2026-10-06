@@ -76,6 +76,10 @@ jobs:
       - name: Fetch Android JSC prebuilt libs (Q-02)
         run: bash scripts/fetch-jsc-android.sh
 
+      # 批次 I · ND-01-native：就位 Node 引擎预编译库（对齐 iOS build-ipa.yml 下载 NodeMobile）
+      - name: Fetch Android Node engine prebuilt libs (ND-01)
+        run: bash scripts/fetch-nodejs-mobile-android.sh
+
       - name: Build release APKs (split-per-abi)
         run: flutter build apk --release --split-per-abi
 
