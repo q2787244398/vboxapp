@@ -108,14 +108,16 @@ private typealias FnMpvSetProperty =
 private typealias FnMpvGetProperty = FnMpvSetProperty
 private typealias FnMpvObserveProperty =
   @convention(c) (MpvHandle?, UInt64, UnsafePointer<CChar>?, Int32) -> Int32
+// `@convention(c)` 只接受 C 可表示类型：Swift 自定义 struct（`MpvEvent` / `MpvRenderParam`）
+// 作指针 pointee 会被判定为 "not representable in Objective-C" 而编译失败，故此处统一以
+// `UnsafeMutableRawPointer?` 承载，调用点再用 `assumingMemoryBound` / 数组缓冲指针还原。
 private typealias FnMpvWaitEvent =
-  @convention(c) (MpvHandle?, Double) -> UnsafeMutablePointer<MpvEvent>?
+  @convention(c) (MpvHandle?, Double) -> UnsafeMutableRawPointer?
 private typealias FnMpvErrorString = @convention(c) (Int32) -> UnsafePointer<CChar>?
 private typealias FnMpvRenderCreate =
-  @convention(c) (UnsafeMutablePointer<MpvRenderContext?>?, MpvHandle?,
-                  UnsafeMutablePointer<MpvRenderParam>?) -> Int32
+  @convention(c) (UnsafeMutableRawPointer?, MpvHandle?, UnsafeMutableRawPointer?) -> Int32
 private typealias FnMpvRender =
-  @convention(c) (MpvRenderContext?, UnsafeMutablePointer<MpvRenderParam>?) -> Int32
+  @convention(c) (MpvRenderContext?, UnsafeMutableRawPointer?) -> Int32
 private typealias FnMpvRenderSetUpdate =
   @convention(c) (MpvRenderContext?, (@convention(c) (UnsafeMutableRawPointer?) -> Void)?,
                   UnsafeMutableRawPointer?) -> Void
@@ -742,9 +744,10 @@ extension PlayerPlugin {
   private func mpvEventLoop() {
     guard let api = mpvApi, let handle = mpvHandle else { return }
     while mpvRunning {
-      guard let event = api.waitEvent?(handle, 0.1) else { continue }
-      if event.pointee.eventID == mpvEventShutdown { break }
-      handleMpvEvent(event.pointee)
+      guard let raw = api.waitEvent?(handle, 0.1) else { continue }
+      let event = raw.assumingMemoryBound(to: MpvEvent.self).pointee
+      if event.eventID == mpvEventShutdown { break }
+      handleMpvEvent(event)
     }
   }
 
@@ -843,7 +846,12 @@ extension PlayerPlugin {
                        data: UnsafeMutableRawPointer(mutating: apiType)),
         MpvRenderParam(type: mpvRenderParamInvalid, data: nil),
       ]
-      let rc = create(&context, handle, &params)
+      let rc: Int32 = withUnsafeMutablePointer(to: &context) { contextPtr in
+        params.withUnsafeMutableBufferPointer { buffer in
+          create(UnsafeMutableRawPointer(contextPtr), handle,
+                 UnsafeMutableRawPointer(buffer.baseAddress))
+        }
+      }
       return rc < 0 ? nil : context
     }
     guard let ctx = renderContext else {
@@ -917,7 +925,9 @@ extension PlayerPlugin {
                 data: scratchBuffer.baseAddress),
               MpvRenderParam(type: mpvRenderParamInvalid, data: nil),
             ]
-            return api.render?(ctx, &params) ?? -1
+            return params.withUnsafeMutableBufferPointer { buffer in
+              api.render?(ctx, UnsafeMutableRawPointer(buffer.baseAddress)) ?? -1
+            }
           }
         }
       }

@@ -80,8 +80,24 @@ jobs:
       - name: Fetch Android Node engine prebuilt libs (ND-01)
         run: bash scripts/fetch-nodejs-mobile-android.sh
 
-      - name: Build release APKs (split-per-abi)
-        run: flutter build apk --release --split-per-abi
+      # 批次 RT-运1：Chaquopy 强制要求 ndk.abiFilters 非空，而 AGP 9 禁止其与 splits
+      # （Flutter `--split-per-abi`）并存 → 改为「分 ABI 多次构建」，产出等价的分 ABI 包。
+      # `-Pdisable-abi-filtering=true` 阻止 Flutter Gradle 插件在非 split 构建中覆写
+      # app 模块 defaultConfig.ndk.abiFilters（见 android/app/build.gradle.kts）。
+      - name: Build release APKs (per-ABI)
+        run: |
+          set -euo pipefail
+          OUT=build/app/outputs/flutter-apk
+          build_abi() {
+            local abi="$1" target="$2" name="$3"
+            flutter build apk --release \
+              -Pdisable-abi-filtering=true -PvboxAbi="$abi" \
+              --target-platform "$target"
+            cp "$OUT/app-release.apk" "vbox-$name.apk"
+          }
+          build_abi arm64-v8a   android-arm64 arm64
+          build_abi armeabi-v7a android-arm   v7a
+          ls -lh vbox-*.apk
 
       - name: Sign with release keystore (S.6, P4)
         env:
@@ -91,25 +107,22 @@ jobs:
           KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          OUT=build/app/outputs/flutter-apk
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
           BT="$(ls "$SDK_ROOT"/build-tools | sort -V | tail -1)"
           APKSIGNER="$SDK_ROOT/build-tools/$BT/apksigner"
           if [ -n "$KS_BASE64" ] && [ -n "$KS_PASS" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASS" ]; then
             echo "$KS_BASE64" | base64 -d > vbox-release.jks
-            "$APKSIGNER" sign --ks vbox-release.jks \
-              --ks-pass "env:KS_PASS" --ks-key-alias "$KEY_ALIAS" --key-pass "env:KEY_PASS" \
-              --out vbox-arm64.apk "$OUT/app-arm64-v8a-release.apk"
-            "$APKSIGNER" sign --ks vbox-release.jks \
-              --ks-pass "env:KS_PASS" --ks-key-alias "$KEY_ALIAS" --key-pass "env:KEY_PASS" \
-              --out vbox-v7a.apk "$OUT/app-armeabi-v7a-release.apk"
+            for n in arm64 v7a; do
+              "$APKSIGNER" sign --ks vbox-release.jks \
+                --ks-pass "env:KS_PASS" --ks-key-alias "$KEY_ALIAS" --key-pass "env:KEY_PASS" \
+                --out "vbox-$n.signed.apk" "vbox-$n.apk"
+              mv "vbox-$n.signed.apk" "vbox-$n.apk"
+            done
             "$APKSIGNER" verify --print-certs vbox-arm64.apk | head -3
             echo "✅ 已用 release 密钥签名"
           else
             echo "⚠️ 未配置 ANDROID_KEYSTORE_* secrets，产出 debug 签名 APK（可安装；"
             echo "   P4 同签名覆盖更新验证需配置密钥后重跑本工作流）"
-            cp "$OUT/app-arm64-v8a-release.apk" vbox-arm64.apk
-            cp "$OUT/app-armeabi-v7a-release.apk" vbox-v7a.apk
           fi
           ls -lh vbox-*.apk
 

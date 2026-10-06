@@ -22,6 +22,17 @@ if (hasReleaseSigning) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// Wave G · RT-运1：Chaquopy 需 `ndk.abiFilters` 非空；而 AGP 9 禁止其与 `splits.abi`
+// （Flutter `--split-per-abi` 会设置）并存 → 改为「分 ABI 多次构建」产出分 ABI 包：
+//   `-PvboxAbi=arm64-v8a`（或逗号分隔的多个 ABI），不传则回退三 ABI（flutter-check debug / 本地）。
+val vboxAbis: List<String> =
+    (project.findProperty("vboxAbi") as String?)
+        ?.split(",")
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?.takeIf { it.isNotEmpty() }
+        ?: listOf("armeabi-v7a", "arm64-v8a", "x86_64")
+
 android {
     namespace = "com.vbox.player"
     compileSdk = flutter.compileSdkVersion
@@ -44,12 +55,18 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        // Wave G · RT-运1：Chaquopy 的 CPython 解释器是原生组件，须显式声明 ABI。
-        // 三 ABI 与 `flutter build apk --split-per-abi` 的产物（android-arm /
-        // android-arm64 / android-x64）一一对应；x86_64 供模拟器。
-        // Python 选 3.11（见下 chaquopy 块）以保留 32 位 armeabi-v7a 支持。
+        // Wave G · RT-运1：Chaquopy 的 CPython 解释器是原生组件，须显式声明 ABI
+        // （Chaquopy 强制要求 ndk.abiFilters 非空）。Python 选 3.11（见下 chaquopy 块）
+        // 以保留 32 位 armeabi-v7a 支持。
+        //
+        // 分 ABI 打包：AGP 9 禁止 `splits.abi`（Flutter `--split-per-abi` 会设置）与
+        // `ndk.abiFilters` 并存，而 Chaquopy 又强制要求 abiFilters，二者不可兼得。
+        // 故改为「分 ABI 多次构建」：由 `-PvboxAbi=<abi>[,<abi>]` 指定本次构建的 ABI
+        // （见文件顶部 vboxAbis 解析）；不传时回退三 ABI。构建脚本须同时传
+        // `-Pdisable-abi-filtering=true`，阻止 Flutter Gradle 插件在非 split 构建中
+        // 覆写本处 abiFilters（FlutterPlugin.configureAbiWithoutSplits）。
         ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
+            abiFilters += vboxAbis
         }
 
         // 批次 I · ND-01-native：nodejs-mobile 的 libnode.so 以 libc++_shared 构建
@@ -86,7 +103,7 @@ android {
     // 批次 Q · Q-02：JSC 引擎原生模块（NDK + CMake）。
     // 编译 jsc/wrapper.c → libvbox_jsc.so（ABI 形状对齐 libvbox_quickjs 的 vq_*）。
     // 前置：scripts/fetch-jsc-android.sh 就位四 ABI libjsc.so（jniLibs，AGP 随 APK 打包）。
-    // ABI 由 defaultConfig.ndk.abiFilters 收敛为三 ABI（RT-运1 引入，供 Chaquopy 声明）。
+    // ABI 由 defaultConfig.ndk.abiFilters 收敛（RT-运1 引入，供 Chaquopy 声明；分 ABI 构建见顶部 vboxAbis）。
     externalNativeBuild {
         cmake {
             path = file("src/main/jni/CMakeLists.txt")
