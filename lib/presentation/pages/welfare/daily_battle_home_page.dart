@@ -483,20 +483,16 @@ class _DailyBattleVideoGridState extends State<_DailyBattleVideoGrid> {
 
 /// 搜索 Tab（对齐 iOS `DailyBattleSearchTab`）。
 class _DailyBattleSearchTab extends StatefulWidget {
-  const _DailyBattleSearchTab({required this.service, this.presetKeyword});
+  const _DailyBattleSearchTab({required this.service});
 
   final DailyBattleFuliService service;
-
-  /// 预置关键词（详情页相关标签跳转用，对齐 iOS `presetKeyword`）。
-  final String? presetKeyword;
 
   @override
   State<_DailyBattleSearchTab> createState() => _DailyBattleSearchTabState();
 }
 
 class _DailyBattleSearchTabState extends State<_DailyBattleSearchTab> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.presetKeyword ?? '');
+  final TextEditingController _controller = TextEditingController();
 
   List<FuliVideo> _results = <FuliVideo>[];
   bool _isSearching = false;
@@ -685,7 +681,7 @@ class _DailyBattleVideoCard extends StatelessWidget {
                         ),
                         child: Text(
                           remarks,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: VboxTypography.s10,
                             fontWeight: FontWeight.w500,
                             color: Colors.white,
