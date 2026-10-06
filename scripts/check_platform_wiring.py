@@ -25,6 +25,12 @@
   · 只认类名标识符，不做调用图分析（零依赖、秒级、无误报）。
 
 不做的事：调用点深度分析 / 参数级校验（交给 `flutter analyze` 与单测）。
+
+另提供**清单模式** `--audit`：把同样的「零消费者」判定从 9 项守卫扩展到
+整个扫描根（默认 `lib/platform` + `lib/domain/services`），一次列出全部
+悬空类，供人工分诊。它是**清单而非门禁**（恒返回 0），因为平台层存在
+合理的内聚私有类，是否「应当接线」必须由业务判定。
+用法：`python3 scripts/check_platform_wiring.py --audit [相对路径 …]`
 """
 from __future__ import annotations
 
@@ -74,6 +80,20 @@ _DECL = re.compile(
     r"(?:class|mixin|enum)\s+(\w+)",
     re.M,
 )
+
+# 审计模式专用：只抓 `class <Name>`。刻意排除 enum / mixin / 私有类 ——
+# 它们多为模块内部枚举与工具，零外部引用是常态，混进来只会淹没有效信号。
+_AUDIT_DECL = re.compile(
+    r"^\s*(?:abstract\s+|final\s+|sealed\s+|base\s+|interface\s+)*"
+    r"class\s+(\w+)",
+    re.M,
+)
+
+# `--audit` 默认扫描根：平台层与领域服务层 —— 悬空组件的高发区。
+AUDIT_ROOTS: tuple[str, ...] = ("lib/platform", "lib/domain/services")
+
+# 单个扫描根最多打印的悬空条目数（超出只报计数，免得输出淹没终端）。
+AUDIT_PRINT_CAP = 60
 
 
 def mask_noncode(src: str) -> str:
@@ -153,7 +173,8 @@ def line_of(src: str, idx: int) -> int:
     return src.count("\n", 0, idx) + 1
 
 
-def main() -> int:
+def run_guard() -> int:
+    """门禁模式：9 项登记能力的接线校验（失败即返回 1）。"""
     errors = 0
 
     # 自检：豁免表键必须都在守卫清单内，否则是拼写错误（静默失效很危险）。
@@ -236,6 +257,138 @@ def main() -> int:
         return 1
     print("\n平台层组件接线守卫: 通过 ✅")
     return 0
+
+
+# 抓 Dart `import` / `export` 的目标路径（构建模块依赖图用）。
+_IMPORT_TARGET = re.compile(r"""^\s*(?:import|export)\s+['"]([^'"]+)['"]""", re.M)
+
+
+def _resolve_import(src_file: pathlib.Path, target: str) -> pathlib.Path | None:
+    """把 Dart import / export 目标解析为绝对路径；非本项目文件返回 None。
+
+    注意 Dart 允许**省略 `./` 前缀**的相对路径（`import 'foo.dart';`），
+    barrel 文件普遍这么写；把这类目标当成「非相对」会直接切断整条
+    `export` 链，使经 barrel 转出的模块被误判为不可达。
+    """
+    if target.startswith("dart:"):
+        return None
+    if target.startswith("package:"):
+        if not target.startswith("package:vbox/"):
+            return None
+        return (LIB / target[len("package:vbox/") :]).resolve()
+    # 其余一律按相对路径解析（含省略前缀的写法）。
+    return (src_file.parent / target).resolve()
+
+
+def run_audit(roots: list[pathlib.Path]) -> int:
+    """清单模式：按**模块可达性**列出「消费域永远到不了」的悬空模块。
+
+    判定单位刻意从「单个类」提升到「模块」，因为「类名零引用」有两种成因，
+    只有其一才是缺口：
+
+      · **内部抽象**（`NodeHost`、`M3u8Parser`）：只被同层模块引用，而那个
+        模块本身经 `app.dart` / `download_manager.dart` 等外部入口被触达 ——
+        对平台层是合理的分层，**不是缺口**；
+      · **整块能力未被任何外部文件 import**（`pip/`、`cast/`、`floating/`）：
+        外部入口永远到不了 —— 这才是**真缺口**。
+
+    故先算「从消费域出发的模块可达集」，再报未触达模块。这样 `NodeHost`
+    不再冒充缺口，而 `PipController` / `CastService` 这类仍会被准确点名。
+    """
+    print(f"== 悬空组件审计（按模块可达性；扫描根 {len(roots)} 个）==")
+
+    raw: dict[pathlib.Path, str] = {
+        p.resolve(): p.read_text(encoding="utf-8", errors="ignore")
+        for p in sorted(LIB.rglob("*.dart"))
+    }
+    masked_cache: dict[pathlib.Path, str] = {}
+
+    def masked(p: pathlib.Path) -> str:
+        if p not in masked_cache:
+            masked_cache[p] = mask_noncode(raw[p])
+        return masked_cache[p]
+
+    # 模块依赖图（仅保留项目内可解析的目标）。
+    imports: dict[pathlib.Path, set[pathlib.Path]] = {}
+    for p, src in raw.items():
+        deps: set[pathlib.Path] = set()
+        for target in _IMPORT_TARGET.findall(src):
+            resolved = _resolve_import(p, target)
+            if resolved is not None and resolved in raw:
+                deps.add(resolved)
+        imports[p] = deps
+
+    n_gap = n_internal = 0
+
+    for root in roots:
+        root = root.resolve()
+
+        # 可达集：种子 = 被「非本根」文件直接 import 的本根文件；再在本根内传播。
+        reached: set[pathlib.Path] = set()
+        stack: list[pathlib.Path] = []
+        for p, deps in imports.items():
+            if root in p.parents:
+                continue
+            for dep in deps:
+                if root in dep.parents and dep not in reached:
+                    reached.add(dep)
+                    stack.append(dep)
+        while stack:
+            for dep in imports.get(stack.pop(), ()):
+                if root in dep.parents and dep not in reached:
+                    reached.add(dep)
+                    stack.append(dep)
+
+        root_files = [p for p in raw if root in p.parents]
+        unreached = sorted(p for p in root_files if p not in reached)
+        n_gap += len(unreached)
+
+        print(
+            f"\n-- {root.relative_to(ROOT)}：文件 {len(root_files)} 个 · "
+            f"外部可达 {len(root_files) - len(unreached)} · **未触达 {len(unreached)}** --"
+        )
+        for p in unreached[:AUDIT_PRINT_CAP]:
+            names = [
+                m.group(1)
+                for m in _AUDIT_DECL.finditer(masked(p))
+                if not m.group(1).startswith("_")
+            ]
+            suffix = f"（{'、'.join(names)}）" if names else ""
+            print(f"  ❗ {p.relative_to(ROOT)}{suffix}")
+        if len(unreached) > AUDIT_PRINT_CAP:
+            print(f"  … 其余 {len(unreached) - AUDIT_PRINT_CAP} 个省略")
+
+        # 可达文件里「类名零引用」的类：内部抽象 / 工厂函数模式，仅报计数。
+        for p in root_files:
+            if p not in reached:
+                continue
+            for m in _AUDIT_DECL.finditer(masked(p)):
+                name = m.group(1)
+                if name.startswith("_"):
+                    continue
+                pat = re.compile(rf"\b{re.escape(name)}\b")
+                if not any(
+                    pat.search(masked(q))
+                    for q in raw
+                    if root not in q.parents
+                ):
+                    n_internal += 1
+
+    print(
+        f"\n合计：未触达模块 {n_gap} 个（**真缺口候选**）· "
+        f"可达但类名零引用 {n_internal} 个（内部抽象，通常无需处理）。"
+        "清单模式不影响退出码；确认应当接线的项请登记进 GUARDS。"
+    )
+    return 0
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    if "--audit" in argv:
+        args = [a for a in argv if not a.startswith("-")]
+        roots = [ROOT / a for a in args] or [ROOT / r for r in AUDIT_ROOTS]
+        return run_audit(roots)
+    return run_guard()
 
 
 if __name__ == "__main__":
