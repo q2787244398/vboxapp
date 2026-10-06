@@ -227,6 +227,9 @@ class NodeRuntimeManager {
   Timer? _healthTimer;
   Timer? _lxHealthTimer;
 
+  /// 在途的自动重启任务（[stop] 需等待其收敛，避免异步写盘与资源清理竞态）。
+  Future<void>? _restartFuture;
+
   /// 状态变化广播（对齐 iOS `nodeRuntimeStatus` 通知）。
   Stream<NodeRuntimeStatus> get statusStream => _statusController.stream;
 
@@ -350,6 +353,14 @@ class NodeRuntimeManager {
     _healthTimer = null;
     _lxHealthTimer?.cancel();
     _lxHealthTimer = null;
+    // 先等待在途的自动重启收敛：其 `prepareRuntimeFiles` 是异步写盘，
+    // 若不等它完成就返回，外部（如单测目录删除）会在写入尚未结束时清理目录，
+    // 触发 `Directory not empty` 竞态。
+    final Future<void>? inflight = _restartFuture;
+    if (inflight != null) {
+      await inflight;
+      _restartFuture = null;
+    }
     await _host.stop();
     _isSystemReady = false;
     _isLXReady = false;
@@ -617,7 +628,7 @@ class NodeRuntimeManager {
     _log('❌ $_lastError');
     if (!_crashController.isClosed) _crashController.add(_lastError!);
     _setStatus(NodeRuntimeStatus.crashed);
-    unawaited(_attemptRestart());
+    _restartFuture = _attemptRestart();
   }
 
   /// 崩溃后自动重启（对齐 v2.10「崩溃自动恢复」；上限 [maxRestarts]）。

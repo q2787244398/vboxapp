@@ -106,7 +106,11 @@ class _StartupGateState extends State<StartupGate> {
   Widget build(BuildContext context) {
     return Stack(
       children: <Widget>[
-        widget.child,
+        // 首页外壳必须拿到「铺满」的紧约束：Stack 对非定位子项下发的是松约束，
+        // 而 [HomeShellPage] 根节点是「全 Positioned 子项」的 Stack，
+        // RenderStack 在无有效非定位子项时会取 constraints.constrain(Size(0,0))，
+        // 松约束下即塌缩为 0×0 → 启动页淡出后整屏只剩底层黑窗（黑屏）。
+        Positioned.fill(child: widget.child),
         // 启动页覆盖层（最高层级，覆盖底栏与浮层）。
         IgnorePointer(
           ignoring: !_showSplash,
