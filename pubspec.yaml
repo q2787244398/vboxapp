@@ -73,6 +73,11 @@ flutter:
     - assets/splash/vbox_letter.png
     # M-账3：默认头像用的软件图标（与各端 Launcher 图标同源，对齐 iOS AppIcon）
     - assets/brand/app_icon.png
+    # ND-01：Node 常驻系统内置运行时（首次启动复制到 <appData>/noderuntime）。
+    # 含 main.js / polyfill / lx-bridge.js / db.json / default.db.json / wexfnwconfig.json；
+    # **不含** 6.4MB 的 bundles/kstore_index.js —— 按 ND-02 由远端按需下载。
+    - assets/noderuntime/
+    - assets/noderuntime/lx/
   fonts:
     # 品牌字体（A-13）：启动页字母图 + 品牌字标用；正文走系统字体（令牌口径「字体族不强制」）。
     - family: VboxBrand

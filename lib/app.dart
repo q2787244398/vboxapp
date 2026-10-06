@@ -41,6 +41,7 @@ import 'domain/entities/subscribe/subscribe.dart';
 import 'domain/services/native_fuli_services.dart';
 import 'domain/usecases/usecases.dart';
 import 'platform/download/download.dart';
+import 'platform/node/node_runtime_manager.dart';
 import 'platform/player/music_player.dart';
 import 'platform/runtime/runtime.dart';
 import 'platform/spider/spider.dart';
@@ -109,6 +110,9 @@ class _VBoxAppState extends State<VBoxApp> {
 
   /// 下载管理器（G-02：全局下载队列 / 进度 / 管理浮层；消费 `download` 表）。
   late final DownloadManager _downloadManager;
+
+  /// Node 就绪订阅（ND-01：就绪后触发本机凭据自动推送，NC-清5）。
+  StreamSubscription<NodeRuntimeStatus>? _nodeStatusSub;
 
   /// allSources 清单 URL（S-设1：脚本相对路径解析 base，对齐 iOS `subBaseURL`）。
   String? _allSourcesUrl;
@@ -386,12 +390,36 @@ class _VBoxAppState extends State<VBoxApp> {
           throw StateError('JS 引擎均不可用（libvbox_jsc / libvbox_quickjs 均缺失）');
         }
       }),
+      // ④ Node 常驻系统（L-05-3 · ND-01）：拉起 Node 宿主（Android 走 nodejs-mobile
+      //    进程内引擎，桌面走 node 子进程），**不阻塞首屏**（对齐 iOS 在后台 Task 拉起）。
+      //    就绪后经 statusStream 触发本机凭据自动推送（NC-清5 / iOS `handleNodeStatus`）。
+      //    失败降级为 `node-failed`（Node 站点暂不可用），不阻断启动。
+      StartupTask('Node 常驻系统', () async {
+        final NodeRuntimeManager node = NodeRuntimeManager.instance;
+        _nodeStatusSub ??= node.statusStream.listen((NodeRuntimeStatus status) {
+          if (status != NodeRuntimeStatus.ready) return;
+          unawaited(
+            NodeCredentialSyncService(client: LocalNodeCredentialApiClient())
+                .onNodeReady()
+                .catchError((Object e) {
+              AppLog.warn(_logTag, 'Node 就绪凭据自动推送失败：$e');
+              return null;
+            }),
+          );
+        });
+        unawaited(
+          node.start().catchError((Object e) {
+            AppLog.warn(_logTag, 'Node 常驻系统启动失败（降级）：$e');
+          }),
+        );
+      }),
     ]);
   }
 
   @override
   void dispose() {
     unawaited(_logSink?.stop());
+    unawaited(_nodeStatusSub?.cancel());
     super.dispose();
   }
 

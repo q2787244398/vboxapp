@@ -34,5 +34,8 @@ class MainActivity : FlutterActivity() {
         // Wave G · RT-运1：注册 Python 运行时通道（Chaquopy 进程内解释器，
         // 供 Dart PythonBridgeEngine 在 Android 运行 `y_*` Python 蜘蛛脚本）
         PythonPlugin.registerWith(flutterEngine)
+        // 批次 I · ND-01：注册 Node 常驻系统宿主通道（nodejs-mobile 进程内引擎，
+        // 供 Dart NodeRuntimeManager 拉起 Node 宿主；未集成 AAR 时回 E_NODE_UNAVAILABLE 降级）
+        NodePlugin.registerWith(flutterEngine)
     }
 }
