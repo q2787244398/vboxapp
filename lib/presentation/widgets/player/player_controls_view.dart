@@ -289,13 +289,64 @@ class _PanelHost extends StatelessWidget {
         key: const ValueKey<String>('tools'),
         title: '更多',
         onClose: close,
-        child: const Text(
-          '投屏 / 播放设置（后续批次接入）',
-          style: TextStyle(fontSize: 14, color: Colors.white60),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            _ToolsEntry(
+              icon: controller.inPip
+                  ? Icons.picture_in_picture_alt_rounded
+                  : Icons.picture_in_picture_alt_outlined,
+              label: controller.inPip ? '退出画中画' : '画中画',
+              enabled: controller.pipAvailable && controller.onTogglePip != null,
+              onTap: () {
+                controller.closeAllPanels();
+                controller.onTogglePip?.call();
+              },
+            ),
+            _ToolsEntry(
+              icon: Icons.subtitles_outlined,
+              label: '加载字幕',
+              enabled: controller.onLoadSubtitle != null,
+              onTap: () {
+                controller.closeAllPanels();
+                controller.onLoadSubtitle?.call();
+              },
+            ),
+          ],
         ),
       );
     }
     return null;
+  }
+}
+
+/// 「更多」面板单行入口（图标 + 文案；禁用态置灰）。
+class _ToolsEntry extends StatelessWidget {
+  const _ToolsEntry({
+    required this.icon,
+    required this.label,
+    required this.enabled,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color = enabled ? Colors.white : Colors.white38;
+    return ListTile(
+      dense: true,
+      enabled: enabled,
+      leading: Icon(icon, size: 20, color: color),
+      title: Text(
+        label,
+        style: TextStyle(fontSize: 14, color: color),
+      ),
+      onTap: enabled ? onTap : null,
+    );
   }
 }
 

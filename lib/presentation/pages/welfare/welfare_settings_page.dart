@@ -5,7 +5,8 @@
 ///
 /// 结构对齐（远程源版为主，与 Flutter 远程源驱动的福利专区一致）：
 ///   · ①「使用福利远程源」开关（`fuli_remote_source_enabled`，默认开）；
-///   · ②「远程源状态」行 + 「立即同步」（拉取中显示进度圈）；
+///   · ②「远程源状态」行 + 「立即同步」（拉取中显示进度圈；副标题展示
+///     `version: x` 或「上次成功：…」，W-福8 对齐 iOS `statusDetail`）；
 ///   · ③「代理设置」：代理 URL 输入 + 保存 / 清除 + 「平台代理开关」折叠列表
 ///     （未设置代理时置灰禁用）；
 ///   · ④ 平台列表按分类（视频 / 直播 / 漫画）分组：图标 + 名称 + `[platformKey]`
@@ -21,14 +22,15 @@
 ///   · 代理与自定义域名来自 [WelfareProxyStore] / [WelfareDomainStore]
 ///     （H-07，契约键 `welfare_proxy_url_v1` / `welfare_proxy_enabled_platforms_v1`
 ///     / `welfare_custom_domains_v2`）；
-///   · iOS 域名变更即 `triggerServiceReset` 重探测；Flutter 侧 JS / Python 服务
-///     为静态缓存实例，设置页不主动重建引擎（对齐 iOS JS Spider 注释：脚本内
-///     服务实例域名变更后**下次进入**重新解析），避免设置页触发脚本引擎初始化。
+///   · 域名 / 代理变更即经 [WelfarePlatformRouter.triggerServiceReset] 触发对应
+///     Service 重探测（W-福6，对齐 iOS）。纯 JS 脚本仍「下次进入」重新解析
+///     （对齐 iOS JS Spider 语义，避免设置页初始化脚本引擎）。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/utils/time_utils.dart';
 import '../../../data/datasources/local/welfare_domain_store.dart';
 import '../../../data/datasources/local/welfare_proxy_store.dart';
 import '../../../domain/entities/welfare/welfare.dart';
@@ -37,6 +39,7 @@ import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../welfare/welfare_platform_controller.dart';
+import '../../welfare/welfare_platform_router.dart';
 import '../../widgets/vbox/vbox.dart';
 import 'welfare_home_page.dart' show welfarePlatformIcon;
 
@@ -48,6 +51,7 @@ class WelfareSettingsPage extends StatefulWidget {
     this.controller,
     this.proxyStore,
     this.domainStore,
+    this.router,
   });
 
   /// 平台配置控制器（缺省取上层 `Provider<WelfarePlatformController>`）。
@@ -58,6 +62,9 @@ class WelfareSettingsPage extends StatefulWidget {
 
   /// 域名存储（缺省 [WelfareDomainStore.shared]）。
   final WelfareDomainStore? domainStore;
+
+  /// 福利平台路由（域名 / 代理变更触发 Service 重探测；缺省自建）。
+  final WelfarePlatformRouter? router;
 
   @override
   State<WelfareSettingsPage> createState() => _WelfareSettingsPageState();
@@ -75,11 +82,15 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
   WelfareDomainStore get _domainStore =>
       widget.domainStore ?? WelfareDomainStore.shared;
 
+  /// 福利平台路由（`late final`：避免每次调用新建实例）。
+  late final WelfarePlatformRouter _router;
+
   bool _proxyExpanded = false;
 
   @override
   void initState() {
     super.initState();
+    _router = widget.router ?? WelfarePlatformRouter();
     _proxyInput = TextEditingController(text: _proxyStore.proxyURL);
     // 恢复落盘数据（幂等，对齐 iOS `onAppear` 预填代理输入框）。
     _hydrate();
@@ -110,9 +121,13 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
     FocusScope.of(context).unfocus();
   }
 
-  void _clearProxy() {
+  void _clearProxy(List<WelfarePlatform> allPlatforms) {
     _proxyStore.clearProxyURL();
     _proxyInput.clear();
+    // 对齐 iOS `clearProxy`：重置所有平台服务（代理已无 → 各服务回落直连域名）。
+    for (final WelfarePlatform platform in allPlatforms) {
+      _router.triggerServiceReset(platform);
+    }
     VboxToast.show(context, '代理已清除');
   }
 
@@ -137,6 +152,7 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
       builder: (BuildContext context) => WelfareDomainEditPage(
         platform: platform,
         domainStore: widget.domainStore,
+        router: widget.router,
       ),
     ));
   }
@@ -348,7 +364,7 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
           '拉取失败',
         ),
     };
-    final String? detail = controller.errorMessage;
+    final String? detail = _statusDetail(controller);
     return Column(
       children: <Widget>[
         _sectionHeader(context, '远程源状态'),
@@ -383,6 +399,31 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
         ),
       ],
     );
+  }
+
+  /// 状态副标题（W-福8，对齐 iOS `RemoteWelfareSettingsView.statusDetail`）：
+  /// 已就绪且有 version → `version: x`；失败 → 错误信息；其余（含未加载 / 拉取中）
+  /// → 「上次成功：…」（无记录则为 null，不渲染副标题）。
+  String? _statusDetail(WelfarePlatformController controller) {
+    switch (controller.loadState) {
+      case WelfarePlatformLoadState.loaded:
+        final String? version = controller.lastConfigVersion;
+        if (version != null && version.isNotEmpty) return 'version: $version';
+        return _lastSuccessText(controller);
+      case WelfarePlatformLoadState.failed:
+        return controller.errorMessage;
+      case WelfarePlatformLoadState.idle:
+      case WelfarePlatformLoadState.loading:
+        return _lastSuccessText(controller);
+    }
+  }
+
+  /// 「上次成功：yyyy-MM-dd HH:mm」（Unix 秒 ≤ 0 视为从未成功）。
+  String? _lastSuccessText(WelfarePlatformController controller) {
+    final int seconds = controller.lastSuccessTimeSeconds;
+    if (seconds <= 0) return null;
+    return '上次成功：'
+        '${TimeUtils.formatUnixSeconds(seconds, pattern: 'yyyy-MM-dd HH:mm')}';
   }
 
   /// ③ 代理设置（输入 + 保存/清除 + 平台代理开关折叠列表）。
@@ -440,7 +481,7 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
               if (hasProxy)
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: _clearProxy,
+                    onPressed: () => _clearProxy(allPlatforms),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: VboxColors.danger,
                       side: BorderSide(color: VboxColors.danger.withValues(alpha: 0.4)),
@@ -510,7 +551,11 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
           value: _proxyStore.isProxyEnabled(platform.name),
           activeTrackColor: scheme.primary,
           onChanged: hasProxy
-              ? (bool value) => _proxyStore.setProxyEnabled(value, platform.name)
+              ? (bool value) {
+                  _proxyStore.setProxyEnabled(value, platform.name);
+                  // 对齐 iOS：开启代理即触发该平台 Service 重探测（关闭不触发）。
+                  if (value) _router.triggerServiceReset(platform);
+                }
               : null,
         ),
       ),
@@ -607,13 +652,15 @@ class _WelfareSettingsPageState extends State<WelfareSettingsPage> {
 ///   · 完成（整行主色按钮）。
 ///
 /// 域名写入 [WelfareDomainStore]（契约键 `welfare_custom_domains_v2`），
-/// 变更后**下次进入**平台页生效（对齐 iOS JS Spider 语义，见 [WelfareSettingsPage]）。
+/// 变更即经 [WelfarePlatformRouter.triggerServiceReset] 触发对应 Service 重探测
+/// （W-福6，对齐 iOS `addCustomDomain` / `removeCustomDomain` / `clearCustomDomains`）。
 class WelfareDomainEditPage extends StatefulWidget {
   /// 构造。
   const WelfareDomainEditPage({
     super.key,
     required this.platform,
     this.domainStore,
+    this.router,
   });
 
   /// 目标平台。
@@ -621,6 +668,9 @@ class WelfareDomainEditPage extends StatefulWidget {
 
   /// 域名存储（缺省 [WelfareDomainStore.shared]）。
   final WelfareDomainStore? domainStore;
+
+  /// 福利平台路由（域名变更触发 Service 重探测；缺省自建）。
+  final WelfarePlatformRouter? router;
 
   @override
   State<WelfareDomainEditPage> createState() => _WelfareDomainEditPageState();
@@ -632,9 +682,13 @@ class _WelfareDomainEditPageState extends State<WelfareDomainEditPage> {
   WelfareDomainStore get _domainStore =>
       widget.domainStore ?? WelfareDomainStore.shared;
 
+  /// 福利平台路由（`late final`：避免每次调用新建实例）。
+  late final WelfarePlatformRouter _router;
+
   @override
   void initState() {
     super.initState();
+    _router = widget.router ?? WelfarePlatformRouter();
     _domainInput = TextEditingController();
     // 恢复落盘数据（幂等；默认共享实例已由 App 装配预加载）。
     _domainStore.load();
@@ -659,16 +713,20 @@ class _WelfareDomainEditPageState extends State<WelfareDomainEditPage> {
     }
     _domainStore.addDomain(widget.platform.name, domain);
     _domainInput.clear();
+    // 对齐 iOS：域名变更即触发对应 Service 重新探测。
+    _router.triggerServiceReset(widget.platform);
     VboxToast.show(context, '域名已添加');
   }
 
   void _removeDomain(String domain) {
     _domainStore.removeDomain(widget.platform.name, domain);
+    _router.triggerServiceReset(widget.platform);
     VboxToast.show(context, '域名已删除');
   }
 
   void _clearDomains() {
     _domainStore.clearDomains(widget.platform.name);
+    _router.triggerServiceReset(widget.platform);
     VboxToast.show(context, '已恢复默认域名');
   }
 

@@ -4,6 +4,8 @@
 /// 列表逻辑与展示。状态接入直连领域层 UseCase（D21 轻量路线）。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -11,6 +13,7 @@ import '../../core/utils/result.dart';
 import '../../core/utils/time_utils.dart';
 import '../../domain/entities/library/library.dart';
 import '../../domain/usecases/usecases.dart';
+import '../welfare/welfare_replay_bridge.dart';
 import 'detail_page.dart';
 
 /// 收藏 Tab（直连 [FavoriteUseCases]）。
@@ -120,7 +123,16 @@ class _FavoritesViewState extends State<FavoritesView> {
             onPressed: () => _remove(item),
           ),
           onTap: () {
-            // 详情页·播放入口接线：laiyuan=站点 key，detailurl=影片 ID，jishu=剧集索引
+            // W-福2：福利记录分流到「福利重播桥」（laiyuan 前缀 [福利]
+            // + detailua=platformKey）；其余走详情页·播放入口接线
+            // （laiyuan=站点 key，detailurl=影片 ID，jishu=剧集索引）。
+            if (isWelfareReplayRecord(
+              laiyuan: item.laiyuan,
+              detailua: item.detailua,
+            )) {
+              unawaited(_openWelfare(item));
+              return;
+            }
             Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (BuildContext context) => DetailPage(
@@ -136,6 +148,15 @@ class _FavoritesViewState extends State<FavoritesView> {
       },
     );
   }
+
+  /// 打开福利重播桥（对齐 iOS `WelfareBridgeContainer`）。
+  Future<void> _openWelfare(FavoriteItem item) => openWelfareReplayBridge(
+        context,
+        platformKey: item.detailua,
+        vodId: item.detailurl,
+        vodName: item.name,
+        vodPic: item.imgurl,
+      );
 }
 
 /// 历史 Tab（直连 [HistoryUseCases]）。
@@ -262,7 +283,15 @@ class _HistoryViewState extends State<HistoryView> {
             onPressed: () => _remove(item),
           ),
           onTap: () {
-            // 续播入口接线：进入详情页并定位到历史剧集
+            // W-福2：福利记录分流到「福利重播桥」；其余续播入口接线
+            // （进入详情页并定位到历史剧集）。
+            if (isWelfareReplayRecord(
+              laiyuan: item.laiyuan,
+              detailua: item.detailua,
+            )) {
+              unawaited(_openWelfare(item));
+              return;
+            }
             Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (BuildContext context) => DetailPage(
@@ -278,6 +307,15 @@ class _HistoryViewState extends State<HistoryView> {
       },
     );
   }
+
+  /// 打开福利重播桥（对齐 iOS `WelfareBridgeContainer`）。
+  Future<void> _openWelfare(HistoryItem item) => openWelfareReplayBridge(
+        context,
+        platformKey: item.detailua,
+        vodId: item.detailurl,
+        vodName: item.name,
+        vodPic: item.imgurl,
+      );
 }
 
 /// 空态提示。

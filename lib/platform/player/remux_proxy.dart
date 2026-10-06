@@ -408,3 +408,19 @@ class RemuxProxy {
     await req.response.close();
   }
 }
+
+/// 转封装代理注册表：进程内共享单例（对齐 iOS `RemuxProxyServer.shared`）。
+///
+/// 端口固定 18081，全局仅需一份；首个消费方懒创建并 `start()` 一次后复用，
+/// 避免多页并发绑定同端口。
+class RemuxProxyRegistry {
+  RemuxProxyRegistry._();
+
+  static RemuxProxy? _instance;
+
+  /// 共享代理（懒创建）。
+  static RemuxProxy get instance => _instance ??= RemuxProxy();
+
+  /// 注入替身（测试 / 自定义端口）。
+  static set instance(RemuxProxy value) => _instance = value;
+}

@@ -251,11 +251,19 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
       _pushUnsupported(platform, 'aidan_video 服务未注册');
       return;
     }
-    // 远程 CMS V10 / 原生专用页（香蕉秀 / 大乱斗 / 看料）→ UI-C1 待落地。
+    // UI-C1c：远程 CMS V10（服务已就绪）→ 通用福利平台页（与 fuli_base 同页族）。
     if (route is WelfareRemoteCmsV10Route) {
-      _pushUnsupported(platform, '远程 CMS V10 页面尚未接入（UI-C1）');
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) => WelfareSpiderMainPage(
+            platform: platform,
+            service: route.service,
+          ),
+        ),
+      );
       return;
     }
+    // 原生专用页（香蕉秀 / 大乱斗 / 看料）→ UI-C1 待落地。
     if (route is WelfareNativeRoute) {
       _pushUnsupported(platform, '${route.kind.label}尚未接入（UI-C1）');
       return;

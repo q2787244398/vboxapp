@@ -104,6 +104,14 @@ class PlayerControlsController extends ChangeNotifier {
   /// 该源是否具备弹幕（无弹幕源时隐藏弹幕按钮）。
   bool hasDanmaku;
 
+  // ── 画中画 / 字幕（C-05 / C-08 接线，更多面板入口）──
+
+  /// 是否提供画中画入口（[PipStrategy.showsVisualPip]；不可用则入口置灰）。
+  bool pipAvailable = false;
+
+  /// 是否处于画中画（[PipController.isInPip] 回填）。
+  bool inPip = false;
+
   // ── 面板开关（互斥：同屏至多一个）────────────────────
 
   bool _showEpisodePicker = false;
@@ -125,6 +133,12 @@ class PlayerControlsController extends ChangeNotifier {
   VoidCallback? onToggleDanmakuSettings;
   VoidCallback? onToggleToolsMenu;
   VoidCallback? onToggleOrientationLock;
+
+  /// 画中画切换回调（进入 / 退出；null 表示不可用）。
+  VoidCallback? onTogglePip;
+
+  /// 加载字幕回调（null 表示不可用）。
+  VoidCallback? onLoadSubtitle;
 
   /// 进度拖拽结束回调（毫秒）。
   void Function(int positionMs)? onSeek;
@@ -256,6 +270,20 @@ class PlayerControlsController extends ChangeNotifier {
   void setDanmakuEnabled(bool enabled) {
     if (showDanmaku == enabled) return;
     showDanmaku = enabled;
+    notifyListeners();
+  }
+
+  /// 回填当前倍速（长按倍速等外部改速后同步显示；不触发 [onSelectSpeed]）。
+  void applySpeed(double value) {
+    if (speed == value) return;
+    speed = value;
+    notifyListeners();
+  }
+
+  /// 回填画中画状态（进入 / 退出后同步入口图标）。
+  void setInPip(bool value) {
+    if (inPip == value) return;
+    inPip = value;
     notifyListeners();
   }
 

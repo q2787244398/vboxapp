@@ -38,7 +38,8 @@ class PipController {
   })  : _strategy = strategy,
         _system = systemBridge,
         _floating = floating {
-    _sub = _system.events().listen(_onSystemEvent);
+    // 缺插件 / 原生异常时事件流会抛错：兜住，避免未处理异步异常。
+    _sub = _system.events().listen(_onSystemEvent, onError: (Object _) {});
   }
 
   /// 异步构造：先探测系统 PiP 可用性，再解析策略并创建控制器。

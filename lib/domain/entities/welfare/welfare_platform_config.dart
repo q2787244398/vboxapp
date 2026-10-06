@@ -63,6 +63,21 @@ class WelfarePlatform {
     this.sortOrder = 0,
     this.defaultProxy = false,
     this.notes,
+    this.apiKind,
+    this.apiPath,
+    this.contentType,
+    this.engine,
+    this.sslBypass = false,
+    this.imageSSLBypass = false,
+    this.imageReferer,
+    this.rootTypeId,
+    this.rootTypeName,
+    this.detailMode,
+    this.articleListPath,
+    this.articleDetailPath,
+    this.headers = const <String, String>{},
+    this.childDiscovery,
+    this.itemPlayUrlRule,
     this.visibleInNormalSpider = false,
     this.visibleInGlobalSearch = false,
     this.visibleInHome = false,
@@ -107,6 +122,53 @@ class WelfarePlatform {
   /// 脚本路径（契约 `api`，如 `./sources/welfare-js/xxx.py`；仅福利 Spider 有业务含义）。
   final String? api;
 
+  // ─────────────── CMS V10 / 图文远程源字段（UI-C1c，对齐 iOS `WelfarePlatform`）───
+
+  /// API 形态（契约 `apiKind`，如 `mac_art_html`；决定是否走图文 HTML 模式）。
+  final String? apiKind;
+
+  /// API 路径（契约 `apiPath`，如 `/api.php/provide/vod/`；缺省用 CMS V10 默认）。
+  final String? apiPath;
+
+  /// 内容类型（契约 `contentType`，`comic` 时走套图阅读器；缺省落 `category`）。
+  final String? contentType;
+
+  /// 引擎标识（契约 `engine`，如 `python` / `spider`；仅脚本平台有业务含义）。
+  final String? engine;
+
+  /// 是否绕过 SSL 证书（站点级；用于探测与抓取，对应用户配置）。
+  final bool sslBypass;
+
+  /// 封面图是否绕过 SSL（对齐 iOS `imageSSLBypass`）。
+  final bool imageSSLBypass;
+
+  /// 封面图防盗链 Referer（对齐 iOS `imageReferer`）。
+  final String? imageReferer;
+
+  /// 根分类 ID（契约 `rootTypeId`；配置后首页只展示该根分类 + 自动发现的子分类）。
+  final String? rootTypeId;
+
+  /// 根分类显示名（契约 `rootTypeName`；缺省回落站点分类名或平台名）。
+  final String? rootTypeName;
+
+  /// 详情模式（契约 `detailMode`；`comic_images` / `article_html` 有专用语义）。
+  final String? detailMode;
+
+  /// 图文列表页路径模板（契约 `articleListPath`，含 `{typeId}` / `{pageSuffix}`）。
+  final String? articleListPath;
+
+  /// 图文详情页路径模板（契约 `articleDetailPath`，含 `{id}`）。
+  final String? articleDetailPath;
+
+  /// 站点自定义请求头（契约 `headers`；仅白名单键生效，见 `RemoteCmsV10FuliService`）。
+  final Map<String, String> headers;
+
+  /// 子分类发现模式（契约 `childDiscovery`；`type_id_1` 时按 `type_id_1` 归属筛选）。
+  final String? childDiscovery;
+
+  /// 列表项过滤规则（契约 `itemRule.vodPlayUrl`：`required` / `empty`；缺省按内容类型）。
+  final String? itemPlayUrlRule;
+
   /// ⚠️ 三重隔离（契约强制 false）：不进入普通 Spider 链路。
   final bool visibleInNormalSpider;
 
@@ -141,6 +203,21 @@ class WelfarePlatform {
     int? sortOrder,
     bool? defaultProxy,
     String? notes,
+    String? apiKind,
+    String? apiPath,
+    String? contentType,
+    String? engine,
+    bool? sslBypass,
+    bool? imageSSLBypass,
+    String? imageReferer,
+    String? rootTypeId,
+    String? rootTypeName,
+    String? detailMode,
+    String? articleListPath,
+    String? articleDetailPath,
+    Map<String, String>? headers,
+    String? childDiscovery,
+    String? itemPlayUrlRule,
     bool? visibleInNormalSpider,
     bool? visibleInGlobalSearch,
     bool? visibleInHome,
@@ -158,6 +235,21 @@ class WelfarePlatform {
         sortOrder: sortOrder ?? this.sortOrder,
         defaultProxy: defaultProxy ?? this.defaultProxy,
         notes: notes ?? this.notes,
+        apiKind: apiKind ?? this.apiKind,
+        apiPath: apiPath ?? this.apiPath,
+        contentType: contentType ?? this.contentType,
+        engine: engine ?? this.engine,
+        sslBypass: sslBypass ?? this.sslBypass,
+        imageSSLBypass: imageSSLBypass ?? this.imageSSLBypass,
+        imageReferer: imageReferer ?? this.imageReferer,
+        rootTypeId: rootTypeId ?? this.rootTypeId,
+        rootTypeName: rootTypeName ?? this.rootTypeName,
+        detailMode: detailMode ?? this.detailMode,
+        articleListPath: articleListPath ?? this.articleListPath,
+        articleDetailPath: articleDetailPath ?? this.articleDetailPath,
+        headers: headers ?? this.headers,
+        childDiscovery: childDiscovery ?? this.childDiscovery,
+        itemPlayUrlRule: itemPlayUrlRule ?? this.itemPlayUrlRule,
         visibleInNormalSpider: visibleInNormalSpider ?? this.visibleInNormalSpider,
         visibleInGlobalSearch: visibleInGlobalSearch ?? this.visibleInGlobalSearch,
         visibleInHome: visibleInHome ?? this.visibleInHome,
@@ -188,6 +280,39 @@ class WelfarePlatform {
     final Object? visibleSearch = j['visibleInGlobalSearch'];
     final Object? visibleHome = j['visibleInHome'];
 
+    // CMS V10 / 图文远程源字段（UI-C1c）。
+    final String apiKindValue = _str(j['apiKind']);
+    final String apiPathValue = _str(j['apiPath']);
+    final String contentTypeValue = _str(j['contentType']);
+    final String engineValue = _str(j['engine']);
+    final String imageRefererValue = _str(j['imageReferer']);
+    final String rootTypeIdValue = _str(j['rootTypeId']);
+    final String rootTypeNameValue = _str(j['rootTypeName']);
+    final String detailModeValue = _str(j['detailMode']);
+    final String articleListPathValue = _str(j['articleListPath']);
+    final String articleDetailPathValue = _str(j['articleDetailPath']);
+
+    final Map<String, String> headers = <String, String>{};
+    final Object? rawHeaders = j['headers'];
+    if (rawHeaders is Map) {
+      rawHeaders.forEach((Object? k, Object? v) {
+        final String key = (k ?? '').toString().trim();
+        final String value = (v ?? '').toString().trim();
+        if (key.isNotEmpty && value.isNotEmpty) headers[key] = value;
+      });
+    }
+
+    // `childDiscovery` 契约声明为 object，iOS 实现为 String（`type_id_1`）→ 两者兼容。
+    final Object? rawChild = j['childDiscovery'];
+    final String childDiscoveryValue = rawChild is Map
+        ? _str(rawChild['mode'])
+        : _str(rawChild);
+
+    // `itemRule.vodPlayUrl`（`required` / `empty`）。
+    final Object? rawItemRule = j['itemRule'];
+    final String itemPlayUrlRuleValue =
+        rawItemRule is Map ? _str(rawItemRule['vodPlayUrl']) : '';
+
     final List<String> hosts = <String>[];
     final Object? rawHosts = j['defaultHosts'];
     if (rawHosts is List) {
@@ -213,11 +338,33 @@ class WelfarePlatform {
       sortOrder: sortOrder is num ? sortOrder.toInt() : 0,
       defaultProxy: defaultProxy is bool ? defaultProxy : false,
       notes: notes?.toString(),
+      apiKind: apiKindValue.isEmpty ? null : apiKindValue,
+      apiPath: apiPathValue.isEmpty ? null : apiPathValue,
+      contentType: contentTypeValue.isEmpty ? null : contentTypeValue,
+      engine: engineValue.isEmpty ? null : engineValue,
+      sslBypass: j['sslBypass'] is bool ? j['sslBypass']! as bool : false,
+      imageSSLBypass:
+          j['imageSSLBypass'] is bool ? j['imageSSLBypass']! as bool : false,
+      imageReferer: imageRefererValue.isEmpty ? null : imageRefererValue,
+      rootTypeId: rootTypeIdValue.isEmpty ? null : rootTypeIdValue,
+      rootTypeName: rootTypeNameValue.isEmpty ? null : rootTypeNameValue,
+      detailMode: detailModeValue.isEmpty ? null : detailModeValue,
+      articleListPath:
+          articleListPathValue.isEmpty ? null : articleListPathValue,
+      articleDetailPath:
+          articleDetailPathValue.isEmpty ? null : articleDetailPathValue,
+      headers: headers,
+      childDiscovery: childDiscoveryValue.isEmpty ? null : childDiscoveryValue,
+      itemPlayUrlRule:
+          itemPlayUrlRuleValue.isEmpty ? null : itemPlayUrlRuleValue,
       visibleInNormalSpider: visibleNormal is bool ? visibleNormal : false,
       visibleInGlobalSearch: visibleSearch is bool ? visibleSearch : false,
       visibleInHome: visibleHome is bool ? visibleHome : false,
     );
   }
+
+  /// 宽松取字符串（null → 空串；非字符串转 `toString`）。
+  static String _str(Object? v) => v == null ? '' : v.toString().trim();
 
   /// 序列化（写入本地缓存用；仅回写本模型已知字段）。
   Map<String, Object?> toJson() => <String, Object?>{
@@ -233,6 +380,23 @@ class WelfarePlatform {
         'sortOrder': sortOrder,
         'defaultProxy': defaultProxy,
         if (notes != null) 'notes': notes,
+        if (apiKind != null) 'apiKind': apiKind,
+        if (apiPath != null) 'apiPath': apiPath,
+        if (contentType != null) 'contentType': contentType,
+        if (engine != null) 'engine': engine,
+        if (sslBypass) 'sslBypass': sslBypass,
+        if (imageSSLBypass) 'imageSSLBypass': imageSSLBypass,
+        if (imageReferer != null) 'imageReferer': imageReferer,
+        if (rootTypeId != null) 'rootTypeId': rootTypeId,
+        if (rootTypeName != null) 'rootTypeName': rootTypeName,
+        if (detailMode != null) 'detailMode': detailMode,
+        if (articleListPath != null) 'articleListPath': articleListPath,
+        if (articleDetailPath != null) 'articleDetailPath': articleDetailPath,
+        if (headers.isNotEmpty) 'headers': headers,
+        if (childDiscovery != null) 'childDiscovery': childDiscovery,
+        if (itemPlayUrlRule != null) 'itemRule': <String, Object?>{
+          'vodPlayUrl': itemPlayUrlRule,
+        },
         // 三重隔离显式回写（缺省 false 亦写，保证缓存重读口径一致）。
         'visibleInNormalSpider': visibleInNormalSpider,
         'visibleInGlobalSearch': visibleInGlobalSearch,

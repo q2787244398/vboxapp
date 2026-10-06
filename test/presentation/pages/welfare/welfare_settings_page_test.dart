@@ -171,6 +171,43 @@ void main() {
     });
   });
 
+  group('远程源状态副标题（W-福8）', () {
+    testWidgets('已就绪且有 version → 副标题展示 version', (WidgetTester tester) async {
+      final WelfarePlatformController controller = await _readyController(_config);
+      await tester.pumpWidget(_page(controller, proxyStore: proxyStore, domainStore: domainStore));
+      await tester.pumpAndSettle();
+
+      expect(find.text('远程源状态'), findsOneWidget);
+      expect(find.text('version: 2026.10.03.1'), findsOneWidget);
+    });
+
+    testWidgets('已就绪但无 version → 副标题回退「上次成功」', (WidgetTester tester) async {
+      final WelfarePlatformController controller =
+          await _readyController(const WelfarePlatformConfig(
+        meta: <String, Object?>{},
+        platforms: <WelfarePlatform>[_platformA],
+      ));
+      await tester.pumpWidget(_page(controller, proxyStore: proxyStore, domainStore: domainStore));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('上次成功：'), findsOneWidget);
+    });
+
+    testWidgets('拉取失败 → 副标题展示错误信息', (WidgetTester tester) async {
+      final WelfarePlatformController controller = WelfarePlatformController(
+        datasource: InMemoryWelfarePlatformDatasource(),
+        cache: InMemoryWelfarePlatformCache(),
+        prefs: PrefsManager.instance,
+      );
+      await controller.bootstrap();
+      await tester.pumpWidget(_page(controller, proxyStore: proxyStore, domainStore: domainStore));
+      await tester.pumpAndSettle();
+
+      expect(find.text('拉取失败'), findsOneWidget);
+      expect(find.text('fake 未配置福利平台数据'), findsOneWidget);
+    });
+  });
+
   group('代理设置', () {
     testWidgets('保存代理 → 显示清除按钮，平台代理开关计数可用', (WidgetTester tester) async {
       final WelfarePlatformController controller = await _readyController(_config);

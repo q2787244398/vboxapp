@@ -16,19 +16,25 @@
 /// 移植口径与差异登记：
 ///   · 播放接入对齐 iOS `FuliVideoBridgeView`（`fullScreenCover → VideoPlayerViewV2`）：
 ///     解析成功后进入全屏播放页 [PlayerPage]，播放生命周期由播放页持有；
-///   · iOS `parse=1` 的 `SpiderManager.parsePlayUrl` 二次解析在 Flutter 尚无等价桥
-///     （归 Spider 平台批次），本页直接取 `fetchPlayerURL` 返回地址交播放器，
-///     与既有详情页 / 短剧 / 麻豆播放链路一致；
-///   · iOS 下载走 `DownloadManager.enqueueDownload`；Flutter 下载通道未接线
-///     （对齐既有 `DetailPage`），本页保留完整选集 UI，确认后仅回补提示。
+///   · `parse=1` 二次解析（W-福5）：URL 是网页地址而非直链时，先经 [PlayUrlParser]
+///     （对齐 iOS `SpiderManager.parsePlayUrl`）提取直链，失败仍回落原 URL 交播放器；
+///   · 下载（W-福4）对齐 iOS `DownloadManager.enqueueDownload`：逐集解析后建
+///     `__fuli_welfare__:<platformKey>` 记录交 [DownloadManager] 入队。
 library;
 
-import 'package:flutter/material.dart';
+import 'dart:async';
+import 'dart:convert';
 
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../../data/models/download.dart';
 import '../../../domain/entities/player/player.dart';
 import '../../../domain/entities/playback/playback_detail.dart';
 import '../../../domain/entities/welfare/fuli_models.dart';
 import '../../../domain/services/fuli_base_service.dart';
+import '../../../platform/download/download_manager.dart';
+import '../../../platform/player/play_url_parser.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
@@ -67,6 +73,8 @@ class WelfareVideoBridgePage extends StatefulWidget {
     required this.service,
     required this.video,
     this.onPlay,
+    this.playUrlParser,
+    this.downloadManager,
   });
 
   /// 引擎服务（JS / Python Spider，均继承 [FuliBaseService]）。
@@ -78,6 +86,12 @@ class WelfareVideoBridgePage extends StatefulWidget {
   /// 播放回调（null → 解析成功后进入 [PlayerPage]）。
   final WelfarePlayHandler? onPlay;
 
+  /// `parse=1` 二次解析器（null → 页内自建；测试注入 fake 隔离网络）。
+  final PlayUrlParser? playUrlParser;
+
+  /// 下载管理器（null → 从 [Provider] 取全局实例；测试注入内存假件）。
+  final DownloadManager? downloadManager;
+
   @override
   State<WelfareVideoBridgePage> createState() =>
       _WelfareVideoBridgePageState();
@@ -87,6 +101,12 @@ class _WelfareVideoBridgePageState extends State<WelfareVideoBridgePage> {
   FuliDetail? _detail;
   bool _isLoading = true;
   String? _errorMsg;
+
+  /// `parse=1` 二次解析器（页内自建时负责释放）。
+  late final PlayUrlParser _parser;
+
+  /// 解析器是否由页内自建（自建才在 [dispose] 关闭底层 client）。
+  late final bool _ownsParser;
 
   // 线路 / 选集。
   List<FuliLine> _lines = const <FuliLine>[];
@@ -100,7 +120,8 @@ class _WelfareVideoBridgePageState extends State<WelfareVideoBridgePage> {
   String? _resolveError;
   FuliEpisode? _pendingEpisode;
 
-  // 下载提示。
+  // 下载。
+  bool _isDownloading = false;
   bool _showDownloadTip = false;
   String _downloadTipText = '';
 
@@ -116,7 +137,16 @@ class _WelfareVideoBridgePageState extends State<WelfareVideoBridgePage> {
   @override
   void initState() {
     super.initState();
+    final PlayUrlParser? injected = widget.playUrlParser;
+    _ownsParser = injected == null;
+    _parser = injected ?? PlayUrlParser();
     _loadDetail();
+  }
+
+  @override
+  void dispose() {
+    if (_ownsParser) _parser.dispose();
+    super.dispose();
   }
 
   // ─────────────── 数据加载（对齐 iOS `loadDetail`）───────────────
@@ -176,20 +206,36 @@ class _WelfareVideoBridgePageState extends State<WelfareVideoBridgePage> {
     final FuliPlayerResult result = await widget.service.fetchPlayerURL(
       episode,
     );
-    if (!mounted) return;
-    setState(() => _isResolvingURL = false);
 
-    // 对齐 iOS：`parse=1` 时 URL 是网页地址而非直链，iOS 在 Bridge 层先行
-    // `SpiderManager.parsePlayUrl` 提取直链（失败则仍传原 URL 给播放器内部重试）。
-    // Flutter 无该等价桥（差异登记见文件头），直接取返回地址交播放器。
-    final String url = result.url;
+    // 对齐 iOS `resolveEpisode`：`parse=1` 时 URL 是网页地址而非直链，先经
+    // [PlayUrlParser]（对齐 `SpiderManager.parsePlayUrl`）提取直链；失败仍回落
+    // 原 URL 交播放器内部重试；headers 始终保留原始值。解析期间浮层保持展示。
+    final String url = await _resolvePlayableUrl(result);
+    if (!mounted) return;
     if (url.isEmpty) {
-      setState(() => _resolveError = '无法获取有效的播放地址');
+      setState(() {
+        _isResolvingURL = false;
+        _resolveError = '无法获取有效的播放地址';
+      });
       return;
     }
-    setState(() => _pendingEpisode = null);
+    setState(() {
+      _isResolvingURL = false;
+      _pendingEpisode = null;
+    });
     final WelfarePlayHandler handler = widget.onPlay ?? _defaultPlay;
     await handler(url, result.headers);
+  }
+
+  /// `parse=1` 二次解析：把 `result.url` 提取为直链；`parse != 1` 原样返回。
+  ///
+  /// 对齐 iOS `resolveEpisode` L415-L423：仅当 `parse == 1` 且 URL 非空时走解析器，
+  /// 解析失败（返回 `null`）保留原始 URL 交由播放器内部再次尝试。
+  Future<String> _resolvePlayableUrl(FuliPlayerResult result) async {
+    final String url = result.url;
+    if (result.parse != 1 || url.isEmpty) return url;
+    final String? parsed = await _parser.parse(url);
+    return parsed ?? url;
   }
 
   /// 缺省播放：解析成功后进入全屏播放页（对齐 iOS `fullScreenCover → VideoPlayerViewV2`）。
@@ -236,9 +282,10 @@ class _WelfareVideoBridgePageState extends State<WelfareVideoBridgePage> {
     final FuliPlayerResult result = await widget.service.fetchPlayerURL(
       FuliEpisode(name: episode.name, url: episode.url),
     );
-    if (result.url.isEmpty) return null;
+    final String url = await _resolvePlayableUrl(result);
+    if (url.isEmpty) return null;
     return PlayerSource(
-      url: result.url,
+      url: url,
       title: widget.video.vodName,
       headers: result.headers,
     );
@@ -293,12 +340,69 @@ class _WelfareVideoBridgePageState extends State<WelfareVideoBridgePage> {
     ];
   }
 
-  // ─────────────── 下载（UI 对齐 iOS `handleBatchDownload`；通道未接线仅回补提示）───────────────
+  // ─────────────── 下载（UI 对齐 iOS `handleBatchDownload`；W-福4 接线）───────────────
 
-  void _handleBatchDownload(List<int> indices) {
-    if (_currentEpisodes.isEmpty || indices.isEmpty) return;
-    _downloadTipText = '已选择 ${indices.length} 集待下载';
-    setState(() => _showDownloadTip = true);
+  /// 批量下载：逐集解析 → `parse=1` 二次解析 → 建 `[福利]` 记录交 [DownloadManager]。
+  ///
+  /// 对齐 iOS `FuliVideoBridgeView.handleBatchDownload` L458-L527：
+  ///   · `name = "<视频名> <集名>"`、`laiyuan = "[福利]<平台名>"`、
+  ///     `engineKey = "__fuli_welfare__:<platformKey>"`、`sourceType = "normal"`、
+  ///     `jishu = 成功序号`；`headers` 非空时 JSON 编码，空则 null；
+  ///   · 解析失败的单集跳过；成功数 > 0 → 提示「已添加 N 集到下载」，
+  ///     否则提示「下载失败，未能解析到播放地址」。
+  Future<void> _handleBatchDownload(List<int> indices) async {
+    final List<FuliEpisode> eps = _currentEpisodes;
+    if (_isDownloading || eps.isEmpty || indices.isEmpty) return;
+
+    final DownloadManager manager =
+        widget.downloadManager ?? context.read<DownloadManager>();
+    final String platformKey = widget.service.platformKey;
+    final String platformName = widget.service.platformName;
+    final String videoName = widget.video.vodName;
+    final int now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    setState(() => _isDownloading = true);
+    int successCount = 0;
+    for (final int index in indices) {
+      if (index < 0 || index >= eps.length) continue;
+      final FuliEpisode episode = eps[index];
+      final FuliPlayerResult result =
+          await widget.service.fetchPlayerURL(episode);
+      final String url = await _resolvePlayableUrl(result);
+      if (url.isEmpty) continue;
+
+      final String headersJson = result.headers.isEmpty
+          ? ''
+          : jsonEncode(result.headers);
+      await manager.enqueue(
+        Download(
+          name: '$videoName ${episode.name}',
+          laiyuan: '[福利]$platformName',
+          imgurl: widget.video.vodPic,
+          detailurl: widget.video.vodId,
+          playurl: url,
+          jishu: successCount + 1,
+          addedAt: now,
+          sourceType: 'normal',
+          engineKey: '__fuli_welfare__:$platformKey',
+          vodId: widget.video.vodId,
+          headers: headersJson.isEmpty ? null : headersJson,
+        ),
+      );
+      successCount++;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _isDownloading = false;
+      _downloadTipText = successCount > 0
+          ? '已添加 $successCount 集到下载'
+          : '下载失败，未能解析到播放地址';
+      _showDownloadTip = true;
+    });
+    Future<void>.delayed(const Duration(seconds: 2)).then((void _) {
+      if (mounted) setState(() => _showDownloadTip = false);
+    });
   }
 
   // ─────────────── 构建 ───────────────
@@ -696,7 +800,7 @@ class _WelfareVideoBridgePageState extends State<WelfareVideoBridgePage> {
       ),
     );
     if (!mounted || picked == null || picked.isEmpty) return;
-    _handleBatchDownload(picked);
+    await _handleBatchDownload(picked);
   }
 
   // ─────────────── 解析浮层（对齐 iOS：进度 / 失败 + 取消·重试）───────────────

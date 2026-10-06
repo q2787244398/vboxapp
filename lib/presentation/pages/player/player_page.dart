@@ -14,16 +14,25 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../domain/entities/player/player.dart';
 import '../../../domain/entities/playback/playback_detail.dart';
 import '../../../platform/player/channel_player.dart';
 import '../../../platform/player/danmaku/danmaku_settings.dart';
+import '../../../platform/player/floating/floating.dart';
+import '../../../platform/player/media_url_checker.dart';
+import '../../../platform/player/pip/pip.dart';
 import '../../../platform/player/player_controller.dart';
 import '../../../platform/player/playback_route.dart';
+import '../../../platform/player/playback_settings.dart';
+import '../../../platform/player/playthrough.dart';
+import '../../../platform/player/remux_proxy.dart';
+import '../../../platform/player/subtitle_parser.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/player/player_controls_controller.dart';
 import '../../widgets/player/player_controls_view.dart';
@@ -42,6 +51,7 @@ class PlayerPage extends StatefulWidget {
     required this.source,
     required this.title,
     this.subtitle,
+    this.subtitleUrl,
     this.episodes = const <PlaybackEpisode>[],
     this.initialEpisodeIndex = 0,
     this.qualities = const <String>[],
@@ -58,6 +68,11 @@ class PlayerPage extends StatefulWidget {
 
   /// 副标题（集名 / 源名）。
   final String? subtitle;
+
+  /// 外挂字幕地址（`srt` / `vtt` / `ass`；null 表示无字幕，可经「更多 → 加载字幕」补挂）。
+  ///
+  /// 对齐 iOS `PlayerState.loadSubtitle(url:)`：进入播放页时自动加载并解析。
+  final String? subtitleUrl;
 
   /// 预解析剧集列表（选集面板数据源，对齐 iOS `preParsedEpisodes`）。
   final List<PlaybackEpisode> episodes;
@@ -81,7 +96,7 @@ class PlayerPage extends StatefulWidget {
   State<PlayerPage> createState() => _PlayerPageState();
 }
 
-class _PlayerPageState extends State<PlayerPage> {
+class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 控制层自动隐藏延时（对齐 iOS `resetAutoHideTimer` 的 5s 无操作）。
   static const Duration _autoHideDelay = Duration(seconds: 5);
 
@@ -92,6 +107,41 @@ class _PlayerPageState extends State<PlayerPage> {
   final PlayerControlsController _controls = PlayerControlsController();
 
   DanmakuSettings _danmaku = DanmakuSettings.defaults;
+
+  /// 播放行为设置（C-05：画中画 / 后台 / 连播 / 长按倍速；未读到前用契约默认）。
+  PlaybackSettings _playback = const PlaybackSettings(
+    pipEnabled: true,
+    backgroundPlay: false,
+    autoPlayNext: true,
+    longPressSpeed: 2.0,
+  );
+
+  /// 自动连播控制（C-05；`ended` 时按开关推进下一集）。
+  late final AutoPlayNextController _autoPlayNext;
+
+  /// 长按倍速控制（C-05）。
+  late final LongPressSpeedController _longPressSpeed;
+
+  /// 播放前直链探测（C-12；首开失败时区分「地址不可达」与「后端不支持」）。
+  MediaUrlChecker? _urlChecker;
+
+  /// 后台播放控制（C-05；退后台启动前台媒体服务）。
+  BackgroundPlayController? _backgroundPlay;
+
+  /// 画中画控制（C-05；按渲染内核 / 平台能力多策略分派）。
+  PipController? _pip;
+
+  /// 外挂字幕轨道（C-08；null 表示未加载）。
+  SubtitleTrack? _subtitleTrack;
+
+  /// 当前应显示的字幕文本（随进度更新）。
+  String? _subtitleCueText;
+
+  /// 长按倍速是否激活（驱动提示浮层）。
+  bool _longPressSpeedActive = false;
+
+  /// 长按前的倍速（松开恢复用）。
+  double _preLongPressSpeed = 1.0;
 
   /// 当前输出面纹理句柄（R-渲1）。
   int? _textureId;
@@ -114,6 +164,16 @@ class _PlayerPageState extends State<PlayerPage> {
     _player = widget.controller ?? PlayerController.instance;
     _bindPlayer();
     _bindControls();
+    _autoPlayNext = AutoPlayNextController(
+      enabled: _playback.autoPlayNext,
+      onAdvance: () => unawaited(_advanceNext()),
+    );
+    _longPressSpeed = LongPressSpeedController(
+      longPressSpeed: _playback.longPressSpeed,
+      currentSpeed: () => _controls.speed,
+      setSpeed: (double s) => _player.setSpeed(s),
+    );
+    WidgetsBinding.instance.addObserver(this);
     final int initialIndex = widget.episodes.isEmpty
         ? 0
         : widget.initialEpisodeIndex.clamp(0, widget.episodes.length - 1);
@@ -128,6 +188,7 @@ class _PlayerPageState extends State<PlayerPage> {
       ..showDanmaku = _danmaku.enabled;
     unawaited(_loadDanmaku());
     unawaited(_enter());
+    unawaited(_loadCapabilities());
   }
 
   Future<void> _loadDanmaku() async {
@@ -141,6 +202,200 @@ class _PlayerPageState extends State<PlayerPage> {
     setState(() {
       _danmaku = s;
       _controls.showDanmaku = s.enabled;
+    });
+  }
+
+  // ─────────────── 播放能力接线（C-05 / C-08） ───────────────
+
+  /// 读取播放行为设置并接线后台播放 / 画中画 / 字幕。
+  ///
+  /// 未初始化存储（如单测）→ 保持契约默认，不阻断播放页。
+  Future<void> _loadCapabilities() async {
+    PlaybackSettings s = _playback;
+    try {
+      s = await PlaybackSettings.load();
+    } catch (_) {
+      // 忽略：回退会话默认。
+    }
+    if (!mounted) return;
+    setState(() {
+      _playback = s;
+      _autoPlayNext.enabled = s.autoPlayNext;
+      _controls.pipAvailable = s.pipEnabled;
+    });
+    _backgroundPlay = BackgroundPlayController(
+      enabled: s.backgroundPlay,
+      bridge: MethodChannelBackgroundPlayBridge(),
+    );
+    await _initPip(s);
+    final String? subtitleUrl = widget.subtitleUrl;
+    if (subtitleUrl != null && subtitleUrl.trim().isNotEmpty) {
+      await _loadSubtitle(subtitleUrl);
+    }
+  }
+
+  /// 解析画中画策略并创建控制器（原生不可用 → 保持 null，入口隐藏）。
+  Future<void> _initPip(PlaybackSettings s) async {
+    PipController pip;
+    try {
+      pip = await PipController.resolveAndCreate(
+        enabled: s.pipEnabled,
+        platform: Platform.operatingSystem,
+        backend: _player.backend,
+        systemBridge: MethodChannelPipBridge(),
+        floating: MethodChannelFloatingWindow(),
+        backgroundPlayEnabled: s.backgroundPlay,
+      );
+    } catch (_) {
+      // 原生桥缺失（桌面 / 单测）→ 不接画中画，不阻断播放。
+      return;
+    }
+    if (!mounted) {
+      await pip.dispose();
+      return;
+    }
+    setState(() {
+      _pip = pip;
+      _controls.pipAvailable = pip.strategy.showsVisualPip;
+    });
+  }
+
+  /// 生命周期联动：退后台驱动后台播放承载 + 画中画，回前台收回。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final PlaybackLifecycle lifecycle =
+        PlaybackLifecycle.fromAppStateName(state.name);
+    final bool playing = _controls.isPlaying;
+    final BackgroundPlayController? bg = _backgroundPlay;
+    if (bg != null) {
+      unawaited(bg.handleLifecycle(lifecycle, isPlaying: playing));
+    }
+    final PipController? pip = _pip;
+    if (pip != null) {
+      unawaited(pip
+          .handleLifecycle(lifecycle, isPlaying: playing)
+          .then<void>((_) {
+        if (mounted) _controls.setInPip(pip.isInPip);
+      }, onError: (Object _) {}));
+    }
+  }
+
+  /// 「更多 → 画中画」：进入 / 退出画中画。
+  Future<void> _togglePip() async {
+    final PipController? pip = _pip;
+    if (pip == null) return;
+    try {
+      if (pip.isInPip) {
+        await pip.exit();
+      } else {
+        await pip.enter(title: widget.title, isLive: _controls.isLive);
+      }
+    } catch (_) {
+      // 原生桥异常 → 保持当前状态，不误报。
+    }
+    if (!mounted) return;
+    setState(() => _controls.setInPip(pip.isInPip));
+  }
+
+  /// 「更多 → 加载字幕」：输入字幕地址后加载解析。
+  Future<void> _promptSubtitleUrl() async {
+    final TextEditingController input =
+        TextEditingController(text: widget.subtitleUrl ?? '');
+    final String? url = await showDialog<String>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: const Text('加载字幕'),
+        content: TextField(
+          controller: input,
+          autofocus: true,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            hintText: '字幕文件地址（.srt / .vtt / .ass）',
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(input.text.trim()),
+            child: const Text('加载'),
+          ),
+        ],
+      ),
+    );
+    input.dispose();
+    if (url == null || url.isEmpty) return;
+    await _loadSubtitle(url);
+  }
+
+  /// 下载并解析外挂字幕（C-08），成功后在画面上叠加显示。
+  Future<void> _loadSubtitle(String url) async {
+    final Uri? uri = Uri.tryParse(url.trim());
+    if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
+      _toast('字幕地址无效');
+      return;
+    }
+    try {
+      final http.Response resp = await http.get(uri);
+      if (resp.statusCode != 200) {
+        if (mounted) _toast('字幕加载失败（HTTP ${resp.statusCode}）');
+        return;
+      }
+      final List<SubtitleCue> cues = SubtitleParser.parseBytes(resp.bodyBytes);
+      if (cues.isEmpty) {
+        if (mounted) _toast('字幕解析失败或为空');
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _subtitleTrack = SubtitleTrack(cues);
+        _subtitleCueText = null;
+      });
+      _toast('字幕已加载（${cues.length} 条）');
+    } catch (_) {
+      if (mounted) _toast('字幕加载失败');
+    }
+  }
+
+  /// 随进度更新当前字幕文本（仅在变化时刷新）。
+  void _updateSubtitleCue(int positionMs) {
+    final SubtitleTrack? track = _subtitleTrack;
+    if (track == null) return;
+    final String? text = track.cueAt(positionMs)?.text;
+    if (text == _subtitleCueText) return;
+    setState(() => _subtitleCueText = text);
+  }
+
+  /// 长按屏幕：切到长按倍速并显示提示浮层。
+  Future<void> _beginLongPressSpeed() async {
+    if (!_longPressSpeed.enabled) return;
+    _preLongPressSpeed = _controls.speed;
+    try {
+      await _longPressSpeed.begin();
+    } catch (_) {
+      // 后端设速失败 → 不改显示状态。
+    }
+    if (!mounted) return;
+    setState(() {
+      _longPressSpeedActive = true;
+      _controls.applySpeed(_longPressSpeed.longPressSpeed);
+    });
+  }
+
+  /// 松开：恢复长按前的倍速并隐藏提示浮层。
+  Future<void> _endLongPressSpeed() async {
+    if (!_longPressSpeed.isActive) return;
+    try {
+      await _longPressSpeed.end();
+    } catch (_) {
+      // 后端设速失败 → 仍回填显示，避免卡在长按态。
+    }
+    if (!mounted) return;
+    setState(() {
+      _longPressSpeedActive = false;
+      _controls.applySpeed(_preLongPressSpeed);
     });
   }
 
@@ -161,7 +416,8 @@ class _PlayerPageState extends State<PlayerPage> {
     _player.onStateChanged = (PlayerState s) {
       if (!mounted) return;
       _controls.updatePlaying(s == PlayerState.playing);
-      if (s == PlayerState.ended) unawaited(_onEnded());
+      // C-05 自动连播：由控制器按开关决定是否推进下一集。
+      _autoPlayNext.handleState(s);
     };
     _player.onProgress = (PlaybackProgress p) {
       if (!mounted) return;
@@ -171,6 +427,11 @@ class _PlayerPageState extends State<PlayerPage> {
         bufferedMs: p.bufferedMs,
         isLive: p.isLive,
       );
+      _updateSubtitleCue(p.positionMs);
+      final PipController? pip = _pip;
+      if (pip != null && pip.isInPip) {
+        unawaited(pip.updateProgress(p.positionMs, p.durationMs));
+      }
     };
     _player.onVideoSize = (int width, int height) {
       if (!mounted) return;
@@ -223,9 +484,15 @@ class _PlayerPageState extends State<PlayerPage> {
             if (prev >= 0) unawaited(_playEpisode(prev));
           }
         : null;
+    _controls.onTogglePip = () => unawaited(_togglePip());
+    _controls.onLoadSubtitle = () => unawaited(_promptSubtitleUrl());
   }
 
   /// 打开播放源并起播；失败抛 [PlayerOpenException] 已在导航层处理，此处仅提示。
+  ///
+  /// 首开后端不支持时按两条既有能力补救（C-07 / C-12）：
+  ///  1. 复杂封装（MKV / FLV / TS…）经转封装代理换 fMP4 容器重试一次；
+  ///  2. 仍失败则探测直链可达性，给出精确诊断（地址不可达 vs 地址不可用）。
   Future<void> _openSource(PlayerSource source) async {
     try {
       await _player.open(source, route: widget.route);
@@ -233,8 +500,62 @@ class _PlayerPageState extends State<PlayerPage> {
       if (!mounted) return;
       _controls.currentBackend = _player.backend;
     } on PlayerOpenException catch (e) {
-      if (mounted) _toast(e.message);
+      final PlayerSource? remuxed = await _remuxFallback(source);
+      if (remuxed != null) {
+        try {
+          await _player.open(remuxed, route: widget.route);
+          await _player.play();
+          if (!mounted) return;
+          _controls.currentBackend = _player.backend;
+          return;
+        } on PlayerOpenException {
+          // 转封装后仍失败 → 走下方统一诊断提示。
+        }
+      }
+      final String message = await _diagnose(e, source);
+      if (mounted) _toast(message);
     }
+  }
+
+  /// 复杂封装 → 转封装候选（C-07）。
+  ///
+  /// 仅当上游需换容器（[RemuxPlan.needsRemux]）且非直播时，经共享 [RemuxProxy]
+  /// （端口 18081）注册流并返回 `fmt=fmp4` 本地地址（对齐 iOS
+  /// `MPVAVPlayerPiPProxy.tryRemuxPath` 的转封装重试）；否则返回 null。
+  Future<PlayerSource?> _remuxFallback(PlayerSource source) async {
+    if (source.isLive ||
+        !RemuxPlan.decide(source.url, headers: source.headers).needsRemux) {
+      return null;
+    }
+    try {
+      final RemuxProxy proxy = RemuxProxyRegistry.instance;
+      if (!proxy.isRunning) await proxy.start();
+      final String id =
+          proxy.registerStream(url: source.url, headers: source.headers);
+      return PlayerSource(
+        url: '${proxy.baseUrl}/remux?id=$id&fmt=fmp4',
+        title: source.title,
+      );
+    } catch (_) {
+      // 转封装代理不可用 → 不作补救，交原错误提示。
+      return null;
+    }
+  }
+
+  /// 首开失败诊断（C-12）：探测直链可达性，返回更精确的失败文案。
+  Future<String> _diagnose(PlayerOpenException e, PlayerSource source) async {
+    final MediaUrlChecker checker = _urlChecker ??= MediaUrlChecker();
+    try {
+      final MediaUrlCheckResult r =
+          await checker.check(source.url, headers: source.headers);
+      if (!r.reachable) {
+        final int? code = r.statusCode;
+        return code == null ? '播放地址不可达（网络错误）' : '播放地址不可用（HTTP $code）';
+      }
+    } catch (_) {
+      // 探测失败 → 回落原始错误描述。
+    }
+    return e.message;
   }
 
   /// 切换内核（P-芯2）：以当前源在指定后端重开。
@@ -260,8 +581,11 @@ class _PlayerPageState extends State<PlayerPage> {
     _scheduleHide();
   }
 
-  /// 播放结束：自动连播下一集（对齐 iOS `autoPlayNext` 默认开）。
-  Future<void> _onEnded() async {
+  /// 自动连播推进目标（[AutoPlayNextController.onAdvance] 接线；对齐 iOS `autoPlayNext`）。
+  ///
+  /// 是否推进由控制器按契约键 `player_auto_play_next` 决定；本方法只负责
+  /// 「有解析器且有下一集」时切集，无下一集则 no-op。
+  Future<void> _advanceNext() async {
     final int next = _controls.currentEpisodeIndex + 1;
     if (widget.onResolveEpisode != null && next < widget.episodes.length) {
       await _playEpisode(next);
@@ -385,6 +709,12 @@ class _PlayerPageState extends State<PlayerPage> {
     _player.onVideoSize = null;
     _player.onSurfaceChanged = null;
     _player.onError = null;
+    WidgetsBinding.instance.removeObserver(this);
+    final PipController? pip = _pip;
+    if (pip != null) unawaited(pip.dispose());
+    final BackgroundPlayController? bg = _backgroundPlay;
+    if (bg != null) unawaited(bg.dispose());
+    _urlChecker?.dispose();
     unawaited(_player.pause());
     _restoreSystemUi();
     _controls.dispose();
@@ -411,15 +741,97 @@ class _PlayerPageState extends State<PlayerPage> {
           behavior: HitTestBehavior.opaque,
           onTap: _toggleControls,
           onDoubleTap: () => unawaited(_player.togglePlay()),
-          child: PlayerControlsView(
-            controller: _controls,
-            lockButtonVisible: _lockButtonVisible,
-            controlsVisible: _controlsVisible,
-            danmakuSettings: _danmaku,
-            onDanmakuSettingsChanged: _onDanmakuChanged,
-            videoBuilder: (BuildContext context) => VideoSurface(
-              textureId: _textureId,
-              aspectRatio: _aspectRatio,
+          // C-05 长按倍速：按住加速，松开恢复（未启用则不占用长按手势）。
+          onLongPressStart: _longPressSpeed.enabled
+              ? (LongPressStartDetails _) => unawaited(_beginLongPressSpeed())
+              : null,
+          onLongPressEnd: _longPressSpeed.enabled
+              ? (LongPressEndDetails _) => unawaited(_endLongPressSpeed())
+              : null,
+          onLongPressCancel: _longPressSpeed.enabled
+              ? () => unawaited(_endLongPressSpeed())
+              : null,
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              PlayerControlsView(
+                controller: _controls,
+                lockButtonVisible: _lockButtonVisible,
+                controlsVisible: _controlsVisible,
+                danmakuSettings: _danmaku,
+                onDanmakuSettingsChanged: _onDanmakuChanged,
+                videoBuilder: (BuildContext context) => VideoSurface(
+                  textureId: _textureId,
+                  aspectRatio: _aspectRatio,
+                ),
+              ),
+              // C-08 字幕浮层（随时间更新；不拦截手势）。
+              if (_subtitleCueText != null && _subtitleCueText!.isNotEmpty)
+                _SubtitleOverlay(text: _subtitleCueText!),
+              // C-05 长按倍速提示浮层。
+              if (_longPressSpeedActive)
+                _LongPressSpeedOverlay(text: _controls.speedDisplayText),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 字幕浮层（画面下方居中；对齐 iOS `currentSubtitleText` 叠加）。
+class _SubtitleOverlay extends StatelessWidget {
+  const _SubtitleOverlay({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 24,
+      right: 24,
+      bottom: 84,
+      child: IgnorePointer(
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            height: 1.3,
+            shadows: <Shadow>[
+              Shadow(blurRadius: 4, color: Colors.black87),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 长按倍速提示浮层（画面正中；对齐 iOS `showLongPressSpeedHint`）。
+class _LongPressSpeedOverlay extends StatelessWidget {
+  const _LongPressSpeedOverlay({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: IgnorePointer(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
             ),
           ),
         ),

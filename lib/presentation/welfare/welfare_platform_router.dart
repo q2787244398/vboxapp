@@ -12,8 +12,15 @@
 /// 页面层据描述构建实际页面（当前 `unknown` / 未注册 → [WelfareUnsupportedRoute]）。
 library;
 
+import 'package:flutter/widgets.dart';
+
+import '../../domain/entities/welfare/fuli_models.dart';
 import '../../domain/entities/welfare/welfare.dart';
 import '../../domain/services/fuli_base_service.dart';
+import '../../domain/services/remote_cms_v10_service.dart';
+import '../../domain/services/welfare_js_spider_service.dart';
+import '../../domain/services/welfare_python_spider_service.dart';
+import '../pages/welfare/welfare_video_bridge_page.dart';
 
 /// 原生专用平台种类（对齐 iOS 三个专用 View）。
 enum WelfareNativeKind {
@@ -80,7 +87,10 @@ final class WelfareFuliBaseRoute extends WelfareRoute {
 /// 远程 CMS V10 福利页（`remote_cms_v10`）。
 final class WelfareRemoteCmsV10Route extends WelfareRoute {
   /// 构造。
-  const WelfareRemoteCmsV10Route(super.platform);
+  const WelfareRemoteCmsV10Route(super.platform, this.service);
+
+  /// 由平台配置驱动的 CMS V10 服务（UI-C1c，对齐 iOS `RemoteCMSV10Service`）。
+  final FuliBaseService service;
 
   @override
   String get destinationLabel => '远程 CMS V10 福利页';
@@ -155,7 +165,12 @@ class WelfarePlatformRouter {
         }
         return WelfareFuliBaseRoute(platform, service);
       case WelfareServiceType.remoteCmsV10:
-        return WelfareRemoteCmsV10Route(platform);
+        // UI-C1c：由平台配置驱动的 CMS V10 服务（对齐 iOS
+        // `RemoteCMSV10Service.service(for:)`）。
+        return WelfareRemoteCmsV10Route(
+          platform,
+          RemoteCmsV10FuliService.serviceFor(platform),
+        );
       case WelfareServiceType.welfareSpider:
         // 对齐 iOS `makeWelfareSpiderDestination` 优先级：
         // ① 已注册原生服务（如 lusushequ）→ 原生平台页；
@@ -182,6 +197,108 @@ class WelfarePlatformRouter {
               ? '远程配置缺少 serviceType'
               : '未知 serviceType：${platform.serviceType}',
         );
+    }
+  }
+
+  /// 域名 / 代理变更后触发对应 Service 重探测（W-福6，对齐 iOS
+  /// `RemoteWelfareSettingsView.triggerServiceReset` L573-L603）。
+  ///
+  /// 消费场景：设置页保存 / 清除代理、切换平台代理开关、增删 / 清空自定义域名后
+  /// 立即让对应服务的域名缓存失效并重新探测，**无需重启应用**。
+  ///
+  /// 差异登记：iOS 对 `welfare_spider` 一律 no-op（纯 JS 脚本内实例「下次进入」
+  /// 重新解析）；Flutter 除 JS 脚本外还有 `lusushequ` 等已注册原生服务，故此处
+  /// 额外对命中注册表的原生服务补一次 `reprobe()`（超集，不改变 JS 脚本语义）。
+  void triggerServiceReset(WelfarePlatform platform) {
+    switch (platform.service) {
+      case WelfareServiceType.fuliBase:
+      case WelfareServiceType.dailyBattle:
+      case WelfareServiceType.kanliao:
+        _registry.serviceFor(platform.platformKey)?.reprobe();
+      case WelfareServiceType.aidanVideo:
+        // aidan 用固定服务，键名回落 'aidan_video'（远程配置的 platformKey 可能不同）。
+        (_registry.serviceFor(platform.platformKey) ??
+                _registry.serviceFor('aidan_video'))
+            ?.reprobe();
+      case WelfareServiceType.pythonSpider:
+        WelfarePythonSpiderService.serviceFor(platform).reprobe();
+      case WelfareServiceType.welfareSpider:
+        // 纯 JS 脚本无操作（对齐 iOS）；已注册原生服务补一次重探测。
+        _registry.serviceFor(platform.platformKey)?.reprobe();
+      case WelfareServiceType.remoteCmsV10:
+        // UI-C1c：域名 / 代理变更 → CMS V10 服务重探测（对齐 iOS
+        // `RemoteCMSV10Service.service(for:).reprobe()`）。
+        RemoteCmsV10FuliService.serviceFor(platform).reprobe();
+      case WelfareServiceType.yboxSpecial:
+      case WelfareServiceType.unknown:
+        // 对应服务未落地 / 无域名探测语义 → 无操作（对齐 iOS break）。
+        break;
+    }
+  }
+
+  /// 按 `platformKey` + 视频信息重建福利播放中转页（W-福2，对齐 iOS
+  /// `WelfarePlatformRouter.makeVideoBridgeView` L33-L59）。
+  ///
+  /// 用于收藏 / 观看记录点击福利条目时的「福利重播桥」：记录中携带的
+  /// `platformKey`（存于 `detailua`）在此重建 Service 并直达详情。
+  /// 平台已下线 / 未支持 / 对应页面未落地（`remote_cms_v10`、原生专用页）→
+  /// 返回 `null`，由调用方给出明确提示，**不兜底**到通用详情页。
+  Widget? makeVideoBridgeView({
+    required WelfarePlatform platform,
+    required String vodId,
+    required String vodName,
+    required String vodPic,
+  }) {
+    final FuliVideo video =
+        FuliVideo(vodId: vodId, vodName: vodName, vodPic: vodPic);
+    switch (platform.service) {
+      case WelfareServiceType.aidanVideo:
+        // 对齐 iOS `AidanVideoService.shared`：aidan 用固定服务，键名回落
+        // 'aidan_video'（远程配置的 platformKey 可能不同）。
+        final FuliBaseService? aidan =
+            _registry.serviceFor(platform.platformKey) ??
+                _registry.serviceFor('aidan_video');
+        return aidan == null
+            ? null
+            : WelfareVideoBridgePage(service: aidan, video: video);
+      case WelfareServiceType.fuliBase:
+        final FuliBaseService? service =
+            _registry.serviceFor(platform.platformKey);
+        return service == null
+            ? null
+            : WelfareVideoBridgePage(service: service, video: video);
+      case WelfareServiceType.welfareSpider:
+        // 对齐 iOS `makeWelfareSpiderVideoBridge`：已注册原生服务（如
+        // lusushequ）优先；否则仅 JS 脚本走通用 JS 引擎。
+        final FuliBaseService? native =
+            _registry.serviceFor(platform.platformKey);
+        if (native != null) {
+          return WelfareVideoBridgePage(service: native, video: video);
+        }
+        if (platform.isJavaScriptSpider) {
+          return WelfareVideoBridgePage(
+            service: WelfareJSSpiderService.serviceFor(platform),
+            video: video,
+          );
+        }
+        return null;
+      case WelfareServiceType.pythonSpider:
+        return WelfareVideoBridgePage(
+          service: WelfarePythonSpiderService.serviceFor(platform),
+          video: video,
+        );
+      case WelfareServiceType.remoteCmsV10:
+        // UI-C1c：远程 CMS V10 重播桥（对齐 iOS `RemoteCMSV10Service`）。
+        return WelfareVideoBridgePage(
+          service: RemoteCmsV10FuliService.serviceFor(platform),
+          video: video,
+        );
+      case WelfareServiceType.dailyBattle:
+      case WelfareServiceType.kanliao:
+      case WelfareServiceType.yboxSpecial:
+      case WelfareServiceType.unknown:
+        // 原生专用页无「视频重播」语义（对齐 iOS default → nil）。
+        return null;
     }
   }
 }

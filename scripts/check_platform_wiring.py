@@ -63,16 +63,8 @@ GUARDS: dict[str, str] = {
 # 已登记豁免：S-07 未收口的存量未接线项 —— 点名提示但不失败，
 # 免得这批存量噪音把「新增悬空」这一真正要拦的回归淹没。
 # 接线后请把对应行删掉（残留豁免会在运行时以「豁免残留」形式点名）。
-EXEMPT: dict[str, str] = {
-    "SubtitleParser": "播放页字幕只显示字符串，未接平台层解析器",
-    "LongPressSpeedController": "播放页未接长按倍速",
-    "AutoPlayNextController": "播放页未接自动连播",
-    "RemuxProxy": "未接入转封装代理（18081）",
-    "GoProxyClient": "未接入 Go 代理（10078）",
-    "MediaUrlChecker": "播放前未做直链可达性校验",
-    "BackgroundPlayController": "未接后台播放",
-    "PipController": "未接画中画（pip_bridge 已就绪）",
-}
+# 现为空：C-07 / C-10 / C-12 三项均已接线（详见下方 EXEMPT 历史）。
+EXEMPT: dict[str, str] = {}
 
 # 声明式检索：抓 `class / mixin / enum <Name>`。
 _DECL = re.compile(

@@ -184,7 +184,8 @@ class MethodChannelFloatingWindow implements FloatingWindow {
   /// 构造（[bridge] 可注入测试假桥）。
   MethodChannelFloatingWindow({FloatingWindowBridge? bridge})
       : _bridge = bridge ?? MethodChannelFloatingBridge() {
-    _sub = _bridge.events().listen(_onEvent);
+    // 缺插件（桌面 / 单测）时事件流会抛错：兜住，避免未处理异步异常。
+    _sub = _bridge.events().listen(_onEvent, onError: (Object _) {});
   }
 
   final FloatingWindowBridge _bridge;

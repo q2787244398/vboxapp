@@ -31,6 +31,9 @@ abstract class ProbedFuliService extends FuliBaseService {
 
   final SpiderHttpBridge _bridge;
 
+  /// 底层 HTTP 桥（供子类复用，避免二次自建传输 / 丢失代理与 SSL 配置）。
+  SpiderHttpBridge get bridge => _bridge;
+
   String _probedHost = '';
   bool _ready = false;
 
