@@ -31,5 +31,8 @@ class MainActivity : FlutterActivity() {
         flutterEngine.plugins.add(LiveFilePlugin())
         // K-01：注册自更新安装通道（ActivityAware，需 Activity 拉起系统安装器）
         flutterEngine.plugins.add(UpdatePlugin())
+        // Wave G · RT-运1：注册 Python 运行时通道（Chaquopy 进程内解释器，
+        // 供 Dart PythonBridgeEngine 在 Android 运行 `y_*` Python 蜘蛛脚本）
+        PythonPlugin.registerWith(flutterEngine)
     }
 }

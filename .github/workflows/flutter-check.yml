@@ -211,6 +211,12 @@ jobs:
       - name: Bundle JSC dylib into app (Q-04)
         run: bash scripts/bundle-jsc-macos.sh --config Debug
 
+      # Wave G · R-渲3：libmpv dylib 集合打入 debug App（D28 随包分发；运行链 =
+      # PlayerPlugin.swift dlopen("Contents/Frameworks/libmpv.dylib") 的前置）。
+      # 对齐 build-release-assets.yml macOS job；缺失资产时该步骤失败即暴露分发缺口。
+      - name: Bundle libmpv dylib set into app (R-渲3)
+        run: bash scripts/bundle-libmpv-macos.sh --config Debug
+
   build-windows:
     # 仅 PR 触发（推送编译走 build-release-assets）
     if: github.event_name == 'pull_request'

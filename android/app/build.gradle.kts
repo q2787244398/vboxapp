@@ -5,6 +5,11 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    // Wave G · RT-运1：Chaquopy Python 运行时（Android 侧）。
+    // Android 无 `python3` 可执行文件（Dart `Process.start('python3')` 不可用），
+    // 9 个 `y_*` Python 蜘蛛站点因此不可用；本插件把 CPython 解释器随 APK 打包，
+    // 由 PythonPlugin 在**进程内**运行蜘蛛脚本（对齐 iOS 的 Python 运行时语义）。
+    id("com.chaquo.python")
 }
 
 // G-09 P4：本地 release 构建签名。
@@ -38,6 +43,14 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Wave G · RT-运1：Chaquopy 的 CPython 解释器是原生组件，须显式声明 ABI。
+        // 三 ABI 与 `flutter build apk --split-per-abi` 的产物（android-arm /
+        // android-arm64 / android-x64）一一对应；x86_64 供模拟器。
+        // Python 选 3.11（见下 chaquopy 块）以保留 32 位 armeabi-v7a 支持。
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
+        }
     }
 
     // G-09 P4：有 key.properties 时使用固定 release keystore（本地发布构建），否则回退 debug。
@@ -65,7 +78,7 @@ android {
     // 批次 Q · Q-02：JSC 引擎原生模块（NDK + CMake）。
     // 编译 jsc/wrapper.c → libvbox_jsc.so（ABI 形状对齐 libvbox_quickjs 的 vq_*）。
     // 前置：scripts/fetch-jsc-android.sh 就位四 ABI libjsc.so（jniLibs，AGP 随 APK 打包）。
-    // 构建的 ABI 由 Flutter 侧管理（--target-platform / split-per-abi），此处不设 abiFilters。
+    // ABI 由 defaultConfig.ndk.abiFilters 收敛为三 ABI（RT-运1 引入，供 Chaquopy 声明）。
     externalNativeBuild {
         cmake {
             path = file("src/main/jni/CMakeLists.txt")
@@ -76,6 +89,21 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+// Wave G · RT-运1：Chaquopy 配置。
+//  · version 3.11：3.11 及更早保留 32 位 ABI 支持（Chaquopy 17 默认 3.10）；
+//  · 无 pip 依赖：`y_*` 蜘蛛仅依赖标准库（json / urllib / re / sys）；
+//  · pyc.src = false：不要求构建机安装同 minor 版本 Python（CI 免额外前置），
+//    源码 .py 直接入 APK，首次运行由设备端编译（仅影响首启耗时，不影响正确性）。
+//  蜘蛛脚本源码目录：android/app/src/main/python（Chaquopy 默认 source set）。
+chaquopy {
+    defaultConfig {
+        version = "3.11"
+        pyc {
+            src = false
+        }
     }
 }
 
