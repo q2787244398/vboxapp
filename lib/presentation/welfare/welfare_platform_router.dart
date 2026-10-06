@@ -15,6 +15,7 @@ library;
 import 'package:flutter/widgets.dart';
 
 import '../../domain/entities/welfare/welfare.dart';
+import '../../domain/services/banana_xjsp_service.dart';
 import '../../domain/services/daily_battle_service.dart';
 import '../../domain/services/fuli_base_service.dart';
 import '../../domain/services/kanliao_service.dart';
@@ -245,8 +246,14 @@ class WelfarePlatformRouter {
         // `RemoteCMSV10Service.service(for:).reprobe()`）。
         RemoteCmsV10FuliService.serviceFor(platform).reprobe();
       case WelfareServiceType.yboxSpecial:
+        // UI-C1a：香蕉秀 XJSP 原生专用服务重探测。iOS 该平台网关写死、无
+        // 探测语义（`YBoxService2.apiGateway`）；Flutter 接入统一域名体系后
+        // 自定义域名 / 代理变更需重新探测。注册表命中优先（测试 / 注入场景）。
+        (_registry.serviceFor(platform.platformKey) ??
+                BananaXjspFuliService.serviceFor())
+            .reprobe();
       case WelfareServiceType.unknown:
-        // 对应服务未落地 / 无域名探测语义 → 无操作（对齐 iOS break）。
+        // 无域名探测语义 → 无操作（对齐 iOS break）。
         break;
     }
   }

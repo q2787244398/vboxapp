@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../domain/entities/welfare/welfare.dart';
+import '../../../domain/services/banana_xjsp_service.dart';
 import '../../../domain/services/daily_battle_service.dart';
 import '../../../domain/services/fuli_base_service.dart';
 import '../../../domain/services/kanliao_service.dart';
@@ -35,6 +36,7 @@ import '../../theme/tokens/typography.dart';
 import '../../welfare/welfare_platform_controller.dart';
 import '../../welfare/welfare_platform_router.dart';
 import '../../widgets/vbox/vbox.dart';
+import 'banana_xjsp_home_page.dart';
 import 'daily_battle_home_page.dart';
 import 'kanliao_home_page.dart';
 import 'unsupported_platform_page.dart';
@@ -269,9 +271,18 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
       );
       return;
     }
-    // 原生专用页：UI-C1e 今日看料 + UI-C1b 每日大乱斗 / 每日大赛已落地 → 专页；
-    // 香蕉秀仍待落地。
+    // 原生专用页：UI-C1a 香蕉秀 XJSP + UI-C1b 每日大乱斗 / 每日大赛 +
+    // UI-C1e 今日看料均已落地 → 各进专页。
     if (route is WelfareNativeRoute) {
+      if (route.kind == WelfareNativeKind.bananaXjsp) {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (BuildContext context) =>
+                BananaXjspHomePage(service: BananaXjspFuliService.serviceFor()),
+          ),
+        );
+        return;
+      }
       if (route.kind == WelfareNativeKind.kanliao) {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
