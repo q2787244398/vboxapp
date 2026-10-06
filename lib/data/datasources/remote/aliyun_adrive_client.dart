@@ -174,6 +174,11 @@ class AliyunAdriveClient {
   /// 清理工作线程定时器（惰性创建）。
   Timer? _cleanupTimer;
 
+  /// 生效清理延迟（对齐 iOS `config.cleanupDelay`，缺省 60s）。
+  ///
+  /// [resolvePlayUrl] 收到 [PgAutoConfig] 后按契约值覆盖；工作线程按此判定到期。
+  Duration cleanupDelay = const Duration(seconds: 60);
+
   /// 清理重试上限窗口（对齐 iOS：失败保留 10 分钟后放弃）。
   static const Duration cleanupRetryWindow = Duration(minutes: 10);
 
@@ -781,6 +786,8 @@ class AliyunAdriveClient {
   }) async {
     final String shareId = parseShareId(shareUrl);
     if (shareId.isEmpty) throw const AliyunAdriveException('无法识别的分享链接');
+    // 生效清理延迟（对齐 iOS `config.cleanupDelay`，供工作线程判定到期）。
+    cleanupDelay = PgAutoRules.cleanupDelay(pgConfig);
     // 步骤1
     final ({String accessToken, String refreshToken}) token =
         await refreshAccessToken(refreshToken: refreshToken);
@@ -941,7 +948,7 @@ class AliyunAdriveClient {
     if (!startCleanupWorker) return;
     if (_cleanupTimer != null) return;
     _cleanupTimer = Timer.periodic(cleanupPollInterval, (_) {
-      unawaited(processPendingCleanups());
+      unawaited(processPendingCleanups(delay: cleanupDelay));
     });
   }
 

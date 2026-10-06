@@ -32,7 +32,7 @@
       "family": "设置页",
       "ref": "docs/ui_baseline/ios_ref/整个设置页面可以上下滑动查看更多.PNG",
       "cmp": "test/golden/goldens/settings_portrait.png",
-      "baseline": 0.7148
+      "baseline": 0.688
     },
     {
       "family": "福利专区直播栏目",

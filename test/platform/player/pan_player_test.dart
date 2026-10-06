@@ -19,6 +19,7 @@ import 'package:vbox/data/datasources/remote/uc_native_client.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/domain/entities/cloud/cloud_play_item.dart';
 import 'package:vbox/domain/entities/cloud/node_pan.dart';
+import 'package:vbox/domain/entities/cloud/pg_auto.dart';
 import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/platform/player/pan_player.dart';
 import 'package:vbox/platform/player/playback_route.dart';
@@ -114,6 +115,7 @@ class _FakeUcClient extends UcNativeClient {
   Future<List<UcShareFile>> getFileList({
     required String shareUrl,
     required String cookie,
+    String? tvToken,
   }) async =>
       <UcShareFile>[
         const UcShareFile(fid: 'u1', fileName: 'EP01.mp4', shareFidToken: 'tk1'),
@@ -124,6 +126,7 @@ class _FakeUcClient extends UcNativeClient {
     required String shareUrl,
     required String cookie,
     String? preferredFid,
+    String? tvToken,
   }) async =>
       const UcPlayResult(
         url: 'https://uc/play.m3u8',
@@ -195,6 +198,7 @@ class _FakeAliyunClient extends AliyunAdriveClient {
     required String shareUrl,
     required String refreshToken,
     String? preferredFileId,
+    PgAutoConfig pgConfig = PgAutoConfig.defaults,
   }) async =>
       const AliyunPlayResult(
         url: 'https://cdn/ali.m3u8',

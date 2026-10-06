@@ -227,6 +227,42 @@ class QuarkNativeClient {
     await _saveCache(cache);
   }
 
+  /// 清理历史转存对象（对齐 iOS `quarkCleanupPreviousSavedItems`）。
+  ///
+  /// 新转存完成后，删除缓存中**除 [excludingKey]** 外的全部历史转存 fid 并移除
+  /// 对应缓存键（避免历史转存文件长期占用网盘空间）。返回提交删除的文件数。
+  Future<int> cleanupPreviousSavedItems({
+    required String excludingKey,
+    required String cookie,
+  }) async {
+    final Map<String, Object?> cache = await _loadCache();
+    final List<String> keysToRemove = <String>[];
+    final List<String> fidsToDelete = <String>[];
+    for (final MapEntry<String, Object?> entry in cache.entries) {
+      if (entry.key == excludingKey) continue;
+      keysToRemove.add(entry.key);
+      final Object? v = entry.value;
+      if (v is Map) {
+        final Object? top = v['topLevelFids'];
+        if (top is List) {
+          fidsToDelete.addAll(top.map((Object? e) => '$e'));
+        }
+      }
+    }
+    final List<String> uniqueFids = fidsToDelete
+        .where((String id) => id.isNotEmpty && id != '0')
+        .toSet()
+        .toList(growable: false);
+    if (uniqueFids.isEmpty) return 0;
+
+    final int deleted = await deleteFiles(fileIds: uniqueFids, cookie: cookie);
+    for (final String key in keysToRemove) {
+      cache.remove(key);
+    }
+    await _saveCache(cache);
+    return deleted;
+  }
+
   // ─────────────── 分享信息 ───────────────
 
   /// 解析分享链接 → `(pwdId, passcode)`（对齐 iOS `quarkExtractShareInfo`）。
@@ -1054,8 +1090,7 @@ class QuarkNativeClient {
         }
         final String fid = _asString(item['fid']) ??
             _asString(item['file_id']) ??
-            (_asInt(item['fid']) != null ? '${item['fid']}' : '') ??
-            '';
+            (_asInt(item['fid']) != null ? '${item['fid']}' : '');
         if (fid.isNotEmpty) fids.add(fid);
         if (limit != null && fids.length >= limit) break;
       }
@@ -1087,8 +1122,7 @@ class QuarkNativeClient {
       if (itemName != target) continue;
       final String fid = _asString(item['fid']) ??
           _asString(item['file_id']) ??
-          (_asInt(item['fid']) != null ? '${item['fid']}' : '') ??
-          '';
+          (_asInt(item['fid']) != null ? '${item['fid']}' : '');
       if (fid.isNotEmpty) return fid;
     }
     return null;
