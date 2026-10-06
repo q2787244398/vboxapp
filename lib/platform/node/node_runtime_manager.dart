@@ -509,6 +509,8 @@ class NodeRuntimeManager {
       return;
     }
     // 原子写盘（先写临时文件再替换，避免写一半损坏）
+    // 目标目录可能尚未部署（如独立调用刷新 / 首启竞态），先确保存在。
+    await Directory(p.dirname(activeBundlePath)).create(recursive: true);
     final File tmp = File('$activeBundlePath.tmp');
     await tmp.writeAsBytes(data, flush: true);
     if (await bundle.exists()) await bundle.delete();

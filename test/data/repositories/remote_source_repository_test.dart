@@ -130,11 +130,12 @@ void main() {
       'https://cdn/kstore_index.version',
     );
 
-    // 未下发 → 清除（启动回退本地内置资源）
+    // 未下发 → 清除（启动回退本地内置资源）；PrefsManager.getString 对缺失键
+    // 返回契约默认值（string 键为 ''），故断言为空而非 null。
     final RemoteManifest plain = (await repo.fetchManifest()).valueOrNull!;
     await repo.saveManifest(plain);
-    expect(await PrefsManager.instance.getString('remote_node_bundle_url'), isNull);
-    expect(await PrefsManager.instance.getString('remote_node_bundle_ver'), isNull);
+    expect(await PrefsManager.instance.getString('remote_node_bundle_url'), isEmpty);
+    expect(await PrefsManager.instance.getString('remote_node_bundle_ver'), isEmpty);
   });
 
   test('needsRefresh：无缓存恒 true；有缓存按 ttl 判定', () async {

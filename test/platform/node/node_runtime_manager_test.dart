@@ -243,7 +243,10 @@ void main() {
     await m.runHealthCheck();
     expect(m.isCrashed, isFalse, reason: '未达阈值不判崩溃');
     await m.runHealthCheck(); // 第 3 次 → 崩溃 + 触发重启
-    await Future<void>.delayed(Duration.zero);
+    // 自动重启为异步（部署运行时文件 → 拉起宿主 → 探活），有界轮询等待其完成
+    for (int i = 0; i < 200 && host.startCalls < 2; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
 
     expect(host.startCalls, 2, reason: '崩溃后自动重启（Flutter 独立宿主能力）');
   });
