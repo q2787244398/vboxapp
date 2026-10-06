@@ -15,6 +15,7 @@ library;
 import 'package:flutter/widgets.dart';
 
 import '../../domain/entities/welfare/welfare.dart';
+import '../../domain/services/daily_battle_service.dart';
 import '../../domain/services/fuli_base_service.dart';
 import '../../domain/services/kanliao_service.dart';
 import '../../domain/services/remote_cms_v10_service.dart';
@@ -212,8 +213,17 @@ class WelfarePlatformRouter {
   void triggerServiceReset(WelfarePlatform platform) {
     switch (platform.service) {
       case WelfareServiceType.fuliBase:
-      case WelfareServiceType.dailyBattle:
         _registry.serviceFor(platform.platformKey)?.reprobe();
+      case WelfareServiceType.dailyBattle:
+        // UI-C1b：每日大乱斗 / 每日大赛原生专用服务重探测（对齐 iOS
+        // `DailyBattleService.reprobe`）。注册表命中优先（测试 / 注入场景），
+        // 否则回退按平台名解析的共享实例。
+        (_registry.serviceFor(platform.platformKey) ??
+                DailyBattleFuliService.serviceFor(
+                  platformKey: platform.platformKey,
+                  platformName: platform.name,
+                ))
+            .reprobe();
       case WelfareServiceType.kanliao:
         // UI-C1e：今日看料原生专用服务重探测（对齐 iOS `KanliaoService.reprobe`）。
         // 注册表命中优先（测试 / 注入场景），否则回退共享实例（对齐 aidan 固定键模式）。

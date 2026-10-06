@@ -77,6 +77,7 @@ class PlatformAsyncImage extends StatelessWidget {
     this.placeholder,
     this.errorBuilder,
     this.headers,
+    this.imageDecoder,
     this.gaplessPlayback = true,
   });
 
@@ -104,6 +105,13 @@ class PlatformAsyncImage extends StatelessWidget {
 
   /// 显式请求头（优先级高于 URL 后缀同名键；空则纯透传 URL）。
   final Map<String, String>? headers;
+
+  /// 字节后处理（非空 → 走「拉取字节 → 后处理 → 内存解码」路径）。
+  ///
+  /// 对齐 iOS `PlatformImageLoader` 的 `dailyBattle` 模式：每日大乱斗 / 每日大赛
+  /// 的封面可能是 AES 加密字节，需先解密再交给图片解码器（见到非图片格式时
+  /// 原样返回，避免破坏正常图片）。
+  final Uint8List Function(Uint8List bytes)? imageDecoder;
 
   /// 网络图过渡（缺省 true，避免加载闪烁）。
   final bool gaplessPlayback;
@@ -256,12 +264,14 @@ class PlatformAsyncImage extends StatelessWidget {
     if (merged.isNotEmpty && !merged.containsKey('User-Agent')) {
       merged['User-Agent'] = kPlatformImageDefaultUA;
     }
-    // SSL 绕过 → 自定义 HttpClient（badCertificateCallback 全放行）。
+    // SSL 绕过 / 字节后处理 → 自定义 HttpClient（拉取字节后走 Image.memory）。
     final bool sslBypass = merged.remove(kPlatformImageSslBypassHeader) == '1';
-    if (sslBypass) {
-      return _SslBypassImage(
+    if (sslBypass || imageDecoder != null) {
+      return _ByteFetchImage(
         url: parsed.url,
         headers: merged,
+        sslBypass: sslBypass,
+        transform: imageDecoder,
         fit: fit,
         width: width,
         height: height,
@@ -288,21 +298,28 @@ class PlatformAsyncImage extends StatelessWidget {
   }
 }
 
-/// SSL 绕过加载分支（对齐 iOS `WelfareSSLBypassDelegate`）：
-/// 自定义 `HttpClient` 全放行证书，拉取字节后走 `Image.memory`。
-class _SslBypassImage extends StatefulWidget {
-  const _SslBypassImage({
+/// 字节拉取分支（SSL 全放行 + 可选字节后处理）：
+/// 自定义 `HttpClient` 取字节 → [transform] 后处理 → `Image.memory`。
+///
+/// - `sslBypass`：对齐 iOS `WelfareSSLBypassDelegate`，全放行证书；
+/// - `transform`：对齐 iOS `PlatformImageLoader` 的 `dailyBattle` 模式（AES 解密）。
+class _ByteFetchImage extends StatefulWidget {
+  const _ByteFetchImage({
     required this.url,
     required this.headers,
+    required this.sslBypass,
     required this.fit,
     required this.gaplessPlayback,
     required this.fallback,
+    this.transform,
     this.width,
     this.height,
   });
 
   final String url;
   final Map<String, String> headers;
+  final bool sslBypass;
+  final Uint8List Function(Uint8List bytes)? transform;
   final BoxFit fit;
   final double? width;
   final double? height;
@@ -310,10 +327,10 @@ class _SslBypassImage extends StatefulWidget {
   final Widget fallback;
 
   @override
-  State<_SslBypassImage> createState() => _SslBypassImageState();
+  State<_ByteFetchImage> createState() => _ByteFetchImageState();
 }
 
-class _SslBypassImageState extends State<_SslBypassImage> {
+class _ByteFetchImageState extends State<_ByteFetchImage> {
   Uint8List? _bytes;
   bool _failed = false;
 
@@ -326,8 +343,10 @@ class _SslBypassImageState extends State<_SslBypassImage> {
   Future<void> _load() async {
     final HttpClient client = HttpClient()
       ..autoUncompress = false
-      ..connectionTimeout = const Duration(seconds: 15)
-      ..badCertificateCallback = (cert, host, port) => true;
+      ..connectionTimeout = const Duration(seconds: 15);
+    if (widget.sslBypass) {
+      client.badCertificateCallback = (cert, host, port) => true;
+    }
     try {
       final HttpClientRequest request =
           await client.getUrl(Uri.parse(widget.url));
@@ -343,7 +362,9 @@ class _SslBypassImageState extends State<_SslBypassImage> {
       await for (final List<int> chunk in response) {
         builder.add(chunk);
       }
-      final Uint8List bytes = builder.takeBytes();
+      Uint8List bytes = builder.takeBytes();
+      final Uint8List Function(Uint8List bytes)? transform = widget.transform;
+      if (transform != null) bytes = transform(bytes);
       if (!mounted) return;
       setState(() => _bytes = bytes);
     } catch (_) {

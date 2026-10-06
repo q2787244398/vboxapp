@@ -28,6 +28,14 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:pointycastle/api.dart' as pc;
+import 'package:pointycastle/block/aes.dart';
+import 'package:pointycastle/block/modes/cbc.dart';
+import 'package:pointycastle/block/modes/ecb.dart';
+import 'package:pointycastle/padded_block_cipher/padded_block_cipher_impl.dart';
+import 'package:pointycastle/paddings/pkcs7.dart';
 
 import '../../platform/spider/spider_http_bridge.dart';
 import '../entities/welfare/fuli_models.dart';
@@ -737,5 +745,83 @@ class DailyBattleFuliService extends ProbedFuliService {
       return n == null ? m.group(0)! : String.fromCharCode(n);
     });
     return result;
+  }
+}
+
+// ─────────────── 封面对称解密（对齐 iOS `AESImageDecryptor`）───────────────
+
+/// 每日大乱斗 / 每日大赛封面的 AES 密钥对（KEY + IV，各 16 字节；对齐 iOS
+/// `AESImageDecryptor.keyPairs`）。
+const List<List<int>> _dailyBattleKeyPairs = <List<int>>[
+  <int>[
+    0x66, 0x35, 0x64, 0x39, 0x36, 0x35, 0x64, 0x66, // f5d965df
+    0x37, 0x35, 0x33, 0x33, 0x36, 0x32, 0x37, 0x30, // 75336270
+    0x39, 0x37, 0x62, 0x36, 0x30, 0x33, 0x39, 0x34, // 97b60394
+    0x61, 0x62, 0x63, 0x32, 0x66, 0x62, 0x65, 0x31, // abc2fbe1
+  ],
+  <int>[
+    0x37, 0x35, 0x33, 0x33, 0x36, 0x32, 0x37, 0x30, // 75336270
+    0x66, 0x35, 0x64, 0x39, 0x36, 0x35, 0x64, 0x66, // f5d965df
+    0x61, 0x62, 0x63, 0x32, 0x66, 0x62, 0x65, 0x31, // abc2fbe1
+    0x39, 0x37, 0x62, 0x36, 0x30, 0x33, 0x39, 0x34, // 97b60394
+  ],
+];
+
+/// 是否已是可识别的图片格式（JPEG / PNG / GIF）。
+bool _looksLikeImage(Uint8List data) {
+  if (data.length < 4) return false;
+  if (data[0] == 0xFF && data[1] == 0xD8) return true; // JPEG
+  if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) {
+    return true; // PNG
+  }
+  if (data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38) {
+    return true; // GIF8
+  }
+  return false;
+}
+
+/// 解密每日大乱斗 / 每日大赛封面字节（对齐 iOS `AESImageDecryptor.decrypt`）。
+///
+/// 已是 JPEG / PNG / GIF 的字节原样返回；否则依次尝试两组 CBC 密钥对与两组
+/// ECB 密钥，命中「解密后是合法图片」即返回；全部失败保持原样（由图片解码器
+/// 兜底为占位态）。
+Uint8List decodeDailyBattleImageBytes(Uint8List data) {
+  if (data.length < 16 || data.length % 16 != 0) return data;
+  if (_looksLikeImage(data)) return data;
+
+  for (final List<int> pair in _dailyBattleKeyPairs) {
+    final Uint8List key = Uint8List.fromList(pair.sublist(0, 16));
+    final Uint8List iv = Uint8List.fromList(pair.sublist(16, 32));
+    final Uint8List? out = _aesDecrypt(data, key: key, iv: iv);
+    if (out != null && _looksLikeImage(out)) return out;
+  }
+  for (final List<int> pair in _dailyBattleKeyPairs) {
+    final Uint8List key = Uint8List.fromList(pair.sublist(0, 16));
+    final Uint8List? out = _aesDecrypt(data, key: key);
+    if (out != null && _looksLikeImage(out)) return out;
+  }
+  return data;
+}
+
+/// AES-128 解密（[iv] 为空走 ECB，否则 CBC；PKCS7 去填充）。
+Uint8List? _aesDecrypt(Uint8List data, {required Uint8List key, Uint8List? iv}) {
+  final PaddedBlockCipherImpl cipher = PaddedBlockCipherImpl(
+    PKCS7Padding(),
+    iv == null ? ECBBlockCipher(AESEngine()) : CBCBlockCipher(AESEngine()),
+  );
+  cipher.init(
+    false,
+    pc.PaddedBlockCipherParameters<pc.CipherParameters?, pc.CipherParameters?>(
+      iv == null
+          ? pc.KeyParameter(key)
+          : pc.ParametersWithIV<pc.KeyParameter>(pc.KeyParameter(key), iv),
+      null,
+    ),
+  );
+  try {
+    final Uint8List out = cipher.process(data);
+    return out.isEmpty ? null : out;
+  } catch (_) {
+    return null;
   }
 }

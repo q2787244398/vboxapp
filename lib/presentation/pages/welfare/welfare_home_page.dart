@@ -17,13 +17,15 @@
 ///     路由（H-02）：未支持 → [UnsupportedPlatformPage]；福利 Spider
 ///     JS / Python → [WelfareSpiderMainPage]（H-03 续段：JS 引擎 / Python 桥
 ///     执行页）；其余 Spider 脚本 → [WelfareSpiderHomePage]（脚本状态页）；
-///     今日看料 → [KanliaoHomePage]（UI-C1e 原生专用页）。
+///     今日看料 → [KanliaoHomePage]（UI-C1e 原生专用页）；
+///     每日大乱斗 / 每日大赛 → [DailyBattleHomePage]（UI-C1b 原生专用页）。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../domain/entities/welfare/welfare.dart';
+import '../../../domain/services/daily_battle_service.dart';
 import '../../../domain/services/fuli_base_service.dart';
 import '../../../domain/services/kanliao_service.dart';
 import '../../../domain/services/welfare_js_spider_service.dart';
@@ -33,6 +35,7 @@ import '../../theme/tokens/typography.dart';
 import '../../welfare/welfare_platform_controller.dart';
 import '../../welfare/welfare_platform_router.dart';
 import '../../widgets/vbox/vbox.dart';
+import 'daily_battle_home_page.dart';
 import 'kanliao_home_page.dart';
 import 'unsupported_platform_page.dart';
 import 'welfare_spider_home_page.dart';
@@ -266,13 +269,27 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
       );
       return;
     }
-    // 原生专用页：UI-C1e 今日看料已落地 → 专页；香蕉秀 / 大乱斗仍待落地。
+    // 原生专用页：UI-C1e 今日看料 + UI-C1b 每日大乱斗 / 每日大赛已落地 → 专页；
+    // 香蕉秀仍待落地。
     if (route is WelfareNativeRoute) {
       if (route.kind == WelfareNativeKind.kanliao) {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (BuildContext context) =>
                 KanliaoHomePage(service: KanliaoFuliService.serviceFor()),
+          ),
+        );
+        return;
+      }
+      if (route.kind == WelfareNativeKind.dailyBattle) {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (BuildContext context) => DailyBattleHomePage(
+              service: DailyBattleFuliService.serviceFor(
+                platformKey: platform.platformKey,
+                platformName: platform.name,
+              ),
+            ),
           ),
         );
         return;
