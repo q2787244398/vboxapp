@@ -57,6 +57,15 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# flutter_inappwebview_windows 依赖的 WIL（<wil/cppwinrt_helpers.h>）在 C++17 下
+# 仍包含 <experimental/coroutine>；MSVC 14.4x（VS 17.10+/VS 18）起该头文件以
+# static_assert 硬失败（error C2338 / STL1011）。按 STL 报错提示定义抑制宏，
+# 让插件在本仓库的 MSVC 版本上可编译（插件自身的 CMake 无法从 pub 缓存修改）。
+if(TARGET flutter_inappwebview_windows_plugin)
+  target_compile_definitions(flutter_inappwebview_windows_plugin PRIVATE
+    _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
