@@ -272,7 +272,7 @@ class RemoteCmsV10FuliService extends ProbedFuliService {
       'Referer': host.isEmpty
           ? ''
           : (host.endsWith('/') ? host : '$host/'),
-    }..removeWhere((String _k, String v) => v.isEmpty);
+    }..removeWhere((String key, String v) => v.isEmpty);
 
     _platform.headers.forEach((String k, String v) {
       final String key = k.trim();

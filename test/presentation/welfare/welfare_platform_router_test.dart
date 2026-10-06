@@ -4,9 +4,12 @@
 /// `fuli_base` 注册命中与未注册 / `unknown`（空 + 未知）兜底原因。
 library;
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vbox/domain/entities/welfare/welfare.dart';
 import 'package:vbox/domain/services/fuli_base_service.dart';
+import 'package:vbox/domain/services/remote_cms_v10_service.dart';
+import 'package:vbox/domain/services/welfare_python_spider_service.dart';
 import 'package:vbox/presentation/pages/welfare/welfare_video_bridge_page.dart';
 import 'package:vbox/presentation/welfare/welfare_platform_router.dart';
 
@@ -332,11 +335,28 @@ void main() {
       expect((view! as WelfareVideoBridgePage).service.platformKey, 'aidan_video');
     });
 
-    test('remote_cms_v10 / 原生专用 / unknown → null（页面未落地，不兜底）', () {
+    test('remote_cms_v10 → 中转页（UI-C1c 页面已落地）', () {
+      RemoteCmsV10FuliService.clearCache();
+      final WelfarePlatformRouter router =
+          WelfarePlatformRouter(registry: FuliBaseServiceRegistry());
+      final Widget? view = router.makeVideoBridgeView(
+        platform: platform(serviceType: 'remote_cms_v10', key: 'cms1'),
+        vodId: 'v1',
+        vodName: '片名',
+        vodPic: '',
+      );
+      expect(view, isA<WelfareVideoBridgePage>());
+      expect(
+        (view! as WelfareVideoBridgePage).service.platformKey,
+        'cms1',
+      );
+      RemoteCmsV10FuliService.clearCache();
+    });
+
+    test('原生专用 / unknown → null（页面未落地，不兜底）', () {
       final WelfarePlatformRouter router =
           WelfarePlatformRouter(registry: FuliBaseServiceRegistry());
       for (final String type in <String>[
-        'remote_cms_v10',
         'ybox_special',
         'daily_battle',
         'kanliao',

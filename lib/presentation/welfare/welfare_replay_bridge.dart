@@ -17,7 +17,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../domain/entities/welfare/welfare.dart';
-import '../pages/welfare/welfare_video_bridge_page.dart';
 import 'welfare_platform_controller.dart';
 import 'welfare_platform_router.dart';
 

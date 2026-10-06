@@ -14,9 +14,9 @@ library;
 
 import 'package:flutter/widgets.dart';
 
-import '../../domain/entities/welfare/fuli_models.dart';
 import '../../domain/entities/welfare/welfare.dart';
 import '../../domain/services/fuli_base_service.dart';
+import '../../domain/services/kanliao_service.dart';
 import '../../domain/services/remote_cms_v10_service.dart';
 import '../../domain/services/welfare_js_spider_service.dart';
 import '../../domain/services/welfare_python_spider_service.dart';
@@ -213,8 +213,13 @@ class WelfarePlatformRouter {
     switch (platform.service) {
       case WelfareServiceType.fuliBase:
       case WelfareServiceType.dailyBattle:
-      case WelfareServiceType.kanliao:
         _registry.serviceFor(platform.platformKey)?.reprobe();
+      case WelfareServiceType.kanliao:
+        // UI-C1e：今日看料原生专用服务重探测（对齐 iOS `KanliaoService.reprobe`）。
+        // 注册表命中优先（测试 / 注入场景），否则回退共享实例（对齐 aidan 固定键模式）。
+        (_registry.serviceFor(platform.platformKey) ??
+                KanliaoFuliService.serviceFor())
+            .reprobe();
       case WelfareServiceType.aidanVideo:
         // aidan 用固定服务，键名回落 'aidan_video'（远程配置的 platformKey 可能不同）。
         (_registry.serviceFor(platform.platformKey) ??

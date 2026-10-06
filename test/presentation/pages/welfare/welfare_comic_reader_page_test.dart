@@ -17,7 +17,6 @@ class _FakeComicService extends FuliBaseService {
   _FakeComicService({
     required this.detail,
     this.referer,
-    this.host = 'https://comic.example.com',
   }) : super(
           platformKey: 'comic-1',
           platformName: '漫画平台',
@@ -26,7 +25,6 @@ class _FakeComicService extends FuliBaseService {
 
   final FuliDetail detail;
   final String? referer;
-  final String host;
 
   @override
   FuliContentCategory get contentCategory => FuliContentCategory.comic;
@@ -35,7 +33,7 @@ class _FakeComicService extends FuliBaseService {
   String? get imageReferer => referer;
 
   @override
-  String get currentHost => host;
+  String get currentHost => 'https://comic.example.com';
 
   @override
   bool get isHostReady => true;

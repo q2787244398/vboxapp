@@ -49,7 +49,6 @@ class _WelfareComicReaderPageState extends State<WelfareComicReaderPage> {
 
   List<String> _images = <String>[];
   String _title = '';
-  bool _isLoading = true;
   String? _errorMsg;
   bool _showBars = true;
   int _currentIndex = 0;
@@ -78,7 +77,6 @@ class _WelfareComicReaderPageState extends State<WelfareComicReaderPage> {
   /// 加载详情并提取首集图片列表（对齐 iOS `loadImages`）。
   Future<void> _load() async {
     setState(() {
-      _isLoading = true;
       _errorMsg = null;
       _images = <String>[];
       _currentIndex = 0;
@@ -90,7 +88,6 @@ class _WelfareComicReaderPageState extends State<WelfareComicReaderPage> {
     final List<String>? images =
         detail.episodes.isNotEmpty ? detail.episodes.first.images : null;
     setState(() {
-      _isLoading = false;
       if (images != null && images.isNotEmpty) {
         _title = detail.vodName.isEmpty ? widget.video.vodName : detail.vodName;
         _images = images;
@@ -288,17 +285,17 @@ class _WelfareComicReaderPageState extends State<WelfareComicReaderPage> {
   // ─────────────── 加载 / 失败态 ───────────────
 
   Widget _loadingState(BuildContext context) {
-    return Center(
+    return const Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const SizedBox(
+          SizedBox(
             width: 32,
             height: 32,
             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
           ),
-          const SizedBox(height: VboxSpacing.md),
-          const Text(
+          SizedBox(height: VboxSpacing.md),
+          Text(
             '加载中...',
             style: TextStyle(fontSize: VboxTypography.s13, color: Colors.white70),
           ),

@@ -292,9 +292,9 @@ class ProfilePage extends StatelessWidget {
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (BuildContext context) => const Scaffold(
-                  appBar: AppBar(title: Text('观看记录')),
-                  body: HistoryView(),
+                builder: (BuildContext context) => Scaffold(
+                  appBar: AppBar(title: const Text('观看记录')),
+                  body: const HistoryView(),
                 ),
               ),
             );
