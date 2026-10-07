@@ -223,6 +223,30 @@ void main() {
     });
   });
 
+  group('字节拉取分支（豆瓣防盗链，修复 418）', () {
+    testWidgets('豆瓣封面不经 Image.network（改用 HttpClient+set 取字节）',
+        (WidgetTester tester) async {
+      // `Image.network(headers:)` 用 `HttpHeaders.add` 追加 User-Agent，与 Dart
+      // 内建默认 UA 形成双值，豆瓣 CDN 返回 418。修复后豆瓣封面走字节拉取分支，
+      // 故不会出现 `Image.network` 生成的 `Image` 节点（测试环境网络被拦截 →
+      // 落到占位兜底）。
+      await tester.pumpWidget(
+        _host(
+          const SizedBox(
+            width: 120,
+            height: 180,
+            child: PlatformAsyncImage(
+              url: 'https://img1.doubanio.com/view/photo/s_ratio_poster/public/p1.jpg',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(Image), findsNothing);
+      expect(find.byIcon(Icons.movie_outlined), findsOneWidget);
+    });
+  });
+
   group('海报卡收敛（A-10 接线）', () {
     testWidgets('VboxPosterCard 占位态复用 PlatformAsyncImage', (WidgetTester tester) async {
       await tester.pumpWidget(

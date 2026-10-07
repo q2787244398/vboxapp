@@ -164,13 +164,15 @@ void main() {
     await tester.enterText(find.byType(TextField), '关键词');
     await tester.tap(find.byIcon(Icons.arrow_forward));
     await tester.pumpAndSettle();
-    expect(uc.searched, <String>['关键词']);
+    // 全源并发搜索（对齐 iOS `searchStream`）：s1 + s2 各命中一次。
+    expect(uc.searched, <String>['关键词', '关键词']);
 
     await tester.tap(find.text('站点2'));
     await tester.pumpAndSettle();
 
-    expect(uc.searched, <String>['关键词', '关键词']);
-    expect(find.text('结果关键词'), findsOneWidget);
+    // 切换源仍以同关键词全源重搜 → 累计 4 次（s1/s2 × 2 轮）。
+    expect(uc.searched.length, 4);
+    expect(find.text('结果关键词'), findsWidgets);
   });
 
   testWidgets('横屏结果态：左源列表 + 结果卡', (WidgetTester tester) async {
@@ -195,6 +197,7 @@ void main() {
     expect(find.byType(VerticalDivider), findsOneWidget);
     expect(find.text('站点1'), findsOneWidget);
     expect(find.text('站点2'), findsOneWidget);
-    expect(find.text('结果片'), findsOneWidget);
+    // 全源并发：s1/s2 各回一条同名结果，`engineKey` 不同故均保留 → 两张卡。
+    expect(find.text('结果片'), findsNWidgets(2));
   });
 }

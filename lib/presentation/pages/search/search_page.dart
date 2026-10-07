@@ -176,41 +176,61 @@ class _SearchPageState extends State<SearchPage> {
     await _search(keyword);
   }
 
+  /// 执行搜索（对齐 iOS `SearchView.performSearch` → `SpiderManager.searchStream`）。
+  ///
+  /// 关键对齐点（修复「点搜索没反应」）：
+  ///   · **不依赖已选站点**：iOS 走 `searchStream` 对**全部源**并发搜索并逐批回调，
+  ///     不要求先选中某个源；此处改为对 `_sites` 全部站点并发 `searchContent`，
+  ///     并叠加附加源（占源 / 腾讯原生 / 兜底切片）。
+  ///   · **立刻进入搜索结果态**：`_searched = true` + `_loading = true`，
+  ///     顶栏出现「取消」、正文出现加载指示，**不再静默 return**；
+  ///     无任何源时也会落到「没有找到相关影片」空态，用户始终有反馈。
   Future<void> _search(String keyword) async {
-    final String? siteKey = _siteKey;
-    if (siteKey == null) return;
+    final String kw = keyword.trim();
+    if (kw.isEmpty) return;
+    if (!mounted) return;
     setState(() {
+      _searched = true;
       _loading = true;
       _error = null;
+      _results.clear();
     });
-    final Result<SearchContentResult> result =
-        await _uc.searchContent(siteKey, keyword);
+
+    final List<SiteConfig> sites = _sites ?? const <SiteConfig>[];
+    final List<Future<void>> tasks = <Future<void>>[
+      for (final SiteConfig s in sites) _searchSite(s.key, kw),
+    ];
+    _collectExtraSources(kw, tasks);
+    await Future.wait(tasks);
     if (!mounted) return;
-    final Failure? failure = result.failureOrNull;
-    setState(() {
-      _loading = false;
-      if (failure != null) {
-        _error = failure;
-        return;
-      }
-      _results
-        ..clear()
-        ..addAll(result.valueOrNull?.list ?? const <VodItem>[]);
-      _searched = true;
-    });
-    // S-设2/S-设3：附加结果源（占源并列 + 腾讯视频原生）并行并入，
-    // 对齐 iOS `SpiderManager.search` 的多源合并语义。
-    await _searchExtraSources(keyword);
+    setState(() => _loading = false);
   }
 
-  /// 附加结果源搜索（逐批并入结果，不覆盖主源结果）。
-  Future<void> _searchExtraSources(String keyword) async {
+  /// 单站点搜索（逐批并入；单源失败静默，不阻断其余源，对齐 iOS 逐源容错）。
+  Future<void> _searchSite(String siteKey, String keyword) async {
+    try {
+      final Result<SearchContentResult> result =
+          await _uc.searchContent(siteKey, keyword);
+      final List<VodItem> items = result.valueOrNull?.list ?? const <VodItem>[];
+      if (!mounted || items.isEmpty) return;
+      setState(() {
+        _mergeResults(
+          items
+              .map((VodItem v) => v.withEngineKey(siteKey))
+              .toList(growable: false),
+        );
+      });
+    } catch (_) {
+      // 单源失败静默（对齐 iOS searchStream 的逐源 try/catch）。
+    }
+  }
+
+  /// 附加结果源（S-设2 占源并列 / S-设3 腾讯原生 / Wave D 兜底切片）并入任务表。
+  void _collectExtraSources(String keyword, List<Future<void>> tasks) {
     final ZhanyuanSearchUseCases? zhanyuan = _zhanyuan;
     final TencentVideoNativeSpider? tencent = _tencent;
     final SourceGovernanceUseCases? governance = _governance;
-    if (zhanyuan == null && tencent == null && governance == null) return;
 
-    final List<Future<void>> tasks = <Future<void>>[];
     if (zhanyuan != null) {
       tasks.add(
         zhanyuan
@@ -218,11 +238,7 @@ class _SearchPageState extends State<SearchPage> {
               keyword,
               onBatch: (List<VodItem> items) {
                 if (!mounted || items.isEmpty) return;
-                setState(() {
-                  _mergeResults(items);
-                  _searched = true;
-                  _error = null;
-                });
+                setState(() => _mergeResults(items));
               },
             )
             .catchError((Object _) {}),
@@ -232,14 +248,13 @@ class _SearchPageState extends State<SearchPage> {
       tasks.add(
         tencent.search(keyword).then((List<VodItem> items) {
           if (!mounted || items.isEmpty) return;
-          final List<VodItem> stamped = items
-              .map((VodItem v) =>
-                  v.withEngineKey(TencentVideoNativeSpider.siteKey))
-              .toList(growable: false);
           setState(() {
-            _mergeResults(stamped);
-            _searched = true;
-            _error = null;
+            _mergeResults(
+              items
+                  .map((VodItem v) =>
+                      v.withEngineKey(TencentVideoNativeSpider.siteKey))
+                  .toList(growable: false),
+            );
           });
         }).catchError((Object _) {}),
       );
@@ -252,17 +267,12 @@ class _SearchPageState extends State<SearchPage> {
               keyword,
               onBatch: (List<VodItem> items) {
                 if (!mounted || items.isEmpty) return;
-                setState(() {
-                  _mergeResults(items);
-                  _searched = true;
-                  _error = null;
-                });
+                setState(() => _mergeResults(items));
               },
             )
             .catchError((Object _) {}),
       );
     }
-    await Future.wait(tasks);
   }
 
   /// 去重并入结果（按 `engineKey|vodId|vodName`）。

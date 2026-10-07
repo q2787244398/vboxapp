@@ -15,14 +15,21 @@
 ///   · 便捷工厂 [sourceCover]：按服务 `imageReferer` / `imageSSLBypass` 拼装
 ///     后缀（对齐 iOS `PlatformAsyncImage.sourceCover`）。
 /// - URL 归一 [coverFor]：去空白、`http://`→`https://` 升迁（防混合内容拦截）。
-/// - 缓存：Flutter `Image.network` / `Image.memory` 自带 `PaintingBinding.imageCache`，
-///   本组件透传，不另建缓存层。
+/// - **带请求头一律走字节拉取**（关键）：Flutter `Image.network(headers:)` 用
+///   `HttpHeaders.add` 下发请求头，会与 Dart `HttpClient` 内置的默认 `User-Agent`
+///   冲突——`User-Agent` 覆盖不生效（豆瓣 CDN 因此返回 **418**，封面全空白）。
+///   故凡是需要注入请求头（防盗链 Referer / @UA 后缀 / SSL 绕过 / AES 字节后处理）
+///   的图片，统一走 [HttpClient] + `headers.set` 取字节再 `Image.memory` 渲染，
+///   与 iOS 本地代理（`DoubanImageProxyServer` / `PlatformImageLoader`）行为一致。
+/// - 缓存：无头图片透传 `Image.network` 自带 `PaintingBinding.imageCache`；
+///   带字节后处理的走 [_ImageByteCache]（内存缓存 + 并发去重，对齐 iOS
+///   `PlatformImageCache`），其余 `Image.memory` 走 `PaintingBinding.imageCache`。
 /// - 占位/失败态：默认「底 + 影片图标」占位盒（对齐 A-04 海报卡规格），
 ///   可注入自定义 [placeholder] / [errorBuilder]。
 library;
 
 import 'dart:convert' show base64Decode;
-import 'dart:io' show HttpClient, HttpException, HttpClientRequest, HttpClientResponse;
+import 'dart:io' show HttpClient, HttpClientRequest, HttpClientResponse;
 import 'dart:typed_data' show BytesBuilder, Uint8List;
 
 import 'package:flutter/material.dart';
@@ -264,9 +271,17 @@ class PlatformAsyncImage extends StatelessWidget {
     if (merged.isNotEmpty && !merged.containsKey('User-Agent')) {
       merged['User-Agent'] = kPlatformImageDefaultUA;
     }
-    // SSL 绕过 / 字节后处理 → 自定义 HttpClient（拉取字节后走 Image.memory）。
+    // 带请求头（豆瓣/TMDB 防盗链、@UA 后缀、调用方显式头）/ SSL 绕过 / 字节后处理
+    // 一律走自定义 HttpClient 取字节（`headers.set` 覆盖 User-Agent）再 Image.memory。
+    //
+    // **不可用 `Image.network(headers:)` 下发这些头**：其内部用 `HttpHeaders.add`，
+    // User-Agent 会变成「Dart/x.y (dart:io), <注入值>」双值，豆瓣 CDN 判定异常
+    // 直接返回 **418**（实测：Referer-only→200；Referer+双值 UA→418；
+    // Referer+干净 UA→200），封面全空白。此路径与 iOS
+    // `DoubanImageProxyServer.fetchImage` / `PlatformImageLoader` 的 `setValue`
+    // 语义一致（覆盖而非追加）。
     final bool sslBypass = merged.remove(kPlatformImageSslBypassHeader) == '1';
-    if (sslBypass || imageDecoder != null) {
+    if (sslBypass || imageDecoder != null || merged.isNotEmpty) {
       return _ByteFetchImage(
         url: parsed.url,
         headers: merged,
@@ -295,6 +310,52 @@ class PlatformAsyncImage extends StatelessWidget {
         return fallback;
       },
     );
+  }
+}
+
+/// 字节图片缓存（对齐 iOS `PlatformImageCache`：`countLimit 300` /
+/// `totalCostLimit 80MB` + 并发去重 `loadingTasks`）。
+///
+/// 仅缓存**带请求头 / SSL 绕过 / 字节后处理**的图片字节（无头图片走
+/// `Image.network` 自带 `PaintingBinding.imageCache`）。
+class _ImageByteCache {
+  _ImageByteCache._();
+
+  static const int _countLimit = 300;
+  static const int _byteLimit = 80 * 1024 * 1024;
+  static final Map<String, Uint8List> _entries = <String, Uint8List>{};
+  static final Map<String, Future<Uint8List?>> _inflight =
+      <String, Future<Uint8List?>>{};
+  static int _bytes = 0;
+
+  static Uint8List? get(String key) => _entries[key];
+
+  static void put(String key, Uint8List bytes) {
+    if (_entries.containsKey(key)) return;
+    _entries[key] = bytes;
+    _bytes += bytes.length;
+    // 近似 LRU：超限按插入序淘汰最早条目（对齐 NSCache 的容量近似策略）。
+    while ((_entries.length > _countLimit || _bytes > _byteLimit) &&
+        _entries.isNotEmpty) {
+      final String oldest = _entries.keys.first;
+      _bytes -= _entries.remove(oldest)!.length;
+    }
+  }
+
+  /// 命中缓存直接返回；同一 key 的并发请求复用同一 Future（去重）。
+  static Future<Uint8List?> load(
+    String key,
+    Future<Uint8List?> Function() fetch,
+  ) {
+    final Uint8List? cached = get(key);
+    if (cached != null) return Future<Uint8List?>.value(cached);
+    final Future<Uint8List?>? existing = _inflight[key];
+    if (existing != null) return existing;
+    final Future<Uint8List?> task = fetch().whenComplete(() {
+      _inflight.remove(key);
+    });
+    _inflight[key] = task;
+    return task;
   }
 }
 
@@ -340,9 +401,38 @@ class _ByteFetchImageState extends State<_ByteFetchImage> {
     _load();
   }
 
+  @override
+  void didUpdateWidget(covariant _ByteFetchImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url ||
+        oldWidget.headers != widget.headers ||
+        oldWidget.transform != widget.transform) {
+      _bytes = null;
+      _failed = false;
+      _load();
+    }
+  }
+
+  /// 缓存键：干净 URL + 排序后的请求头 + 是否有字节后处理
+  /// （对齐 iOS `PlatformImageLoader.makeCacheKey(urlString, mode:)`）。
+  String get _cacheKey {
+    final List<String> names = widget.headers.keys.toList()..sort();
+    final String headerSig =
+        names.map((String k) => '$k=${widget.headers[k]}').join('&');
+    return '${widget.url}\u0000$headerSig\u0000${widget.transform != null}';
+  }
+
   Future<void> _load() async {
+    final Uint8List? bytes = await _ImageByteCache.load(_cacheKey, _fetch);
+    if (!mounted) return;
+    setState(() {
+      _bytes = bytes;
+      _failed = bytes == null;
+    });
+  }
+
+  Future<Uint8List?> _fetch() async {
     final HttpClient client = HttpClient()
-      ..autoUncompress = false
       ..connectionTimeout = const Duration(seconds: 15);
     if (widget.sslBypass) {
       client.badCertificateCallback = (cert, host, port) => true;
@@ -350,14 +440,13 @@ class _ByteFetchImageState extends State<_ByteFetchImage> {
     try {
       final HttpClientRequest request =
           await client.getUrl(Uri.parse(widget.url));
+      // 关键：`headers.set`（覆盖）而非 `add`（追加），确保 User-Agent 被替换，
+      // 避免与 Dart HttpClient 内建默认 UA 形成双值（豆瓣 CDN → 418）。
       for (final MapEntry<String, String> entry in widget.headers.entries) {
         request.headers.set(entry.key, entry.value);
       }
       final HttpClientResponse response = await request.close();
-      if (response.statusCode != 200) {
-        throw HttpException('HTTP ${response.statusCode}',
-            uri: Uri.parse(widget.url));
-      }
+      if (response.statusCode != 200) return null;
       final BytesBuilder builder = BytesBuilder(copy: false);
       await for (final List<int> chunk in response) {
         builder.add(chunk);
@@ -365,11 +454,10 @@ class _ByteFetchImageState extends State<_ByteFetchImage> {
       Uint8List bytes = builder.takeBytes();
       final Uint8List Function(Uint8List bytes)? transform = widget.transform;
       if (transform != null) bytes = transform(bytes);
-      if (!mounted) return;
-      setState(() => _bytes = bytes);
+      _ImageByteCache.put(_cacheKey, bytes);
+      return bytes;
     } catch (_) {
-      if (!mounted) return;
-      setState(() => _failed = true);
+      return null;
     } finally {
       client.close(force: true);
     }
