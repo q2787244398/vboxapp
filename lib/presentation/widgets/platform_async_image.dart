@@ -395,43 +395,65 @@ class _ByteFetchImageState extends State<_ByteFetchImage> {
   Uint8List? _bytes;
   bool _failed = false;
 
+  /// 当前缓存键（按**内容**生成，非 Map 引用）。
+  late String _key;
+
   @override
   void initState() {
     super.initState();
-    _load();
+    _key = _computeKey(widget);
+    _hydrate();
   }
 
   @override
   void didUpdateWidget(covariant _ByteFetchImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.url != widget.url ||
-        oldWidget.headers != widget.headers ||
-        oldWidget.transform != widget.transform) {
-      _bytes = null;
-      _failed = false;
-      _load();
-    }
+    // 关键修复「左右滑动封面闪白」：父级每次 build 都会新建 `headers` Map，
+    // 且横向行有滚动驱动动效（`DoubanSubjectRow` 每帧 setState），若用
+    // `oldWidget.headers != widget.headers` 比**引用**会每帧判定「变化」→
+    // 清空已加载字节 → 封面在滑动中空白、停下才恢复。改为按内容比对缓存键。
+    final String next = _computeKey(widget);
+    if (next == _key) return;
+    _key = next;
+    _bytes = null;
+    _failed = false;
+    _hydrate();
   }
 
   /// 缓存键：干净 URL + 排序后的请求头 + 是否有字节后处理
   /// （对齐 iOS `PlatformImageLoader.makeCacheKey(urlString, mode:)`）。
-  String get _cacheKey {
-    final List<String> names = widget.headers.keys.toList()..sort();
+  static String _computeKey(_ByteFetchImage w) {
+    final List<String> names = w.headers.keys.toList()..sort();
     final String headerSig =
-        names.map((String k) => '$k=${widget.headers[k]}').join('&');
-    return '${widget.url}\u0000$headerSig\u0000${widget.transform != null}';
+        names.map((String k) => '$k=${w.headers[k]}').join('&');
+    return '${w.url}\u0000$headerSig\u0000${w.transform != null}';
+  }
+
+  /// 同步命中缓存（避免异步 gap 造成一帧空白），未命中再异步拉取。
+  void _hydrate() {
+    final Uint8List? cached = _ImageByteCache.get(_key);
+    if (cached != null) {
+      _bytes = cached;
+      _failed = false;
+      return;
+    }
+    _load();
   }
 
   Future<void> _load() async {
-    final Uint8List? bytes = await _ImageByteCache.load(_cacheKey, _fetch);
+    final String key = _key;
+    final Uint8List? bytes =
+        await _ImageByteCache.load(key, () => _fetch(key));
     if (!mounted) return;
+    // 拉取期间 key 可能已变（列表复用）：丢弃过期结果，避免串图。
+    if (_computeKey(widget) != key) return;
     setState(() {
       _bytes = bytes;
       _failed = bytes == null;
     });
   }
 
-  Future<Uint8List?> _fetch() async {
+  Future<Uint8List?> _fetch(String key) async {
     final HttpClient client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15);
     if (widget.sslBypass) {
@@ -454,7 +476,7 @@ class _ByteFetchImageState extends State<_ByteFetchImage> {
       Uint8List bytes = builder.takeBytes();
       final Uint8List Function(Uint8List bytes)? transform = widget.transform;
       if (transform != null) bytes = transform(bytes);
-      _ImageByteCache.put(_cacheKey, bytes);
+      _ImageByteCache.put(key, bytes);
       return bytes;
     } catch (_) {
       return null;

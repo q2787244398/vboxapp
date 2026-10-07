@@ -160,6 +160,30 @@ class VodItem {
         musicEntryType: musicEntryType,
       );
 
+  /// 复制并把 [vodRemarks] 覆盖为来源显示名（搜索按源分组用；对齐 iOS
+  /// `SpiderManager.searchStream` 把 `vodRemarks` 覆盖为源名，网盘源带 `☁️` 前缀）。
+  VodItem withSourceLabel(String label) => VodItem(
+        vodId: vodId,
+        vodName: vodName,
+        vodPic: vodPic,
+        vodRemarks: label,
+        vodYear: vodYear,
+        vodArea: vodArea,
+        vodDirector: vodDirector,
+        vodActor: vodActor,
+        vodContent: vodContent,
+        vodPlayFrom: vodPlayFrom,
+        vodPlayUrl: vodPlayUrl,
+        customHeaders: customHeaders,
+        engineKey: engineKey,
+        metaDuration: metaDuration,
+        albumName: albumName,
+        availQualities: availQualities,
+        musicPlatform: musicPlatform,
+        lxMusicInfo: lxMusicInfo,
+        musicEntryType: musicEntryType,
+      );
+
   Map<String, Object?> toJson() => <String, Object?>{
         'vod_id': vodId,
         'vod_name': vodName,

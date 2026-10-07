@@ -63,6 +63,7 @@ Widget _app(
   SearchHistoryUseCases history, {
   UiFormOverride override = UiFormOverride.portrait,
   DoubanUseCases? douban,
+  String? initialKeyword,
 }) {
   return MultiProvider(
     providers: [
@@ -77,7 +78,7 @@ Widget _app(
         value: douban ?? buildDoubanUseCases(),
       ),
     ],
-    child: const MaterialApp(home: SearchPage()),
+    child: MaterialApp(home: SearchPage(initialKeyword: initialKeyword)),
   );
 }
 
@@ -128,7 +129,10 @@ void main() {
 
     expect(uc.searched, <String>['关键词']);
     expect(find.text('搜索结果片'), findsOneWidget);
-    expect(find.text('取消'), findsOneWidget);
+    // 结果态顶栏仍保留排行榜入口 + 提交钮，且无「取消」（对齐 iOS `SearchView`）。
+    expect(find.text('取消'), findsNothing);
+    expect(find.byIcon(Icons.bar_chart_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_forward), findsOneWidget);
   });
 
   testWidgets('清空历史：历史胶囊消失', (WidgetTester tester) async {
@@ -150,32 +154,26 @@ void main() {
     expect(repo.length, 0);
   });
 
-  testWidgets('结果态切换源（竖屏 chips）：同关键词重搜', (WidgetTester tester) async {
+  testWidgets('初始关键词进入即自动搜索（对齐 iOS triggerSearch）',
+      (WidgetTester tester) async {
     final _FakeContentBrowseUseCases uc = _FakeContentBrowseUseCases(
-      sites: <SiteConfig>[site('s1', '站点1'), site('s2', '站点2')],
+      sites: <SiteConfig>[site('s1', '站点1')],
       results: (String kw) => <VodItem>[vod('r1', '结果$kw')],
     );
     final SearchHistoryUseCases history =
         SearchHistoryUseCases(InMemorySearchHistoryRepository());
 
-    await tester.pumpWidget(_app(uc, history));
+    await tester.pumpWidget(_app(uc, history, initialKeyword: '关键词'));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), '关键词');
-    await tester.tap(find.byIcon(Icons.arrow_forward));
-    await tester.pumpAndSettle();
-    // 全源并发搜索（对齐 iOS `searchStream`）：s1 + s2 各命中一次。
-    expect(uc.searched, <String>['关键词', '关键词']);
-
-    await tester.tap(find.text('站点2'));
-    await tester.pumpAndSettle();
-
-    // 切换源仍以同关键词全源重搜 → 累计 4 次（s1/s2 × 2 轮）。
-    expect(uc.searched.length, 4);
-    expect(find.text('结果关键词'), findsWidgets);
+    // 进入即全源并发搜索（对齐 iOS `searchStream`）：s1 命中一次并直接进入结果态。
+    expect(uc.searched, <String>['关键词']);
+    expect(find.text('结果关键词'), findsOneWidget);
+    expect(find.text('取消'), findsNothing);
   });
 
-  testWidgets('横屏结果态：左源列表 + 结果卡', (WidgetTester tester) async {
+  testWidgets('多来源结果态：左源列表 + 右结果（仅展示选中源）',
+      (WidgetTester tester) async {
     final _FakeContentBrowseUseCases uc = _FakeContentBrowseUseCases(
       sites: <SiteConfig>[site('s1', '站点1'), site('s2', '站点2')],
       results: (String kw) => <VodItem>[vod('r1', '结果片')],
@@ -194,10 +192,11 @@ void main() {
     await tester.tap(find.byIcon(Icons.arrow_forward));
     await tester.pumpAndSettle();
 
+    // 多来源 → 左源列表 + 右结果（对齐 iOS `SearchResultsView.multiColumnList`）。
     expect(find.byType(VerticalDivider), findsOneWidget);
-    expect(find.text('站点1'), findsOneWidget);
-    expect(find.text('站点2'), findsOneWidget);
-    // 全源并发：s1/s2 各回一条同名结果，`engineKey` 不同故均保留 → 两张卡。
-    expect(find.text('结果片'), findsNWidgets(2));
+    expect(find.text('站点1'), findsWidgets);
+    expect(find.text('站点2'), findsWidgets);
+    // 右栏仅展示选中源的结果（对齐 iOS `currentVideos`）→ 一张卡。
+    expect(find.text('结果片'), findsOneWidget);
   });
 }

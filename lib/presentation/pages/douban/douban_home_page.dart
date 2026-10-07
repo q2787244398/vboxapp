@@ -20,6 +20,7 @@ import '../../shell/splash_gate_monitor.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
+import '../search/search_page.dart';
 import 'douban_widgets.dart';
 
 /// 豆瓣独立页（AppBar「豆瓣」+ [DoubanHomeView]）。
@@ -31,7 +32,19 @@ class DoubanHomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('豆瓣')),
-      body: const DoubanHomeView(),
+      // 对齐 iOS `DoubanHomeView`：条目点击 `triggerSearch(title)` 进入搜索页。
+      body: DoubanHomeView(
+        onSubjectTap: (DoubanSubject subject) {
+          final String kw = subject.title.trim();
+          if (kw.isEmpty) return;
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (BuildContext context) =>
+                  SearchPage(initialKeyword: kw),
+            ),
+          );
+        },
+      ),
     );
   }
 }

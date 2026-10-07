@@ -224,7 +224,9 @@ class SourceGovernanceUseCases {
         log('✅ 切片源[${s.name}] +${videos.length}条');
         onBatch(
           videos
-              .map((CmsV10Video v) => _toVodItem(v).withEngineKey(s.key))
+              .map((CmsV10Video v) => _toVodItem(v)
+                  .withEngineKey(s.key)
+                  .withSourceLabel(s.name))
               .toList(growable: false),
         );
       }

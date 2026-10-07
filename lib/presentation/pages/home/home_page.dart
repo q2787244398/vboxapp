@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/utils/result.dart';
+import '../../../domain/entities/douban/douban_models.dart';
 import '../../../domain/entities/spider/spider.dart';
 import '../../../domain/usecases/usecases.dart';
 import '../../shell/splash_gate_monitor.dart';
@@ -122,7 +123,14 @@ class _VboxHomePageState extends State<VboxHomePage> {
           children: <Widget>[
             _buildTopBar(context, sourceSelected: !doubanMode),
             Expanded(
-              child: doubanMode ? const DoubanHomeView() : _buildSiteBody(),
+              // 对齐 iOS `DoubanHomeView`：首页豆瓣条目点击即 `triggerSearch(title)`
+              // 进入搜索页按标题搜索。
+              child: doubanMode
+                  ? DoubanHomeView(
+                      onSubjectTap: (DoubanSubject subject) =>
+                          _openSearchForKey(subject.title),
+                    )
+                  : _buildSiteBody(),
             ),
           ],
         ),
@@ -221,6 +229,17 @@ class _VboxHomePageState extends State<VboxHomePage> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => SearchPage(initialSiteKey: _siteKey),
+      ),
+    );
+  }
+
+  /// 以关键词进入搜索页并立即搜索（对齐 iOS `settings.triggerSearch(title)`）。
+  void _openSearchForKey(String keyword) {
+    final String kw = keyword.trim();
+    if (kw.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => SearchPage(initialKeyword: kw),
       ),
     );
   }
