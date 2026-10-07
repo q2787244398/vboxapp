@@ -22,6 +22,7 @@ import '../../platform/spider/node_http_client.dart';
 import '../../platform/spider/spider_engine_factory.dart';
 import '../entities/remote_source/remote_source.dart';
 import '../entities/spider/spider.dart';
+import 'music_source_filter.dart';
 
 /// TG 搜索蜘蛛站点 key（对齐 iOS `SpiderManager.swift` L1394 的注入判定）。
 const String _tgSearchSiteKey = 'js_TG搜索';
@@ -67,14 +68,41 @@ class ContentBrowseUseCases {
     if (container == null) {
       return const Err<List<SiteConfig>>(UnknownFailure('站点聚合为空'));
     }
-    final List<SiteConfig> sites = container.sites
-        .map((Map<String, Object?> raw) => SiteConfig.fromJson(raw))
-        .where((SiteConfig s) => s.key.isNotEmpty)
-        .toList(growable: false);
+    // 对齐 iOS `fetchAllSourceDisplayItems()`：视频「切换源」列表 =
+    // **网盘源 + API 源 + JS/Python 蜘蛛 + 站源**（见 [_unifiedSites]），
+    // 音乐源不进该列表，也不参与后续按列表展开的搜索/首页通路。
+    final List<SiteConfig> sites = _unifiedSites(container);
     if (sites.isEmpty) {
       return const Err<List<SiteConfig>>(UnknownFailure('无可用站点'));
     }
     return Success<List<SiteConfig>>(sites);
+  }
+
+  /// 合成视频「切换源」清单（对齐 iOS `fetchAllSourceDisplayItems()`）。
+  ///
+  /// 组成：`container.sites`（apiSources + spiderSources）+ `cloudSites`
+  /// （网盘源 → [CloudSiteConfig.toSiteConfig]，key `cloud_<name>`）；按 key
+  /// 去重（api/spider 优先），音乐源按 [isMusicSite] 过滤。
+  ///
+  /// 网盘源追加在末尾（保留既有站点默认选中位），仅参与列表展示与网盘搜索，
+  /// 不进入 [searchContent] 逐源循环（网盘搜索走 `CloudSearchUseCases`）。
+  List<SiteConfig> _unifiedSites(AllSourcesContainer container) {
+    final List<SiteConfig> out = <SiteConfig>[];
+    final Set<String> seen = <String>{};
+    void add(SiteConfig s) {
+      if (s.key.isEmpty) return;
+      if (isMusicSite(s)) return;
+      if (!seen.add(s.key)) return;
+      out.add(s);
+    }
+
+    for (final Map<String, Object?> raw in container.sites) {
+      add(SiteConfig.fromJson(raw));
+    }
+    for (final CloudSiteConfig c in container.cloudSites) {
+      add(c.toSiteConfig());
+    }
+    return out;
   }
 
   /// 首页内容（单源）。
@@ -200,9 +228,20 @@ class ContentBrowseUseCases {
     final Failure? sourcesFailure = sourcesResult.failureOrNull;
     if (sourcesFailure != null) return _ResolvedSite.error(sourcesFailure);
     final AllSourcesContainer? container = sourcesResult.valueOrNull;
-    final SiteConfig? site = container == null
+    SiteConfig? site = container == null
         ? null
         : AllSourcesDatasource.findSite(container, key);
+    if (site == null && container != null) {
+      // 网盘源合成 key（`cloud_<name>`）：切换源列表选中后需能解析首页/分类，
+      // 对齐 iOS `fetchAllSourceDisplayItems()` 把网盘源并入统一源列表的语义。
+      for (final CloudSiteConfig c in container.cloudSites) {
+        final SiteConfig s = c.toSiteConfig();
+        if (s.key == key) {
+          site = s;
+          break;
+        }
+      }
+    }
     if (site == null) {
       return _ResolvedSite.error(ValidationFailure('未找到站点：$key'));
     }

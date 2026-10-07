@@ -291,8 +291,11 @@ class PlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChanne
         val producer = registry.createSurfaceProducer()
         producer.setCallback(surfaceCallback)
 
+        // 对齐 iOS AVPlayer 的网络行为：允许 http↔https 跨协议重定向
+        // （源站常见 http→https 跳转，Media3 默认禁止，会直接报建连失败）。
         val dataSourceFactory = DefaultHttpDataSource.Factory()
             .setDefaultRequestProperties(headers)
+            .setAllowCrossProtocolRedirects(true)
         val p = ExoPlayer.Builder(context)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory)

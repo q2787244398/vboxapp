@@ -55,6 +55,10 @@ class _SearchPageState extends State<SearchPage> {
   TencentVideoNativeSpider? _tencent;
   SourceGovernanceUseCases? _governance;
 
+  /// 网盘源搜索用例（S-设4；对齐 iOS `SpiderManager.searchStream` 的
+  /// `cloudSearch` 通道）。缺省注入时为空（测试环境）。
+  CloudSearchUseCases? _cloudSearch;
+
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focus = FocusNode();
 
@@ -93,6 +97,7 @@ class _SearchPageState extends State<SearchPage> {
     _zhanyuan = _maybeRead<ZhanyuanSearchUseCases>(context);
     _tencent = _maybeRead<TencentVideoNativeSpider>(context);
     _governance = _maybeRead<SourceGovernanceUseCases>(context);
+    _cloudSearch = _maybeRead<CloudSearchUseCases>(context);
     _init();
   }
 
@@ -218,8 +223,11 @@ class _SearchPageState extends State<SearchPage> {
 
     final List<SiteConfig> sites = await _resolveSites();
     if (!mounted) return;
+    // 网盘源（group == 'cloud'）走 [CloudSearchUseCases] 独立通道（对齐 iOS
+    // `searchStream` 的网盘通道与 apiSites 分立），不进入逐源 `searchContent`。
     final List<Future<void>> tasks = <Future<void>>[
-      for (final SiteConfig s in sites) _searchSite(s, kw),
+      for (final SiteConfig s in sites)
+        if (s.group != 'cloud') _searchSite(s, kw),
     ];
     _collectExtraSources(kw, tasks);
     await Future.wait(tasks);
@@ -262,6 +270,25 @@ class _SearchPageState extends State<SearchPage> {
     final ZhanyuanSearchUseCases? zhanyuan = _zhanyuan;
     final TencentVideoNativeSpider? tencent = _tencent;
     final SourceGovernanceUseCases? governance = _governance;
+    final CloudSearchUseCases? cloud = _cloudSearch;
+
+    // S-设4：网盘源搜索（对齐 iOS `searchStream` 通道 0 `cloudSearch`）。
+    // 网盘结果 `vodRemarks` 已由用例按站型打标（☁️ 来源名），命中即流式并入。
+    if (cloud != null) {
+      tasks.add(() async {
+        try {
+          await cloud.searchCloud(
+            keyword,
+            onBatch: (List<VodItem> items) {
+              if (!mounted || items.isEmpty) return;
+              setState(() => _mergeResults(items));
+            },
+          );
+        } catch (_) {
+          // 单通道失败静默（对齐 iOS searchStream 的逐通道 try/catch）。
+        }
+      }());
+    }
 
     if (zhanyuan != null) {
       tasks.add(

@@ -4,6 +4,8 @@
 /// 逆向来源：iOS `vbox/Services/RemoteSourceConfigManager.swift`
 library;
 
+import 'cloud_site.dart';
+
 /// 远程源 manifest（对齐契约 manifest_v1.json）。
 class RemoteManifest {
   const RemoteManifest({
@@ -189,5 +191,26 @@ class AllSourcesContainer {
     collect(apiSources);
     collect(spiderSources);
     return out;
+  }
+
+  /// 网盘站点列表（`cloudSources.cloudSites`）。
+  ///
+  /// 对齐 iOS `SpiderManager.loadCloudSitesFromJSONConfig()`：网盘源是与
+  /// api/spider **同级**的独立源类别，参与「切换源」列表与搜索，但不并入
+  /// [sites]（[sites] 语义对齐 iOS `allSites`，只含视频站点键）。
+  List<CloudSiteConfig> get cloudSites {
+    final Object? arr = cloudSources?['cloudSites'];
+    if (arr is! List) return const <CloudSiteConfig>[];
+    final List<CloudSiteConfig> out = <CloudSiteConfig>[];
+    for (final Object? e in arr) {
+      if (e is Map) {
+        final CloudSiteConfig site =
+            CloudSiteConfig.fromJson(e.cast<String, Object?>());
+        if (site.name.isNotEmpty && site.searchurl.isNotEmpty) {
+          out.add(site);
+        }
+      }
+    }
+    return List<CloudSiteConfig>.unmodifiable(out);
   }
 }

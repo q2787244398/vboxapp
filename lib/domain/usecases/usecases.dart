@@ -1,6 +1,7 @@
 /// 领域层：用例 barrel。
 library;
 
+export 'cloud_search_usecases.dart';
 export 'content_browse_usecases.dart';
 export 'detail_playback_usecases.dart';
 export 'douban_usecases.dart';

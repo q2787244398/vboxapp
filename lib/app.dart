@@ -127,6 +127,10 @@ class _VBoxAppState extends State<VBoxApp> {
   /// 源治理用例（Wave D · O-源1/2/3：兜底切片源搜索 / 自定义解析器 / 站源启停）。
   late final SourceGovernanceUseCases _sourceGovernanceUseCases;
 
+  /// 网盘源搜索用例（对齐 iOS `SpiderManager.cloudSearch`：与 api/spider 同级
+  /// 的独立源类别，`cloudSources.cloudSites` 并发抓取，命中即回调）。
+  late final CloudSearchUseCases _cloudSearchUseCases;
+
   @override
   void initState() {
     super.initState();
@@ -343,6 +347,11 @@ class _VBoxAppState extends State<VBoxApp> {
         cmsDatasource: _cmsDatasource,
         scriptBaseUrl: () => _allSourcesUrl,
       );
+      // S-设4：网盘源搜索（对齐 iOS `SpiderManager.cloudSearch`，搜索页并发并入）。
+      _cloudSearchUseCases = CloudSearchUseCases(
+        client: HttpClient(networkInfo: networkInfo),
+        loadAllSources: _loadAllSources,
+      );
       // A9：首页默认内容 = 豆瓣推荐。
       _doubanUseCases = DoubanUseCases();
       // G-06：TMDB 详情增强（默认消费共享配置实例）。
@@ -499,6 +508,8 @@ class _VBoxAppState extends State<VBoxApp> {
           value: _sourceGovernanceUseCases,
         ),
         Provider<TencentVideoNativeSpider>.value(value: _tencentSpider),
+        // S-设4：网盘源搜索（搜索页与 api/spider/站源并列并发）。
+        Provider<CloudSearchUseCases>.value(value: _cloudSearchUseCases),
         Provider<DoubanUseCases>.value(value: _doubanUseCases),
         Provider<TmdbUseCases>.value(value: _tmdbUseCases),
       ],
