@@ -511,6 +511,17 @@ class InMemoryDoubanDatasource extends DoubanDatasource {
       subjects;
 
   @override
+  Future<List<DoubanSubject>> fetchCollectionWithTVCovers(
+    String collectionId, {
+    int start = 0,
+    int count = 20,
+  }) async =>
+      subjects;
+
+  @override
+  Future<String?> fetchTVDetailCoverUrl(String id) async => null;
+
+  @override
   Future<List<DoubanChartSubject>> fetchChartRanking(
     DoubanChartCategory category, {
     int start = 0,

@@ -39,6 +39,21 @@ class _FakeDoubanDatasource extends DoubanDatasource {
   }
 }
 
+/// fake：记录哪些 collection 走了「详情封面补拉」路径。
+class _TrackingDoubanDatasource extends _FakeDoubanDatasource {
+  final List<String> tvCoverFetched = <String>[];
+
+  @override
+  Future<List<DoubanSubject>> fetchCollectionWithTVCovers(
+    String collectionId, {
+    int start = 0,
+    int count = 20,
+  }) async {
+    tvCoverFetched.add(collectionId);
+    return super.fetchCollection(collectionId, start: start, count: count);
+  }
+}
+
 DoubanSubject subject(
   String id, {
   double rating = 0,
@@ -98,6 +113,27 @@ void main() {
       final DoubanHomeFeed? feed = result.valueOrNull;
       expect(feed, isNotNull);
       expect(feed!.isEmpty, isTrue);
+    });
+
+    test('TV 类栏目（英美剧/动漫/综艺）走详情封面补拉路径', () async {
+      final _TrackingDoubanDatasource ds = _TrackingDoubanDatasource()
+        ..collections = <String, List<DoubanSubject>>{
+          'tv_american': <DoubanSubject>[subject('a')],
+          'tv_animation': <DoubanSubject>[subject('b')],
+          'tv_variety_show': <DoubanSubject>[subject('c')],
+          'movie_hot_gaia': <DoubanSubject>[subject('m')],
+        };
+
+      await DoubanUseCases(datasource: ds).homeFeed();
+
+      expect(
+        ds.tvCoverFetched,
+        containsAll(<String>['tv_american', 'tv_animation', 'tv_variety_show']),
+      );
+      // 非 TV 栏目不走补拉。
+      expect(ds.tvCoverFetched, isNot(contains('movie_hot_gaia')));
+      // 补拉内部复用 fetchCollection，总请求数仍为 banner + 11 栏目。
+      expect(ds.requestedCollections, hasLength(12));
     });
   });
 

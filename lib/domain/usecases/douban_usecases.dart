@@ -52,6 +52,32 @@ class DoubanUseCases {
     ('国内即将上映', 'movie_showing'),
   ];
 
+  /// 需补拉详情封面的 collection（对齐 iOS `fetchCollectionWithTVCovers` 的调用点：
+  /// 综艺 / 动漫 / 英美剧 / 韩剧 / 日剧）——这些合集列表不返回封面字段。
+  static const Set<String> tvCoverCollections = <String>{
+    'tv_variety_show',
+    'tv_animation',
+    'tv_american',
+    'tv_korean',
+    'tv_japanese',
+  };
+
+  /// 按 collectionId 选择拉取方式（TV 类走详情封面补拉，对齐 iOS）。
+  Future<List<DoubanSubject>> _fetchCollection(
+    String collectionId, {
+    int start = 0,
+    int count = pageSize,
+  }) {
+    if (tvCoverCollections.contains(collectionId)) {
+      return _datasource.fetchCollectionWithTVCovers(
+        collectionId,
+        start: start,
+        count: count,
+      );
+    }
+    return _datasource.fetchCollection(collectionId, start: start, count: count);
+  }
+
   /// 首页聚合：banner（TOP250 前 10）+ 栏目区块，**并发拉取**。
   ///
   /// 对齐 iOS `fetchSafely` 语义：**单个栏目失败不影响其余栏目**（失败返回空，
@@ -61,7 +87,7 @@ class DoubanUseCases {
       <Future<List<DoubanSubject>>>[
         _safeFetch(() => _datasource.fetchCollection('movie_top250', start: 0, count: 10)),
         for (final (_, String collectionId) in _homeSections)
-          _safeFetch(() => _datasource.fetchCollection(collectionId, start: 0, count: pageSize)),
+          _safeFetch(() => _fetchCollection(collectionId, start: 0, count: pageSize)),
       ],
     );
     final List<DoubanHomeSection> sections = <DoubanHomeSection>[

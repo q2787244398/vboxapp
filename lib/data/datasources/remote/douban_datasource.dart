@@ -68,6 +68,50 @@ class DoubanDatasource {
         .toList(growable: false);
   }
 
+  /// 拉取合集条目并补齐 TV 类封面（对齐 iOS `fetchCollectionWithTVCovers`）。
+  ///
+  /// 综艺 / 动漫 / 英美剧 / 韩剧 / 日剧等 `subject_collection`（`tv_variety_show`、
+  /// `tv_animation`、`tv_american`…）的列表**不返回** `photos_gadget`/`cover_url`/
+  /// `cover`，封面只存在于详情接口 `GET /tv/{id}`。
+  ///
+  /// 对齐 iOS 语义：对 `needsTvCoverFetch` 的条目**逐条串行**补拉，拿到
+  /// `cover_url ?? pic.large ?? pic.normal` 后 [DoubanSubject.withCoverUrl] 回填；
+  /// 补拉失败（非 2xx / 非 JSON）静默跳过，不影响整体结果。
+  Future<List<DoubanSubject>> fetchCollectionWithTVCovers(
+    String collectionId, {
+    int start = 0,
+    int count = 20,
+  }) async {
+    final List<DoubanSubject> subjects =
+        await fetchCollection(collectionId, start: start, count: count);
+    final List<DoubanSubject> result = List<DoubanSubject>.of(subjects);
+    for (int i = 0; i < result.length; i++) {
+      if (!result[i].needsTvCoverFetch) continue;
+      final String? cover = await fetchTVDetailCoverUrl(result[i].id);
+      if (cover == null || cover.isEmpty) continue;
+      result[i] = result[i].withCoverUrl(cover);
+    }
+    return result;
+  }
+
+  /// 详情接口封面（对齐 iOS `fetchTVDetailCoverURL` +
+  /// `DoubanSubjectDetailResponse.bestCoverURL`）：`cover_url` → `pic.large` → `pic.normal`。
+  ///
+  /// 失败返回 null（对齐 iOS `try?` 的静默降级），不抛异常。
+  Future<String?> fetchTVDetailCoverUrl(String id) async {
+    final Uri uri = Uri.parse('$baseURL/tv/$id');
+    final HttpClientResponse res =
+        await _client.get(uri, headers: _rexxarHeaders);
+    if (!res.isOk) return null;
+    final Map<String, Object?>? json = JsonUtils.tryDecodeMap(res.text);
+    if (json == null) return null;
+    final String? coverUrl = JsonUtils.pickString(json, 'cover_url');
+    if (coverUrl != null && coverUrl.isNotEmpty) return coverUrl;
+    final Map<String, Object?> pic = JsonUtils.pickMap(json, 'pic');
+    return JsonUtils.pickString(pic, 'large') ??
+        JsonUtils.pickString(pic, 'normal');
+  }
+
   /// 拉取分类排行榜（chart `top_list`，返回 JSON 数组）。
   Future<List<DoubanChartSubject>> fetchChartRanking(
     DoubanChartCategory category, {

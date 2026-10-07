@@ -23,21 +23,24 @@ class DoubanSubject {
     this.genres = const <String>[],
     this.cardSubtitle,
     this.intro,
+    this.hasListCover = true,
   });
 
   /// 从 JSON 解析（容错：字段缺失/类型不稳均不抛异常）。
   factory DoubanSubject.fromJson(Map<String, Object?> j) {
     final Map<String, Object?> rating = JsonUtils.asMap(j['rating']);
+    final String? listCover = _listCover(j);
     return DoubanSubject(
       id: JsonUtils.pickStringOr(j, 'id', ''),
       title: JsonUtils.pickStringOr(j, 'title', ''),
-      coverUrl: _normalizeCover(_bestCover(j)),
+      coverUrl: _normalizeCover(listCover ?? _picCover(j)),
       rating: JsonUtils.asDouble(rating['value']) ?? 0,
       ratingCount: JsonUtils.asInt(rating['count']),
       year: JsonUtils.pickString(j, 'year'),
       genres: JsonUtils.asList(j['genres']).map((Object? e) => '$e').toList(),
       cardSubtitle: JsonUtils.pickString(j, 'card_subtitle'),
       intro: JsonUtils.pickString(j, 'intro'),
+      hasListCover: listCover != null && listCover.isNotEmpty,
     );
   }
 
@@ -67,20 +70,43 @@ class DoubanSubject {
   /// 简介。
   final String? intro;
 
+  /// 列表接口是否已直接给出封面（`photos_gadget` / `cover_url` / `cover.*` 任一非空）。
+  ///
+  /// 对齐 iOS `DoubanSubject.coverImageURL == nil` 的判定口径（**不含** `pic`）——
+  /// 为 false 的条目需按 iOS 走 `GET /tv/{id}` 详情补拉封面。
+  final bool hasListCover;
+
+  /// 是否需要补拉详情封面（对齐 iOS `fetchCollectionWithTVCovers` 的
+  /// `subjects[index].coverImageURL == nil`）。
+  bool get needsTvCoverFetch => !hasListCover;
+
   /// 是否带评分。
   bool get hasRating => rating > 0;
 
   /// 类型文案（` / ` 连接）。
   String get genreText => genres.join(' / ');
 
-  /// 封面优先级：`photos_gadget` → `cover_url` → `cover.{url,large,medium,small}`
-  /// → `pic.{large,normal,medium,small}`。
-  ///
-  /// `pic` 兜底对齐 iOS：综艺 / 动漫 / 英美剧等 `subject_collection`（`tv_variety_show`、
-  /// `tv_animation`、`tv_american`…）**不返回** `cover`/`cover_url`/`photos_gadget`，
-  /// 封面仅存在于 `pic.large`。iOS 走 `fetchCollectionWithTVCovers`（逐条补拉详情封面），
-  /// Flutter 直接取同一条目内已有的 `pic` 字段，无需额外请求即可拿到同一张封面。
-  static String? _bestCover(Map<String, Object?> j) {
+  /// 回填封面（对齐 iOS `DoubanSubject.withCoverURL`）。
+  DoubanSubject withCoverUrl(String? url) {
+    final String? normalized = _normalizeCover(url);
+    if (normalized == null) return this;
+    return DoubanSubject(
+      id: id,
+      title: title,
+      coverUrl: normalized,
+      rating: rating,
+      ratingCount: ratingCount,
+      year: year,
+      genres: genres,
+      cardSubtitle: cardSubtitle,
+      intro: intro,
+      hasListCover: true,
+    );
+  }
+
+  /// iOS `images` 口径的**列表**封面（`coverImageURL` 的取值来源，**不含** `pic`）：
+  /// `photos_gadget` → `cover_url` → `cover.{url,large,medium,small}`。
+  static String? _listCover(Map<String, Object?> j) {
     final String? gadget = JsonUtils.pickString(j, 'photos_gadget');
     if (gadget != null && gadget.isNotEmpty) return gadget;
     final String? coverUrl = JsonUtils.pickString(j, 'cover_url');
@@ -91,6 +117,12 @@ class DoubanSubject {
         JsonUtils.pickString(cover, 'medium') ??
         JsonUtils.pickString(cover, 'small');
     if (fromCover != null && fromCover.isNotEmpty) return fromCover;
+    return null;
+  }
+
+  /// `pic.{large,normal,medium,small}`：综艺 / 动漫 / 英美剧等列表条目自带，
+  /// 与详情接口 `GET /tv/{id}` 为同一张图（详情补拉的兜底/等效来源）。
+  static String? _picCover(Map<String, Object?> j) {
     final Map<String, Object?> pic = JsonUtils.pickMap(j, 'pic');
     return JsonUtils.pickString(pic, 'large') ??
         JsonUtils.pickString(pic, 'normal') ??
