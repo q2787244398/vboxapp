@@ -23,12 +23,15 @@ import 'package:provider/provider.dart';
 import '../../core/errors/failures.dart';
 import '../../core/utils/result.dart';
 import '../../data/models/download.dart';
+import '../../domain/entities/cloud/cloud_drive.dart';
 import '../../domain/entities/player/player.dart';
 import '../../domain/entities/playback/playback.dart';
 import '../../domain/entities/spider/spider_models.dart';
 import '../../domain/entities/tmdb/tmdb_models.dart';
 import '../../domain/usecases/usecases.dart';
 import '../../platform/download/download.dart';
+import '../../platform/player/pan_player.dart';
+import '../pages/cloud/files.dart';
 import '../pages/player/player_page.dart';
 import '../theme/tokens/colors.dart';
 import '../theme/tokens/radii.dart';
@@ -174,6 +177,17 @@ class _DetailPageState extends State<DetailPage> {
     final PlaybackEpisode episode =
         visible[_episodeIndex.clamp(0, visible.length - 1)];
 
+    // F-P07：网盘分享链接 → 走网盘文件列表（分享模式）选集播放。
+    //
+    // 网盘取链依赖「设置 → 网盘账号授权中心」写入的凭据（契约安全存储
+    // `cloud_drive_credentials_v1`）：[PanPlayer] 按盘类型读取 Cookie /
+    // Refresh Token，未授权时在其错误文案中提示先扫码登录。
+    final CloudDriveType? drive = CloudDriveType.fromShareUrl(episode.url);
+    if (drive != null) {
+      await _openCloudFiles(drive, episode.url);
+      return;
+    }
+
     setState(() => _playing = true);
     try {
       final Result<PlayerContentResult> result =
@@ -215,6 +229,22 @@ class _DetailPageState extends State<DetailPage> {
     } finally {
       if (mounted) setState(() => _playing = false);
     }
+  }
+
+  /// 打开网盘文件列表（分享模式）选集播放（对齐 iOS 播放器 `handleDriveUrl`）。
+  ///
+  /// 取链走 [PanPlayer]（Node 托管盘 / 夸克·百度·UC 原生盘 / 阿里 PG 路链），
+  /// 凭据来自「设置 → 网盘账号授权中心」。
+  Future<void> _openCloudFiles(CloudDriveType type, String shareUrl) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => CloudDriveFilesPage(
+          driveType: type,
+          shareUrl: shareUrl,
+          panPlayer: PanPlayer(),
+        ),
+      ),
+    );
   }
 
   /// 选集重开解析器（Wave A · R-渲2）：单集 → 播放源（复用 [DetailPlaybackUseCases]）。
