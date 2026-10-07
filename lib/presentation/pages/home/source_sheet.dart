@@ -1,105 +1,272 @@
 /// 切换源浮层（批次 D · D-01）。
 ///
-/// 底部弹出（圆角 + 拖拽手柄 + 阴影），列出全部可浏览站点；点击某源关闭并返回
-/// 其 `key`，由调用方据此重载首页内容。选中态高亮当前源。
+/// 唯一真相源：iOS `MainViews.swift` L504-L606 `homeSourceDropdownOverlay`：
+///   · 左上角**小竖长条浮层**（非底部弹窗）：宽 `屏宽*0.4`、最大高 `屏高*0.5`、
+///     左上 padding `top:52 / leading:12`、圆角 12、阴影；
+///   · 半透明黑 0.3 遮罩，点击空白关闭；
+///   · 标题栏「切换源」+ 源数量胶囊徽标（底色 `#E11B48` 透明度 0.15）；
+///   · 按分类分组（固定顺序：网盘 → API → 站源 → JS → 论坛），
+///     组头 + 组内每行（选中态 checkmark + 高亮色）。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../../../domain/entities/spider/spider.dart';
+import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/typography.dart';
 
+/// 源分组固定顺序（对齐 iOS `homeGroupedSources` 的 `order`）。
+const List<String> _groupOrder = <String>['网盘', 'API', '站源', 'JS', '论坛'];
+
 /// 弹出切换源浮层，返回选中的站点 key（取消返回 null）。
+///
+/// 形态对齐 iOS `homeSourceDropdownOverlay`：左上角悬浮小竖长条。
 Future<String?> showVboxSourceSheet(
   BuildContext context, {
   required List<SiteConfig> sites,
   String? selectedKey,
 }) {
-  return showModalBottomSheet<String>(
+  return showGeneralDialog<String>(
     context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (BuildContext context) => _SourceSheet(
+    barrierDismissible: true,
+    barrierLabel: '切换源',
+    barrierColor: Colors.black.withValues(alpha: 0.3),
+    transitionDuration: const Duration(milliseconds: 160),
+    pageBuilder: (BuildContext context, _, __) => _SourceOverlay(
       sites: sites,
       selectedKey: selectedKey,
     ),
+    transitionBuilder: (
+      BuildContext context,
+      Animation<double> animation,
+      Animation<double> secondaryAnimation,
+      Widget child,
+    ) {
+      return Align(
+        alignment: Alignment.topLeft,
+        child: Padding(
+          padding: const EdgeInsets.only(top: 52, left: 12),
+          child: FadeTransition(
+            opacity: CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOut,
+            ),
+            child: child,
+          ),
+        ),
+      );
+    },
   );
 }
 
-/// 浮层内容。
-class _SourceSheet extends StatelessWidget {
-  const _SourceSheet({required this.sites, this.selectedKey});
+/// 源分组条目（对齐 iOS `homeGroupedSources`）。
+class _SourceGroup {
+  const _SourceGroup(this.title, this.items);
+
+  final String title;
+  final List<SiteConfig> items;
+}
+
+/// 推导站点分类（对齐 iOS `SourceDisplayItem.category.displayName`）。
+String _categoryOf(SiteConfig site) => site.categoryLabel;
+
+/// 按分类分组（固定顺序，对齐 iOS `homeGroupedSources`）。
+List<_SourceGroup> _groupSites(List<SiteConfig> sites) {
+  final Map<String, List<SiteConfig>> grouped = <String, List<SiteConfig>>{};
+  for (final SiteConfig site in sites) {
+    grouped.putIfAbsent(_categoryOf(site), () => <SiteConfig>[]).add(site);
+  }
+  return <_SourceGroup>[
+    for (final String key in _groupOrder)
+      if ((grouped[key] ?? const <SiteConfig>[]).isNotEmpty)
+        _SourceGroup(key, grouped[key]!),
+  ];
+}
+
+/// 左上角悬浮小竖长条（对齐 iOS `homeSourceDropdownOverlay` 主体）。
+class _SourceOverlay extends StatelessWidget {
+  const _SourceOverlay({required this.sites, this.selectedKey});
 
   final List<SiteConfig> sites;
   final String? selectedKey;
 
+  /// 高亮 / 徽标强调色（对齐 iOS `Color(hex: "E11B48")`）。
+  static const Color _accent = VboxColors.skinPrimaryRose;
+
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    return SafeArea(
+    final Size screen = MediaQuery.sizeOf(context);
+    final List<_SourceGroup> groups = _groupSites(sites);
+
+    return SizedBox(
+      width: screen.width * 0.4,
       child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+        constraints: BoxConstraints(maxHeight: screen.height * 0.5),
+        child: Container(
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _buildHeader(context),
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: scheme.outlineVariant.withValues(alpha: 0.5),
+                ),
+                Flexible(
+                  child: ListView(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    children: <Widget>[
+                      for (final _SourceGroup group in groups) ...<Widget>[
+                        _buildGroupHeader(context, group),
+                        for (int i = 0; i < group.items.length; i++) ...<Widget>[
+                          _buildRow(context, group.items[i]),
+                          if (i < group.items.length - 1)
+                            Divider(
+                              height: 1,
+                              thickness: 1,
+                              indent: 38,
+                              color:
+                                  scheme.outlineVariant.withValues(alpha: 0.5),
+                            ),
+                        ],
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+      ),
+    );
+  }
+
+  /// 标题栏（对齐 iOS「切换源」+ 数量胶囊）。
+  Widget _buildHeader(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      child: Row(
+        children: <Widget>[
+          Text(
+            '切换源',
+            style: TextStyle(
+              fontSize: VboxTypography.s13,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+            ),
+          ),
+          const Spacer(),
+          _CountBadge(count: sites.length, accent: _accent),
+        ],
+      ),
+    );
+  }
+
+  /// 分组标题（对齐 iOS 组头）。
+  Widget _buildGroupHeader(BuildContext context, _SourceGroup group) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      color: scheme.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      child: Row(
+        children: <Widget>[
+          Text(
+            group.title,
+            style: TextStyle(
+              fontSize: VboxTypography.s11,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+            ),
+          ),
+          const Spacer(),
+          _CountBadge(count: group.items.length, accent: _accent, compact: true),
+        ],
+      ),
+    );
+  }
+
+  /// 源行（对齐 iOS 选中 checkmark + 高亮色）。
+  Widget _buildRow(BuildContext context, SiteConfig site) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool selected = site.key == selectedKey;
+    final String name = site.name.isEmpty ? site.key : site.name;
+    return InkWell(
+      onTap: () => Navigator.of(context).pop(site.key),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
           children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            SizedBox(
+              width: 16,
+              child: selected
+                  ? const Icon(Icons.check, size: 12, color: _accent)
+                  : null,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
               child: Text(
-                '切换源 ${sites.length}',
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: VboxTypography.s18,
-                  fontWeight: FontWeight.w600,
-                  color: scheme.onSurface,
+                  fontSize: VboxTypography.s14,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  color: selected ? _accent : scheme.onSurface,
                 ),
               ),
             ),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: sites.length,
-                separatorBuilder: (BuildContext context, int index) =>
-                    const Divider(height: 1),
-                itemBuilder: (BuildContext context, int index) {
-                  final SiteConfig site = sites[index];
-                  final bool selected = site.key == selectedKey;
-                  return ListTile(
-                    leading: Container(
-                      width: 36,
-                      height: 36,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: scheme.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.public,
-                        size: 20,
-                        color: scheme.primary,
-                      ),
-                    ),
-                    title: Text(
-                      site.name.isEmpty ? site.key : site.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      site.key,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: scheme.onSurfaceVariant),
-                    ),
-                    trailing: selected
-                        ? Icon(Icons.check_circle, color: scheme.primary)
-                        : null,
-                    onTap: () => Navigator.of(context).pop(site.key),
-                  );
-                },
-              ),
-            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 数量徽标（对齐 iOS 标题栏 / 组头的 count 胶囊）。
+class _CountBadge extends StatelessWidget {
+  const _CountBadge({
+    required this.count,
+    required this.accent,
+    this.compact = false,
+  });
+
+  final int count;
+  final Color accent;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: compact
+          ? const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5)
+          : const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$count',
+        style: TextStyle(
+          fontSize: compact ? VboxTypography.s11 : VboxTypography.s11,
+          fontWeight: FontWeight.w500,
+          color: accent,
         ),
       ),
     );

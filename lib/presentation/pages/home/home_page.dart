@@ -44,6 +44,14 @@ class VboxHomePage extends StatefulWidget {
 }
 
 class _VboxHomePageState extends State<VboxHomePage> {
+  /// 站点清单进程级缓存（对齐 iOS `MainViews.swift` 的静态缓存口径）：
+  /// tab 切换重建本页时直接复用，不再重复请求站点列表。
+  static List<SiteConfig>? _cachedSites;
+
+  /// 站点内容按 `siteKey` 的进程级缓存：切回首页 / 复选同一源直接命中，不重复拉取。
+  static final Map<String, HomeContentResult> _cachedHomeBySite =
+      <String, HomeContentResult>{};
+
   late final ContentBrowseUseCases _uc;
 
   List<SiteConfig> _sites = const <SiteConfig>[];
@@ -56,17 +64,39 @@ class _VboxHomePageState extends State<VboxHomePage> {
   void initState() {
     super.initState();
     _uc = context.read<ContentBrowseUseCases>();
-    _loadSites();
+    // 对齐 iOS `HomeView.onAppear`：有缓存先恢复，无缓存才加载。
+    final List<SiteConfig>? cachedSites = _cachedSites;
+    if (cachedSites != null) {
+      _sites = cachedSites;
+    } else {
+      _loadSites();
+    }
   }
 
   /// 加载站点清单（仅供「切换源」使用；失败 / 为空**不报错**，保持豆瓣默认内容）。
   Future<void> _loadSites() async {
     final Result<List<SiteConfig>> result = await _uc.listSites();
     if (!mounted) return;
-    setState(() => _sites = result.valueOrNull ?? const <SiteConfig>[]);
+    final List<SiteConfig> sites = result.valueOrNull ?? const <SiteConfig>[];
+    _cachedSites = sites;
+    setState(() => _sites = sites);
   }
 
   Future<void> _loadHome(String siteKey) async {
+    final HomeContentResult? cached = _cachedHomeBySite[siteKey];
+    if (cached != null) {
+      // 命中缓存：直接复用，不重复请求（对齐 iOS 静态缓存复用）。
+      setState(() {
+        _loading = false;
+        _error = null;
+        _home = cached;
+        _siteKey = siteKey;
+      });
+      if ((cached.list).isNotEmpty) {
+        SplashGateMonitor.instance.markHomeReady();
+      }
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -79,8 +109,12 @@ class _VboxHomePageState extends State<VboxHomePage> {
       _home = result.valueOrNull;
       _siteKey = siteKey;
     });
+    final HomeContentResult? home = result.valueOrNull;
+    if (home != null) {
+      _cachedHomeBySite[siteKey] = home;
+    }
     // L-壳1 数据门控：切换源后已有可展示内容 → 允许启动页淡出。
-    if ((result.valueOrNull?.list ?? const <VodItem>[]).isNotEmpty) {
+    if ((home?.list ?? const <VodItem>[]).isNotEmpty) {
       SplashGateMonitor.instance.markHomeReady();
     }
   }

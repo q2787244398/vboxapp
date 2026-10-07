@@ -15,11 +15,14 @@
 /// 「读取本地凭据 → 构建展示态」与「测试按钮刷新本地检测时间」。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
+import '../../../platform/node/node_runtime_manager.dart' as node;
 
 /// 授权中心网盘展示顺序（对齐 iOS `CloudAuthCenterView` 卡片顺序）。
 const List<CloudDriveType> cloudAuthCenterOrder = <CloudDriveType>[
@@ -226,20 +229,41 @@ class CloudDriveAccount {
 /// （`cloud_drive_credentials_v1`）构建 [accounts]。
 class CloudDriveAuthController extends ChangeNotifier {
   /// 构造（[credentialStore] 供测试注入；缺省走 [PrefsManager]）。
+  ///
+  /// [nodeRuntimeManager] 非空时订阅其状态流，把 Node 常驻系统的真实运行态
+  /// （就绪 / 启动中 / 内存告警 / 失败 / 崩溃）映射到 [nodeStatus]，对齐 iOS
+  /// `CloudAuthCenterView` 直接 `@ObservedObject NodeRuntimeManager.shared`
+  /// 的做法（此前恒为 `未知` 是因为从未接线状态源）。
   CloudDriveAuthController({
     CloudDriveCredentialStore? credentialStore,
     NodeRuntimeStatus nodeStatus = const NodeRuntimeStatus(),
+    node.NodeRuntimeManager? nodeRuntimeManager,
   })  : _store = credentialStore ??
             CloudDriveCredentialStore(PrefsManager.instance),
-        _nodeStatus = nodeStatus;
+        _nodeStatus = nodeStatus,
+        _nodeRuntime = nodeRuntimeManager {
+    final node.NodeRuntimeManager? runtime = _nodeRuntime;
+    if (runtime != null) {
+      _syncNodeStatus(runtime);
+      _nodeSub = runtime.statusStream.listen((node.NodeRuntimeStatus _) {
+        _syncNodeStatus(runtime);
+      });
+    }
+  }
 
   final CloudDriveCredentialStore _store;
-  final NodeRuntimeStatus _nodeStatus;
+  final node.NodeRuntimeManager? _nodeRuntime;
+  StreamSubscription<node.NodeRuntimeStatus>? _nodeSub;
+  NodeRuntimeStatus _nodeStatus;
   List<CloudDriveAccount> _accounts = const <CloudDriveAccount>[];
+  List<CloudDriveCredential> _credentials = const <CloudDriveCredential>[];
   bool _loading = true;
 
   /// 账户列表（顺序 = [cloudAuthCenterOrder]）。
   List<CloudDriveAccount> get accounts => _accounts;
+
+  /// 已保存凭据清单（底部「复制粘贴 Token 兜底」卡片消费）。
+  List<CloudDriveCredential> get savedTokens => _credentials;
 
   /// Node 常驻系统状态快照。
   NodeRuntimeStatus get nodeStatus => _nodeStatus;
@@ -247,11 +271,60 @@ class CloudDriveAuthController extends ChangeNotifier {
   /// 是否加载中。
   bool get loading => _loading;
 
+  @override
+  void dispose() {
+    unawaited(_nodeSub?.cancel());
+    super.dispose();
+  }
+
+  /// 把 Node 运行时快照映射为授权中心横幅状态（对齐 iOS `nodeRuntimeStatusInfo`）。
+  void _syncNodeStatus(node.NodeRuntimeManager manager) {
+    final node.NodeRuntimeStatus platform = manager.status;
+    NodeRuntimeState state;
+    String detail = '';
+    if (platform == node.NodeRuntimeStatus.memoryWarning) {
+      state = NodeRuntimeState.memoryWarning;
+    } else if (manager.isSystemReady) {
+      state = NodeRuntimeState.ready;
+    } else if (manager.isCrashed) {
+      final String? error = manager.lastError;
+      if (error != null && error.isNotEmpty) {
+        state = NodeRuntimeState.failed;
+        detail = error;
+      } else {
+        state = NodeRuntimeState.crashed;
+      }
+    } else {
+      state = switch (platform) {
+        node.NodeRuntimeStatus.stopped => NodeRuntimeState.stopped,
+        node.NodeRuntimeStatus.starting => NodeRuntimeState.starting,
+        node.NodeRuntimeStatus.ready => NodeRuntimeState.ready,
+        node.NodeRuntimeStatus.memoryWarning => NodeRuntimeState.memoryWarning,
+        node.NodeRuntimeStatus.crashed => NodeRuntimeState.crashed,
+        node.NodeRuntimeStatus.failed => NodeRuntimeState.failed,
+      };
+      if (state == NodeRuntimeState.failed) {
+        detail = manager.lastError ?? '';
+      }
+    }
+    final int port = manager.activePort;
+    if (_nodeStatus.state == state &&
+        _nodeStatus.port == port &&
+        _nodeStatus.detail == detail) {
+      return;
+    }
+    _nodeStatus = NodeRuntimeStatus(state: state, port: port, detail: detail);
+    notifyListeners();
+  }
+
   /// 读取凭据并重建账户列表。
   Future<void> load() async {
     _loading = true;
     notifyListeners();
+    final node.NodeRuntimeManager? runtime = _nodeRuntime;
+    if (runtime != null) _syncNodeStatus(runtime);
     final Map<String, CloudDriveCredential> all = await _store.loadAll();
+    _credentials = all.values.toList(growable: false);
     _accounts = <CloudDriveAccount>[
       for (final CloudDriveType type in cloudAuthCenterOrder)
         CloudDriveAccount.fromCredential(type, all[type.id]),
@@ -265,6 +338,36 @@ class CloudDriveAuthController extends ChangeNotifier {
     final CloudDriveCredential? credential = await _store.credential(type);
     if (credential == null) return;
     await _store.save(credential.copyWith(lastCheckedAt: DateTime.now()));
+    await load();
+  }
+
+  /// 手动粘贴保存 Token / Cookie（对齐 iOS `addDriveTokenFromFallback`）。
+  ///
+  /// 写入契约安全存储 `cloud_drive_credentials_v1`：`userName` 存备注名，
+  /// 主密钥按网盘类型落到合适字段（百度 → cookie，其余 → accessToken）。
+  Future<void> saveManualToken(
+    CloudDriveType type,
+    String name,
+    String value,
+  ) async {
+    final DateTime now = DateTime.now();
+    final CloudDriveCredential credential = CloudDriveCredential(
+      driveType: type.id,
+      authType: CloudDriveAuthType.manual,
+      userName: name,
+      cookie: type == CloudDriveType.baidu ? value : null,
+      accessToken: type == CloudDriveType.baidu ? null : value,
+      updatedAt: now,
+      lastCheckedAt: now,
+      state: CloudDriveAuthState.valid,
+    );
+    await _store.save(credential);
+    await load();
+  }
+
+  /// 删除某网盘凭据（对齐 iOS `removeToken(at:)`）。
+  Future<void> removeCredential(CloudDriveType type) async {
+    await _store.remove(type);
     await load();
   }
 }

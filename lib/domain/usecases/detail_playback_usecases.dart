@@ -10,6 +10,7 @@
 library;
 
 import '../../core/errors/failures.dart';
+import '../../core/network/http_client.dart';
 import '../../core/utils/logger.dart';
 import '../../core/utils/result.dart';
 import '../../data/datasources/remote/all_sources_datasource.dart';
@@ -38,6 +39,7 @@ class DetailPlaybackUseCases {
     required this.loadAllSources,
     SpiderEngineFactory engineFactory = const SpiderEngineFactory(),
     CmsV10Datasource? cmsDatasource,
+    HttpClient? cloudHttpClient,
     QuickJsNativeBridge? quickJsBridge,
     NodeHttpClient? nodeClient,
     this.scriptBaseUrl,
@@ -47,6 +49,7 @@ class DetailPlaybackUseCases {
     Future<SiteConfig?> Function(String key)? fallbackSiteResolver,
   })  : _engineFactory = engineFactory,
         _cmsDatasource = cmsDatasource,
+        _cloudHttpClient = cloudHttpClient,
         _quickJsBridge = quickJsBridge,
         _nodeClient = nodeClient,
         _tencentSpider = tencentSpider,
@@ -67,6 +70,9 @@ class DetailPlaybackUseCases {
 
   final SpiderEngineFactory _engineFactory;
   final CmsV10Datasource? _cmsDatasource;
+
+  /// 网盘详情页解析用 HTTP 客户端（对齐 iOS `resolveCloudPlay` 的 URLSession）。
+  final HttpClient? _cloudHttpClient;
   final QuickJsNativeBridge? _quickJsBridge;
   final NodeHttpClient? _nodeClient;
   final TencentVideoNativeSpider? _tencentSpider;
@@ -90,10 +96,22 @@ class DetailPlaybackUseCases {
     required String vodId,
     int initialIndex = 0,
   }) async {
+    // step 0（对齐 iOS `SpiderManager.getDetail`）：`ids` 为 HTTP(S) 详情页 URL
+    // （网盘搜索结果 / 云盘 CMS 页 / 站源详情页）时，不走站点解析：
+    //   ① 命中站源（type=2）域名 → 站源详情解析；
+    //   ② 否则按网盘详情页解析（抓页 → 提取网盘分享链接 → 合成「☁️网盘」条目）。
+    // 此前该分支直接落到 CMS V10 的 `?ac=detail&ids=<URL>`，导致
+    // `ParseFailure(详情为空：ids=…)`（问题 3）。该分支先于站点 key 校验，
+    // 对齐 iOS「URL 详情不依赖站点配置」。
+    final String trimmedId = vodId.trim();
+    if (trimmedId.startsWith('http://') || trimmedId.startsWith('https://')) {
+      return _loadViaUrl(trimmedId, initialIndex);
+    }
+
     if (siteKey.trim().isEmpty) {
       return const Err<PlaybackDetail>(ValidationFailure('站点 key 为空'));
     }
-    if (vodId.trim().isEmpty) {
+    if (trimmedId.isEmpty) {
       return const Err<PlaybackDetail>(ValidationFailure('影片 ID 为空'));
     }
 
@@ -227,6 +245,271 @@ class DetailPlaybackUseCases {
       return Err<PlayerContentResult>(_asFailure(e));
     } finally {
       await engine.dispose();
+    }
+  }
+
+  // ─────────────── 内部：URL 详情（网盘 / 站源详情页） ───────────────
+
+  /// `ids` 为 HTTP(S) URL 的详情解析（对齐 iOS `SpiderManager.getDetail` step 0）。
+  Future<Result<PlaybackDetail>> _loadViaUrl(String url, int initialIndex) async {
+    // ① 命中站源（type=2）域名 → 站源详情（对齐 iOS `findZhanyuanSiteForURL`）。
+    final Result<AllSourcesContainer> sourcesResult = await loadAllSources();
+    final AllSourcesContainer? container = sourcesResult.valueOrNull;
+    if (container != null) {
+      final SiteConfig? zhanyuanSite = _matchZhanyuanSite(container, url);
+      if (zhanyuanSite != null) {
+        return _loadViaZhanyuan(zhanyuanSite, url, initialIndex);
+      }
+    }
+    // ② 否则按网盘详情页解析（对齐 iOS `resolveCloudPlay`）。
+    return _loadViaCloudPage(url, initialIndex);
+  }
+
+  /// 按 URL host 匹配站源（type=2）站点（对齐 iOS `findZhanyuanSiteForURL`）。
+  SiteConfig? _matchZhanyuanSite(AllSourcesContainer container, String url) {
+    final String host = Uri.tryParse(url)?.host ?? '';
+    if (host.isEmpty) return null;
+    for (final Map<String, Object?> raw in container.sites) {
+      final SiteConfig site = SiteConfig.fromJson(raw);
+      if (site.type != 2) continue;
+      final String api = site.api ?? '';
+      if (api.isEmpty) continue;
+      final String apiHost = Uri.tryParse(api)?.host ?? '';
+      if (apiHost.isNotEmpty && apiHost == host) return site;
+    }
+    return null;
+  }
+
+  /// 网盘详情页解析（对齐 iOS `resolveCloudPlay` + `parseCloudHTML`）：
+  /// 抓取页面 HTML → 提取网盘分享链接 → 合成「☁️网盘」详情条目（剧集 = 各网盘链接）。
+  Future<Result<PlaybackDetail>> _loadViaCloudPage(
+    String url,
+    int initialIndex,
+  ) async {
+    final HttpClient? client = _cloudHttpClient;
+    if (client == null) {
+      return const Err<PlaybackDetail>(
+        UnsupportedFailure('网盘详情页解析未接线（需注入 HttpClient）'),
+      );
+    }
+    final Uri? uri = Uri.tryParse(url);
+    if (uri == null || uri.host.isEmpty) {
+      return Err<PlaybackDetail>(ValidationFailure('详情页地址非法：$url'));
+    }
+
+    final String html;
+    try {
+      final HttpClientResponse res = await client.get(
+        uri,
+        headers: <String, String>{
+          'User-Agent': _cloudPcUserAgent,
+          'Accept-Encoding': 'gzip, deflate',
+        },
+      );
+      if (!res.isOk) {
+        return Err<PlaybackDetail>(
+          NetworkFailure(
+            'HTTP ${res.statusCode}：$url',
+            code: ErrorCode.httpStatus,
+          ),
+        );
+      }
+      html = res.text;
+    } catch (e) {
+      return Err<PlaybackDetail>(Failure.from(e));
+    }
+
+    if (html.trim().isEmpty) {
+      return Err<PlaybackDetail>(ParseFailure('详情页内容为空：$url'));
+    }
+
+    final List<(String url, String name)> links = _extractCloudLinks(html);
+    if (links.isEmpty) {
+      // 直通：URL 本身就是网盘分享链接（论坛搜索结果，对齐 iOS 直链分支）。
+      final String? driveName = _directDriveName(url);
+      if (driveName != null) {
+        return _buildCloudDetail(
+          url: url,
+          host: uri.host,
+          name: driveName,
+          links: <(String, String)>[(url, driveName)],
+          initialIndex: initialIndex,
+        );
+      }
+      return Err<PlaybackDetail>(ParseFailure('未在该页面找到网盘链接：$url'));
+    }
+
+    final String name = _extractCloudPageName(html);
+    return _buildCloudDetail(
+      url: url,
+      host: uri.host,
+      name: name.isEmpty ? '网盘资源' : name,
+      links: links,
+      initialIndex: initialIndex,
+    );
+  }
+
+  /// 合成网盘详情条目（`vod_play_from` = 网盘；剧集 = 各网盘链接）。
+  ///
+  /// 剧集地址采用 TVBox `name$url#…` 口径，详情页 `_play()` 依据
+  /// `CloudDriveType.fromShareUrl` 识别为网盘链接 → 打开网盘文件列表。
+  Result<PlaybackDetail> _buildCloudDetail({
+    required String url,
+    required String host,
+    required String name,
+    required List<(String url, String name)> links,
+    required int initialIndex,
+  }) {
+    final SiteConfig site = SiteConfig(
+      key: 'cloud_$host',
+      name: '网盘',
+      type: 0,
+      api: url,
+      group: 'cloud',
+    );
+    final String playUrl = links
+        .map(((String, String) e) => '${e.$2}\$${e.$1}')
+        .join('#');
+    final VodItem vod = VodItem(
+      vodId: url,
+      vodName: name,
+      vodPic: '',
+      vodRemarks: '☁️网盘',
+      vodPlayFrom: '网盘',
+      vodPlayUrl: playUrl,
+    );
+    return Success<PlaybackDetail>(
+      PlaybackDetail.fromVod(site: site, vod: vod, initialIndex: initialIndex),
+    );
+  }
+
+  /// PC 浏览器 UA（对齐 iOS `cloudPcUA`）。
+  static const String _cloudPcUserAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+  /// 网盘分享链接域名 → 显示名（用于 URL 直通；对齐 iOS `cloudDriveName`）。
+  String? _directDriveName(String url) {
+    for (final MapEntry<String, String> e in _driveNames.entries) {
+      if (url.contains(e.key)) return e.value;
+    }
+    return null;
+  }
+
+  /// 网盘域名片段 → 显示名（先特异后通用，顺序即优先级）。
+  static const Map<String, String> _driveNames = <String, String>{
+    '115cdn.com': '115网盘',
+    'aliyundrive.com': '阿里云盘',
+    'alipan.com': '阿里云盘',
+    'pan.quark.cn': '夸克网盘',
+    'pan.baidu.com': '百度网盘',
+    'drive.uc.cn': 'UC网盘',
+    'pan.uc.cn': 'UC网盘',
+    'cloud.189.cn': '天翼云盘',
+    'yun.139.com': '139云盘',
+    'www.123': '123云盘',
+  };
+
+  /// 网盘分享链接正则清单（对齐 iOS `parseCloudHTML` 的 `panPatterns`）。
+  static const List<(String, String)> _cloudLinkPatterns = <(String, String)>[
+    (r'(https?://115cdn\.com/s/[^\s"<>\x27\\]*)', '115网盘'),
+    (r'(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s"<>\x27\\]*)',
+        '阿里云盘'),
+    (r'(https?://pan\.quark\.cn/s/[^\s"<>\x27\\]*)', '夸克网盘'),
+    (r'(https?://pan\.baidu\.com/s/[^\s"<>\x27\\]*)', '百度网盘'),
+    (r'(https?://(?:drive|pan)\.uc\.cn/s/[^\s"<>\x27\\]*)', 'UC网盘'),
+    (r'(https?://cloud\.189\.cn/[^\s"<>\x27\\]*)', '天翼云盘'),
+    (r'(https?://yun\.139\.com/[^\s"<>\x27\\]*)', '139云盘'),
+    (r'(https?://www\.123[a-z0-9]+\.com/s/[a-zA-Z0-9\-]+)', '123云盘'),
+  ];
+
+  /// 画质标签（用于网盘链接描述前缀；对齐 iOS `parseCloudHTML`）。
+  static final RegExp _qualityRegex = RegExp(
+    r'(4K|1080[Pp]|720[Pp]|蓝光|高清|国语|粤语|中字|原盘|REMUX|HDR|60帧|DV)',
+  );
+
+  /// 从详情页 HTML 提取网盘分享链接（去重；对齐 iOS `parseCloudHTML`）。
+  List<(String, String)> _extractCloudLinks(String html) {
+    final List<(String, String)> out = <(String, String)>[];
+    final Set<String> seen = <String>{};
+    for (final (String pattern, String driveName) in _cloudLinkPatterns) {
+      final RegExp? re = _safeRegex(pattern, caseInsensitive: true);
+      if (re == null) continue;
+      for (final RegExpMatch m in re.allMatches(html)) {
+        String? panUrl = m.group(1);
+        if (panUrl == null || panUrl.isEmpty) continue;
+        if (panUrl.contains('cloud.189.cn')) {
+          panUrl = _enrichTianyiAccessCode(
+            panUrl,
+            _snippet(html, m.start - 400, m.start + 200),
+          );
+        }
+        if (!seen.add(panUrl)) continue;
+        String desc = driveName;
+        // 链接周围上下文里的画质标签（对齐 iOS ±60/80 窗口扫描）。
+        final String around = _snippet(html, m.start - 60, m.start + 80);
+        final String? quality = _qualityRegex.firstMatch(around)?.group(1);
+        if (quality != null && quality.isNotEmpty) {
+          desc = '$quality·$driveName';
+        }
+        out.add((panUrl, desc));
+      }
+    }
+    return out;
+  }
+
+  /// 详情页视频名（优先 `h1.page-title`，其次 `<title>`；对齐 iOS `parseCloudHTML`）。
+  String _extractCloudPageName(String html) {
+    final String? h1 = _safeRegex(
+      r'<h1[^>]*class="[^"]*page-title[^"]*"[^>]*>([^<]+)',
+    )?.firstMatch(html)?.group(1)?.trim();
+    if (h1 != null && h1.isNotEmpty) return h1;
+    final String? title =
+        _safeRegex(r'<title>([^<]+)', caseInsensitive: true)
+            ?.firstMatch(html)
+            ?.group(1)
+            ?.trim();
+    if (title == null || title.isEmpty) return '';
+    // 去掉 ` - 站点名` 后缀（对齐 iOS `-.*$` 截断）。
+    final int dash = title.indexOf(RegExp(r'\s*[-|–]\s*'));
+    return dash > 0 ? title.substring(0, dash).trim() : title;
+  }
+
+  /// 天翼云盘访问码补全（对齐 iOS `enrichTianyiAccessCode`）。
+  String _enrichTianyiAccessCode(String url, String context) {
+    if (!url.contains('cloud.189.cn')) return url;
+    if (RegExp(r'[?&]pwd=[A-Za-z0-9]{4,}').hasMatch(url) ||
+        RegExp(r'[?&]accessCode=[A-Za-z0-9]{4,}').hasMatch(url)) {
+      return url;
+    }
+    final RegExpMatch? m =
+        RegExp(r'(访问码|提取码|密码)[:：\s]*([A-Za-z0-9]{4,8})').firstMatch(context);
+    if (m == null) return url;
+    final String code = (m.group(2) ?? '').trim();
+    if (code.isEmpty) return url;
+    final int hash = url.indexOf('#');
+    if (hash >= 0) {
+      final String head = url.substring(0, hash);
+      final String tail = url.substring(hash);
+      final String sep = head.contains('?') ? '&' : '?';
+      return '$head${sep}pwd=$code$tail';
+    }
+    return url.contains('?') ? '$url&pwd=$code' : '$url?pwd=$code';
+  }
+
+  /// 取 [src] 的 `[start, end)` 片段（UTF-16 索引，与 `RegExpMatch.start` 同口径）。
+  String _snippet(String src, int start, int end) {
+    final int s = start < 0 ? 0 : start;
+    final int e = end > src.length ? src.length : end;
+    if (s >= e) return '';
+    return src.substring(s, e);
+  }
+
+  RegExp? _safeRegex(String pattern, {bool caseInsensitive = false}) {
+    try {
+      return RegExp(pattern, caseSensitive: !caseInsensitive);
+    } catch (_) {
+      return null;
     }
   }
 

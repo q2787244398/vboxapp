@@ -193,6 +193,7 @@ class SpiderHttpOptions {
     this.data,
     this.timeout = const Duration(seconds: 15),
     this.referer,
+    this.followRedirects = true,
   });
 
   /// HTTP 方法（GET / POST，小写传入自动归一大写）。
@@ -209,6 +210,12 @@ class SpiderHttpOptions {
 
   /// Referer 头（iOS `options.referer` 直传）。
   final String? referer;
+
+  /// 是否自动跟随 3xx 重定向（缺省 `true`）。
+  ///
+  /// 原生登录（百度 `qrbdusslogin` 等）需**手动**逐跳跟随以收集各跳
+  /// `Set-Cookie`，故置 `false` 并读取响应头 `location`。
+  final bool followRedirects;
 
   /// 从 JS `options` 对象构造（B-05a `normalizeHttpOptions` 的 Map 归一输出）。
   ///
@@ -275,6 +282,7 @@ class SpiderTransportRequest {
     required this.headers,
     this.body,
     required this.timeout,
+    this.followRedirects = true,
   });
 
   final String method;
@@ -282,6 +290,9 @@ class SpiderTransportRequest {
   final Map<String, String> headers;
   final String? body;
   final Duration timeout;
+
+  /// 是否自动跟随 3xx（见 [SpiderHttpOptions.followRedirects]）。
+  final bool followRedirects;
 }
 
 /// 传输层响应（原始字节 + 分组头）。
@@ -331,6 +342,7 @@ class IoSpiderHttpTransport implements SpiderHttpTransport {
     final HttpClientRequest ioRequest = await _client
         .openUrl(request.method, request.url)
         .timeout(request.timeout + const Duration(seconds: 5));
+    ioRequest.followRedirects = request.followRedirects;
     request.headers.forEach((String k, String v) => ioRequest.headers.set(k, v));
     if (request.body != null) {
       ioRequest.headers.contentLength = utf8.encode(request.body!).length;
@@ -438,6 +450,7 @@ class SpiderHttpBridge {
         headers: headers,
         body: opt.data,
         timeout: opt.timeout,
+        followRedirects: opt.followRedirects,
       ));
       _cookieStore.storeFromResponse(uri, res.setCookies);
       final Uint8List bodyBytes = res.bodyBytes is Uint8List

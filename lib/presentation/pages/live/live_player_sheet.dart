@@ -9,6 +9,8 @@
 /// [PlayerController.instance]（live 路由）并订阅其纹理输出面。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../domain/entities/live/live.dart';
@@ -58,6 +60,13 @@ class _LivePlayerSheetState extends State<LivePlayerSheet> {
   /// 是否订阅了 [PlayerController] 输出面（仅缺省回调时；注入回调不订阅）。
   bool _bindController = false;
 
+  /// 控制条显隐（对齐 iOS `MiniPlayerView`：点击画面切换，3s 自动隐藏）。
+  bool _showControls = false;
+  Timer? _hideTimer;
+
+  /// 播放中标记（对齐 iOS 控制条播放/暂停按钮）。
+  bool _playing = true;
+
   @override
   void initState() {
     super.initState();
@@ -77,12 +86,59 @@ class _LivePlayerSheetState extends State<LivePlayerSheet> {
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
     if (_bindController) {
       final PlayerController controller = PlayerController.instance;
       controller.onSurfaceChanged = null;
       controller.onVideoSize = null;
     }
     super.dispose();
+  }
+
+  /// 点击画面：切换控制条显隐并重置自动隐藏计时（对齐 iOS `MiniPlayerView`）。
+  void _toggleControls() {
+    setState(() => _showControls = !_showControls);
+    _resetHideTimer();
+  }
+
+  /// 3s 无操作自动隐藏控制条（对齐 iOS `resetHideTimer`）。
+  void _resetHideTimer() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _showControls) setState(() => _showControls = false);
+    });
+  }
+
+  /// 播放 / 暂停（仅缺省控制器绑定时生效）。
+  Future<void> _togglePlay() async {
+    _resetHideTimer();
+    if (!_bindController) {
+      setState(() => _playing = !_playing);
+      return;
+    }
+    final PlayerController controller = PlayerController.instance;
+    if (_playing) {
+      await controller.pause();
+    } else {
+      await controller.play();
+    }
+    if (mounted) setState(() => _playing = !_playing);
+  }
+
+  /// 进入全屏播放（对齐 iOS `MiniPlayerView.showFullScreen`）。
+  Future<void> _openFullScreen() async {
+    _hideTimer?.cancel();
+    if (mounted) setState(() => _showControls = false);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (BuildContext context) => _LiveFullScreen(
+          textureId: _textureId,
+          aspectRatio: _aspectRatio,
+        ),
+      ),
+    );
+    if (mounted) _resetHideTimer();
   }
 
   List<String> _resolveRoutes() {
@@ -198,17 +254,56 @@ class _LivePlayerSheetState extends State<LivePlayerSheet> {
         child: AspectRatio(
           // 对齐 iOS：16:9 小窗（黑底 + 画面层 + 状态层叠加）。
           aspectRatio: 16 / 9,
-          child: Stack(
-            fit: StackFit.expand,
-            children: <Widget>[
-              VideoSurface(
-                textureId: _textureId,
-                aspectRatio: _aspectRatio,
-              ),
-              if (_textureId == null) Center(child: _previewBody()),
-            ],
+          child: GestureDetector(
+            onTap: _toggleControls,
+            child: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                VideoSurface(
+                  textureId: _textureId,
+                  aspectRatio: _aspectRatio,
+                ),
+                if (_textureId == null) Center(child: _previewBody()),
+                if (_showControls) _controlsOverlay(),
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// 控制条叠加层（对齐 iOS `MiniPlayerView`：右上全屏 + 居中播放/暂停）。
+  Widget _controlsOverlay() {
+    return ColoredBox(
+      color: Colors.black.withValues(alpha: 0.28),
+      child: Stack(
+        children: <Widget>[
+          Positioned(
+            top: 2,
+            right: 2,
+            child: IconButton(
+              tooltip: '全屏',
+              onPressed: _openFullScreen,
+              icon: const Icon(
+                Icons.arrow_outward,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+          ),
+          Center(
+            child: IconButton(
+              tooltip: _playing ? '暂停' : '播放',
+              onPressed: _togglePlay,
+              iconSize: 40,
+              icon: Icon(
+                _playing ? Icons.pause : Icons.play_arrow,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -362,6 +457,57 @@ class _RouteItem extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 直播全屏播放页（对齐 iOS `FullScreenPlayerView`：黑底铺满 + 退出按钮）。
+///
+/// 复用 [LivePlayerSheet] 已订阅的 [PlayerController] 纹理输出面（[textureId]
+/// / [aspectRatio] 快照传入），不重复订阅避免抢回调。
+class _LiveFullScreen extends StatelessWidget {
+  const _LiveFullScreen({
+    required this.textureId,
+    this.aspectRatio,
+  });
+
+  /// 输出面纹理句柄（null → 显示无画面占位）。
+  final int? textureId;
+
+  /// 视频纵横比（宽 / 高；null → 铺满）。
+  final double? aspectRatio;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          VideoSurface(textureId: textureId, aspectRatio: aspectRatio),
+          if (textureId == null)
+            const Center(
+              child: Text(
+                '正在连接直播流…',
+                style: TextStyle(fontSize: 13, color: Colors.white70),
+              ),
+            ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topRight,
+              child: IconButton(
+                tooltip: '退出全屏',
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(
+                  Icons.fullscreen_exit,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

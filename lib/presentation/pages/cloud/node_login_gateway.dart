@@ -27,6 +27,7 @@ import '../../../domain/entities/cloud/cloud_drive_login.dart';
 import '../../../domain/entities/cloud/node_login.dart';
 import 'aliyun_pg_login_gateway.dart';
 import 'login_gateway.dart';
+import 'native_cloud_drive_login_gateway.dart';
 
 /// Node 常驻系统登录网关（B 站 + 9 家 Node 托管盘）。
 class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
@@ -295,6 +296,8 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
 ///
 /// - 阿里云盘 PG 扫码（`ali` + `pgQr`）→ [AliyunPgLoginGateway]（extscreen 链路，
 ///   C-盘1；成功后回收 refresh_token 到 `cloud_drive_credentials_v1`）；
+/// - 原生扫码（UC / 百度 / 夸克 + `nativeQr`）→ [NativeCloudDriveLoginGateway]
+///   （直连官方扫码接口，不经 Node 常驻系统；成功后落 `cloud_drive_credentials_v1`）；
 /// - B 站扫码 + Node 托管盘（115/夸克Node/百度Node/UCNode/光鸭/139/迅雷/123/189）
 ///   → [NodeCloudDriveLoginGateway]（走 Node 常驻系统，成功后由
 ///   [NodeCredentialSyncService.saveProfile] 回收凭据）；
@@ -305,6 +308,9 @@ CloudDriveLoginGateway defaultCloudDriveLoginGateway(
 ) {
   if (AliyunPgLoginGateway.supports(type, mode)) {
     return AliyunPgLoginGateway();
+  }
+  if (NativeCloudDriveLoginGateway.supports(type, mode)) {
+    return NativeCloudDriveLoginGateway();
   }
   if (NodeCloudDriveLoginGateway.supports(type, mode)) {
     return NodeCloudDriveLoginGateway(

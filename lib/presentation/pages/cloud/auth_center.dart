@@ -13,9 +13,13 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../../domain/entities/cloud/cloud_drive.dart';
+import '../../../platform/node/node_runtime_manager.dart' as node;
 import '../../../platform/player/pan_player.dart';
+import '../../theme/tokens/colors.dart';
+import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../../widgets/vbox/vbox.dart';
 import 'cloud_drive_auth_controller.dart';
 import 'cloud_drive_widgets.dart';
 import 'files.dart';
@@ -55,7 +59,12 @@ class _CloudDriveAuthCenterPageState extends State<CloudDriveAuthCenterPage> {
   void initState() {
     super.initState();
     _ownsController = widget.controller == null;
-    _controller = widget.controller ?? CloudDriveAuthController();
+    // 接线 Node 常驻系统状态源（对齐 iOS `@ObservedObject NodeRuntimeManager.shared`），
+    // 否则横幅恒为「未知」。
+    _controller = widget.controller ??
+        CloudDriveAuthController(
+          nodeRuntimeManager: node.NodeRuntimeManager.instance,
+        );
     _controller.load();
   }
 
@@ -169,6 +178,14 @@ class _CloudDriveAuthCenterPageState extends State<CloudDriveAuthCenterPage> {
                   onAction: (String action) => _handleAction(account, action),
                 ),
               ],
+              const SizedBox(height: VboxSpacing.lg),
+              // 底部「复制粘贴 Token 兜底」卡片（对齐 iOS `manualTokenFallbackCard`）。
+              ManualTokenFallbackCard(
+                tokens: _controller.savedTokens,
+                onSave: _saveManualToken,
+                onRemove: _removeManualToken,
+                onFetchWeb: _openWebFallbackForToken,
+              ),
               const SizedBox(height: VboxSpacing.lg),
               Text(
                 '播放前不会强制检测授权状态；解析失败且像授权失效时才反向标记。手动粘贴入口继续保留为高级兜底。',

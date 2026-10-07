@@ -63,6 +63,11 @@ class DoubanHomeView extends StatefulWidget {
 }
 
 class _DoubanHomeViewState extends State<DoubanHomeView> {
+  /// 首页豆瓣数据进程级缓存（对齐 iOS `MainViews.swift` 的静态 `cachedBannerItems`
+  /// / `cachedHotMovies` 等 + `hasHomeCache`）：
+  /// tab 切换会重建本视图，命中缓存时直接复用、不再发起网络请求。
+  static DoubanHomeFeed? _cachedFeed;
+
   late final DoubanUseCases _uc;
 
   DoubanHomeFeed? _feed;
@@ -73,7 +78,22 @@ class _DoubanHomeViewState extends State<DoubanHomeView> {
   void initState() {
     super.initState();
     _uc = context.read<DoubanUseCases>();
-    _load();
+    // 对齐 iOS `init()`：`isLoading = !hasHomeCache`，有缓存先展示缓存。
+    _feed = _cachedFeed;
+    _loading = _cachedFeed == null;
+    // 对齐 iOS `onAppear`：`guard !hasHomeCache else { restore; return }`。
+    if (_cachedFeed == null) {
+      _load();
+    } else {
+      _markReadyIfNeeded(_cachedFeed!);
+    }
+  }
+
+  /// L-壳1 数据门控：首页默认内容（豆瓣）已有可展示数据 → 允许启动页淡出。
+  void _markReadyIfNeeded(DoubanHomeFeed feed) {
+    if (!feed.isEmpty) {
+      SplashGateMonitor.instance.markHomeReady();
+    }
   }
 
   Future<void> _load() async {
@@ -88,10 +108,11 @@ class _DoubanHomeViewState extends State<DoubanHomeView> {
       _error = result.failureOrNull;
       _feed = result.valueOrNull;
     });
-    // L-壳1 数据门控：首页默认内容（豆瓣）已有可展示数据 → 允许启动页淡出。
+    // 写入进程级缓存（对齐 iOS `loadData` 成功后回填 `cached*`）。
     final DoubanHomeFeed? feed = result.valueOrNull;
     if (feed != null && !feed.isEmpty) {
-      SplashGateMonitor.instance.markHomeReady();
+      _cachedFeed = feed;
+      _markReadyIfNeeded(feed);
     }
   }
 

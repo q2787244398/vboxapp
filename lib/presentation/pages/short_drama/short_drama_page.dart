@@ -168,7 +168,11 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
     Set<String> seenIds,
   ) async {
     try {
-      final Result<List<VodCategory>> r = await _uc.categories(site.key);
+      // 单站扫描超时保护（对齐 iOS `ShortDramaService.scanAPISource` /
+      // `scanSpiderSource` 的超时口径；避免个别站点/引擎不响应时整页一直转圈）。
+      final Result<List<VodCategory>> r = await _uc
+          .categories(site.key)
+          .timeout(const Duration(seconds: 12));
       final Failure? failure = r.failureOrNull;
       if (failure != null) return;
       for (final VodCategory cat in r.valueOrNull ?? const <VodCategory>[]) {
@@ -184,7 +188,7 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
         ));
       }
     } catch (_) {
-      // 单站扫描失败静默跳过（对齐 iOS 容错）。
+      // 单站扫描失败 / 超时静默跳过（对齐 iOS 容错）。
     }
   }
 

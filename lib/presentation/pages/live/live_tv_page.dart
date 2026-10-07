@@ -10,6 +10,8 @@
 /// 契约键：`live_tv_current_source`（LiveTvController 内部读写）。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../domain/entities/live/live.dart';
@@ -56,19 +58,49 @@ class _LiveTVPageState extends State<LiveTVPage> {
   String? _selectedTid;
   bool _loading = true;
 
+  /// 右下角源切换浮动按钮的显隐（对齐 iOS `isFloatingButtonVisible`：
+  /// 默认显示，10s 无交互后淡出，交互后重新显示）。
+  bool _floatingVisible = true;
+  DateTime _lastInteraction = DateTime.now();
+  Timer? _floatingTimer;
+
   @override
   void initState() {
     super.initState();
     _ownsController = widget.controller == null;
     _controller = widget.controller ?? LiveTvController();
     _fileBridge = widget.fileBridge ?? MethodChannelLiveFileBridge();
+    _startFloatingTimer();
     _bootstrap();
   }
 
   @override
   void dispose() {
+    _floatingTimer?.cancel();
     if (_ownsController) _controller.dispose();
     super.dispose();
+  }
+
+  /// 启动浮动按钮自动隐藏计时（对齐 iOS `startHideTimer`：每秒检查，
+  /// 距上次交互 ≥ 10s 则淡出）。
+  void _startFloatingTimer() {
+    _floatingTimer?.cancel();
+    _lastInteraction = DateTime.now();
+    _floatingTimer = Timer.periodic(const Duration(seconds: 1), (Timer _) {
+      if (!mounted) return;
+      if (DateTime.now().difference(_lastInteraction).inSeconds >= 10 &&
+          _floatingVisible) {
+        setState(() => _floatingVisible = false);
+      }
+    });
+  }
+
+  /// 记录交互并重新显示浮动按钮（对齐 iOS `resetHideTimer`）。
+  void _bumpFloating() {
+    _lastInteraction = DateTime.now();
+    if (!_floatingVisible && mounted) {
+      setState(() => _floatingVisible = true);
+    }
   }
 
   Future<void> _bootstrap() async {
@@ -140,12 +172,29 @@ class _LiveTVPageState extends State<LiveTVPage> {
       body: ListenableBuilder(
         listenable: _controller,
         builder: (BuildContext context, Widget? _) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          return Stack(
             children: <Widget>[
-              _buildSourceCapsule(),
-              if (_buildCategories() != null) _buildCategories()!,
-              Expanded(child: _buildBody()),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  if (_buildCategories() != null) _buildCategories()!,
+                  Expanded(child: _buildBody()),
+                ],
+              ),
+              // 右下角浮动源切换按钮（对齐 iOS `LiveTVView`：天线图标 +
+              // 10s 无交互自动隐藏）。
+              Positioned(
+                right: VboxSpacing.lg,
+                bottom: 80,
+                child: AnimatedOpacity(
+                  opacity: _floatingVisible ? 1 : 0,
+                  duration: const Duration(milliseconds: 300),
+                  child: IgnorePointer(
+                    ignoring: !_floatingVisible,
+                    child: _buildFloatingSourceButton(),
+                  ),
+                ),
+              ),
             ],
           );
         },
@@ -153,46 +202,29 @@ class _LiveTVPageState extends State<LiveTVPage> {
     );
   }
 
-  // ──────────────────────────── 频道源胶囊 ────────────────────────────
+  // ──────────────────────────── 右下角源切换浮动按钮 ────────────────────────────
 
-  Widget _buildSourceCapsule() {
+  /// 浮动源切换按钮（对齐 iOS：44×44 圆形、天线图标、accent 色）。
+  Widget _buildFloatingSourceButton() {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final LiveSourceType source = _controller.currentSource;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-          VboxSpacing.lg, VboxSpacing.sm, VboxSpacing.lg, 0),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: InkWell(
-          borderRadius: VboxRadii.chip,
-          onTap: _showSourceSheet,
-          child: Container(
-            padding: VboxSpacing.symmetric(
-                horizontal: VboxSpacing.md, vertical: VboxSpacing.sm),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: VboxRadii.chip,
-              border: Border.all(color: scheme.outlineVariant),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(Icons.settings_input_antenna,
-                    size: VboxTypography.s14, color: scheme.primary),
-                const SizedBox(width: VboxSpacing.xs),
-                Text(
-                  source.displayName,
-                  style: TextStyle(
-                    fontSize: VboxTypography.s13,
-                    fontWeight: FontWeight.w500,
-                    color: scheme.onSurface,
-                  ),
-                ),
-                const SizedBox(width: VboxSpacing.xs),
-                Icon(Icons.expand_more,
-                    size: VboxTypography.s14, color: scheme.onSurfaceVariant),
-              ],
-            ),
+    return Material(
+      color: scheme.surface.withValues(alpha: 0.92),
+      elevation: 3,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () {
+          _bumpFloating();
+          _showSourceSheet();
+        },
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Icon(
+            Icons.settings_input_antenna,
+            size: VboxTypography.s18,
+            color: scheme.primary,
           ),
         ),
       ),
@@ -238,7 +270,7 @@ class _LiveTVPageState extends State<LiveTVPage> {
     }
     final List<LiveCategory> categories = _controller.categories;
     if (categories.isEmpty) {
-      return const _EmptyHint(text: '暂无频道\n点击上方切换直播源');
+      return const _EmptyHint(text: '暂无频道\n点击右下角按钮切换直播源');
     }
     final LiveCategory active = _activeCategory(categories)!;
     final List<LiveChannel> channels =

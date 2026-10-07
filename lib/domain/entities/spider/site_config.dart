@@ -115,9 +115,33 @@ class SiteConfig {
         if (md5 != null) 'md5': md5,
       };
 
+  /// 源分类展示名（对齐 iOS `SourceDisplayItem.category.displayName`）。
+  ///
+  /// iOS 由源类型直接给出分类（网盘 / API / 站源 / JS / 论坛）；
+  /// Flutter 侧 [SiteConfig] 无该字段，按 `group` / `type` / `api` 形态推导，
+  /// 供「切换源」浮层分组与分类页类型徽标使用。
+  String get categoryLabel {
+    if (key.startsWith('cloud_') || group == 'cloud' || group == 'pan') {
+      return '网盘';
+    }
+    switch (type) {
+      case 0:
+      case 1:
+        return 'API';
+      case 2:
+        return '站源';
+      case 3:
+        final String a = api ?? '';
+        if (a.endsWith('.js') || a.endsWith('.py') || a.endsWith('.ts')) {
+          return 'JS';
+        }
+        return '论坛';
+    }
+    return 'API';
+  }
+
   /// 是否为 Node 常驻源（对齐 iOS `isNodeSite`）。
   ///
-  /// 判定（任一成立）：
   /// - group == "node"
   /// - key 前缀 "nodejs_"
   /// - key 前缀 "csp_" 且 type == 3

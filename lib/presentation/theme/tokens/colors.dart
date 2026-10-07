@@ -199,6 +199,13 @@ class VboxColors {
   /// 下载完成托盘色（悬浮按键图标；iOS `Color(hex: "22C55E")`）。
   static const Color downloadCompleted = Color(0xFF22C55E);
 
+  // ── 详情页（对齐 iOS `VideoDetailView` PlayerViews.swift）──────────────
+  /// 详情页「立即播放」按钮底（iOS `Color(hex: "93C5FD")`）。
+  static const Color detailPlayButton = Color(0xFF93C5FD);
+
+  /// 详情页选中强调（线路 chip / 剧集排序激活态；iOS `Color(hex: "E11D48")`）。
+  static const Color detailSelected = Color(0xFFE11D48);
+
   // ── TG 搜索（G-04，对齐 iOS `SettingsViews.swift` / `TGChannelListView.swift`）──
   /// TG 频道管理图标色（设置入口天线图标；iOS `Color(hex: "8B5CF6")`）。
   static const Color tgChannelPurple = Color(0xFF8B5CF6);

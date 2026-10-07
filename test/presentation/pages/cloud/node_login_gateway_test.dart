@@ -18,6 +18,7 @@ import 'package:vbox/domain/entities/cloud/cloud_drive_login.dart';
 import 'package:vbox/domain/entities/cloud/node_login.dart';
 import 'package:vbox/presentation/pages/cloud/aliyun_pg_login_gateway.dart';
 import 'package:vbox/presentation/pages/cloud/login_gateway.dart';
+import 'package:vbox/presentation/pages/cloud/native_cloud_drive_login_gateway.dart';
 import 'package:vbox/presentation/pages/cloud/node_login_gateway.dart';
 
 /// 假 B 站传输：按路径返回预设响应。
@@ -312,6 +313,28 @@ void main() {
         CloudDriveLoginMode.nativeQr,
       ),
       isA<UnavailableCloudDriveLoginGateway>(),
+    );
+    // 原生扫码档（UC / 百度 / 夸克）→ 原生网关（直连官方接口，不走 Node）。
+    expect(
+      defaultCloudDriveLoginGateway(
+        CloudDriveType.uc,
+        CloudDriveLoginMode.nativeQr,
+      ),
+      isA<NativeCloudDriveLoginGateway>(),
+    );
+    expect(
+      defaultCloudDriveLoginGateway(
+        CloudDriveType.baidu,
+        CloudDriveLoginMode.nativeQr,
+      ),
+      isA<NativeCloudDriveLoginGateway>(),
+    );
+    expect(
+      defaultCloudDriveLoginGateway(
+        CloudDriveType.quark,
+        CloudDriveLoginMode.nativeQr,
+      ),
+      isA<NativeCloudDriveLoginGateway>(),
     );
     // B 站短信档不受支持 → 回退未接入。
     expect(

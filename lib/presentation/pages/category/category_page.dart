@@ -13,6 +13,7 @@ import '../../../core/errors/failures.dart';
 import '../../../core/utils/result.dart';
 import '../../../domain/entities/spider/spider.dart';
 import '../../../domain/usecases/usecases.dart';
+import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
@@ -21,6 +22,25 @@ import '../../widgets/adaptive/responsive_grid.dart';
 import '../../widgets/detail_page.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
+import '../home/source_sheet.dart';
+
+/// 源类型徽标配色（对齐 iOS `SourceDiscoveryView.categoryBadgeColor`：
+/// 网盘蓝 / 其它按类型区分）。
+Color categoryBadgeColor(SiteConfig site) {
+  switch (site.categoryLabel) {
+    case '网盘':
+      return const Color(0xFF2563EB);
+    case 'API':
+      return const Color(0xFF16A34A);
+    case '站源':
+      return const Color(0xFFEA580C);
+    case 'JS':
+      return const Color(0xFF7C3AED);
+    case '论坛':
+      return const Color(0xFF0891B2);
+  }
+  return VboxColors.skinPrimaryRose;
+}
 
 /// 分类浏览页。
 class CategoryPage extends StatefulWidget {
@@ -149,11 +169,6 @@ class _CategoryPageState extends State<CategoryPage> {
     await _loadCategory();
   }
 
-  Future<void> _onSourceChanged(String? siteKey) async {
-    if (siteKey == null || siteKey == _siteKey) return;
-    await _loadSite(siteKey);
-  }
-
   Future<void> _selectCategory(String? tid) async {
     if (tid == _tid) return;
     setState(() {
@@ -239,37 +254,125 @@ class _CategoryPageState extends State<CategoryPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: _buildSourceDropdown()),
-      body: Column(
+      // 对齐 iOS `SourceDiscoveryView.topBar`：返回 + 源名下拉 + 类型徽标，
+      // 不用 AppBar（源切换走左上角小竖长条浮层，与首页一致）。
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: <Widget>[
+            _buildTopBar(context),
+            _buildCategoryPills(),
+            const SizedBox(height: VboxSpacing.xs),
+            Expanded(child: _buildBody()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 顶部栏（对齐 iOS `SourceDiscoveryView.topBar` L342-L381）。
+  Widget _buildTopBar(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final SiteConfig? current = _currentSite();
+    final String name = (current != null && current.name.isNotEmpty)
+        ? current.name
+        : (current?.key ?? '分类');
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
         children: <Widget>[
-          _buildCategoryPills(),
-          const SizedBox(height: VboxSpacing.xs),
-          Expanded(child: _buildBody()),
+          // 返回（对齐 iOS `chevron.left`，32x32）。
+          InkWell(
+            onTap: () => Navigator.of(context).maybePop(),
+            borderRadius: BorderRadius.circular(16),
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: Icon(
+                Icons.chevron_left,
+                size: 22,
+                color: scheme.onSurface,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          // 源名 + 下拉箭头 → 打开左上角切换源浮层。
+          InkWell(
+            onTap: _switchSource,
+            borderRadius: BorderRadius.circular(8),
+            child: Row(
+              children: <Widget>[
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 180),
+                  child: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: VboxTypography.s16,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.keyboard_arrow_down,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          // 源类型标签（对齐 iOS `source.category.displayName` 胶囊）。
+          if (current != null) _buildCategoryBadge(context, current),
         ],
       ),
     );
   }
 
-  Widget _buildSourceDropdown() {
+  SiteConfig? _currentSite() {
     final List<SiteConfig>? sites = _sites;
-    if (sites == null || sites.isEmpty) return const Text('分类');
-    return DropdownButtonHideUnderline(
-      child: DropdownButton<String>(
-        value: _siteKey,
-        isDense: true,
-        onChanged: _onSourceChanged,
-        items: <DropdownMenuItem<String>>[
-          for (final SiteConfig s in sites)
-            DropdownMenuItem<String>(
-              value: s.key,
-              child: Text(
-                s.name.isEmpty ? s.key : s.name,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-        ],
+    final String? key = _siteKey;
+    if (sites == null || key == null) return null;
+    for (final SiteConfig s in sites) {
+      if (s.key == key) return s;
+    }
+    return null;
+  }
+
+  /// 类型徽标（对齐 iOS `categoryBadgeColor` 胶囊）。
+  Widget _buildCategoryBadge(BuildContext context, SiteConfig site) {
+    final Color color = categoryBadgeColor(site);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        site.categoryLabel,
+        style: TextStyle(
+          fontSize: VboxTypography.s11,
+          fontWeight: FontWeight.w500,
+          color: color,
+        ),
       ),
     );
+  }
+
+  /// 打开左上角小竖长条切换源浮层（对齐 iOS `showSourceDropdown`）。
+  Future<void> _switchSource() async {
+    final List<SiteConfig>? sites = _sites;
+    if (sites == null || sites.isEmpty) return;
+    final String? picked = await showVboxSourceSheet(
+      context,
+      sites: sites,
+      selectedKey: _siteKey,
+    );
+    if (picked == null || !mounted || picked == _siteKey) return;
+    await _loadSite(picked);
   }
 
   Widget _buildCategoryPills() {
