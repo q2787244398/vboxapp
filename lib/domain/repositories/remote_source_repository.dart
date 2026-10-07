@@ -23,4 +23,16 @@ abstract interface class RemoteSourceRepository {
 
   /// 缓存清单的写入时间（Unix 秒；无缓存返回 0）。
   Future<Result<int>> cachedAtSeconds();
+
+  /// 读取远程源设置（开关 / manifest 地址 / 上次版本 / 上次同步时间）。
+  Future<Result<RemoteSourceSettings>> settings();
+
+  /// 写入「启用远程默认源」开关（`remote_default_source_enabled`）。
+  Future<Result<bool>> setEnabled(bool enabled);
+
+  /// 写入 manifest 地址（`remote_default_manifest_url`，用户覆盖）。
+  Future<Result<bool>> setManifestUrl(String url);
+
+  /// 清空远程源缓存（清单文件 + 版本 / 时间 / 错误 / Node bundle 镜像键）。
+  Future<Result<bool>> clearCache();
 }

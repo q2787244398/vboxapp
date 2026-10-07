@@ -54,7 +54,7 @@ class PlayerBottomBar extends StatelessWidget {
           ...left,
           if (landscape) ...<Widget>[
             const Spacer(),
-            const _DanmakuInputPill(),
+            _DanmakuInputPill(onTap: controller.onSendDanmaku),
           ],
           const Spacer(),
           ...right,
@@ -191,24 +191,31 @@ class _DanmakuSettingsButton extends StatelessWidget {
 // ─────────── 中间弹幕输入（仅横屏）───────────
 
 class _DanmakuInputPill extends StatelessWidget {
-  const _DanmakuInputPill();
+  const _DanmakuInputPill({this.onTap});
+
+  /// 点击回调（弹出弹幕输入框；null 表示不可用）。
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 36,
-      constraints: const BoxConstraints(maxWidth: 200),
-      padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.lg),
-      alignment: Alignment.centerLeft,
-      decoration: BoxDecoration(
-        color: Colors.white12,
-        borderRadius: BorderRadius.circular(VboxRadii.r20),
-      ),
-      child: const Text(
-        '请文明发送弹幕',
-        style: TextStyle(
-          fontSize: VboxTypography.s13,
-          color: VboxColors.playerAccentGreen,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(VboxRadii.r20),
+      child: Container(
+        height: 36,
+        constraints: const BoxConstraints(maxWidth: 200),
+        padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.lg),
+        alignment: Alignment.centerLeft,
+        decoration: BoxDecoration(
+          color: Colors.white12,
+          borderRadius: BorderRadius.circular(VboxRadii.r20),
+        ),
+        child: const Text(
+          '请文明发送弹幕',
+          style: TextStyle(
+            fontSize: VboxTypography.s13,
+            color: VboxColors.playerAccentGreen,
+          ),
         ),
       ),
     );

@@ -7,6 +7,8 @@
 /// `VboxHomePage`（首页默认内容）**共用**同一 [DoubanHomeView]。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -18,7 +20,6 @@ import '../../shell/splash_gate_monitor.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
-import '../../widgets/vbox/vbox.dart';
 import 'douban_widgets.dart';
 
 /// 豆瓣独立页（AppBar「豆瓣」+ [DoubanHomeView]）。
@@ -38,7 +39,11 @@ class DoubanHomePage extends StatelessWidget {
 /// 豆瓣首页内容视图（**不含** Scaffold / AppBar，供首页默认内容与独立页复用）。
 class DoubanHomeView extends StatefulWidget {
   /// 构造。
-  const DoubanHomeView({super.key});
+  const DoubanHomeView({super.key, this.onSubjectTap});
+
+  /// 条目点击回调（对齐 iOS `settings.triggerSearch(subject.title)`；
+  /// 空则仅浏览）。
+  final void Function(DoubanSubject subject)? onSubjectTap;
 
   @override
   State<DoubanHomeView> createState() => _DoubanHomeViewState();
@@ -77,6 +82,22 @@ class _DoubanHomeViewState extends State<DoubanHomeView> {
     }
   }
 
+  /// 栏目 → 图标（SF Symbol → Material 近似，对齐 iOS 各栏目 icon）。
+  static IconData _sectionIcon(String title) => switch (title) {
+        '影院热映' => Icons.movie,
+        '即将上映' => Icons.event,
+        '热门电影' => Icons.local_fire_department,
+        '一周口碑榜' => Icons.star,
+        '新片榜' => Icons.auto_awesome,
+        'TOP250' => Icons.workspace_premium,
+        '热门剧集' => Icons.tv,
+        '华语口碑剧集' => Icons.flag,
+        '值得看的英美剧' => Icons.public,
+        '热门动漫' => Icons.brush,
+        '热门综艺' => Icons.theater_comedy,
+        _ => Icons.grid_view,
+      };
+
   @override
   Widget build(BuildContext context) {
     return _buildBody();
@@ -102,43 +123,66 @@ class _DoubanHomeViewState extends State<DoubanHomeView> {
   }
 
   Widget _buildBanner(List<DoubanSubject> items) {
-    return _DoubanBanner(items: items);
+    return _DoubanBanner(items: items, onTap: widget.onSubjectTap);
   }
 
   Widget _buildSection(DoubanHomeSection section) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        VboxSectionHeader(title: section.title),
-        SizedBox(
-          height: 240,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: VboxSpacing.symmetric(horizontal: VboxSpacing.lg),
-            itemCount: section.items.length,
-            separatorBuilder: (BuildContext context, int index) =>
-                const SizedBox(width: VboxSpacing.md),
-            itemBuilder: (BuildContext context, int index) =>
-                DoubanSubjectCard(subject: section.items[index]),
-          ),
+        DoubanSectionHeader(title: section.title, icon: _sectionIcon(section.title)),
+        DoubanSubjectRow(
+          items: section.items,
+          onTap: widget.onSubjectTap,
         ),
       ],
     );
   }
 }
 
-/// 轮播横幅（海报 + 底部标题遮罩 + 页码指示）。
+/// 轮播横幅（海报 + 底部标题遮罩 + 页码指示；自动轮播，对齐 iOS `BannerCarousel`）。
 class _DoubanBanner extends StatefulWidget {
-  const _DoubanBanner({required this.items});
+  const _DoubanBanner({required this.items, this.onTap});
 
   final List<DoubanSubject> items;
+  final void Function(DoubanSubject subject)? onTap;
 
   @override
   State<_DoubanBanner> createState() => _DoubanBannerState();
 }
 
 class _DoubanBannerState extends State<_DoubanBanner> {
+  /// 自动轮播间隔（对齐 iOS `startAutoPlay` 4s）。
+  static const Duration _autoPlayInterval = Duration(seconds: 4);
+
+  final PageController _controller = PageController();
+  Timer? _timer;
   int _page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.items.length > 1) {
+      _timer = Timer.periodic(_autoPlayInterval, (_) => _advance());
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _advance() {
+    if (!mounted || !_controller.hasClients) return;
+    final int next = (_page + 1) % widget.items.length;
+    _controller.animateToPage(
+      next,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOut,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -148,46 +192,50 @@ class _DoubanBannerState extends State<_DoubanBanner> {
         SizedBox(
           height: 200,
           child: PageView.builder(
+            controller: _controller,
             itemCount: widget.items.length,
             onPageChanged: (int i) => setState(() => _page = i),
             itemBuilder: (BuildContext context, int i) {
               final DoubanSubject subject = widget.items[i];
               return Padding(
                 padding: VboxSpacing.symmetric(horizontal: VboxSpacing.lg),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: <Widget>[
-                      PlatformAsyncImage(url: subject.coverUrl, fit: BoxFit.cover),
-                      Align(
-                        alignment: Alignment.bottomLeft,
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(VboxSpacing.md),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: <Color>[
-                                Colors.transparent,
-                                Colors.black.withValues(alpha: 0.72),
-                              ],
+                child: GestureDetector(
+                  onTap: () => widget.onTap?.call(subject),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: <Widget>[
+                        PlatformAsyncImage(url: subject.coverUrl, fit: BoxFit.cover),
+                        Align(
+                          alignment: Alignment.bottomLeft,
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(VboxSpacing.md),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: <Color>[
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.72),
+                                ],
+                              ),
                             ),
-                          ),
-                          child: Text(
-                            subject.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: VboxTypography.s16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
+                            child: Text(
+                              subject.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: VboxTypography.s16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );

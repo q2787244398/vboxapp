@@ -129,21 +129,50 @@ class AllSourcesContainer {
   final Map<String, Object?>? cloudSources;
   final Map<String, Object?>? spiderSources;
   final Map<String, Object?>? domainOverrides;
-  final List<Object?>? parsers;
-  final List<Object?>? disabledSources;
+
+  /// 解析器段：契约 `$defs.allSources.parsers` 为**对象** `{ "parses": [...] }`
+  /// （非数组；对齐 iOS `cachedParsers()` 的 `ParserWrapper`）。
+  final Map<String, Object?>? parsers;
+
+  /// 全局禁用段：契约 `$defs.allSources.disabledSources` 为**对象**
+  /// `{ "disabledKeys": [...], "disabledHosts": [...] }`（非数组；对齐 iOS
+  /// `cachedDisabledKeys()` / `cachedDisabledHosts()` 的 `DisabledSourcesWrapper`）。
+  final Map<String, Object?>? disabledSources;
+
   final Map<String, Object?>? welfarePlatforms;
 
   factory AllSourcesContainer.fromJson(Map<String, Object?> j) =>
       AllSourcesContainer(
-        apiSources: (j['apiSources'] as Map?)?.cast<String, Object?>(),
-        cloudSources: (j['cloudSources'] as Map?)?.cast<String, Object?>(),
-        spiderSources: (j['spiderSources'] as Map?)?.cast<String, Object?>(),
-        domainOverrides: (j['domainOverrides'] as Map?)?.cast<String, Object?>(),
-        parsers: (j['parsers'] as List?)?.cast<Object?>(),
-        disabledSources: (j['disabledSources'] as List?)?.cast<Object?>(),
-        welfarePlatforms:
-            (j['welfarePlatforms'] as Map?)?.cast<String, Object?>(),
+        apiSources: _asSection(j['apiSources']),
+        cloudSources: _asSection(j['cloudSources']),
+        spiderSources: _asSection(j['spiderSources']),
+        domainOverrides: _asSection(j['domainOverrides']),
+        parsers: _asSection(j['parsers']),
+        disabledSources: _asSection(j['disabledSources']),
+        welfarePlatforms: _asSection(j['welfarePlatforms']),
       );
+
+  /// 远程默认解析器条目（`parsers.parses`，对齐 iOS `cachedParsers()`）。
+  List<Object?> get parses => _asList(parsers?['parses']);
+
+  /// 全局禁用 key（`disabledSources.disabledKeys`）。
+  List<String> get disabledSourceKeys =>
+      _asStringList(disabledSources?['disabledKeys']);
+
+  /// 全局禁用 host（`disabledSources.disabledHosts`）。
+  List<String> get disabledSourceHosts =>
+      _asStringList(disabledSources?['disabledHosts']);
+
+  /// 宽容取「对象段」：非对象（含误传数组 / null）一律返回 null，绝不抛异常。
+  static Map<String, Object?>? _asSection(Object? v) =>
+      v is Map ? v.map((Object? k, Object? val) => MapEntry('$k', val)) : null;
+
+  static List<Object?> _asList(Object? v) =>
+      v is List ? List<Object?>.from(v) : const <Object?>[];
+
+  static List<String> _asStringList(Object? v) => v is List
+      ? v.map((Object? e) => e.toString()).toList(growable: false)
+      : const <String>[];
 
   /// 聚合出的站点列表（apiSources.sites + spiderSources.sites）。
   List<Map<String, Object?>> get sites {

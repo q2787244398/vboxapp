@@ -18,6 +18,7 @@ class DanmakuOverlay extends StatelessWidget {
     required this.states,
     this.opacity = 0.8,
     this.area = 1.0,
+    this.fontSize,
     this.ignorePointer = true,
   });
 
@@ -30,6 +31,9 @@ class DanmakuOverlay extends StatelessWidget {
   /// 显示区域比例（0.25 ~ 1.0，1.0 全屏）。
   final double area;
 
+  /// 覆盖字号（px；null 用弹幕自带 [DanmakuItem.sizePx]，对齐弹幕设置面板）。
+  final double? fontSize;
+
   /// 是否忽略指针事件（默认 true：不拦截播放器手势）。
   final bool ignorePointer;
 
@@ -38,35 +42,53 @@ class DanmakuOverlay extends StatelessWidget {
     if (states.isEmpty) return const SizedBox.shrink();
     return IgnorePointer(
       ignoring: ignorePointer,
-      child: Stack(
-        clipBehavior: Clip.hardEdge,
-        children: <Widget>[
-          for (final DanmakuRenderState s in states)
-            Positioned(
-              left: s.x,
-              top: s.y,
-              child: Opacity(
-                opacity: opacity,
-                child: Text(
-                  s.item.content,
-                  maxLines: 1,
-                  overflow: TextOverflow.visible,
-                  style: TextStyle(
-                    color: Color(s.item.argb),
-                    fontSize: s.item.sizePx,
-                    fontWeight: FontWeight.w500,
-                    shadows: const <Shadow>[
-                      Shadow(
-                        color: VboxColors.danmakuShadow,
-                        blurRadius: 2,
-                        offset: Offset(1, 1),
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          // 显示区域：仅保留顶部 area 比例的高度，其余裁剪（对齐设置面板「显示区域」）。
+          final double limit =
+              constraints.maxHeight * area.clamp(0.25, 1.0);
+          return Align(
+            alignment: Alignment.topCenter,
+            child: ClipRect(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: constraints.maxWidth,
+                  maxHeight: limit,
+                ),
+                child: Stack(
+                  clipBehavior: Clip.hardEdge,
+                  children: <Widget>[
+                    for (final DanmakuRenderState s in states)
+                      Positioned(
+                        left: s.x,
+                        top: s.y,
+                        child: Opacity(
+                          opacity: opacity,
+                          child: Text(
+                            s.item.content,
+                            maxLines: 1,
+                            overflow: TextOverflow.visible,
+                            style: TextStyle(
+                              color: Color(s.item.argb),
+                              fontSize: fontSize ?? s.item.sizePx,
+                              fontWeight: FontWeight.w500,
+                              shadows: const <Shadow>[
+                                Shadow(
+                                  color: VboxColors.danmakuShadow,
+                                  blurRadius: 2,
+                                  offset: Offset(1, 1),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
-                    ],
-                  ),
+                  ],
                 ),
               ),
             ),
-        ],
+          );
+        },
       ),
     );
   }

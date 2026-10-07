@@ -81,10 +81,15 @@ void main() {
       final DoubanHomeFeed? feed = result.valueOrNull;
       expect(feed, isNotNull);
       expect(feed!.banner, hasLength(2));
-      expect(feed.sections, hasLength(3)); // 综艺为空被剔除
-      expect(feed.sections.map((s) => s.title), <String>['热门电影', '热门剧集', '动漫']);
-      // 并发拉取：banner + 4 区块全部请求。
-      expect(ds.requestedCollections, hasLength(5));
+      // 空区块被剔除：仅 movie_hot_gaia / movie_top250 / tv_real_time_hotest /
+      // tv_animation 有数据（TOP250 与 banner 共用 movie_top250；综艺为空被剔除）。
+      expect(feed.sections, hasLength(4));
+      expect(
+        feed.sections.map((s) => s.title),
+        <String>['热门电影', 'TOP250', '热门剧集', '热门动漫'],
+      );
+      // 并发拉取：banner + 11 区块（对齐 iOS HomeView 11 栏目）全部请求。
+      expect(ds.requestedCollections, hasLength(12));
     });
 
     test('完全空载 → isEmpty', () async {

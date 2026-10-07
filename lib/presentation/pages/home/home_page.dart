@@ -13,6 +13,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/utils/result.dart';
@@ -22,10 +23,12 @@ import '../../shell/splash_gate_monitor.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/detail_page.dart';
+import '../../widgets/library_views.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../category/category_page.dart';
 import '../douban/douban_home_page.dart';
+import '../douban/douban_ranking_page.dart';
 import '../search/search_page.dart';
 import 'source_sheet.dart';
 
@@ -104,54 +107,142 @@ class _VboxHomePageState extends State<VboxHomePage> {
     await _loadHome(picked);
   }
 
-  SiteConfig? get _currentSite {
-    final String? key = _siteKey;
-    if (key == null) return null;
-    for (final SiteConfig s in _sites) {
-      if (s.key == key) return s;
-    }
-    return null;
-  }
-
   @override
   Widget build(BuildContext context) {
     final bool doubanMode = _siteKey == null;
-    final SiteConfig? site = _currentSite;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          doubanMode
-              ? '豆瓣推荐'
-              : (site == null || site.name.isEmpty ? '首页' : site.name),
-        ),
-        actions: <Widget>[
-          if (!doubanMode)
-            IconButton(
-              tooltip: '豆瓣推荐',
-              icon: const Icon(Icons.recommend_outlined),
-              onPressed: _backToDouban,
+      // 首页顶栏对齐 iOS `MainViews.swift HomeSearchBar`（L918-L997）：
+      // 源切换（square.grid.2x2）→ 搜索框 → 豆瓣排行榜（chart.bar.fill）→
+      // 观看历史（clock.arrow.circlepath）→ AI 星星（sparkles）；
+      // 不用 AppBar，保持与 iOS「内容内顶栏」一致的排布。
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: <Widget>[
+            _buildTopBar(context, sourceSelected: !doubanMode),
+            Expanded(
+              child: doubanMode ? const DoubanHomeView() : _buildSiteBody(),
             ),
-          IconButton(
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 首页顶栏（对齐 iOS `HomeSearchBar`）。
+  Widget _buildTopBar(BuildContext context, {required bool sourceSelected}) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        VboxSpacing.sm,
+        VboxSpacing.sm,
+        VboxSpacing.sm,
+        VboxSpacing.xs,
+      ),
+      child: Row(
+        children: <Widget>[
+          // 多源选择（对齐 iOS `square.grid.2x2`；选中源时高亮绿）。
+          _TopBarIcon(
             tooltip: '切换源',
-            icon: const Icon(Icons.layers_outlined),
+            icon: Icons.grid_view_rounded,
+            color: sourceSelected ? const Color(0xFF34C759) : scheme.onSurface,
             onPressed: _switchSource,
           ),
-          IconButton(
-            tooltip: '搜索',
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (BuildContext context) => SearchPage(
-                    initialSiteKey: _siteKey,
-                  ),
-                ),
-              );
-            },
+          Expanded(child: _buildSearchField(context)),
+          // 排行榜（对齐 iOS `chart.bar.fill` → DoubanRankingView）。
+          _TopBarIcon(
+            tooltip: '豆瓣排行榜',
+            icon: Icons.bar_chart_rounded,
+            onPressed: _openRanking,
           ),
+          // 观看历史（对齐 iOS `clock.arrow.circlepath` → WatchHistoryView）。
+          _TopBarIcon(
+            tooltip: '观看历史',
+            icon: Icons.history,
+            onPressed: _openHistory,
+          ),
+          // AI（对齐 iOS `sparkles` → 打开 Lobster-APP 仓库）。
+          _TopBarIcon(
+            tooltip: 'AI 推荐',
+            icon: Icons.auto_awesome,
+            color: const Color(0xFF8AB4F8),
+            onPressed: _openAi,
+          ),
+          if (sourceSelected)
+            _TopBarIcon(
+              tooltip: '返回豆瓣推荐',
+              icon: Icons.recommend_outlined,
+              onPressed: _backToDouban,
+            ),
         ],
       ),
-      body: doubanMode ? const DoubanHomeView() : _buildSiteBody(),
+    );
+  }
+
+  /// 顶栏搜索框（只读按钮，点击进入搜索页；对齐 iOS `HomeSearchBar` 搜索栏）。
+  Widget _buildSearchField(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: _openSearch,
+      child: Container(
+        height: 40,
+        margin: const EdgeInsets.symmetric(horizontal: VboxSpacing.xs),
+        padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.md),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(Icons.search, size: VboxTypography.s16, color: scheme.outline),
+            const SizedBox(width: VboxSpacing.sm),
+            Expanded(
+              child: Text(
+                '搜索影片、剧集',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: VboxTypography.s15,
+                  color: scheme.outline,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openSearch() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => SearchPage(initialSiteKey: _siteKey),
+      ),
+    );
+  }
+
+  void _openRanking() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const DoubanRankingPage()),
+    );
+  }
+
+  void _openHistory() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => Scaffold(
+          appBar: AppBar(title: const Text('观看历史')),
+          body: const HistoryView(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openAi() async {
+    await launchUrl(
+      Uri.parse('https://github.com/vbox-Ai/Lobster-APP'),
+      mode: LaunchMode.externalApplication,
     );
   }
 
@@ -269,6 +360,39 @@ class _VboxHomePageState extends State<VboxHomePage> {
           ),
         );
       },
+    );
+  }
+}
+
+/// 首页顶栏图标按钮。
+///
+/// 对齐 iOS `MainViews.swift HomeSearchBar`（L918-L997）：图标 18、无背景、
+/// 可选高亮色（切换源选中绿 / AI 蓝），点击区域紧凑排布。
+class _TopBarIcon extends StatelessWidget {
+  const _TopBarIcon({
+    required this.tooltip,
+    required this.icon,
+    this.color,
+    this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final Color? color;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color resolved = color ?? Theme.of(context).colorScheme.onSurface;
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        icon: Icon(icon, size: 18, color: resolved),
+        onPressed: onPressed,
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.all(6),
+        constraints: const BoxConstraints(),
+      ),
     );
   }
 }

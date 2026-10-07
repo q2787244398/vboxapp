@@ -180,6 +180,11 @@ jobs:
           channel: stable
           flutter-version: "3.47.5"
 
+      # 版本号同步：与 iOS CI（build-ipa.yml）同口径，从 `.version` 派生
+      # Flutter 侧 pubspec.yaml / AppInfo，保证编译验证与产物版本一致。
+      - name: Sync version from .version
+        run: python3 scripts/sync_version.py
+
       - run: flutter pub get
 
       # 批次 Q · Q-02：就位四 ABI libjsc.so（externalNativeBuild 前置，缺失则 cmake FATAL_ERROR）
@@ -205,6 +210,9 @@ jobs:
         with:
           channel: stable
           flutter-version: "3.47.5"
+
+      - name: Sync version from .version
+        run: python3 scripts/sync_version.py
 
       - run: flutter pub get
 
@@ -234,6 +242,9 @@ jobs:
         with:
           channel: stable
           flutter-version: "3.47.5"
+
+      - name: Sync version from .version
+        run: python scripts/sync_version.py
 
       - run: flutter pub get
 

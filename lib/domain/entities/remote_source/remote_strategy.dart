@@ -67,6 +67,57 @@ class RemoteLoadStatus {
       state == RemoteLoadState.loadedCache;
 }
 
+/// 远程源设置快照（设置页展示 / 编辑）。
+///
+/// 对齐 iOS `SettingsViews` 远程默认源区块读取的四个契约键：
+/// `remote_default_source_enabled` / `remote_default_manifest_url` /
+/// `remote_default_last_config_version` / `remote_default_last_sync_time`。
+class RemoteSourceSettings {
+  const RemoteSourceSettings({
+    required this.enabled,
+    required this.manifestUrl,
+    required this.lastConfigVersion,
+    required this.lastSyncTimeSeconds,
+  });
+
+  /// 契约默认值（开关开、默认 manifest 地址、无版本、无同步时间）。
+  const RemoteSourceSettings.defaults()
+      : enabled = true,
+        manifestUrl = RemoteSourceStrategy.defaultManifestUrl,
+        lastConfigVersion = '',
+        lastSyncTimeSeconds = 0;
+
+  /// 「启用远程默认源」开关。
+  final bool enabled;
+
+  /// manifest 地址（用户可覆盖）。
+  final String manifestUrl;
+
+  /// 上次同步的 configVersion（空表示从未同步）。
+  final String lastConfigVersion;
+
+  /// 上次同步时间（Unix 秒；0 表示从未同步）。
+  final int lastSyncTimeSeconds;
+
+  /// 是否从未同步。
+  bool get neverSynced =>
+      lastSyncTimeSeconds <= 0 && lastConfigVersion.isEmpty;
+
+  /// 复制并覆盖字段。
+  RemoteSourceSettings copyWith({
+    bool? enabled,
+    String? manifestUrl,
+    String? lastConfigVersion,
+    int? lastSyncTimeSeconds,
+  }) =>
+      RemoteSourceSettings(
+        enabled: enabled ?? this.enabled,
+        manifestUrl: manifestUrl ?? this.manifestUrl,
+        lastConfigVersion: lastConfigVersion ?? this.lastConfigVersion,
+        lastSyncTimeSeconds: lastSyncTimeSeconds ?? this.lastSyncTimeSeconds,
+      );
+}
+
 /// 远程源加载策略（代理降级链）。
 class RemoteSourceStrategy {
   RemoteSourceStrategy._();

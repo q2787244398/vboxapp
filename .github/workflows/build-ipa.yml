@@ -446,10 +446,15 @@ jobs:
           echo "MAJOR_VERSION=$MAJOR" > .version
           echo "BASE_BUILD=$NEW_BUILD" >> .version
 
+          # 同步 Flutter 侧版本号（pubspec + AppInfo），使设置页 / 启动页
+          # 版本号自适应跟随仓库版本（真相源 .version）
+          python3 scripts/sync_version.py
+
           # 提交版本号更新
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add vbox/Info.plist vbox.xcodeproj/project.pbxproj .version
+          git add vbox/Info.plist vbox.xcodeproj/project.pbxproj .version \
+            pubspec.yaml lib/core/constants/app_constants.dart
           git commit -m "ci: auto bump version to $NEW_VERSION (build $NEW_BUILD)" || true
           git push origin main || true
 

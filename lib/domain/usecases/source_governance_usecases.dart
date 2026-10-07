@@ -100,13 +100,13 @@ class SourceGovernanceUseCases {
           ))
       .toList(growable: false);
 
-  /// 远程默认解析器（只读展示；来自 allSources `parsers` 数组，对齐 iOS
+  /// 远程默认解析器（只读展示；来自 allSources `parsers.parses`，对齐 iOS
   /// `RemoteSourceConfigManager.cachedParsers()`）。
   Future<List<ParserEntry>> remoteParsers() async {
     final Result<AllSourcesContainer> result = await loadAllSources();
     final AllSourcesContainer? container = result.valueOrNull;
-    final List<Object?>? raw = container?.parsers;
-    if (raw == null || raw.isEmpty) return const <ParserEntry>[];
+    final List<Object?> raw = container?.parses ?? const <Object?>[];
+    if (raw.isEmpty) return const <ParserEntry>[];
     return raw
         .whereType<Map<Object?, Object?>>()
         .map((Map<Object?, Object?> m) =>

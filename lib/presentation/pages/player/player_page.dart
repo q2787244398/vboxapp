@@ -22,7 +22,13 @@ import 'package:http/http.dart' as http;
 
 import '../../../domain/entities/player/player.dart';
 import '../../../domain/entities/playback/playback_detail.dart';
+import '../../../platform/player/cast/cast.dart';
+import '../../../platform/player/cast/dlna_cast_service.dart';
 import '../../../platform/player/channel_player.dart';
+import '../../../platform/player/danmaku/danmaku_controller.dart';
+import '../../../platform/player/danmaku/danmaku_item.dart';
+import '../../../platform/player/danmaku/danmaku_lane_engine.dart';
+import '../../../platform/player/danmaku/danmaku_service.dart';
 import '../../../platform/player/danmaku/danmaku_settings.dart';
 import '../../../platform/player/floating/floating.dart';
 import '../../../platform/player/media_url_checker.dart';
@@ -33,7 +39,11 @@ import '../../../platform/player/playback_settings.dart';
 import '../../../platform/player/playthrough.dart';
 import '../../../platform/player/remux_proxy.dart';
 import '../../../platform/player/subtitle_parser.dart';
+import '../../theme/tokens/colors.dart';
 import '../../ui_mode/ui_mode.dart';
+import '../../widgets/player/cast/cast_controller.dart';
+import '../../widgets/player/cast/cast_device_sheet.dart';
+import '../../widgets/player/danmaku/danmaku_overlay.dart';
 import '../../widgets/player/player_controls_controller.dart';
 import '../../widgets/player/player_controls_view.dart';
 import '../../widgets/player/video_surface.dart';
@@ -58,6 +68,8 @@ class PlayerPage extends StatefulWidget {
     this.onResolveEpisode,
     this.route,
     this.controller,
+    this.danmakuService,
+    this.castService,
   });
 
   /// 首个播放源（详情页已解析好的直链 + 鉴权头）。
@@ -92,6 +104,12 @@ class PlayerPage extends StatefulWidget {
   /// 播放器控制器（缺省 `PlayerController.instance`；测试注入假实现）。
   final PlayerController? controller;
 
+  /// 弹幕数据源（缺省按弹幕设置自建；测试注入假实现，不触网）。
+  final DanmakuService? danmakuService;
+
+  /// 投屏服务（缺省 DLNA；测试注入假实现）。
+  final CastService? castService;
+
   @override
   State<PlayerPage> createState() => _PlayerPageState();
 }
@@ -107,6 +125,35 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   final PlayerControlsController _controls = PlayerControlsController();
 
   DanmakuSettings _danmaku = DanmakuSettings.defaults;
+
+  /// 弹幕数据源（设置加载后自建或由调用方注入）。
+  DanmakuService? _danmakuService;
+
+  /// 弹幕播放控制器（按视口尺寸重建）。
+  DanmakuPlaybackController? _danmakuCtrl;
+
+  /// 当前集弹幕全量（用于重建控制器 / 本地乐观注入）。
+  List<DanmakuItem> _danmakuItems = const <DanmakuItem>[];
+
+  /// 当前应渲染的弹幕状态（定时器逐帧产出）。
+  List<DanmakuRenderState> _danmakuStates = const <DanmakuRenderState>[];
+
+  /// 命中的弹幕 episodeId（发送弹幕复用；未命中为 null）。
+  int? _danmakuEpisodeId;
+
+  /// 弹幕渲染定时器（播放中每 60ms 推进一次）。
+  Timer? _danmakuTimer;
+
+  /// 最近一次进度事件的位置与接收墙钟（定时器内插值出连续播放时刻）。
+  int _danmakuPosMs = 0;
+  int _danmakuSyncAtMs = 0;
+
+  /// 弹幕引擎视口尺寸（随窗口变化重建控制器）。
+  Size _danmakuViewport = Size.zero;
+
+  /// 投屏服务与控制器（C-09）。
+  late final CastService _castService;
+  late final CastController _castController;
 
   /// 播放行为设置（C-05：画中画 / 后台 / 连播 / 长按倍速；未读到前用契约默认）。
   PlaybackSettings _playback = const PlaybackSettings(
@@ -162,6 +209,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _player = widget.controller ?? PlayerController.instance;
+    _castService = widget.castService ?? DlnaCastService();
+    _castController = CastController(service: _castService);
+    _controls.castAvailable = _castController.isAvailable;
     _bindPlayer();
     _bindControls();
     _autoPlayNext = AutoPlayNextController(
@@ -186,24 +236,183 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       ..backends = _player.availableBackends
       ..hasDanmaku = true
       ..showDanmaku = _danmaku.enabled;
-    unawaited(_loadDanmaku());
+    unawaited(_initDanmaku());
     unawaited(_enter());
     unawaited(_loadCapabilities());
   }
 
-  Future<void> _loadDanmaku() async {
+  // ─────────────── 弹幕接线（C-03） ───────────────
+
+  /// 初始化弹幕：读设置 → 建数据源 → 拉取当前集 → 启动渲染定时器。
+  ///
+  /// 存储未初始化（如单测）→ 用会话默认，不阻断播放页。
+  Future<void> _initDanmaku() async {
     DanmakuSettings s = DanmakuSettings.defaults;
     try {
       s = await DanmakuSettings.load();
     } catch (_) {
-      // 未初始化存储（如单测）→ 用会话默认，不阻断播放页。
+      // 忽略：回退会话默认。
     }
     if (!mounted) return;
     setState(() {
       _danmaku = s;
       _controls.showDanmaku = s.enabled;
     });
+    _danmakuService = widget.danmakuService ??
+        DanmakuService(
+          baseUrl: s.customSourceEnabled ? s.customSourceUrl : null,
+        );
+    _danmakuSyncAtMs = DateTime.now().millisecondsSinceEpoch;
+    _danmakuTimer = Timer.periodic(
+      const Duration(milliseconds: 60),
+      (_) => _tickDanmaku(),
+    );
+    if (_danmakuItems.isEmpty) _syncDanmakuController();
+    await _loadDanmakuItems();
   }
+
+  /// 拉取当前集弹幕并重建控制器（首播 / 切集时调用，失败降级为空）。
+  Future<void> _loadDanmakuItems() async {
+    final DanmakuService? svc = _danmakuService;
+    if (svc == null) return;
+    final String query = _danmakuQuery();
+    if (query.isEmpty) return;
+    final DanmakuFetchResult r = await svc.matchAndFetch(query);
+    if (!mounted) return;
+    setState(() {
+      _danmakuItems = r.items;
+      _danmakuEpisodeId = r.episodeId;
+      _danmakuStates = const <DanmakuRenderState>[];
+    });
+    _syncDanmakuController();
+  }
+
+  /// 当前集的弹幕查询串（对齐 iOS `bestDanmakuQuery`：剧名 + 集名）。
+  String _danmakuQuery() {
+    final int idx = _controls.currentEpisodeIndex;
+    final List<PlaybackEpisode> eps = widget.episodes;
+    if (idx >= 0 && idx < eps.length) {
+      final String name = eps[idx].name.trim();
+      if (name.isNotEmpty) return '${widget.title} $name';
+    }
+    return widget.title;
+  }
+
+  /// 以当前视口尺寸重建弹幕控制器（引擎坐标与渲染像素一致）。
+  void _syncDanmakuController() {
+    final Size size = _danmakuViewport == Size.zero
+        ? MediaQuery.sizeOf(context)
+        : _danmakuViewport;
+    _danmakuViewport = size;
+    _danmakuCtrl = DanmakuPlaybackController(
+      items: _danmakuItems,
+      engine: DanmakuLaneEngine(
+        viewportWidth: size.width,
+        viewportHeight: size.height,
+      ),
+    );
+    _danmakuStates = const <DanmakuRenderState>[];
+  }
+
+  /// 播放中逐帧推进弹幕（进度事件间隔内以墙钟插值，保证平滑滚动）。
+  void _tickDanmaku() {
+    final DanmakuPlaybackController? ctrl = _danmakuCtrl;
+    if (ctrl == null || !_controls.showDanmaku || !_controls.isPlaying) return;
+    final int nowMs = _danmakuPosMs +
+        (DateTime.now().millisecondsSinceEpoch - _danmakuSyncAtMs);
+    final List<DanmakuRenderState> states = ctrl.tick(nowMs);
+    if (!mounted) return;
+    setState(() => _danmakuStates = states);
+  }
+
+  /// 打开弹幕输入框并发送（对齐 iOS 横屏弹幕输入）。
+  Future<void> _promptSendDanmaku() async {
+    final TextEditingController input = TextEditingController();
+    final String? text = await showDialog<String>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: const Text('发送弹幕'),
+        content: TextField(
+          controller: input,
+          autofocus: true,
+          maxLength: 100,
+          decoration: const InputDecoration(hintText: '输入弹幕内容'),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(input.text.trim()),
+            child: const Text('发送'),
+          ),
+        ],
+      ),
+    );
+    input.dispose();
+    if (text == null || text.isEmpty) return;
+    await _sendDanmaku(text);
+  }
+
+  /// 发送弹幕：先本地立即显示（乐观更新），再异步提交服务器。
+  Future<void> _sendDanmaku(String content) async {
+    final int nowMs = _danmakuPosMs +
+        (DateTime.now().millisecondsSinceEpoch - _danmakuSyncAtMs);
+    final DanmakuItem item = DanmakuItem(
+      content: content,
+      timeMs: nowMs,
+      id: 'local-$nowMs',
+    );
+    if (mounted) {
+      setState(() {
+        _danmakuItems = <DanmakuItem>[..._danmakuItems, item];
+        final DanmakuPlaybackController? ctrl = _danmakuCtrl;
+        if (ctrl != null) {
+          ctrl.inject(item);
+          // 立即渲染（暂停态也能看到自己的弹幕；播放中下帧由定时器接管）。
+          _danmakuStates = ctrl.tick(nowMs);
+        }
+      });
+    }
+    final DanmakuService? svc = _danmakuService;
+    final int? episodeId = _danmakuEpisodeId;
+    if (svc == null || episodeId == null) return;
+    final bool ok = await svc.send(
+      episodeId: episodeId,
+      content: content,
+      timeSec: nowMs / 1000.0,
+    );
+    if (!ok && mounted) _toast('弹幕发送失败');
+  }
+
+  // ─────────────── 投屏接线（C-09） ───────────────
+
+  /// 打开投屏设备选择弹层；投屏成功后暂停本地播放（避免双端出声）。
+  Future<void> _openCastSheet() async {
+    _showControls();
+    final bool? casted = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: VboxColors.playerPanelBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (BuildContext ctx) => CastDeviceSheet(
+        controller: _castController,
+        media: _currentCastMedia(),
+      ),
+    );
+    if (casted == true) await _player.pause();
+  }
+
+  /// 当前待投送媒体（对齐 iOS 投屏的媒体投影）。
+  CastMedia _currentCastMedia() => CastMedia(
+        url: widget.source.url,
+        title: widget.title,
+        headers: widget.source.headers,
+        isLive: _controls.isLive,
+        positionMs: _controls.positionMs,
+      );
 
   // ─────────────── 播放能力接线（C-05 / C-08） ───────────────
 
@@ -428,6 +637,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         isLive: p.isLive,
       );
       _updateSubtitleCue(p.positionMs);
+      // 弹幕时基同步（定时器在两次进度事件间按墙钟插值）。
+      _danmakuPosMs = p.positionMs;
+      _danmakuSyncAtMs = DateTime.now().millisecondsSinceEpoch;
       final PipController? pip = _pip;
       if (pip != null && pip.isInPip) {
         unawaited(pip.updateProgress(p.positionMs, p.durationMs));
@@ -449,7 +661,14 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   void _bindControls() {
     _controls.onTogglePlay = () => unawaited(_player.togglePlay());
-    _controls.onSeek = (int ms) => unawaited(_player.seekTo(ms));
+    // 拖拽跳转：弹幕光标重排（对齐 iOS 拖拽后弹幕重排）。
+    _controls.onSeek = (int ms) {
+      _danmakuCtrl?.seekTo(ms);
+      _danmakuPosMs = ms;
+      _danmakuSyncAtMs = DateTime.now().millisecondsSinceEpoch;
+      if (mounted) setState(() => _danmakuStates = const <DanmakuRenderState>[]);
+      unawaited(_player.seekTo(ms));
+    };
     _controls.onSelectSpeed = (double s) => unawaited(_player.setSpeed(s));
     _controls.onSelectBackend = (PlayerBackend b) => unawaited(_switchBackend(b));
     _controls.onBack = () {
@@ -486,6 +705,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         : null;
     _controls.onTogglePip = () => unawaited(_togglePip());
     _controls.onLoadSubtitle = () => unawaited(_promptSubtitleUrl());
+    _controls.onSendDanmaku = () => unawaited(_promptSendDanmaku());
+    _controls.onCast = () => unawaited(_openCastSheet());
   }
 
   /// 打开播放源并起播；失败抛 [PlayerOpenException] 已在导航层处理，此处仅提示。
@@ -578,6 +799,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     final PlayerSource? source = await resolver(episode);
     if (!mounted || source == null) return;
     await _openSource(source);
+    // 切集 → 重新拉取该集弹幕并重置进度时基。
+    _danmakuPosMs = 0;
+    _danmakuSyncAtMs = DateTime.now().millisecondsSinceEpoch;
+    unawaited(_loadDanmakuItems());
     _scheduleHide();
   }
 
@@ -704,6 +929,11 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _hideTimer?.cancel();
     _lockHideTimer?.cancel();
     _rotateResetTimer?.cancel();
+    _danmakuTimer?.cancel();
+    _castController.dispose();
+    final CastService cast = _castService;
+    if (cast is DlnaCastService) cast.close();
+    if (widget.danmakuService == null) _danmakuService?.close();
     _player.onStateChanged = null;
     _player.onProgress = null;
     _player.onVideoSize = null;
@@ -729,6 +959,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _landscape = landscape;
       // 直接写字段（不 notify）：本次 build 即取新形态，避免 build 期通知。
       _controls.form = landscape ? UiForm.landscape : UiForm.portrait;
+    }
+    // 窗口尺寸变化 → 重建弹幕引擎（坐标与渲染像素一致）。
+    if (_danmakuViewport != size) {
+      _danmakuViewport = size;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(_syncDanmakuController);
+      });
     }
     return PopScope(
       canPop: true,
@@ -764,6 +1001,18 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                   textureId: _textureId,
                   aspectRatio: _aspectRatio,
                 ),
+                // 弹幕层（叠于画面之上、控制层之下；关开关或无弹幕则不渲染）。
+                danmakuBuilder: (BuildContext context) {
+                  if (!_controls.showDanmaku || _danmakuStates.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  return DanmakuOverlay(
+                    states: _danmakuStates,
+                    opacity: _danmaku.opacity,
+                    area: _danmaku.area,
+                    fontSize: _danmaku.fontSize,
+                  );
+                },
               ),
               // C-08 字幕浮层（随时间更新；不拦截手势）。
               if (_subtitleCueText != null && _subtitleCueText!.isNotEmpty)

@@ -34,6 +34,7 @@ class PlayerControlsView extends StatelessWidget {
     super.key,
     required this.controller,
     this.videoBuilder,
+    this.danmakuBuilder,
     this.danmakuSettings,
     this.onDanmakuSettingsChanged,
     this.lockButtonVisible = true,
@@ -45,6 +46,9 @@ class PlayerControlsView extends StatelessWidget {
 
   /// 视频画面构建器（调用方注入实际渲染视图；null 显示深色占位）。
   final WidgetBuilder? videoBuilder;
+
+  /// 弹幕层构建器（叠于画面之上、控制层之下；null 则不渲染弹幕）。
+  final WidgetBuilder? danmakuBuilder;
 
   /// 当前弹幕设置（弹幕设置面板用；null 时隐藏该面板内容）。
   final DanmakuSettings? danmakuSettings;
@@ -81,6 +85,8 @@ class PlayerControlsView extends StatelessWidget {
               // 视频画面（或占位）—— 常驻，不随控制层自动隐藏
               videoBuilder?.call(context) ??
                   const ColoredBox(color: VboxColors.playerBackground),
+              // 弹幕层 —— 叠于画面之上、控制层之下（常驻，随开关由调用方决定）
+              if (danmakuBuilder != null) danmakuBuilder!.call(context),
               if (overlays) ...<Widget>[
                 // 顶栏
                 Positioned(
@@ -93,6 +99,7 @@ class PlayerControlsView extends StatelessWidget {
                     subtitle: controller.subtitle,
                     onBack: controller.onBack,
                     onCast: controller.onCast,
+                    showCast: controller.castAvailable,
                     onRotate: controller.onToggleFullscreen,
                     onToolsMenu: controller.onToggleToolsMenu,
                   ),

@@ -85,6 +85,20 @@ const Map<String, Object?> _allSourcesJson = <String, Object?>{
       <String, Object?>{'key': 'js_演示', 'name': 'JS 演示', 'type': 3},
     ],
   },
+  // 契约：parsers / disabledSources 为**对象**（非数组）；回归覆盖真实
+  // all_sources.json 结构，防止 `as List?` 型转换崩溃（UnknownFailure）。
+  'parsers': <String, Object?>{
+    'parses': <Object?>[
+      <String, Object?>{
+        'name': '远程解析',
+        'url': 'https://parse.example.com/?url=',
+      },
+    ],
+  },
+  'disabledSources': <String, Object?>{
+    'disabledKeys': <Object?>[],
+    'disabledHosts': <Object?>[],
+  },
 };
 
 /// 内存版远程源仓储（镜像真实现：saveManifest 落契约同步键）。
@@ -118,6 +132,25 @@ class _FakeRepo implements RemoteSourceRepository {
 
   @override
   Future<Result<int>> cachedAtSeconds() async => Success<int>(savedAt);
+
+  @override
+  Future<Result<RemoteSourceSettings>> settings() async =>
+      const Success<RemoteSourceSettings>(RemoteSourceSettings.defaults());
+
+  @override
+  Future<Result<bool>> setEnabled(bool enabled) async =>
+      const Success<bool>(true);
+
+  @override
+  Future<Result<bool>> setManifestUrl(String url) async =>
+      const Success<bool>(true);
+
+  @override
+  Future<Result<bool>> clearCache() async {
+    saved = null;
+    savedAt = 0;
+    return const Success<bool>(true);
+  }
 }
 
 /// 全绿服务器：manifest / version / allSources 均可用。

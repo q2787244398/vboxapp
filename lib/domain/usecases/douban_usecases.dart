@@ -23,36 +23,83 @@ class DoubanUseCases {
   static const int pageSize = 20;
 
   /// 首页区块定义（标题 → collectionId），顺序即展示顺序。
+  ///
+  /// 对齐 iOS `MainViews.swift HomeView.doubanHomeContent`（L392-L472）的 11 个栏目
+  /// 及顺序：影院热映 → 即将上映 → 热门电影 → 一周口碑榜 → 新片榜 → TOP250 →
+  /// 热门剧集 → 华语口碑剧集 → 值得看的英美剧 → 热门动漫 → 热门综艺。
   static const List<(String, String)> _homeSections = <(String, String)>[
+    ('影院热映', 'movie_showing'),
+    ('即将上映', 'movie_soon'),
     ('热门电影', 'movie_hot_gaia'),
+    ('一周口碑榜', 'movie_weekly_best'),
+    ('新片榜', 'movie_latest'),
+    ('TOP250', 'movie_top250'),
     ('热门剧集', 'tv_real_time_hotest'),
-    ('综艺', 'tv_variety_show'),
-    ('动漫', 'tv_animation'),
+    ('华语口碑剧集', 'tv_chinese_best_weekly'),
+    ('值得看的英美剧', 'tv_american'),
+    ('热门动漫', 'tv_animation'),
+    ('热门综艺', 'tv_variety_show'),
   ];
 
-  /// 首页聚合：banner（TOP250 前 8）+ 热门区块，并发拉取。
+  /// 空搜索页「豆瓣榜单」栏目标签（标签名 → collectionId）。
+  ///
+  /// 对齐 iOS `MainViews.swift SearchView.doubanTabs`（L1357）+
+  /// `DoubanService.fetchByTab`（L376-L389）。
+  static const List<(String, String)> searchTabs = <(String, String)>[
+    ('豆瓣周榜', 'movie_weekly_best'),
+    ('华语口碑剧集', 'tv_chinese_best_weekly'),
+    ('一周口碑电影榜', 'movie_hot_gaia'),
+    ('国内即将上映', 'movie_showing'),
+  ];
+
+  /// 首页聚合：banner（TOP250 前 10）+ 栏目区块，**并发拉取**。
+  ///
+  /// 对齐 iOS `fetchSafely` 语义：**单个栏目失败不影响其余栏目**（失败返回空，
+  /// 不整体抛错），避免一条 collection 限流导致整页空白。
   Future<Result<DoubanHomeFeed>> homeFeed() async {
+    final List<List<DoubanSubject>> results = await Future.wait(
+      <Future<List<DoubanSubject>>>[
+        _safeFetch(() => _datasource.fetchCollection('movie_top250', start: 0, count: 10)),
+        for (final (_, String collectionId) in _homeSections)
+          _safeFetch(() => _datasource.fetchCollection(collectionId, start: 0, count: pageSize)),
+      ],
+    );
+    final List<DoubanHomeSection> sections = <DoubanHomeSection>[
+      for (int i = 0; i < _homeSections.length; i++)
+        if (results[i + 1].isNotEmpty)
+          DoubanHomeSection(
+            title: _homeSections[i].$1,
+            items: results[i + 1],
+          ),
+    ];
+    return Success<DoubanHomeFeed>(
+      DoubanHomeFeed(banner: results.first, sections: sections),
+    );
+  }
+
+  /// 拉取单个 collection（供空搜索页「豆瓣榜单」栏目使用）。
+  Future<Result<List<DoubanSubject>>> collection(
+    String collectionId, {
+    int start = 0,
+    int count = pageSize,
+  }) async {
     try {
-      final List<List<DoubanSubject>> results = await Future.wait(
-        <Future<List<DoubanSubject>>>[
-          _datasource.fetchCollection('movie_top250', start: 0, count: 8),
-          for (final (_, String collectionId) in _homeSections)
-            _datasource.fetchCollection(collectionId, start: 0, count: pageSize),
-        ],
-      );
-      final List<DoubanHomeSection> sections = <DoubanHomeSection>[
-        for (int i = 0; i < _homeSections.length; i++)
-          if (results[i + 1].isNotEmpty)
-            DoubanHomeSection(
-              title: _homeSections[i].$1,
-              items: results[i + 1],
-            ),
-      ];
-      return Success<DoubanHomeFeed>(
-        DoubanHomeFeed(banner: results.first, sections: sections),
-      );
+      final List<DoubanSubject> list =
+          await _datasource.fetchCollection(collectionId, start: start, count: count);
+      return Success<List<DoubanSubject>>(list);
     } catch (e) {
-      return Err<DoubanHomeFeed>(Failure.from(e));
+      return Err<List<DoubanSubject>>(Failure.from(e));
+    }
+  }
+
+  /// 单栏目容错拉取（失败返回空列表，不阻断其余栏目）。
+  Future<List<DoubanSubject>> _safeFetch(
+    Future<List<DoubanSubject>> Function() fetch,
+  ) async {
+    try {
+      return await fetch();
+    } catch (_) {
+      return const <DoubanSubject>[];
     }
   }
 

@@ -78,4 +78,16 @@ class RemoteSourceUseCases {
 
   /// 缓存写入时间（Unix 秒）。
   Future<Result<int>> cachedAt() => _repo.cachedAtSeconds();
+
+  /// 读取远程源设置（开关 / manifest 地址 / 上次版本 / 上次同步时间）。
+  Future<Result<RemoteSourceSettings>> settings() => _repo.settings();
+
+  /// 写入「启用远程默认源」开关。
+  Future<Result<bool>> setEnabled(bool enabled) => _repo.setEnabled(enabled);
+
+  /// 写入 manifest 地址。
+  Future<Result<bool>> setManifestUrl(String url) => _repo.setManifestUrl(url);
+
+  /// 清空远程源缓存（清单文件 + 版本 / 时间 / 错误镜像键）。
+  Future<Result<bool>> clearCache() => _repo.clearCache();
 }

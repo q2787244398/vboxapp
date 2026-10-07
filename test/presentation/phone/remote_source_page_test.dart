@@ -128,9 +128,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('添加订阅'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField).at(0), '新订阅');
+    // 页面另有「默认源地址」输入框，故按对话框范围定位其两个 TextField
+    final Finder dialogFields = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(dialogFields.at(0), '新订阅');
     await tester.enterText(
-      find.byType(TextField).at(1),
+      dialogFields.at(1),
       'https://example.com/new.json',
     );
     await tester.tap(find.widgetWithText(FilledButton, '添加'));
@@ -156,9 +161,13 @@ void main() {
 
     await tester.tap(find.text('订阅'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).at(0), '重复源');
+    final Finder dialogFields = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(dialogFields.at(0), '重复源');
     await tester.enterText(
-      find.byType(TextField).at(1),
+      dialogFields.at(1),
       'https://example.com/dup.json',
     );
     await tester.tap(find.widgetWithText(FilledButton, '添加'));
@@ -213,6 +222,35 @@ void main() {
 
     expect(find.textContaining('上次同步'), findsOneWidget);
     expect(find.textContaining('刚刚'), findsOneWidget);
+  });
+
+  testWidgets('远程源设置：开关 / 地址 / 清缓存 / 版本时间', (WidgetTester tester) async {
+    final InMemoryRemoteSourceRepository remote = InMemoryRemoteSourceRepository()
+      ..cached = buildManifest()
+      ..cachedAt = 1700000000
+      ..settingsValue = const RemoteSourceSettings(
+        enabled: true,
+        manifestUrl: 'https://example.com/m.json',
+        lastConfigVersion: '2026.09.29.1',
+        lastSyncTimeSeconds: 1700000000,
+      );
+    await tester.pumpWidget(_page(remote: remote));
+    await tester.pumpAndSettle();
+
+    // 对齐 iOS `SettingsViews` 远程源区块：开关 + 默认源地址 + 版本/时间信息行
+    expect(find.text('启用远程默认源'), findsOneWidget);
+    expect(find.byType(Switch), findsOneWidget);
+    expect(find.text('默认源地址'), findsOneWidget);
+    expect(find.text('https://example.com/m.json'), findsOneWidget);
+    expect(find.textContaining('配置版本：2026.09.29.1'), findsOneWidget);
+    expect(find.textContaining('同步时间：'), findsOneWidget);
+
+    // 清缓存 → 触发仓储 clearCache，版本/时间回退为「无」
+    await tester.tap(find.text('清缓存'));
+    await tester.pumpAndSettle();
+    expect(remote.clearCacheCount, 1);
+    expect(find.textContaining('已清空远程源缓存'), findsOneWidget);
+    expect(find.textContaining('配置版本：无'), findsOneWidget);
   });
 
   group('源发现标签', () {

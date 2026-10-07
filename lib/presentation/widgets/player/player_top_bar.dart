@@ -25,6 +25,7 @@ class PlayerTopBar extends StatelessWidget {
     this.subtitle,
     this.onBack,
     this.onCast,
+    this.showCast = true,
     this.onRotate,
     this.onToolsMenu,
   });
@@ -43,6 +44,9 @@ class PlayerTopBar extends StatelessWidget {
 
   /// 投屏回调。
   final VoidCallback? onCast;
+
+  /// 是否显示投屏图标（[CastService.isAvailable]；不可用则隐藏，对齐 iOS 语义）。
+  final bool showCast;
 
   /// 旋转（切换横竖屏）回调。
   final VoidCallback? onRotate;
@@ -108,11 +112,12 @@ class PlayerTopBar extends StatelessWidget {
               color: foreground,
               onTap: onRotate,
             ),
-            _IconButton(
-              icon: Icons.cast_rounded,
-              color: foreground,
-              onTap: onCast,
-            ),
+            if (showCast)
+              _IconButton(
+                icon: Icons.cast_rounded,
+                color: foreground,
+                onTap: onCast,
+              ),
             _IconButton(
               icon: Icons.more_vert_rounded,
               color: foreground,

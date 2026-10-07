@@ -49,6 +49,24 @@ class RemoteSourceRepositoryImpl implements RemoteSourceRepository {
   /// Node bundle 版本契约键（对齐 iOS `RemoteSourceConfigKeys.nodeBundleVer`）。
   static const String _keyNodeBundleVer = 'remote_node_bundle_ver';
 
+  /// 远程默认源开关契约键（对齐 iOS `RemoteSourceConfigKeys.enabled`）。
+  static const String _keyEnabled = 'remote_default_source_enabled';
+
+  /// manifest 地址契约键（对齐 iOS `RemoteSourceConfigKeys.manifestURL`）。
+  static const String _keyManifestUrl = 'remote_default_manifest_url';
+
+  /// 上次同步 configVersion 契约键。
+  static const String _keyLastVersion = 'remote_default_last_config_version';
+
+  /// 上次同步时间契约键。
+  static const String _keyLastSyncTime = 'remote_default_last_sync_time';
+
+  /// 上次同步错误契约键。
+  static const String _keyLastError = 'remote_default_last_sync_error';
+
+  /// 上次同步时的 App 版本契约键。
+  static const String _keyLastAppVersion = 'remote_default_last_sync_app_version';
+
   PrefsManager get _p => _prefs ?? PrefsManager.instance;
 
   String get _cachePath =>
@@ -91,8 +109,8 @@ class RemoteSourceRepositoryImpl implements RemoteSourceRepository {
         cachedAtKey: now,
         manifestKey: manifest.toJson(),
       });
-      await _p.set('remote_default_last_config_version', manifest.configVersion);
-      await _p.set('remote_default_last_sync_time', now);
+      await _p.set(_keyLastVersion, manifest.configVersion);
+      await _p.set(_keyLastSyncTime, now);
       // ND-02：同步成功后镜像 Node bundle 远端地址/版本（对齐 iOS
       // `RemoteSourceConfigManager.syncNow` 的 `remote_node_bundle_url` /
       // `remote_node_bundle_ver` 写入/清除），供启动时 NodeRuntimeManager 做
@@ -152,6 +170,64 @@ class RemoteSourceRepositoryImpl implements RemoteSourceRepository {
       return Success<int>(raw is num ? raw.toInt() : 0);
     } catch (e) {
       return Err<int>(Failure.from(e));
+    }
+  }
+
+  @override
+  Future<Result<RemoteSourceSettings>> settings() async {
+    try {
+      final Object? enabled = await _p.get(_keyEnabled);
+      final Object? url = await _p.get(_keyManifestUrl);
+      final Object? version = await _p.get(_keyLastVersion);
+      final Object? syncTime = await _p.get(_keyLastSyncTime);
+      return Success<RemoteSourceSettings>(
+        RemoteSourceSettings(
+          enabled: enabled is bool ? enabled : true,
+          manifestUrl: url is String && url.trim().isNotEmpty
+              ? url.trim()
+              : RemoteSourceStrategy.defaultManifestUrl,
+          lastConfigVersion: version is String ? version : '',
+          lastSyncTimeSeconds: syncTime is num ? syncTime.toInt() : 0,
+        ),
+      );
+    } catch (e) {
+      return Err<RemoteSourceSettings>(Failure.from(e));
+    }
+  }
+
+  @override
+  Future<Result<bool>> setEnabled(bool enabled) async {
+    try {
+      await _p.set(_keyEnabled, enabled);
+      return const Success<bool>(true);
+    } catch (e) {
+      return Err<bool>(Failure.from(e));
+    }
+  }
+
+  @override
+  Future<Result<bool>> setManifestUrl(String url) async {
+    try {
+      await _p.set(_keyManifestUrl, url.trim());
+      return const Success<bool>(true);
+    } catch (e) {
+      return Err<bool>(Failure.from(e));
+    }
+  }
+
+  @override
+  Future<Result<bool>> clearCache() async {
+    try {
+      await FileStore.delete(_cachePath);
+      await _p.remove(_keyLastVersion);
+      await _p.remove(_keyLastSyncTime);
+      await _p.remove(_keyLastError);
+      await _p.remove(_keyLastAppVersion);
+      await _p.remove(_keyNodeBundleUrl);
+      await _p.remove(_keyNodeBundleVer);
+      return const Success<bool>(true);
+    } catch (e) {
+      return Err<bool>(Failure.from(e));
     }
   }
 }

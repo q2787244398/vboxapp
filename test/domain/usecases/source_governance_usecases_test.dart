@@ -294,12 +294,14 @@ void main() {
       // 无用户解析器，仅远程默认解析器。
       final SourceGovernanceUseCases uc = _useCases(
         sources: const AllSourcesContainer(
-          parsers: <Object?>[
-            <String, Object?>{
-              'name': '远程解析',
-              'url': 'https://remote.example.com/?url=',
-            },
-          ],
+          parsers: <String, Object?>{
+            'parses': <Object?>[
+              <String, Object?>{
+                'name': '远程解析',
+                'url': 'https://remote.example.com/?url=',
+              },
+            ],
+          },
         ),
         httpClient: client,
       );
@@ -313,16 +315,18 @@ void main() {
     test('全部解析器 = 远程默认 + 用户自定义（按地址去重，用户优先）', () async {
       final SourceGovernanceUseCases uc = _useCases(
         sources: const AllSourcesContainer(
-          parsers: <Object?>[
-            <String, Object?>{
-              'name': '远程解析',
-              'url': 'https://remote.example.com/?url=',
-            },
-            <String, Object?>{
-              'name': '重复解析',
-              'url': 'https://dup.example.com/?url=',
-            },
-          ],
+          parsers: <String, Object?>{
+            'parses': <Object?>[
+              <String, Object?>{
+                'name': '远程解析',
+                'url': 'https://remote.example.com/?url=',
+              },
+              <String, Object?>{
+                'name': '重复解析',
+                'url': 'https://dup.example.com/?url=',
+              },
+            ],
+          },
         ),
       );
       await SourceGovernanceStore.instance

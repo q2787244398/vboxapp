@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:vbox/core/utils/result.dart';
+import 'package:vbox/domain/entities/douban/douban_models.dart';
 import 'package:vbox/domain/entities/remote_source/remote_source.dart';
 import 'package:vbox/domain/entities/spider/spider.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
@@ -20,7 +21,6 @@ import '../../../support/fakes.dart';
 class _FakeContentBrowseUseCases extends ContentBrowseUseCases {
   _FakeContentBrowseUseCases({
     this.sites = const <SiteConfig>[],
-    this.home = const <VodItem>[],
     this.results,
   }) : super(
           loadAllSources: () async =>
@@ -28,7 +28,6 @@ class _FakeContentBrowseUseCases extends ContentBrowseUseCases {
         );
 
   final List<SiteConfig> sites;
-  final List<VodItem> home;
   final List<VodItem> Function(String keyword)? results;
   final List<String> searched = <String>[];
 
@@ -38,7 +37,7 @@ class _FakeContentBrowseUseCases extends ContentBrowseUseCases {
 
   @override
   Future<Result<HomeContentResult>> homeContent(String siteKey) async =>
-      Success<HomeContentResult>(HomeContentResult(list: home));
+      const Success<HomeContentResult>(HomeContentResult(list: <VodItem>[]));
 
   @override
   Future<Result<SearchContentResult>> searchContent(
@@ -63,6 +62,7 @@ Widget _app(
   _FakeContentBrowseUseCases uc,
   SearchHistoryUseCases history, {
   UiFormOverride override = UiFormOverride.portrait,
+  DoubanUseCases? douban,
 }) {
   return MultiProvider(
     providers: [
@@ -73,29 +73,42 @@ Widget _app(
       ),
       Provider<ContentBrowseUseCases>.value(value: uc),
       Provider<SearchHistoryUseCases>.value(value: history),
+      Provider<DoubanUseCases>.value(
+        value: douban ?? buildDoubanUseCases(),
+      ),
     ],
     child: const MaterialApp(home: SearchPage()),
   );
 }
 
 void main() {
-  testWidgets('空态：搜索历史 + 榜单渲染', (WidgetTester tester) async {
+  testWidgets('空态：搜索历史 + 豆瓣榜单 + 全部站点', (WidgetTester tester) async {
     final _FakeContentBrowseUseCases uc = _FakeContentBrowseUseCases(
       sites: <SiteConfig>[site('s1', '站点1')],
-      home: <VodItem>[vod('1', '热片A'), vod('2', '热片B')],
     );
     final SearchHistoryUseCases history =
         SearchHistoryUseCases(InMemorySearchHistoryRepository(<String>['流浪地球', '三体']));
 
-    await tester.pumpWidget(_app(uc, history));
+    await tester.pumpWidget(_app(
+      uc,
+      history,
+      douban: buildDoubanUseCases(
+        subjects: const <DoubanSubject>[
+          DoubanSubject(id: 'd1', title: '豆瓣条目A', rating: 8.5),
+        ],
+      ),
+    ));
     await tester.pumpAndSettle();
 
     expect(find.text('搜索历史'), findsOneWidget);
-    expect(find.text('榜单'), findsOneWidget);
     expect(find.text('流浪地球'), findsOneWidget);
     expect(find.text('三体'), findsOneWidget);
-    expect(find.text('热片A'), findsOneWidget);
-    expect(find.text('热片B'), findsOneWidget);
+    // 豆瓣栏目标签 + 数据（对齐 iOS `SearchView.doubanTabs`）
+    expect(find.text('豆瓣周榜'), findsOneWidget);
+    expect(find.text('豆瓣条目A'), findsOneWidget);
+    // 全部站点区块（对齐 iOS「全部站点 (N)」）
+    expect(find.textContaining('全部站点'), findsOneWidget);
+    expect(find.text('站点1'), findsOneWidget);
   });
 
   testWidgets('提交搜索：进入结果态显示结果卡', (WidgetTester tester) async {
@@ -110,7 +123,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), '关键词');
-    await tester.tap(find.byIcon(Icons.search));
+    await tester.tap(find.byIcon(Icons.arrow_forward));
     await tester.pumpAndSettle();
 
     expect(uc.searched, <String>['关键词']);
@@ -130,7 +143,7 @@ void main() {
 
     expect(find.text('流浪地球'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.delete_outline));
+    await tester.tap(find.text('清空'));
     await tester.pumpAndSettle();
 
     expect(find.text('流浪地球'), findsNothing);
@@ -149,7 +162,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), '关键词');
-    await tester.tap(find.byIcon(Icons.search));
+    await tester.tap(find.byIcon(Icons.arrow_forward));
     await tester.pumpAndSettle();
     expect(uc.searched, <String>['关键词']);
 
@@ -176,7 +189,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), '关键词');
-    await tester.tap(find.byIcon(Icons.search));
+    await tester.tap(find.byIcon(Icons.arrow_forward));
     await tester.pumpAndSettle();
 
     expect(find.byType(VerticalDivider), findsOneWidget);

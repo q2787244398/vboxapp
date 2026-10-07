@@ -70,6 +70,11 @@ jobs:
           flutter-version: "3.47.5"
           cache: true
 
+      # 版本号同步：Flutter 侧 pubspec.yaml / AppInfo 从仓库唯一真相源 `.version`
+      # 派生（与 iOS build-ipa.yml 同口径），使设置页与启动页版本号随仓库变动自适应。
+      - name: Sync version from .version
+        run: python3 scripts/sync_version.py
+
       - run: flutter pub get
 
       # 批次 Q · Q-02：就位四 ABI libjsc.so（JSC 主引擎，AGP externalNativeBuild 前置）
@@ -149,6 +154,11 @@ jobs:
           flutter-version: "3.47.5"
           cache: true
 
+      # 版本号同步：Flutter 侧 pubspec.yaml / AppInfo 从仓库唯一真相源 `.version`
+      # 派生（与 iOS build-ipa.yml 同口径），安装包版本号与设置页显示一致。
+      - name: Sync version from .version
+        run: python scripts/sync_version.py
+
       - run: flutter pub get
 
       - name: Fetch libmpv dll (D28)
@@ -222,6 +232,11 @@ jobs:
           channel: stable
           flutter-version: "3.47.5"
           cache: true
+
+      # 版本号同步：Flutter 侧 pubspec.yaml / AppInfo 从仓库唯一真相源 `.version`
+      # 派生（与 iOS build-ipa.yml 同口径），使设置页与启动页版本号随仓库变动自适应。
+      - name: Sync version from .version
+        run: python3 scripts/sync_version.py
 
       - run: flutter pub get
 

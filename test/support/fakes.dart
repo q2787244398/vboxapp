@@ -385,6 +385,11 @@ class InMemoryRemoteSourceRepository implements RemoteSourceRepository {
     cached = manifest;
     // 写入时间由测试显式设置（fake 不掌握真实时钟）
     cachedAt = cachedAtHint;
+    // 镜像真实现：同步成功落 configVersion / lastSyncTime 契约键
+    settingsValue = settingsValue.copyWith(
+      lastConfigVersion: manifest.configVersion,
+      lastSyncTimeSeconds: cachedAtHint,
+    );
     return const Success<bool>(true);
   }
 
@@ -397,6 +402,40 @@ class InMemoryRemoteSourceRepository implements RemoteSourceRepository {
 
   @override
   Future<Result<int>> cachedAtSeconds() async => Success<int>(cachedAt);
+
+  /// 远程源设置（可注入；默认契约默认值）。
+  RemoteSourceSettings settingsValue = const RemoteSourceSettings.defaults();
+
+  /// clearCache 调用次数。
+  int clearCacheCount = 0;
+
+  @override
+  Future<Result<RemoteSourceSettings>> settings() async =>
+      Success<RemoteSourceSettings>(settingsValue);
+
+  @override
+  Future<Result<bool>> setEnabled(bool enabled) async {
+    settingsValue = settingsValue.copyWith(enabled: enabled);
+    return const Success<bool>(true);
+  }
+
+  @override
+  Future<Result<bool>> setManifestUrl(String url) async {
+    settingsValue = settingsValue.copyWith(manifestUrl: url);
+    return const Success<bool>(true);
+  }
+
+  @override
+  Future<Result<bool>> clearCache() async {
+    clearCacheCount++;
+    cached = null;
+    cachedAt = 0;
+    settingsValue = settingsValue.copyWith(
+      lastConfigVersion: '',
+      lastSyncTimeSeconds: 0,
+    );
+    return const Success<bool>(true);
+  }
 }
 
 /// 构造测试用清单。

@@ -112,6 +112,9 @@ class PlayerControlsController extends ChangeNotifier {
   /// 是否处于画中画（[PipController.isInPip] 回填）。
   bool inPip = false;
 
+  /// 是否提供投屏入口（[CastService.isAvailable]；不可用则隐藏顶栏投屏图标）。
+  bool castAvailable = false;
+
   // ── 面板开关（互斥：同屏至多一个）────────────────────
 
   bool _showEpisodePicker = false;
@@ -136,6 +139,9 @@ class PlayerControlsController extends ChangeNotifier {
 
   /// 画中画切换回调（进入 / 退出；null 表示不可用）。
   VoidCallback? onTogglePip;
+
+  /// 发送弹幕回调（null 表示不可用）。
+  VoidCallback? onSendDanmaku;
 
   /// 加载字幕回调（null 表示不可用）。
   VoidCallback? onLoadSubtitle;

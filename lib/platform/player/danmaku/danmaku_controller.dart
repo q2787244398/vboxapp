@@ -40,9 +40,38 @@ class DanmakuPlaybackController {
     return _engine.compute(nowMs, incoming);
   }
 
+  /// 跳转到 [nowMs]（对齐 iOS 拖拽后重排）：光标二分定位到首条 ≥ 目标的弹幕，
+  /// 清空在屏状态，避免回退跳转后漏发或重复发送。
+  void seekTo(int nowMs) {
+    _cursor = _lowerBound(nowMs);
+    _engine.reset();
+  }
+
+  /// 本地立即插入一条弹幕（发送后先行显示，对齐 iOS 乐观更新）。
+  void inject(DanmakuItem item) {
+    final int i = _lowerBound(item.timeMs);
+    _items.insert(i, item);
+    if (i < _cursor) _cursor = i; // 使下次 tick 立即喂入新弹幕
+  }
+
   /// 重置（切换视频 / 重播）。
   void reset() {
     _cursor = 0;
     _engine.reset();
+  }
+
+  /// 二分：首个 `timeMs >= target` 的下标。
+  int _lowerBound(int targetMs) {
+    int lo = 0;
+    int hi = _items.length;
+    while (lo < hi) {
+      final int mid = (lo + hi) >> 1;
+      if (_items[mid].timeMs < targetMs) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
   }
 }

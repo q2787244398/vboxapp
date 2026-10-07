@@ -1,7 +1,12 @@
-/// phone 形态：远程源（清单状态卡 + 订阅管理）。
+/// phone 形态：远程源（远程默认源设置 + 订阅管理）。
 ///
 /// 直连 [SubscriptionUseCases] / [RemoteSourceUseCases]（D21 轻量路线）；
-/// 顶部展示远程清单加载状态（对齐 iOS `LoadState`），下方为订阅列表（添加 / 删除）。
+/// 顶部为「远程默认源」设置区块，逐项对齐 iOS `SettingsViews` 远程源区块：
+///   · 「启用远程默认源」开关 + `LoadState.displayText` 副标题；
+///   · 「默认源地址」输入框（`remote_default_manifest_url`）；
+///   · 「刷新远程源」/「清缓存」按钮；
+///   · 「配置版本：X · 同步时间：Y」信息行。
+/// 下方为订阅列表（添加 / 删除）。
 /// G-01 phone 形态第二块（登记见 VBOX_PLAN 附录 C）。
 library;
 
@@ -38,6 +43,12 @@ class _RemoteSourcePageState extends State<RemoteSourcePage>
   RemoteLoadStatus _status = const RemoteLoadStatus.idle();
   bool _refreshing = false;
 
+  /// 远程源设置（开关 / manifest 地址 / 上次版本 / 上次同步时间）。
+  RemoteSourceSettings _settings = const RemoteSourceSettings.defaults();
+
+  /// manifest 地址输入控制器。
+  final TextEditingController _urlController = TextEditingController();
+
   /// 顶部标签（订阅源 / 源发现）控制器。
   late final TabController _tabController;
   int _tabIndex = 0;
@@ -51,10 +62,12 @@ class _RemoteSourcePageState extends State<RemoteSourcePage>
     _tabController.addListener(_onTabChanged);
     _loadSubs();
     _loadStatus();
+    _loadSettings();
   }
 
   @override
   void dispose() {
+    _urlController.dispose();
     _tabController
       ..removeListener(_onTabChanged)
       ..dispose();
@@ -84,6 +97,33 @@ class _RemoteSourcePageState extends State<RemoteSourcePage>
     setState(() => _status = status);
   }
 
+  Future<void> _loadSettings() async {
+    final Result<RemoteSourceSettings> result = await _remote.settings();
+    if (!mounted) return;
+    final RemoteSourceSettings s =
+        result.valueOrNull ?? const RemoteSourceSettings.defaults();
+    setState(() {
+      _settings = s;
+      if (_urlController.text != s.manifestUrl) {
+        _urlController.text = s.manifestUrl;
+      }
+    });
+  }
+
+  /// 切换「启用远程默认源」开关（`remote_default_source_enabled`）。
+  Future<void> _setEnabled(bool value) async {
+    setState(() => _settings = _settings.copyWith(enabled: value));
+    await _remote.setEnabled(value);
+  }
+
+  /// 保存 manifest 地址（`remote_default_manifest_url`）。
+  Future<void> _saveManifestUrl(String value) async {
+    final String url = value.trim();
+    await _remote.setManifestUrl(url);
+    if (!mounted) return;
+    setState(() => _settings = _settings.copyWith(manifestUrl: url));
+  }
+
   /// 强制刷新远程清单（跳过 TTL 与缓存）。
   Future<void> _refresh() async {
     setState(() => _refreshing = true);
@@ -96,7 +136,28 @@ class _RemoteSourcePageState extends State<RemoteSourcePage>
           ? RemoteLoadStatus.failed('$failure')
           : RemoteLoadStatus.loadedRemote(result.valueOrNull!.configVersion);
     });
+    await _loadSettings();
   }
+
+  /// 清空远程源缓存（清单文件 + 版本/时间/错误镜像键）。
+  Future<void> _clearCache() async {
+    await _remote.clearCache();
+    if (!mounted) return;
+    await _loadSettings();
+    await _loadStatus();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已清空远程源缓存')),
+    );
+  }
+
+  /// 上次同步时间展示文本（对齐 iOS `remoteSyncTimeText`：`yyyy-MM-dd HH:mm`，无则「无」）。
+  String get _syncTimeText => _settings.lastSyncTimeSeconds <= 0
+      ? '无'
+      : TimeUtils.formatUnixSeconds(
+          _settings.lastSyncTimeSeconds,
+          pattern: 'yyyy-MM-dd HH:mm',
+        );
 
   /// 弹出添加订阅对话框。
   Future<void> _add() async {
@@ -151,18 +212,116 @@ class _RemoteSourcePageState extends State<RemoteSourcePage>
     );
   }
 
-  /// 订阅源标签：清单状态卡 + 订阅列表。
+  /// 订阅源标签：远程默认源设置区块 + 订阅列表。
   Widget _buildSubscriptionsTab() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _ManifestCard(
-          status: _status,
-          refreshing: _refreshing,
-          onRefresh: _refresh,
-        ),
+        _buildRemoteSettings(),
+        const Divider(height: 1),
         Expanded(child: _buildSubscriptions()),
       ],
+    );
+  }
+
+  /// 「远程默认源」设置区块（对齐 iOS `SettingsViews` 远程源区块）。
+  Widget _buildRemoteSettings() {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final bool enabled = _settings.enabled;
+    final bool canRefresh = enabled && !_refreshing;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Icon(Icons.cloud, size: 20, color: Color(0xFF3B82F6)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      '启用远程默认源',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _status.displayText,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(value: enabled, onChanged: _setEnabled),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '默认源地址',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _urlController,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            enableSuggestions: false,
+            style: const TextStyle(fontSize: 12),
+            decoration: const InputDecoration(
+              hintText: 'manifest.json 地址',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: _saveManifestUrl,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: canRefresh ? _refresh : null,
+                  icon: _refreshing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh, size: 18),
+                  label: Text(_refreshing ? '同步中' : '刷新远程源'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _clearCache,
+                  icon: const Icon(Icons.delete, size: 18),
+                  label: const Text('清缓存'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '配置版本：${_settings.lastConfigVersion.isEmpty ? '无' : _settings.lastConfigVersion}'
+            ' · 同步时间：$_syncTimeText',
+            style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
     );
   }
 
@@ -209,48 +368,6 @@ class _RemoteSourcePageState extends State<RemoteSourcePage>
           },
         );
       },
-    );
-  }
-}
-
-/// 远程清单状态卡。
-class _ManifestCard extends StatelessWidget {
-  const _ManifestCard({
-    required this.status,
-    required this.refreshing,
-    required this.onRefresh,
-  });
-
-  final RemoteLoadStatus status;
-  final bool refreshing;
-  final VoidCallback onRefresh;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final Color color = status.isLoaded
-        ? Colors.green
-        : status.state == RemoteLoadState.failed
-            ? theme.colorScheme.error
-            : theme.colorScheme.outline;
-    return Card(
-      margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-      child: ListTile(
-        leading: Icon(Icons.cloud_outlined, color: color),
-        title: Text('远程清单：${status.displayText}'),
-        subtitle: const Text('点刷新拉取最新配置（跳过缓存）'),
-        trailing: refreshing
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : IconButton(
-                icon: const Icon(Icons.refresh),
-                tooltip: '刷新',
-                onPressed: onRefresh,
-              ),
-      ),
     );
   }
 }

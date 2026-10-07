@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/utils/result.dart';
+import '../../../domain/entities/douban/douban_models.dart';
 import '../../../domain/entities/spider/spider.dart';
 import '../../../domain/usecases/usecases.dart';
 import '../../../platform/spider/spider.dart';
@@ -21,6 +22,7 @@ import '../../ui_mode/ui_mode.dart';
 import '../../widgets/detail_page.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
+import '../douban/douban_ranking_page.dart';
 
 /// 搜索页。
 class SearchPage extends StatefulWidget {
@@ -35,10 +37,11 @@ class SearchPage extends StatefulWidget {
 }
 
 class _SearchPageState extends State<SearchPage> {
-  static const int _rankCount = 10;
-
   late final ContentBrowseUseCases _uc;
   late final SearchHistoryUseCases _history;
+
+  /// 豆瓣用例（空搜索页「豆瓣榜单」数据源）；未注入时为 null（测试环境无豆瓣）。
+  DoubanUseCases? _douban;
 
   /// 附加结果源（S-设2 占源并列 / S-设3 腾讯原生 / Wave D 兜底切片源）；
   /// 缺省注入时为空（测试环境）。
@@ -52,7 +55,20 @@ class _SearchPageState extends State<SearchPage> {
   List<SiteConfig>? _sites;
   String? _siteKey;
   List<String> _historyWords = const <String>[];
-  List<VodItem> _ranks = const <VodItem>[];
+
+  /// 空搜索页「豆瓣榜单」栏目标签（标签名 → collectionId），对齐 iOS
+  /// `MainViews.swift SearchView.doubanTabs`（L1357）。
+  static const List<(String, String)> _doubanTabs = DoubanUseCases.searchTabs;
+
+  /// 当前选中的豆瓣栏目标签下标。
+  int _doubanTab = 0;
+
+  /// 豆瓣榜单数据加载中（对齐 iOS `doubanLoading`）。
+  bool _doubanLoading = false;
+
+  /// 豆瓣榜单按栏目缓存（对齐 iOS `doubanSubjects[tabName]`，切回不重复请求）。
+  final Map<String, List<DoubanSubject>> _doubanCache =
+      <String, List<DoubanSubject>>{};
 
   bool _loading = false;
   Failure? _error;
@@ -64,6 +80,7 @@ class _SearchPageState extends State<SearchPage> {
     super.initState();
     _uc = context.read<ContentBrowseUseCases>();
     _history = context.read<SearchHistoryUseCases>();
+    _douban = _maybeRead<DoubanUseCases>(context);
     _zhanyuan = _maybeRead<ZhanyuanSearchUseCases>(context);
     _tencent = _maybeRead<TencentVideoNativeSpider>(context);
     _governance = _maybeRead<SourceGovernanceUseCases>(context);
@@ -88,6 +105,7 @@ class _SearchPageState extends State<SearchPage> {
 
   Future<void> _init() async {
     await _loadHistory();
+    await _loadDouban();
     final Result<List<SiteConfig>> result = await _uc.listSites();
     if (!mounted) return;
     final Failure? failure = result.failureOrNull;
@@ -96,18 +114,19 @@ class _SearchPageState extends State<SearchPage> {
       return;
     }
     final List<SiteConfig> sites = result.valueOrNull ?? const <SiteConfig>[];
-    if (sites.isEmpty) {
-      setState(() => _error = const UnknownFailure('无可用站点'));
-      return;
-    }
-    _sites = sites;
-    final String initial = widget.initialSiteKey ?? '';
-    final SiteConfig target = sites.firstWhere(
-      (SiteConfig s) => s.key == initial,
-      orElse: () => sites.first,
-    );
-    _siteKey = target.key;
-    await _loadRanks(target.key);
+    // 对齐 iOS：无站点不报错，空搜索页仍展示豆瓣榜单（站点列表为空则不渲染）。
+    setState(() {
+      _sites = sites;
+      final String initial = widget.initialSiteKey ?? '';
+      _siteKey = sites.isEmpty
+          ? null
+          : sites
+              .firstWhere(
+                (SiteConfig s) => s.key == initial,
+                orElse: () => sites.first,
+              )
+              .key;
+    });
   }
 
   Future<void> _loadHistory() async {
@@ -117,13 +136,35 @@ class _SearchPageState extends State<SearchPage> {
     setState(() => _historyWords = words);
   }
 
-  Future<void> _loadRanks(String siteKey) async {
-    final Result<HomeContentResult> result = await _uc.homeContent(siteKey);
+  /// 加载当前栏目的豆瓣榜单（对齐 iOS `SearchView.loadDoubanData`，L1812-L1829）：
+  /// 已缓存且非强制 → 直接复用；单栏目失败静默（保持空列表，不阻断页面）。
+  Future<void> _loadDouban({bool force = false}) async {
+    final DoubanUseCases? uc = _douban;
+    if (uc == null) return;
+    final (String, String) tab = _doubanTabs[_doubanTab];
+    final String tabName = tab.$1;
+    if (!force && (_doubanCache[tabName]?.isNotEmpty ?? false)) return;
+    setState(() => _doubanLoading = true);
+    final Result<List<DoubanSubject>> result =
+        await uc.collection(tab.$2, count: 20);
     if (!mounted) return;
-    final List<VodItem> list = result.valueOrNull?.list ?? const <VodItem>[];
     setState(() {
-      _ranks = list.take(_rankCount).toList(growable: false);
+      _doubanLoading = false;
+      _doubanCache[tabName] = result.valueOrNull ?? const <DoubanSubject>[];
     });
+  }
+
+  Future<void> _selectDoubanTab(int index) async {
+    if (index == _doubanTab) return;
+    setState(() => _doubanTab = index);
+    await _loadDouban();
+  }
+
+  /// 打开豆瓣排行榜页（对齐 iOS `SearchView` → `DoubanRankingView`）。
+  void _openRanking() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const DoubanRankingPage()),
+    );
   }
 
   Future<void> _submit(String raw) async {
@@ -240,8 +281,6 @@ class _SearchPageState extends State<SearchPage> {
     setState(() => _siteKey = key);
     if (_searched) {
       await _search(_controller.text);
-    } else {
-      await _loadRanks(key);
     }
   }
 
@@ -268,33 +307,99 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // 顶栏对齐 iOS `MainViews.swift SearchView`（L1360-L1414）：
+      // 搜索框（放大镜 + 清除）→ 豆瓣排行榜入口（chart.bar.fill）→ 提交（arrow）。
       appBar: AppBar(
-        title: TextField(
-          controller: _controller,
-          focusNode: _focus,
-          autofocus: false,
-          textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(
-            hintText: '搜索影片 / 剧集',
-            border: InputBorder.none,
-          ),
-          onSubmitted: _submit,
-        ),
+        titleSpacing: VboxSpacing.md,
+        title: _buildSearchField(),
         actions: <Widget>[
           if (_searched)
             TextButton(
               onPressed: _backToEmpty,
               child: const Text('取消'),
             )
-          else
+          else ...<Widget>[
             IconButton(
-              tooltip: '搜索',
-              icon: const Icon(Icons.search),
-              onPressed: () => _submit(_controller.text),
+              tooltip: '豆瓣排行榜',
+              icon: const Icon(Icons.bar_chart_rounded),
+              onPressed: _openRanking,
             ),
+            _buildSubmitButton(),
+          ],
         ],
       ),
       body: _searched ? _buildResultState() : _buildEmptyState(),
+    );
+  }
+
+  /// 顶栏搜索框（放大镜 + 输入 + 清除；对齐 iOS `SearchView` 搜索栏）。
+  Widget _buildSearchField() {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.md),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(Icons.search, size: VboxTypography.s16, color: scheme.outline),
+          const SizedBox(width: VboxSpacing.sm),
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              focusNode: _focus,
+              autofocus: false,
+              textInputAction: TextInputAction.search,
+              decoration: const InputDecoration(
+                hintText: '搜索影片、剧集',
+                border: InputBorder.none,
+                isDense: true,
+              ),
+              onSubmitted: _submit,
+            ),
+          ),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _controller,
+            builder: (BuildContext context, TextEditingValue value, _) {
+              if (value.text.isEmpty) return const SizedBox.shrink();
+              return GestureDetector(
+                onTap: () {
+                  _controller.clear();
+                  _backToEmpty();
+                },
+                child: Icon(
+                  Icons.close,
+                  size: VboxTypography.s14,
+                  color: scheme.outline,
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 提交按钮（主色底 + 箭头；对齐 iOS `SearchView` 提交钮）。
+  Widget _buildSubmitButton() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.sm),
+      child: SizedBox(
+        width: 40,
+        height: 36,
+        child: FilledButton(
+          onPressed: () => _submit(_controller.text),
+          style: FilledButton.styleFrom(
+            padding: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          child: const Icon(Icons.arrow_forward, size: 18),
+        ),
+      ),
     );
   }
 
@@ -305,17 +410,135 @@ class _SearchPageState extends State<SearchPage> {
     if (error != null && _sites == null) {
       return _ErrorRetry(message: '$error', onRetry: _init);
     }
+    final List<SiteConfig> sites = _sites ?? const <SiteConfig>[];
+    final List<DoubanSubject> doubanItems =
+        _doubanCache[_doubanTabs[_doubanTab].$1] ?? const <DoubanSubject>[];
+    final bool showDouban = _douban != null;
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: VboxSpacing.md),
       children: <Widget>[
         if (_historyWords.isNotEmpty) _buildHistory(),
-        if (_ranks.isNotEmpty) _buildRanks(),
-        if (_historyWords.isEmpty && _ranks.isEmpty) const _EmptyHint(text: '输入关键词，搜索你想要的影片'),
+        if (showDouban) ...<Widget>[
+          _buildDoubanTabs(),
+          _buildDoubanList(doubanItems),
+          const Divider(height: VboxSpacing.xl),
+        ],
+        if (sites.isNotEmpty) _buildAllSites(sites),
+        if (_historyWords.isEmpty && !showDouban && sites.isEmpty)
+          const _EmptyHint(text: '输入关键词，搜索你想要的影片'),
       ],
     );
   }
 
+  /// 豆瓣栏目标签行（对齐 iOS `SearchView.doubanTabs` 下划线标签）。
+  Widget _buildDoubanTabs() {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: VboxSpacing.symmetric(horizontal: VboxSpacing.lg),
+      child: Row(
+        children: <Widget>[
+          for (int i = 0; i < _doubanTabs.length; i++) ...<Widget>[
+            if (i > 0) ...<Widget>[
+              const SizedBox(width: VboxSpacing.md),
+              VerticalDivider(
+                width: 1,
+                thickness: 1,
+                color: scheme.outlineVariant,
+                indent: 8,
+                endIndent: 8,
+              ),
+              const SizedBox(width: VboxSpacing.md),
+            ],
+            GestureDetector(
+              onTap: () => _selectDoubanTab(i),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    _doubanTabs[i].$1,
+                    style: TextStyle(
+                      fontSize: VboxTypography.s14,
+                      fontWeight: i == _doubanTab
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                      color: i == _doubanTab
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    height: 2,
+                    width: 24,
+                    decoration: BoxDecoration(
+                      color: i == _doubanTab
+                          ? scheme.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(1),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 豆瓣栏目数据列表（骨架屏 / 卡片行）。
+  Widget _buildDoubanList(List<DoubanSubject> items) {
+    if (_doubanLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: VboxSpacing.lg, vertical: VboxSpacing.md),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: VboxSpacing.symmetric(horizontal: VboxSpacing.lg),
+      child: Column(
+        children: <Widget>[
+          for (final DoubanSubject subject in items) ...<Widget>[
+            _DoubanCardRow(
+              subject: subject,
+              onTap: () => _runKeywordSearch(subject.title),
+            ),
+            const SizedBox(height: VboxSpacing.sm),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 全部站点区块（对齐 iOS `SearchView`「全部站点 (N)」）。
+  Widget _buildAllSites(List<SiteConfig> sites) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        VboxSectionHeader(title: '全部站点 (${sites.length})'),
+        for (final SiteConfig s in sites)
+          _SourceTile(
+            name: s.name.isEmpty ? s.key : s.name,
+            selected: s.key == _siteKey,
+            onTap: () => _onSourceChanged(s.key),
+          ),
+      ],
+    );
+  }
+
+  /// 以关键词触发搜索（豆瓣卡片点击，对齐 iOS `runKeywordSearch`）。
+  Future<void> _runKeywordSearch(String keyword) async {
+    _controller.text = keyword;
+    _controller.selection =
+        TextSelection.collapsed(offset: _controller.text.length);
+    await _submit(keyword);
+  }
+
+  /// 搜索历史（时钟图标 + 标题 + 「清空」；对齐 iOS `SearchView` 历史区）。
   Widget _buildHistory() {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -323,11 +546,21 @@ class _SearchPageState extends State<SearchPage> {
           padding: VboxSpacing.symmetric(horizontal: VboxSpacing.lg),
           child: Row(
             children: <Widget>[
-              const Expanded(child: VboxSectionHeader(title: '搜索历史')),
-              IconButton(
-                tooltip: '清空历史',
-                icon: const Icon(Icons.delete_outline, size: 20),
+              Icon(Icons.history, size: VboxTypography.s16, color: scheme.primary),
+              const SizedBox(width: VboxSpacing.xs),
+              Expanded(
+                child: Text(
+                  '搜索历史',
+                  style: TextStyle(
+                    fontSize: VboxTypography.s15,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              ),
+              TextButton(
                 onPressed: _clearHistory,
+                child: const Text('清空'),
               ),
             ],
           ),
@@ -350,21 +583,6 @@ class _SearchPageState extends State<SearchPage> {
             },
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildRanks() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        const VboxSectionHeader(title: '榜单'),
-        for (int i = 0; i < _ranks.length; i++)
-          _RankRow(
-            index: i,
-            vod: _ranks[i],
-            onTap: () => _openDetail(_ranks[i]),
-          ),
       ],
     );
   }
@@ -508,45 +726,42 @@ class _SourceTile extends StatelessWidget {
   }
 }
 
-/// 榜单行（名次 + 缩略图 + 标题 + 备注）。
-class _RankRow extends StatelessWidget {
-  const _RankRow({required this.index, required this.vod, this.onTap});
+/// 豆瓣空搜索页卡片行（封面 + 标题 + 评分 + 副标题 + 「点击搜索」）。
+///
+/// 对齐 iOS `MainViews.swift SearchDoubanCardItem`（L2183-L2236）：封面 70×95、
+/// 圆角 8；标题 15 semibold；黄色星形评分；副标题 12；底部主色「点击搜索 “标题”」；
+/// 右侧放大镜图标。整卡点击 → 以条目标题触发搜索。
+class _DoubanCardRow extends StatelessWidget {
+  const _DoubanCardRow({required this.subject, this.onTap});
 
-  final int index;
-  final VodItem vod;
+  final DoubanSubject subject;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final String subtitle = <String?>[
-      if (vod.vodYear?.isNotEmpty ?? false) vod.vodYear,
-      if (vod.vodRemarks?.isNotEmpty ?? false) vod.vodRemarks,
-    ].join(' · ');
+    final String subtitle = subject.cardSubtitle?.isNotEmpty ?? false
+        ? subject.cardSubtitle!
+        : subject.genreText;
 
     return InkWell(
       onTap: onTap,
-      child: Padding(
-        padding: VboxSpacing.symmetric(horizontal: VboxSpacing.lg, vertical: VboxSpacing.sm),
+      borderRadius: VboxRadii.button,
+      child: Container(
+        padding: const EdgeInsets.all(VboxSpacing.sm),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            SizedBox(
-              width: 28,
-              child: Text(
-                '${index + 1}',
-                style: TextStyle(
-                  fontSize: VboxTypography.s16,
-                  fontWeight: FontWeight.w700,
-                  color: index < 3 ? scheme.primary : scheme.outline,
-                ),
-              ),
-            ),
             ClipRRect(
-              borderRadius: VboxRadii.button,
+              borderRadius: BorderRadius.circular(8),
               child: SizedBox(
-                width: 52,
-                height: 72,
-                child: PlatformAsyncImage(url: vod.vodPic, fit: BoxFit.cover),
+                width: 70,
+                height: 95,
+                child: PlatformAsyncImage(url: subject.coverUrl, fit: BoxFit.cover),
               ),
             ),
             const SizedBox(width: VboxSpacing.md),
@@ -555,29 +770,62 @@ class _RankRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    vod.vodName,
+                    subject.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: VboxTypography.s14,
-                      fontWeight: FontWeight.w500,
+                      fontSize: VboxTypography.s15,
+                      fontWeight: FontWeight.w600,
                       color: scheme.onSurface,
                     ),
                   ),
+                  if (subject.hasRating) ...<Widget>[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: <Widget>[
+                        const Icon(Icons.star, size: 12, color: Color(0xFFF5C518)),
+                        const SizedBox(width: 4),
+                        Text(
+                          subject.rating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            fontSize: VboxTypography.s13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFF5C518),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   if (subtitle.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 6),
                     Text(
                       subtitle,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: VboxTypography.s11,
+                        fontSize: VboxTypography.s12,
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
                   ],
+                  const SizedBox(height: 6),
+                  Text(
+                    '点击搜索 “${subject.title}”',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: VboxTypography.s11,
+                      color: scheme.primary,
+                    ),
+                  ),
                 ],
               ),
+            ),
+            const SizedBox(width: VboxSpacing.sm),
+            Icon(
+              Icons.search,
+              size: 24,
+              color: scheme.primary,
             ),
           ],
         ),

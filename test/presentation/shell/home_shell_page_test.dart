@@ -140,7 +140,8 @@ void main() {
       expect(find.text('福利'), findsNothing);
 
       // A9：首页默认内容为豆瓣（无可用源也不报错）。
-      expect(find.text('豆瓣推荐'), findsOneWidget);
+      // 对齐 iOS `HomeView`：顶栏为 `HomeSearchBar`（无「豆瓣推荐」文字标题），
+      // 内容区直接渲染豆瓣栏目；无源时落到豆瓣空态。
       expect(find.textContaining('豆瓣暂无内容'), findsOneWidget);
       expect(find.textContaining('无可用站点'), findsNothing);
     });

@@ -73,17 +73,29 @@ class DoubanSubject {
   /// 类型文案（` / ` 连接）。
   String get genreText => genres.join(' / ');
 
-  /// 封面优先级：`photos_gadget` → `cover_url` → `cover.{url,large,medium,small}`。
+  /// 封面优先级：`photos_gadget` → `cover_url` → `cover.{url,large,medium,small}`
+  /// → `pic.{large,normal,medium,small}`。
+  ///
+  /// `pic` 兜底对齐 iOS：综艺 / 动漫 / 英美剧等 `subject_collection`（`tv_variety_show`、
+  /// `tv_animation`、`tv_american`…）**不返回** `cover`/`cover_url`/`photos_gadget`，
+  /// 封面仅存在于 `pic.large`。iOS 走 `fetchCollectionWithTVCovers`（逐条补拉详情封面），
+  /// Flutter 直接取同一条目内已有的 `pic` 字段，无需额外请求即可拿到同一张封面。
   static String? _bestCover(Map<String, Object?> j) {
     final String? gadget = JsonUtils.pickString(j, 'photos_gadget');
     if (gadget != null && gadget.isNotEmpty) return gadget;
     final String? coverUrl = JsonUtils.pickString(j, 'cover_url');
     if (coverUrl != null && coverUrl.isNotEmpty) return coverUrl;
     final Map<String, Object?> cover = JsonUtils.pickMap(j, 'cover');
-    return JsonUtils.pickString(cover, 'url') ??
+    final String? fromCover = JsonUtils.pickString(cover, 'url') ??
         JsonUtils.pickString(cover, 'large') ??
         JsonUtils.pickString(cover, 'medium') ??
         JsonUtils.pickString(cover, 'small');
+    if (fromCover != null && fromCover.isNotEmpty) return fromCover;
+    final Map<String, Object?> pic = JsonUtils.pickMap(j, 'pic');
+    return JsonUtils.pickString(pic, 'large') ??
+        JsonUtils.pickString(pic, 'normal') ??
+        JsonUtils.pickString(pic, 'medium') ??
+        JsonUtils.pickString(pic, 'small');
   }
 
   /// 封面 URL 归一：补 `https:` / `https://` 前缀。
