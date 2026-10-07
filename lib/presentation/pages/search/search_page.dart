@@ -7,6 +7,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -383,7 +384,16 @@ class _SearchPageState extends State<SearchPage> {
       ),
       child: Row(
         children: <Widget>[
-          Icon(Icons.search, size: VboxTypography.s16, color: scheme.outline),
+          // 搜索中放大镜原地画小圈（对齐 iOS `SearchWiggleModifier`：
+          // 图标保持正立不旋转，半径 8pt、1 圈/1s，停止时 easeOut 回正）。
+          _WiggleIcon(
+            isActive: _loading,
+            child: Icon(
+              Icons.search,
+              size: VboxTypography.s16,
+              color: scheme.outline,
+            ),
+          ),
           const SizedBox(width: VboxSpacing.sm),
           Expanded(
             child: TextField(
@@ -1166,6 +1176,82 @@ class _SourceLabel extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 搜索中「原地画圈」放大镜（对齐 iOS `SearchWiggleModifier`）。
+///
+/// 图标保持正立不旋转，在原地做半径 8pt 的小圆周运动（1 圈/1s），
+/// 激停时以 easeOut 0.25s 平滑回正。
+class _WiggleIcon extends StatefulWidget {
+  const _WiggleIcon({required this.isActive, required this.child});
+
+  /// 是否激活动画（绑定搜索加载态）。
+  final bool isActive;
+
+  /// 被包裹的图标。
+  final Widget child;
+
+  @override
+  State<_WiggleIcon> createState() => _WiggleIconState();
+}
+
+class _WiggleIconState extends State<_WiggleIcon>
+    with SingleTickerProviderStateMixin {
+  /// 圆周半径（pt），对齐 iOS `SearchWiggleModifier.orbitRadius`。
+  static const double _orbitRadius = 8;
+
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    if (widget.isActive) _controller.repeat();
+  }
+
+  @override
+  void didUpdateWidget(covariant _WiggleIcon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive == oldWidget.isActive) return;
+    if (widget.isActive) {
+      _controller.repeat();
+    } else {
+      // 停止并平滑回正（对齐 iOS `stopAnimation`：easeOut 0.25s → angle 0）。
+      _controller.stop();
+      _controller.animateBack(
+        0,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (BuildContext context, Widget? child) {
+        final double angle = _controller.value * 2 * math.pi;
+        return Transform.translate(
+          offset: Offset(
+            math.cos(angle) * _orbitRadius,
+            math.sin(angle) * _orbitRadius,
+          ),
+          child: child,
+        );
+      },
+      child: widget.child,
     );
   }
 }
