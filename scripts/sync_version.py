@@ -30,6 +30,14 @@ import pathlib
 import re
 import sys
 
+# Windows 控制台默认 cp1252，输出 emoji / 中文会触发 UnicodeEncodeError
+# （Build Release Assets · Windows job 曾因此失败）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 VERSION_FILE = ROOT / ".version"
 PUBSPEC = ROOT / "pubspec.yaml"

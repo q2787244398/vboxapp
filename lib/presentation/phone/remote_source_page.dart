@@ -19,6 +19,7 @@ import '../../core/utils/time_utils.dart';
 import '../../domain/entities/library/library.dart';
 import '../../domain/entities/remote_source/remote_source.dart';
 import '../../domain/usecases/usecases.dart';
+import '../theme/tokens/colors.dart';
 import '../widgets/source_discovery_view.dart';
 
 /// 远程源页面。
@@ -237,7 +238,11 @@ class _RemoteSourcePageState extends State<RemoteSourcePage>
         children: <Widget>[
           Row(
             children: <Widget>[
-              const Icon(Icons.cloud, size: 20, color: Color(0xFF3B82F6)),
+              const Icon(
+                Icons.cloud,
+                size: 20,
+                color: VboxColors.remoteSourceAccent,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(

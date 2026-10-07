@@ -15,6 +15,7 @@ import '../../../domain/entities/douban/douban_models.dart';
 import '../../../domain/entities/spider/spider.dart';
 import '../../../domain/usecases/usecases.dart';
 import '../../../platform/spider/spider.dart';
+import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
@@ -475,7 +476,7 @@ class _SearchPageState extends State<SearchPage> {
                       color: i == _doubanTab
                           ? scheme.primary
                           : Colors.transparent,
-                      borderRadius: BorderRadius.circular(1),
+                      borderRadius: BorderRadius.circular(VboxRadii.r4),
                     ),
                   ),
                 ],
@@ -783,14 +784,14 @@ class _DoubanCardRow extends StatelessWidget {
                     const SizedBox(height: 6),
                     Row(
                       children: <Widget>[
-                        const Icon(Icons.star, size: 12, color: Color(0xFFF5C518)),
+                        const Icon(Icons.star, size: 12, color: VboxColors.ratingStar),
                         const SizedBox(width: 4),
                         Text(
                           subject.rating.toStringAsFixed(1),
                           style: const TextStyle(
                             fontSize: VboxTypography.s13,
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFFF5C518),
+                            color: VboxColors.ratingStar,
                           ),
                         ),
                       ],

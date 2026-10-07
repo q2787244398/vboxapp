@@ -20,6 +20,7 @@ import '../../../core/utils/result.dart';
 import '../../../domain/entities/spider/spider.dart';
 import '../../../domain/usecases/usecases.dart';
 import '../../shell/splash_gate_monitor.dart';
+import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/detail_page.dart';
@@ -145,7 +146,9 @@ class _VboxHomePageState extends State<VboxHomePage> {
           _TopBarIcon(
             tooltip: '切换源',
             icon: Icons.grid_view_rounded,
-            color: sourceSelected ? const Color(0xFF34C759) : scheme.onSurface,
+            color: sourceSelected
+                ? VboxColors.topBarSourceSelected
+                : scheme.onSurface,
             onPressed: _switchSource,
           ),
           Expanded(child: _buildSearchField(context)),
@@ -165,7 +168,7 @@ class _VboxHomePageState extends State<VboxHomePage> {
           _TopBarIcon(
             tooltip: 'AI 推荐',
             icon: Icons.auto_awesome,
-            color: const Color(0xFF8AB4F8),
+            color: VboxColors.topBarAiAccent,
             onPressed: _openAi,
           ),
           if (sourceSelected)

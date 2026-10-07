@@ -160,6 +160,21 @@ class VboxColors {
   /// 批次 F · F-02 新增。
   static const Color pending = Color(0xFFFFCC00);
 
+  // ── 首页顶栏 / 搜索评分（对齐 iOS 豆瓣首页顶栏与搜索结果卡）──────────
+  /// 首页顶栏「切换源」选中态（对齐 iOS `.green` 的 `square.grid.2x2`）。
+  ///
+  /// 与 [chipSelected] / [success] 同值（`#34C759`），语义独立故单列。
+  static const Color topBarSourceSelected = Color(0xFF34C759);
+
+  /// 首页顶栏「AI 推荐」图标色（对齐 iOS `sparkles` 淡蓝 `#8AB4F8`）。
+  static const Color topBarAiAccent = Color(0xFF8AB4F8);
+
+  /// 搜索结果评分星标 / 分值（对齐 iOS 豆瓣评分 `#F5C518`）。
+  static const Color ratingStar = Color(0xFFF5C518);
+
+  /// 远程源设置图标色（对齐 iOS `cloud` 蓝 `#3B82F6`）。
+  static const Color remoteSourceAccent = Color(0xFF3B82F6);
+
   // ── 品牌渐变（「我的」页头部）───────────────────────────
   /// 品牌渐变起点。
   static const Color brandGradientStart = Color(0xFF3B82F6);
