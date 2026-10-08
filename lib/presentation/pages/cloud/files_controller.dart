@@ -113,6 +113,12 @@ class CloudDriveFilesController extends ChangeNotifier {
   /// 是否分享模式（对齐 iOS 分享 → 文件列表 → 选集）。
   bool get isShareMode => (shareUrl ?? '').isNotEmpty;
 
+  /// 网盘播放编排（分享模式取链 + 播放源落地；null 表示链路未接入）。
+  ///
+  /// 供页面层复用同一实例生成播放源（[PanPlayer.sourceFor]：Go 代理注册 +
+  /// 兜底线路携带），避免页面自建实例重复注册代理 / 丢失兜底线路。
+  PanPlayer? get panPlayer => _pan;
+
   /// 分享链接剥离 `vbox_*` fragment 后的干净地址（F-P27 消费端，对齐 iOS
   /// `PlayerViewsV2.splitVboxFragment` 的 `baseURL` 语义）。
   String get _cleanShareUrl => VboxFragmentCodec.strip(shareUrl ?? '');

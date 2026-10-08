@@ -19,7 +19,6 @@ import '../../../domain/entities/cloud/cloud_drive_files.dart';
 import '../../../domain/entities/cloud/cloud_play_item.dart';
 import '../../../domain/entities/player/player.dart';
 import '../../../domain/entities/playback/playback_detail.dart';
-import '../../../platform/player/go_proxy_client.dart';
 import '../../../platform/player/pan_player.dart';
 import '../../../platform/player/playback_route.dart';
 import '../../theme/tokens/colors.dart';
@@ -183,41 +182,21 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
     return _panSource(item, title);
   }
 
-  /// 网盘直链 → 播放源（C-10 Go 代理）。
+  /// 网盘条目 → 播放源（统一走 [PanPlayer.sourceFor]）。
   ///
-  /// HLS（`m3u8`）经本地 Go 代理注册后再播放：代理完成分片重写 + 上游鉴权头
-  /// 注入，播放端只需拉本地地址（对齐 iOS `CloudDriveManager.registerQuarkStream`
-  /// / `AliyunPgPlayManager.registerStream`）；非 HLS / 代理不可用 / 未返回合法
-  /// 本地地址 → 回落直链并保留原请求头，不阻断播放。
+  /// 复用控制器持有的 [PanPlayer] 实例：HLS（`m3u8`）经本地 Go 代理注册后再播放
+  /// （代理完成分片重写 + 上游鉴权头注入，对齐 iOS `CloudDriveManager.registerQuarkStream`
+  /// / `AliyunPgPlayManager.registerStream`），并**携带 F21 兜底线路**（原画 403 /
+  /// 断连 / 首帧超时回落 m3u8）；代理不可用 → 降级直链保留原请求头。
   Future<PlayerSource> _panSource(CloudPlayItem item, String title) async {
-    final String url = item.playURL ?? '';
-    final Map<String, String> headers = item.headers;
-    if (!url.toLowerCase().contains('.m3u8')) {
-      return PlayerSource(url: url, headers: headers, title: title);
-    }
-    try {
-      final GoProxyClient proxy = GoProxyRegistry.instance;
-      if (!proxy.isRunning) {
-        final String started = await proxy.start();
-        if (!started.startsWith('ok')) {
-          return PlayerSource(url: url, headers: headers, title: title);
-        }
-      }
-      final String proxied = widget.driveType == CloudDriveType.quark
-          ? await proxy.registerQuarkStream(
-              upstreamUrl: url,
-              cookie: headers['Cookie'] ?? '',
-              source: 'v2-play-m3u8',
-            )
-          : await proxy.registerStream(upstreamUrl: url, headers: headers);
-      if (proxied.startsWith('http://127.0.0.1')) {
-        // 代理已注入上游鉴权头 → 本地地址无需再带请求头。
-        return PlayerSource(url: proxied, title: title);
-      }
-    } catch (_) {
-      // 原生 Go 代理缺失 / 异常 → 回落直链。
-    }
-    return PlayerSource(url: url, headers: headers, title: title);
+    final PanPlayer? pan = _controller.panPlayer;
+    if (pan != null) return pan.sourceFor(item, title: title);
+    // 链路未接入（控制器以替身注入）→ 直接交付缓存直链。
+    return PlayerSource(
+      url: item.playURL ?? '',
+      headers: item.headers,
+      title: title,
+    );
   }
 
   /// 立即清理到期条目。

@@ -454,11 +454,8 @@ class PanPlayer {
       throw const PanPlayException('播放地址为空');
     }
     await controller.open(
-      PlayerSource(
-        url: item.playURL!,
-        headers: item.headers,
-        title: item.fileName.isEmpty ? null : item.fileName,
-      ),
+      // 统一播放源落地：HLS 经 Go 代理注册 + 携带兜底线路（F21）。
+      await sourceFor(item, title: item.fileName.isEmpty ? null : item.fileName),
       route: PlaybackRoute.pan,
     );
     return item;

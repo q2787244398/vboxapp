@@ -915,20 +915,19 @@ class _DetailPageState extends State<DetailPage> {
         ),
       );
       if (!mounted) return;
-      final String url = item.playURL ?? '';
-      if (url.isEmpty) {
+      if (!item.hasPlayURL) {
         _toast('播放地址为空');
         return;
       }
+      // 统一播放源落地（对齐 iOS 播放器取链后交引擎）：HLS 经 Go 代理注册 +
+      // 携带 F21 兜底线路（原画 403 / 断连 / 首帧超时回落 m3u8）。
+      final PlayerSource source = await _pan.sourceFor(item, title: d.vod.vodName);
+      if (!mounted) return;
       unawaited(_recordHistory());
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (BuildContext context) => PlayerPage(
-            source: PlayerSource(
-              url: url,
-              headers: item.headers,
-              title: d.vod.vodName,
-            ),
+            source: source,
             // 直链特征无法自证 pan 路由，显式传入（对齐 F-08）。
             route: PlaybackRoute.pan,
             title: d.vod.vodName,

@@ -21,6 +21,7 @@ import 'package:vbox/domain/entities/cloud/cloud_play_item.dart';
 import 'package:vbox/domain/entities/cloud/node_pan.dart';
 import 'package:vbox/domain/entities/cloud/pg_auto.dart';
 import 'package:vbox/domain/entities/player/player.dart';
+import 'package:vbox/platform/player/go_proxy_client.dart';
 import 'package:vbox/platform/player/pan_player.dart';
 import 'package:vbox/platform/player/playback_route.dart';
 import 'package:vbox/platform/player/player_channel_bridge.dart';
@@ -108,6 +109,26 @@ class _FakeQuarkClient extends QuarkNativeClient {
     String? routePreference,
   }) async =>
       const QuarkPlayResult(url: 'https://v/play.m3u8', fileName: 'EP01.mp4');
+}
+
+/// 假夸克原生客户端（带兜底线路，用于 F21 兜底传递断言）。
+class _FallbackQuarkClient extends _FakeQuarkClient {
+  @override
+  Future<QuarkPlayResult> resolvePlayUrl({
+    required String shareUrl,
+    required String cookie,
+    String? preferredFid,
+    String? routePreference,
+  }) async =>
+      const QuarkPlayResult(
+        url: 'https://v/original.mp4',
+        fileName: 'EP01.mp4',
+        source: 'download_url',
+        headers: <String, String>{'Cookie': 'k=v'},
+        fallbackUrl: 'https://v/transcode.m3u8',
+        fallbackHeaders: <String, String>{'Cookie': 'k=v'},
+        fallbackSource: 'v2-play-m3u8',
+      );
 }
 
 /// 假 UC 原生客户端（F-P03）：仅覆盖分享解析与取链。
@@ -563,6 +584,52 @@ void main() {
       expect(item.source, 'ali-share-transcode');
       expect(item.fileName, 'EP01.mp4');
       expect((await cache.load()).length, 1);
+    });
+  });
+
+  group('统一播放源交付（sourceFor / F21 兜底传递）', () {
+    late PanPlayer fbPlayer;
+
+    setUp(() {
+      // 测试宿主无原生 Go 代理 → 统一降级直链（断言不含本地地址）。
+      GoProxyRegistry.instance = const NoopGoProxyClient();
+      fbPlayer = PanPlayer(
+        client: NodePanClient(transport: _happyTransport()),
+        cacheStore: cache,
+        controller: controller,
+        quarkClient: _FallbackQuarkClient(),
+        cookieFor: (CloudDriveType _) async => 'k=v',
+      );
+    });
+
+    test('sourceFor 携带主线路 + 兜底线路（原画 → m3u8）', () async {
+      final CloudPlayItem item = await fbPlayer.prepare(
+        type: CloudDriveType.quark,
+        shareUrl: 'https://pan.quark.cn/s/abc',
+        entry: const NodePanEntry(playID: 'f1', name: 'EP01.mp4'),
+        now: t0,
+      );
+      final PlayerSource source = await fbPlayer.sourceFor(item, title: '示例片');
+      expect(source.url, 'https://v/original.mp4');
+      expect(source.source, 'download_url');
+      expect(source.hasFallback, isTrue);
+      expect(source.fallbackUrl, 'https://v/transcode.m3u8');
+      expect(source.fallbackSource, 'v2-play-m3u8');
+    });
+
+    test('open 经统一播放源（显式 pan 路由）', () async {
+      final NodePanShare share = await fbPlayer.resolveShare(
+        CloudDriveType.quark,
+        'https://pan.quark.cn/s/abc',
+      );
+      await fbPlayer.open(
+        type: CloudDriveType.quark,
+        shareUrl: 'https://pan.quark.cn/s/abc',
+        entry: share.entries.single,
+        now: t0,
+      );
+      expect(bridge.calls, contains('open'));
+      expect(controller.route, PlaybackRoute.pan);
     });
   });
 }
