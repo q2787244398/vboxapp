@@ -63,8 +63,12 @@ GUARDS: dict[str, str] = {
 # 已登记豁免：S-07 未收口的存量未接线项 —— 点名提示但不失败，
 # 免得这批存量噪音把「新增悬空」这一真正要拦的回归淹没。
 # 接线后请把对应行删掉（残留豁免会在运行时以「豁免残留」形式点名）。
-# 现为空：C-07 / C-10 / C-12 三项均已接线（详见下方 EXEMPT 历史）。
-EXEMPT: dict[str, str] = {}
+# 现仅一项：GoProxyClient —— F21 统一播放源交付（0478888）把消费端的
+# 代理注册收敛进 `PanPlayer.sourceFor`（平台层内部封装），消费域不再直接
+# 引用该标识符；能力本身经 `PanPlayer`（已接线）运行期可达，故点名不判失败。
+EXEMPT: dict[str, str] = {
+    "GoProxyClient": "经 PanPlayer.sourceFor 平台层封装接入（消费域不再直接引用）",
+}
 
 # 声明式检索：抓 `class / mixin / enum <Name>`。
 _DECL = re.compile(
