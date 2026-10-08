@@ -137,6 +137,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 锁定态锁按钮自动隐藏延时（对齐 iOS `resetLockButtonAutoHide` 的 3s）。
   static const Duration _lockHideDelay = Duration(seconds: 3);
 
+  /// 下一集预取触发的剩余时长阈值（UI-F17；对齐 iOS 近结尾预取）。
+  static const int _preloadRemainMs = 30000;
+
   late final PlayerController _player;
   final PlayerControlsController _controls = PlayerControlsController();
 
@@ -212,6 +215,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 上次进度落库墙钟（节流 5s；UI-F16）。
   int _lastProgressSaveMs = 0;
+
+  /// 已预取的剧集索引与播放源（UI-F17；切集命中则跳过二次解析）。
+  int? _preloadedEpisodeIndex;
+  PlayerSource? _preloadedSource;
+
+  /// 正在预取的剧集索引（防同一集重复触发；UI-F17）。
+  int? _preloadingIndex;
 
   /// 当前应显示的字幕文本（随进度更新）。
   String? _subtitleCueText;
@@ -809,6 +819,40 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     unawaited(PlaybackProgressStore.save(widget.vodId, seconds));
   }
 
+  // ─────────────── 下一集预取（UI-F17）───────────────
+
+  /// 剩余时长进入阈值（30s）时预取下一集直链。
+  ///
+  /// 每集仅触发一次（[`_preloadedEpisodeIndex`] / [`_preloadingIndex`] 双守卫）；
+  /// 无解析器 / 无下一集 / 时长未知 → 不预取。
+  void _maybePreloadNextEpisode(PlaybackProgress p) {
+    if (widget.onResolveEpisode == null || p.durationMs <= 0) return;
+    if (p.durationMs - p.positionMs > _preloadRemainMs) return;
+    final int next = _controls.currentEpisodeIndex + 1;
+    if (next >= widget.episodes.length) return;
+    if (_preloadedEpisodeIndex == next || _preloadingIndex == next) return;
+    _preloadingIndex = next;
+    unawaited(_preloadEpisode(next));
+  }
+
+  /// 预取指定集解析结果并缓存（失败静默降级，不影响当前播放）。
+  Future<void> _preloadEpisode(int index) async {
+    final EpisodeSourceResolver? resolver = widget.onResolveEpisode;
+    if (resolver == null) return;
+    try {
+      final PlayerSource? source = await resolver(widget.episodes[index]);
+      if (!mounted || source == null) return;
+      // 期间已切集 → 丢弃（缓存只服务于「当前集的下一集」）。
+      if (_controls.currentEpisodeIndex + 1 != index) return;
+      _preloadedEpisodeIndex = index;
+      _preloadedSource = source;
+    } catch (_) {
+      // 预取失败 → 不缓存，切集时按常规重新解析。
+    } finally {
+      if (_preloadingIndex == index) _preloadingIndex = null;
+    }
+  }
+
   // ─────────────── 片头片尾跳过（UI-F2）───────────────
 
   /// 按设置跳过片头 / 片尾（对齐 iOS 播放中两处判定；一集内各触发一次）。
@@ -902,6 +946,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       // UI-F16：首个进度事件即视为首帧就绪 → 应用续播 + 节流落库进度。
       _applyResumeIfNeeded();
       _saveProgressThrottled(p);
+      // UI-F17：近结尾预取下一集直链。
+      _maybePreloadNextEpisode(p);
       _controls.updateProgress(
         positionMs: p.positionMs,
         durationMs: p.durationMs,
@@ -1177,7 +1223,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     );
     // UI-F18：切换集数期间显示加载层（对齐 iOS `正在解析播放地址...`）。
     _controls.showLoading();
-    final PlayerSource? source = await resolver(episode);
+    // UI-F17：命中预取缓存 → 跳过二次解析（切集即时起播）。
+    final PlayerSource? preloaded =
+        _preloadedEpisodeIndex == index ? _preloadedSource : null;
+    _preloadedEpisodeIndex = null;
+    _preloadedSource = null;
+    final PlayerSource? source = preloaded ?? await resolver(episode);
     if (!mounted) return;
     if (source == null) {
       _controls.hideLoading();
