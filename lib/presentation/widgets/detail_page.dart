@@ -421,6 +421,7 @@ class _DetailPageState extends State<DetailPage> {
             ),
             title: d.vod.vodName,
             subtitle: episode.name,
+            vodId: d.vod.vodId,
             episodes: visible,
             initialEpisodeIndex: _episodeIndex.clamp(0, visible.length - 1),
             onResolveEpisode: _resolveEpisodeSource,
@@ -932,6 +933,7 @@ class _DetailPageState extends State<DetailPage> {
             route: PlaybackRoute.pan,
             title: d.vod.vodName,
             subtitle: link.name,
+            vodId: d.vod.vodId,
           ),
         ),
       );

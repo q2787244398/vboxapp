@@ -123,6 +123,40 @@ class DanmakuService {
     }
   }
 
+  /// 搜索番剧列表（UI-F3 弹幕搜索面板；对齐 iOS `DanmakuSearchPanel` 多结果）。
+  ///
+  /// 与 [searchAnime] 的差别：后者只取首个 animeId（自动匹配用），本方法保留
+  /// 完整候选列表（含标题 / 类型 / 封面）供人工挑选。失败 → 空列表。
+  Future<List<DanmakuAnimeMatch>> searchAnimes(String keyword) async {
+    final String key = keyword.trim();
+    if (key.isEmpty) return const <DanmakuAnimeMatch>[];
+    try {
+      final http.Response resp = await _http
+          .get(Uri.parse(
+              '$baseUrl/api/v2/search/anime?keyword=${Uri.encodeQueryComponent(key)}'))
+          .timeout(timeout);
+      if (resp.statusCode != 200) return const <DanmakuAnimeMatch>[];
+      return parseAnimeMatches(resp.body);
+    } catch (_) {
+      return const <DanmakuAnimeMatch>[];
+    }
+  }
+
+  /// 拉取番剧集数列表（UI-F3：选中候选后列出其分集）。
+  ///
+  /// 失败 → 空列表。
+  Future<List<DanmakuEpisodeInfo>> fetchEpisodes(int animeId) async {
+    try {
+      final http.Response resp = await _http
+          .get(Uri.parse('$baseUrl/api/v2/bangumi/$animeId'))
+          .timeout(timeout);
+      if (resp.statusCode != 200) return const <DanmakuEpisodeInfo>[];
+      return parseEpisodes(resp.body);
+    } catch (_) {
+      return const <DanmakuEpisodeInfo>[];
+    }
+  }
+
   /// 匹配并拉取（对齐 iOS `matchAndFetch`）：match 命中优先，否则回退剧名搜索。
   Future<DanmakuFetchResult> matchAndFetch(String query) async {
     final int? episodeId = await matchEpisode(query);
@@ -206,6 +240,57 @@ class DanmakuService {
       }
     }
     return null;
+  }
+
+  /// 解析 `GET /api/v2/search/anime` 响应 → 候选列表（UI-F3 多结果）。
+  ///
+  /// 兼容 `{animes:[...]}` 与裸数组两种形态；字段名兼容 `animeId`/`anime_id`、
+  /// `animeTitle`/`title`、`type`、`imageUrl`/`image`。
+  static List<DanmakuAnimeMatch> parseAnimeMatches(String body) {
+    final Object? root = _decode(body);
+    Object? list;
+    if (root is Map) {
+      list = root['animes'];
+    } else if (root is List) {
+      list = root;
+    }
+    if (list is! List) return const <DanmakuAnimeMatch>[];
+    final List<DanmakuAnimeMatch> out = <DanmakuAnimeMatch>[];
+    for (final Object? raw in list) {
+      if (raw is! Map) continue;
+      final int? id = _asInt(raw['animeId']) ?? _asInt(raw['anime_id']);
+      if (id == null) continue;
+      out.add(DanmakuAnimeMatch(
+        animeId: id,
+        title: (raw['animeTitle'] ?? raw['title'] ?? '').toString().trim(),
+        type: (raw['type'] ?? raw['typeDescription'] ?? '').toString().trim(),
+        imageUrl: (raw['imageUrl'] ?? raw['image'] ?? '').toString().trim(),
+      ));
+    }
+    return out;
+  }
+
+  /// 解析 `GET /api/v2/bangumi/{id}` 响应 → 分集列表（UI-F3）。
+  static List<DanmakuEpisodeInfo> parseEpisodes(String body) {
+    final Object? root = _decode(body);
+    if (root is! Map) return const <DanmakuEpisodeInfo>[];
+    final Object? bangumi = root['bangumi'];
+    if (bangumi is! Map) return const <DanmakuEpisodeInfo>[];
+    final Object? episodes = bangumi['episodes'];
+    if (episodes is! List) return const <DanmakuEpisodeInfo>[];
+    final List<DanmakuEpisodeInfo> out = <DanmakuEpisodeInfo>[];
+    for (final Object? raw in episodes) {
+      if (raw is! Map) continue;
+      final int? id = _asInt(raw['episodeId']) ?? _asInt(raw['episode_id']);
+      if (id == null) continue;
+      out.add(DanmakuEpisodeInfo(
+        episodeId: id,
+        episodeNumber:
+            _asInt(raw['episodeNumber']) ?? _asInt(raw['episode_number']) ?? 0,
+        title: (raw['episodeTitle'] ?? raw['title'] ?? '').toString().trim(),
+      ));
+    }
+    return out;
   }
 
   /// 解析 `GET /api/v2/bangumi/{id}` 响应，取指定集数的 episodeId（缺省取首集）。
@@ -378,4 +463,46 @@ class DanmakuFetchResult {
 
   /// 是否为空结果。
   bool get isEmpty => items.isEmpty;
+}
+
+/// 弹幕番剧搜索候选（UI-F3 搜索弹幕面板；对齐 iOS `DanmakuSearchResult`）。
+class DanmakuAnimeMatch {
+  /// 构造。
+  const DanmakuAnimeMatch({
+    required this.animeId,
+    this.title = '',
+    this.type = '',
+    this.imageUrl = '',
+  });
+
+  /// 番剧 id。
+  final int animeId;
+
+  /// 番剧名称。
+  final String title;
+
+  /// 类型（如「TV动画」）。
+  final String type;
+
+  /// 封面地址。
+  final String imageUrl;
+}
+
+/// 弹幕番剧分集（UI-F3；对齐 iOS `DanmakuEpisodeInfo`）。
+class DanmakuEpisodeInfo {
+  /// 构造。
+  const DanmakuEpisodeInfo({
+    required this.episodeId,
+    this.episodeNumber = 0,
+    this.title = '',
+  });
+
+  /// 弹幕库中的分集 id（拉取 / 发送弹幕的实际键）。
+  final int episodeId;
+
+  /// 集号。
+  final int episodeNumber;
+
+  /// 分集标题。
+  final String title;
 }

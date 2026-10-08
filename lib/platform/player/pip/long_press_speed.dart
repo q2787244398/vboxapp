@@ -21,12 +21,19 @@ class LongPressSpeedController {
         _currentSpeed = currentSpeed,
         _setSpeed = setSpeed;
 
-  final double _longPressSpeed;
+  double _longPressSpeed;
   final double Function() _currentSpeed;
   final Future<void> Function(double speed) _setSpeed;
 
   bool _active = false;
   double? _restoreSpeed;
+
+  /// 运行时更新长按目标倍速（UI-F6 长按倍速设置面板 / 契约键回填）。
+  ///
+  /// 激活中改档位不改变本次长按的恢复目标（松开仍回到按下前倍速）。
+  void updateSpeed(double value) {
+    _longPressSpeed = value;
+  }
 
   /// 长按倍速是否启用（≤1.0 视为未启用）。
   bool get enabled => _longPressSpeed > 1.0;

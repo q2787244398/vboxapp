@@ -15,6 +15,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../../platform/player/danmaku/danmaku_service.dart';
 import '../../../platform/player/danmaku/danmaku_settings.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
@@ -37,6 +38,10 @@ class PlayerControlsView extends StatelessWidget {
     this.danmakuBuilder,
     this.danmakuSettings,
     this.onDanmakuSettingsChanged,
+    this.danmakuSearch,
+    this.danmakuLoadEpisodes,
+    this.onSelectDanmakuEpisode,
+    this.onLoadSubtitleFile,
     this.lockButtonVisible = true,
     this.controlsVisible = true,
   });
@@ -55,6 +60,18 @@ class PlayerControlsView extends StatelessWidget {
 
   /// 弹幕设置变更回调。
   final ValueChanged<DanmakuSettings>? onDanmakuSettingsChanged;
+
+  /// 弹幕搜索（关键字 → 候选番剧；UI-F3 搜索面板数据源；null 隐藏搜索入口）。
+  final Future<List<DanmakuAnimeMatch>> Function(String keyword)? danmakuSearch;
+
+  /// 拉取番剧分集（UI-F3）。
+  final Future<List<DanmakuEpisodeInfo>> Function(int animeId)? danmakuLoadEpisodes;
+
+  /// 选定弹幕分集回调（UI-F3）。
+  final ValueChanged<DanmakuEpisodeInfo>? onSelectDanmakuEpisode;
+
+  /// 上传本地字幕文件回调（UI-F5 字幕设置面板）。
+  final VoidCallback? onLoadSubtitleFile;
 
   /// 锁定态下锁按钮是否可见（对齐 iOS `showLockButton`：点击屏幕后短暂显示）。
   final bool lockButtonVisible;
@@ -117,6 +134,10 @@ class PlayerControlsView extends StatelessWidget {
                   landscape: landscape,
                   danmakuSettings: danmakuSettings,
                   onDanmakuSettingsChanged: onDanmakuSettingsChanged,
+                  danmakuSearch: danmakuSearch,
+                  danmakuLoadEpisodes: danmakuLoadEpisodes,
+                  onSelectDanmakuEpisode: onSelectDanmakuEpisode,
+                  onLoadSubtitleFile: onLoadSubtitleFile,
                 ),
               ],
               // 方向锁定按钮（左缘垂直居中，对齐 iOS 覆盖层定位）
@@ -203,12 +224,21 @@ class _PanelHost extends StatelessWidget {
     required this.landscape,
     this.danmakuSettings,
     this.onDanmakuSettingsChanged,
+    this.danmakuSearch,
+    this.danmakuLoadEpisodes,
+    this.onSelectDanmakuEpisode,
+    this.onLoadSubtitleFile,
   });
 
   final PlayerControlsController controller;
   final bool landscape;
   final DanmakuSettings? danmakuSettings;
   final ValueChanged<DanmakuSettings>? onDanmakuSettingsChanged;
+  final Future<List<DanmakuAnimeMatch>> Function(String keyword)? danmakuSearch;
+  final Future<List<DanmakuEpisodeInfo>> Function(int animeId)?
+      danmakuLoadEpisodes;
+  final ValueChanged<DanmakuEpisodeInfo>? onSelectDanmakuEpisode;
+  final VoidCallback? onLoadSubtitleFile;
 
   @override
   Widget build(BuildContext context) {
@@ -292,68 +322,70 @@ class _PanelHost extends StatelessWidget {
       );
     }
     if (controller.showToolsMenu) {
-      return PlayerPanelContainer(
+      return ToolsQuickMenuPanel(
         key: const ValueKey<String>('tools'),
-        title: '更多',
+        controller: controller,
+        danmakuSearchAvailable:
+            danmakuSearch != null && danmakuLoadEpisodes != null,
         onClose: close,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            _ToolsEntry(
-              icon: controller.inPip
-                  ? Icons.picture_in_picture_alt_rounded
-                  : Icons.picture_in_picture_alt_outlined,
-              label: controller.inPip ? '退出画中画' : '画中画',
-              enabled: controller.pipAvailable && controller.onTogglePip != null,
-              onTap: () {
-                controller.closeAllPanels();
-                controller.onTogglePip?.call();
+      );
+    }
+    // ── UI-F6 跳转目标面板 ─────────────────────────────
+    if (controller.showLongPressSpeedSettings) {
+      return LongPressSpeedSettingsPanel(
+        key: const ValueKey<String>('longPressSpeed'),
+        current: controller.longPressSpeed,
+        onSelect: controller.onSelectLongPressSpeed == null
+            ? null
+            : controller.selectLongPressSpeed,
+        onClose: close,
+      );
+    }
+    if (controller.showSkipSettings) {
+      return SkipSettingsPanel(
+        key: const ValueKey<String>('skip'),
+        settings: controller.skipSettings,
+        onChanged: controller.onSkipSettingsChanged == null
+            ? null
+            : controller.updateSkipSettings,
+        onClose: close,
+      );
+    }
+    if (controller.showDanmakuSearch) {
+      final Future<List<DanmakuAnimeMatch>> Function(String)? search =
+          danmakuSearch;
+      final Future<List<DanmakuEpisodeInfo>> Function(int)? loadEpisodes =
+          danmakuLoadEpisodes;
+      if (search == null || loadEpisodes == null) return null;
+      return DanmakuSearchPanel(
+        key: const ValueKey<String>('danmakuSearch'),
+        search: search,
+        loadEpisodes: loadEpisodes,
+        onSelectEpisode: onSelectDanmakuEpisode == null
+            ? null
+            : (DanmakuEpisodeInfo e) {
+                close();
+                onSelectDanmakuEpisode!(e);
               },
-            ),
-            _ToolsEntry(
-              icon: Icons.subtitles_outlined,
-              label: '加载字幕',
-              enabled: controller.onLoadSubtitle != null,
-              onTap: () {
-                controller.closeAllPanels();
-                controller.onLoadSubtitle?.call();
-              },
-            ),
-          ],
-        ),
+        onClose: close,
+      );
+    }
+    if (controller.showSubtitleSettings) {
+      return SubtitleSettingsPanel(
+        key: const ValueKey<String>('subtitle'),
+        style: controller.subtitleStyle,
+        fileName: controller.subtitleFileName,
+        onLoadFile: controller.onLoadSubtitle == null
+            ? null
+            : (onLoadSubtitleFile ?? controller.onLoadSubtitle),
+        onStyleChanged: controller.onSubtitleStyleChanged == null
+            ? null
+            : controller.updateSubtitleStyle,
+        onClear: controller.onClearSubtitle,
+        onClose: close,
       );
     }
     return null;
-  }
-}
-
-/// 「更多」面板单行入口（图标 + 文案；禁用态置灰）。
-class _ToolsEntry extends StatelessWidget {
-  const _ToolsEntry({
-    required this.icon,
-    required this.label,
-    required this.enabled,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool enabled;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final Color color = enabled ? Colors.white : Colors.white38;
-    return ListTile(
-      dense: true,
-      enabled: enabled,
-      leading: Icon(icon, size: 20, color: color),
-      title: Text(
-        label,
-        style: TextStyle(fontSize: 14, color: color),
-      ),
-      onTap: enabled ? onTap : null,
-    );
   }
 }
 

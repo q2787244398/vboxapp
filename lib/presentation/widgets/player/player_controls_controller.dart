@@ -6,12 +6,18 @@
 ///
 /// 对齐 iOS `PlayerState`（ObservableObject）在控制层的语义子集：
 /// 播放/暂停 · 进度 · 倍速 · 清晰度 · 选集 · 内核 · 弹幕开关 · 面板互斥开关。
+///
+/// UI-F 家族扩充（面板互斥：同屏至多一个）：
+///  - UI-F2 片头片尾设置 · UI-F3 弹幕搜索 · UI-F5 字幕设置 · UI-F6 工具快捷菜单
+///    （4 跳转 + 4 开关）· S-07 长按倍速。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../../../domain/entities/player/player.dart';
 import '../../../domain/entities/playback/playback_detail.dart';
+import '../../../platform/player/skip_settings.dart';
+import '../../../platform/player/subtitle_style.dart';
 import '../../ui_mode/ui_mode.dart';
 
 /// 播放器控制层视图状态。
@@ -36,6 +42,11 @@ class PlayerControlsController extends ChangeNotifier {
     this.currentBackend,
     this.showDanmaku = false,
     this.hasDanmaku = false,
+    this.autoPlayNext = false,
+    this.backgroundPlay = false,
+    this.pipEnabled = false,
+    this.debugOverlay = false,
+    this.longPressSpeed = 2.0,
   });
 
   // ── 标题区 ───────────────────────────────────────────
@@ -104,6 +115,51 @@ class PlayerControlsController extends ChangeNotifier {
   /// 该源是否具备弹幕（无弹幕源时隐藏弹幕按钮）。
   bool hasDanmaku;
 
+  // ── 工具快捷菜单开关（UI-F6；对齐 iOS `ToolsQuickMenuV2`）──
+
+  /// 自动连播下一集（契约键 `player_auto_play_next`）。
+  bool autoPlayNext;
+
+  /// 后台播放（契约键 `player_background_play`）。
+  bool backgroundPlay;
+
+  /// 画中画开关（契约键 `player_pip_enabled`；与「能力可用」[pipAvailable] 区分）。
+  bool pipEnabled;
+
+  /// 调试浮层（契约键 `show_debug_overlay`）。
+  bool debugOverlay;
+
+  /// 长按倍速档位（契约键 `player_long_press_speed`）。
+  double longPressSpeed;
+
+  // ── 片头片尾跳过（UI-F2；按视频独立存储，对齐 iOS `skip_<vodId>_*`）──
+
+  /// 是否自动跳过片头。
+  bool skipIntroEnabled = false;
+
+  /// 片头时长（秒）。
+  int skipIntroSeconds = 0;
+
+  /// 是否自动跳过片尾。
+  bool skipOutroEnabled = false;
+
+  /// 片尾时长（秒）。
+  int skipOutroSeconds = 0;
+
+  // ── 字幕（UI-F5）──
+
+  /// 当前外挂字幕名（空串表示未加载）。
+  String subtitleFileName = '';
+
+  /// 字幕是否显示。
+  bool showSubtitle = true;
+
+  /// 字幕字号（px）。
+  double subtitleFontSize = 16;
+
+  /// 字幕颜色档位索引（0 白 / 1 黄 / 2 青）。
+  int subtitleColorIndex = 0;
+
   // ── 画中画 / 字幕（C-05 / C-08 接线，更多面板入口）──
 
   /// 是否提供画中画入口（[PipStrategy.showsVisualPip]；不可用则入口置灰）。
@@ -123,6 +179,10 @@ class PlayerControlsController extends ChangeNotifier {
   bool _showEnginePicker = false;
   bool _showDanmakuSettings = false;
   bool _showToolsMenu = false;
+  bool _showLongPressSpeedSettings = false;
+  bool _showSkipSettings = false;
+  bool _showDanmakuSearch = false;
+  bool _showSubtitleSettings = false;
 
   // ── 动作回调（调用方接线；null 表示不可用/禁用）──────
 
@@ -145,6 +205,30 @@ class PlayerControlsController extends ChangeNotifier {
 
   /// 加载字幕回调（null 表示不可用）。
   VoidCallback? onLoadSubtitle;
+
+  /// 清除已加载字幕（UI-F5）。
+  VoidCallback? onClearSubtitle;
+
+  /// 字幕设置变更回调（字号 / 颜色 / 显示开关）。
+  ValueChanged<SubtitleStyle>? onSubtitleStyleChanged;
+
+  /// 工具菜单开关回调（UI-F6；null 表示不可变）。
+  ValueChanged<bool>? onToggleAutoPlayNext;
+
+  /// 后台播放开关回调。
+  ValueChanged<bool>? onToggleBackgroundPlay;
+
+  /// 画中画开关回调（写契约键，与「临时进入 PiP」区分）。
+  ValueChanged<bool>? onTogglePipEnabled;
+
+  /// 调试浮层开关回调。
+  ValueChanged<bool>? onToggleDebugOverlay;
+
+  /// 长按倍速档位变更回调（UI-F20 / S-07）。
+  ValueChanged<double>? onSelectLongPressSpeed;
+
+  /// 片头片尾设置变更回调（UI-F2）。
+  ValueChanged<SkipSettings>? onSkipSettingsChanged;
 
   /// 进度拖拽结束回调（毫秒）。
   void Function(int positionMs)? onSeek;
@@ -225,6 +309,10 @@ class PlayerControlsController extends ChangeNotifier {
   bool get showEnginePicker => _showEnginePicker;
   bool get showDanmakuSettings => _showDanmakuSettings;
   bool get showToolsMenu => _showToolsMenu;
+  bool get showLongPressSpeedSettings => _showLongPressSpeedSettings;
+  bool get showSkipSettings => _showSkipSettings;
+  bool get showDanmakuSearch => _showDanmakuSearch;
+  bool get showSubtitleSettings => _showSubtitleSettings;
 
   /// 是否任一面板打开（控制层据此隐藏自动消失逻辑）。
   bool get hasAnyPanelOpen =>
@@ -233,7 +321,11 @@ class PlayerControlsController extends ChangeNotifier {
       _showSpeedPicker ||
       _showEnginePicker ||
       _showDanmakuSettings ||
-      _showToolsMenu;
+      _showToolsMenu ||
+      _showLongPressSpeedSettings ||
+      _showSkipSettings ||
+      _showDanmakuSearch ||
+      _showSubtitleSettings;
 
   // ── 状态更新（调用方 / 播放器事件接线）────────────────
 
@@ -362,6 +454,19 @@ class PlayerControlsController extends ChangeNotifier {
   /// 打开「更多」菜单。
   void openToolsMenu() => _openOnly(() => _showToolsMenu = true);
 
+  /// 打开长按倍速设置面板（UI-F6 → S-07）。
+  void openLongPressSpeedSettings() =>
+      _openOnly(() => _showLongPressSpeedSettings = true);
+
+  /// 打开片头片尾设置面板（UI-F2）。
+  void openSkipSettings() => _openOnly(() => _showSkipSettings = true);
+
+  /// 打开弹幕搜索面板（UI-F3）。
+  void openDanmakuSearch() => _openOnly(() => _showDanmakuSearch = true);
+
+  /// 打开字幕设置面板（UI-F5）。
+  void openSubtitleSettings() => _openOnly(() => _showSubtitleSettings = true);
+
   /// 关闭全部面板。
   void closeAllPanels() {
     if (!hasAnyPanelOpen) return;
@@ -371,8 +476,88 @@ class PlayerControlsController extends ChangeNotifier {
     _showEnginePicker = false;
     _showDanmakuSettings = false;
     _showToolsMenu = false;
+    _showLongPressSpeedSettings = false;
+    _showSkipSettings = false;
+    _showDanmakuSearch = false;
+    _showSubtitleSettings = false;
     notifyListeners();
   }
+
+  // ── 工具菜单开关（UI-F6；先回填本地再上抛，保证即时响应）──
+
+  /// 切换自动连播（回填 + 上抛持久化）。
+  void setAutoPlayNext(bool value) {
+    if (autoPlayNext == value) return;
+    autoPlayNext = value;
+    onToggleAutoPlayNext?.call(value);
+    notifyListeners();
+  }
+
+  /// 切换后台播放。
+  void setBackgroundPlay(bool value) {
+    if (backgroundPlay == value) return;
+    backgroundPlay = value;
+    onToggleBackgroundPlay?.call(value);
+    notifyListeners();
+  }
+
+  /// 切换画中画开关。
+  void setPipEnabled(bool value) {
+    if (pipEnabled == value) return;
+    pipEnabled = value;
+    onTogglePipEnabled?.call(value);
+    notifyListeners();
+  }
+
+  /// 切换调试浮层。
+  void setDebugOverlay(bool value) {
+    if (debugOverlay == value) return;
+    debugOverlay = value;
+    onToggleDebugOverlay?.call(value);
+    notifyListeners();
+  }
+
+  /// 选择长按倍速档位（回填并关闭面板）。
+  void selectLongPressSpeed(double value) {
+    longPressSpeed = value;
+    _showLongPressSpeedSettings = false;
+    onSelectLongPressSpeed?.call(value);
+    notifyListeners();
+  }
+
+  /// 更新片头片尾设置（回填 + 上抛持久化；面板内联编辑不关面板）。
+  void updateSkipSettings(SkipSettings value) {
+    skipIntroEnabled = value.introEnabled;
+    skipIntroSeconds = value.introSeconds;
+    skipOutroEnabled = value.outroEnabled;
+    skipOutroSeconds = value.outroSeconds;
+    onSkipSettingsChanged?.call(value);
+    notifyListeners();
+  }
+
+  /// 更新字幕样式（回填 + 上抛；面板内联编辑不关面板）。
+  void updateSubtitleStyle(SubtitleStyle value) {
+    showSubtitle = value.visible;
+    subtitleFontSize = value.fontSize;
+    subtitleColorIndex = value.colorIndex;
+    onSubtitleStyleChanged?.call(value);
+    notifyListeners();
+  }
+
+  /// 当前字幕样式快照。
+  SubtitleStyle get subtitleStyle => SubtitleStyle(
+        visible: showSubtitle,
+        fontSize: subtitleFontSize,
+        colorIndex: subtitleColorIndex,
+      );
+
+  /// 当前片头片尾设置快照。
+  SkipSettings get skipSettings => SkipSettings(
+        introEnabled: skipIntroEnabled,
+        introSeconds: skipIntroSeconds,
+        outroEnabled: skipOutroEnabled,
+        outroSeconds: skipOutroSeconds,
+      );
 
   void _openOnly(VoidCallback open) {
     final bool wasOpen = hasAnyPanelOpen;

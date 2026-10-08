@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/player/player.dart';
 import '../../../domain/entities/playback/playback_detail.dart';
 import '../../../platform/player/cast/cast.dart';
@@ -38,7 +39,9 @@ import '../../../platform/player/playback_route.dart';
 import '../../../platform/player/playback_settings.dart';
 import '../../../platform/player/playthrough.dart';
 import '../../../platform/player/remux_proxy.dart';
+import '../../../platform/player/skip_settings.dart';
 import '../../../platform/player/subtitle_parser.dart';
+import '../../../platform/player/subtitle_style.dart';
 import '../../theme/tokens/colors.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/player/cast/cast_controller.dart';
@@ -46,6 +49,7 @@ import '../../widgets/player/cast/cast_device_sheet.dart';
 import '../../widgets/player/danmaku/danmaku_overlay.dart';
 import '../../widgets/player/player_controls_controller.dart';
 import '../../widgets/player/player_controls_view.dart';
+import '../../widgets/player/player_error_view.dart';
 import '../../widgets/player/video_surface.dart';
 
 /// 单集 → 播放源解析器（选集重开用；返回 null 表示解析失败）。
@@ -62,6 +66,7 @@ class PlayerPage extends StatefulWidget {
     required this.title,
     this.subtitle,
     this.subtitleUrl,
+    this.vodId = '',
     this.episodes = const <PlaybackEpisode>[],
     this.initialEpisodeIndex = 0,
     this.qualities = const <String>[],
@@ -81,6 +86,9 @@ class PlayerPage extends StatefulWidget {
 
   /// 副标题（集名 / 源名）。
   final String? subtitle;
+
+  /// 视频 id（片头片尾设置按视频独立存储的键；空串表示不启用该能力）。
+  final String vodId;
 
   /// 外挂字幕地址（`srt` / `vtt` / `ass`；null 表示无字幕，可经「更多 → 加载字幕」补挂）。
   ///
@@ -185,6 +193,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 外挂字幕轨道（C-08；null 表示未加载）。
   SubtitleTrack? _subtitleTrack;
 
+  /// 片头片尾跳过设置（UI-F2；按 [PlayerPage.vodId] 独立加载）。
+  SkipSettings _skipSettings = const SkipSettings();
+
+  /// 本集片头 / 片尾是否已触发（一集内只跳一次，对齐 iOS `skipIntroTriggered`）。
+  bool _skipIntroTriggered = false;
+  bool _skipOutroTriggered = false;
+
   /// 当前应显示的字幕文本（随进度更新）。
   String? _subtitleCueText;
 
@@ -193,6 +208,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 长按前的倍速（松开恢复用）。
   double _preLongPressSpeed = 1.0;
+
+  /// 致命错误文案（非 null 时覆盖显示 [PlayerErrorView]；对齐 iOS `ErrorView`）。
+  String? _errorMessage;
+
+  /// 播放器运行日志（错误态调试查看用；对齐 iOS `ErrorViewWithLogs`）。
+  final List<String> _playerLogs = <String>[];
 
   /// 当前输出面纹理句柄（R-渲1）。
   int? _textureId;
@@ -239,7 +260,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       ..qualities = widget.qualities
       ..backends = _player.availableBackends
       ..hasDanmaku = true
-      ..showDanmaku = _danmaku.enabled;
+      ..showDanmaku = _danmaku.enabled
+      // UI-F6 工具菜单开关（先用契约默认，稍后由 _loadCapabilities 覆盖）
+      ..autoPlayNext = _playback.autoPlayNext
+      ..backgroundPlay = _playback.backgroundPlay
+      ..pipEnabled = _playback.pipEnabled
+      ..longPressSpeed = _playback.longPressSpeed;
     unawaited(_initDanmaku());
     unawaited(_enter());
     unawaited(_loadCapabilities());
@@ -390,6 +416,38 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     if (!ok && mounted) _toast('弹幕发送失败');
   }
 
+  // ─────────────── 弹幕搜索（UI-F3）───────────────
+
+  /// 关键字 → 候选番剧（搜索面板数据源）。
+  Future<List<DanmakuAnimeMatch>> _searchDanmakuAnime(String keyword) async {
+    final DanmakuService? svc = _danmakuService;
+    if (svc == null) return const <DanmakuAnimeMatch>[];
+    return svc.searchAnimes(keyword);
+  }
+
+  /// 番剧 id → 分集列表（搜索面板数据源）。
+  Future<List<DanmakuEpisodeInfo>> _loadDanmakuEpisodes(int animeId) async {
+    final DanmakuService? svc = _danmakuService;
+    if (svc == null) return const <DanmakuEpisodeInfo>[];
+    return svc.fetchEpisodes(animeId);
+  }
+
+  /// 选定分集 → 拉取该集弹幕并替换当前轨道（对齐 iOS 手动指定弹幕源）。
+  Future<void> _selectDanmakuEpisode(DanmakuEpisodeInfo episode) async {
+    final DanmakuService? svc = _danmakuService;
+    if (svc == null) return;
+    final List<DanmakuItem> items =
+        await svc.fetchByEpisodeId(episode.episodeId);
+    if (!mounted) return;
+    setState(() {
+      _danmakuItems = items;
+      _danmakuEpisodeId = episode.episodeId;
+      _danmakuStates = const <DanmakuRenderState>[];
+    });
+    _syncDanmakuController();
+    _toast(items.isEmpty ? '该集暂无弹幕' : '已加载弹幕（${items.length} 条）');
+  }
+
   // ─────────────── 投屏接线（C-09） ───────────────
 
   /// 打开投屏设备选择弹层；投屏成功后暂停本地播放（避免双端出声）。
@@ -430,11 +488,39 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     } catch (_) {
       // 忽略：回退会话默认。
     }
+    // 调试浮层（UI-F6 工具菜单开关；契约键 `show_debug_overlay`）。
+    bool debugOverlay = false;
+    try {
+      debugOverlay = await PrefsManager.instance.getBool('show_debug_overlay');
+    } catch (_) {
+      // 未初始化存储（如单测）→ 保持关闭。
+    }
+    // 片头片尾设置（UI-F2；按视频独立加载）。
+    SkipSettings skip = const SkipSettings();
+    try {
+      skip = await SkipSettings.load(widget.vodId);
+    } catch (_) {
+      // 读取失败 → 全关。
+    }
     if (!mounted) return;
     setState(() {
       _playback = s;
+      _skipSettings = skip;
       _autoPlayNext.enabled = s.autoPlayNext;
+      _longPressSpeed.updateSpeed(s.longPressSpeed);
       _controls.pipAvailable = s.pipEnabled;
+      // UI-F6 工具菜单开关回填
+      _controls
+        ..autoPlayNext = s.autoPlayNext
+        ..backgroundPlay = s.backgroundPlay
+        ..pipEnabled = s.pipEnabled
+        ..debugOverlay = debugOverlay
+        ..longPressSpeed = s.longPressSpeed
+        // UI-F2 片头片尾
+        ..skipIntroEnabled = skip.introEnabled
+        ..skipIntroSeconds = skip.introSeconds
+        ..skipOutroEnabled = skip.outroEnabled
+        ..skipOutroSeconds = skip.outroSeconds;
     });
     _backgroundPlay = BackgroundPlayController(
       enabled: s.backgroundPlay,
@@ -565,11 +651,29 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       setState(() {
         _subtitleTrack = SubtitleTrack(cues);
         _subtitleCueText = null;
+        _controls.subtitleFileName = _subtitleDisplayName(uri);
       });
       _toast('字幕已加载（${cues.length} 条）');
     } catch (_) {
       if (mounted) _toast('字幕加载失败');
     }
+  }
+
+  /// 字幕显示名（URL 末段；对齐 iOS `subtitleFileName`）。
+  static String _subtitleDisplayName(Uri uri) {
+    final List<String> segments = uri.pathSegments;
+    return segments.isEmpty ? uri.toString() : segments.last;
+  }
+
+  /// 清除已加载字幕（UI-F5 字幕设置面板）。
+  void _clearSubtitle() {
+    if (_subtitleTrack == null && _controls.subtitleFileName.isEmpty) return;
+    setState(() {
+      _subtitleTrack = null;
+      _subtitleCueText = null;
+      _controls.subtitleFileName = '';
+    });
+    _toast('已清除字幕');
   }
 
   /// 随进度更新当前字幕文本（仅在变化时刷新）。
@@ -623,6 +727,33 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _scheduleHide();
   }
 
+  // ─────────────── 片头片尾跳过（UI-F2）───────────────
+
+  /// 按设置跳过片头 / 片尾（对齐 iOS 播放中两处判定；一集内各触发一次）。
+  ///
+  /// 直播流不适用；片头命中即 seek 到片头结束，片尾命中即推进下一集。
+  void _applySkipSettings(PlaybackProgress p) {
+    if (p.isLive) return;
+    if (SkipTrigger.shouldSkipIntro(
+      positionMs: p.positionMs,
+      settings: _skipSettings,
+      alreadyTriggered: _skipIntroTriggered,
+    )) {
+      _skipIntroTriggered = true;
+      unawaited(_player.seekTo(_skipSettings.introSeconds * 1000));
+      return;
+    }
+    if (SkipTrigger.shouldSkipOutro(
+      positionMs: p.positionMs,
+      durationMs: p.durationMs,
+      settings: _skipSettings,
+      alreadyTriggered: _skipOutroTriggered,
+    )) {
+      _skipOutroTriggered = true;
+      unawaited(_advanceNext());
+    }
+  }
+
   // ─────────────── 播放器接线 ───────────────
 
   void _bindPlayer() {
@@ -641,6 +772,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         isLive: p.isLive,
       );
       _updateSubtitleCue(p.positionMs);
+      // UI-F2：片头片尾自动跳过。
+      _applySkipSettings(p);
       // 弹幕时基同步（定时器在两次进度事件间按墙钟插值）。
       _danmakuPosMs = p.positionMs;
       _danmakuSyncAtMs = DateTime.now().millisecondsSinceEpoch;
@@ -661,7 +794,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     };
     _player.onError = (String message, {required bool fatal}) {
       if (!mounted) return;
-      _toast(message);
+      _appendLog('错误：$message');
+      // 致命错误 → 覆盖错误态视图（可重试）；非致命仅提示（对齐 iOS 分级）。
+      if (fatal) {
+        setState(() => _errorMessage = message);
+      } else {
+        _toast(message);
+      }
     };
   }
 
@@ -713,6 +852,50 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _controls.onLoadSubtitle = () => unawaited(_promptSubtitleUrl());
     _controls.onSendDanmaku = () => unawaited(_promptSendDanmaku());
     _controls.onCast = () => unawaited(_openCastSheet());
+    // ── UI-F6 工具菜单开关（持久化到契约键）──
+    _controls.onToggleAutoPlayNext = (bool v) {
+      _autoPlayNext.enabled = v;
+      unawaited(_savePref('player_auto_play_next', v));
+    };
+    _controls.onToggleBackgroundPlay = (bool v) {
+      final BackgroundPlayController? bg = _backgroundPlay;
+      if (bg != null) bg.enabled = v;
+      unawaited(_savePref('player_background_play', v));
+    };
+    _controls.onTogglePipEnabled = (bool v) {
+      _controls.pipAvailable = v;
+      unawaited(_savePref('player_pip_enabled', v));
+    };
+    _controls.onToggleDebugOverlay = (bool v) {
+      unawaited(_savePref('show_debug_overlay', v));
+    };
+    // ── UI-F6 → 长按倍速（S-07：即时生效 + 持久化）──
+    _controls.onSelectLongPressSpeed = (double v) {
+      _longPressSpeed.updateSpeed(v);
+      unawaited(_savePref('player_long_press_speed', v));
+      if (mounted) setState(() {});
+    };
+    // ── UI-F2 片头片尾（按视频独立持久化）──
+    _controls.onSkipSettingsChanged = (SkipSettings v) {
+      _skipSettings = v;
+      _skipIntroTriggered = false;
+      _skipOutroTriggered = false;
+      unawaited(v.save(widget.vodId));
+    };
+    // ── UI-F5 字幕样式 ──
+    _controls.onSubtitleStyleChanged = (SubtitleStyle v) {
+      if (mounted) setState(() {});
+    };
+    _controls.onClearSubtitle = _clearSubtitle;
+  }
+
+  /// 写单个契约键（未初始化存储 / 契约外键时静默忽略，不阻断播放）。
+  Future<void> _savePref(String key, Object value) async {
+    try {
+      await PrefsManager.instance.set(key, value);
+    } catch (_) {
+      // 忽略：偏好写入失败不影响本次播放会话。
+    }
   }
 
   /// 打开播放源并起播；失败抛 [PlayerOpenException] 已在导航层处理，此处仅提示。
@@ -726,7 +909,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       await _player.play();
       if (!mounted) return;
       _controls.currentBackend = _player.backend;
+      // 起播成功 → 退出错误态（重试成功即收起重试视图）。
+      if (_errorMessage != null) setState(() => _errorMessage = null);
     } on PlayerOpenException catch (e) {
+      _appendLog('打开失败：${e.code} ${e.message}');
       final PlayerSource? remuxed = await _remuxFallback(source);
       if (remuxed != null) {
         try {
@@ -734,14 +920,36 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
           await _player.play();
           if (!mounted) return;
           _controls.currentBackend = _player.backend;
+          if (_errorMessage != null) setState(() => _errorMessage = null);
           return;
         } on PlayerOpenException {
           // 转封装后仍失败 → 走下方统一诊断提示。
         }
       }
       final String message = await _diagnose(e, source);
-      if (mounted) _toast(message);
+      _showError(message);
     }
+  }
+
+  /// 记录播放器日志（错误态调试查看；仅保留最近 200 条，防无界增长）。
+  void _appendLog(String line) {
+    _playerLogs.add('${DateTime.now().toIso8601String()} $line');
+    if (_playerLogs.length > 200) _playerLogs.removeAt(0);
+  }
+
+  /// 进入错误态（覆盖视图 + 记录日志；对齐 iOS `ErrorViewWithLogs`）。
+  void _showError(String message) {
+    _appendLog('加载失败：$message');
+    if (!mounted) return;
+    setState(() => _errorMessage = message);
+  }
+
+  /// 退出错误态并重试当前源（对齐 iOS `ErrorView.onRetry`）。
+  Future<void> _retry() async {
+    if (!mounted) return;
+    setState(() => _errorMessage = null);
+    _showControls();
+    await _openSource(widget.source);
   }
 
   /// 复杂封装 → 转封装候选（C-07）。
@@ -809,6 +1017,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _danmakuPosMs = 0;
     _danmakuSyncAtMs = DateTime.now().millisecondsSinceEpoch;
     unawaited(_loadDanmakuItems());
+    // 切集 → 片头片尾触发标记复位（对齐 iOS `loadSkipSettings` 语义）。
+    _skipIntroTriggered = false;
+    _skipOutroTriggered = false;
     _scheduleHide();
   }
 
@@ -1003,6 +1214,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                 controlsVisible: _controlsVisible,
                 danmakuSettings: _danmaku,
                 onDanmakuSettingsChanged: _onDanmakuChanged,
+                danmakuSearch: _searchDanmakuAnime,
+                danmakuLoadEpisodes: _loadDanmakuEpisodes,
+                onSelectDanmakuEpisode: (DanmakuEpisodeInfo e) =>
+                    unawaited(_selectDanmakuEpisode(e)),
                 videoBuilder: (BuildContext context) => VideoSurface(
                   textureId: _textureId,
                   aspectRatio: _aspectRatio,
@@ -1020,12 +1235,27 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                   );
                 },
               ),
-              // C-08 字幕浮层（随时间更新；不拦截手势）。
-              if (_subtitleCueText != null && _subtitleCueText!.isNotEmpty)
-                _SubtitleOverlay(text: _subtitleCueText!),
+              // C-08 字幕浮层（随时间更新；不拦截手势；样式随 UI-F5 设置）。
+              if (_controls.showSubtitle &&
+                  _subtitleCueText != null &&
+                  _subtitleCueText!.isNotEmpty)
+                _SubtitleOverlay(
+                  text: _subtitleCueText!,
+                  style: _controls.subtitleStyle,
+                ),
               // C-05 长按倍速提示浮层。
               if (_longPressSpeedActive)
                 _LongPressSpeedOverlay(text: _controls.speedDisplayText),
+              // UI-F10 错误态 / 重试视图（覆盖全屏；含可展开调试日志）。
+              if (_errorMessage != null)
+                Positioned.fill(
+                  child: PlayerErrorWithLogsView(
+                    message: _errorMessage!,
+                    logs: _playerLogs,
+                    onRetry: () => unawaited(_retry()),
+                    onBack: () => Navigator.of(context).maybePop(),
+                  ),
+                ),
             ],
           ),
         ),
@@ -1035,10 +1265,15 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 }
 
 /// 字幕浮层（画面下方居中；对齐 iOS `currentSubtitleText` 叠加）。
+///
+/// 样式随 UI-F5 字幕设置（字号 / 颜色）实时变化。
 class _SubtitleOverlay extends StatelessWidget {
-  const _SubtitleOverlay({required this.text});
+  const _SubtitleOverlay({required this.text, required this.style});
 
   final String text;
+
+  /// 当前字幕样式（字号 / 颜色）。
+  final SubtitleStyle style;
 
   @override
   Widget build(BuildContext context) {
@@ -1050,12 +1285,12 @@ class _SubtitleOverlay extends StatelessWidget {
         child: Text(
           text,
           textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 18,
+          style: TextStyle(
+            color: VboxColors.subtitleColorAt(style.colorIndex),
+            fontSize: style.fontSize,
             fontWeight: FontWeight.w600,
             height: 1.3,
-            shadows: <Shadow>[
+            shadows: const <Shadow>[
               Shadow(blurRadius: 4, color: Colors.black87),
             ],
           ),

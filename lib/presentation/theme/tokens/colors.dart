@@ -140,6 +140,29 @@ class VboxColors {
   /// 播放器强调青（进度条 / 缓存片段 / 兼容内核文字；对齐 iOS `00BEFF`）。
   static const Color playerAccentCyan = Color(0xFF00BEFF);
 
+  // ── 字幕颜色档位（UI-F5 字幕设置面板；对齐 iOS `SubtitleSettingsPanel.colorOptions`）──
+  /// 字幕白色（默认档）。
+  static const Color subtitleWhite = Color(0xFFFFFFFF);
+
+  /// 字幕黄色。
+  static const Color subtitleYellow = Color(0xFFFFFF00);
+
+  /// 字幕青色。
+  static const Color subtitleCyan = Color(0xFF00FFFF);
+
+  /// 字幕颜色档位集合（索引与 `SubtitleStyle.colorIndex` 一一对应）。
+  static const List<Color> subtitlePalette = <Color>[
+    subtitleWhite,
+    subtitleYellow,
+    subtitleCyan,
+  ];
+
+  /// 按档位索引取字幕颜色（越界回退白色）。
+  static Color subtitleColorAt(int index) =>
+      (index >= 0 && index < subtitlePalette.length)
+          ? subtitlePalette[index]
+          : subtitleWhite;
+
   /// 危险操作（文字 + 背景 @10%）。
   static const Color danger = Color(0xFFEF4444);
 

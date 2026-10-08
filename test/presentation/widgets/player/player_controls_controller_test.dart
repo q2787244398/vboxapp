@@ -4,6 +4,8 @@ library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/domain/entities/playback/playback_detail.dart';
+import 'package:vbox/platform/player/skip_settings.dart';
+import 'package:vbox/platform/player/subtitle_style.dart';
 import 'package:vbox/presentation/ui_mode/ui_mode.dart';
 import 'package:vbox/presentation/widgets/player/player_controls_controller.dart';
 
@@ -337,6 +339,110 @@ void main() {
       expect(c.showDanmakuSettings, isTrue);
       c.openToolsMenu();
       expect(c.showToolsMenu, isTrue);
+    });
+
+    // ── UI-F6 跳转目标面板（新增 4 个，同属互斥族）──
+    test('逐个打开 UI-F 新增四面板', () {
+      final PlayerControlsController c = controller();
+      c.openLongPressSpeedSettings();
+      expect(c.showLongPressSpeedSettings, isTrue);
+      expect(c.hasAnyPanelOpen, isTrue);
+      c.openSkipSettings();
+      expect(c.showSkipSettings, isTrue);
+      expect(c.showLongPressSpeedSettings, isFalse);
+      c.openDanmakuSearch();
+      expect(c.showDanmakuSearch, isTrue);
+      c.openSubtitleSettings();
+      expect(c.showSubtitleSettings, isTrue);
+      expect(c.hasAnyPanelOpen, isTrue);
+    });
+
+    test('工具菜单开关面板与其它面板互斥', () {
+      final PlayerControlsController c = controller();
+      c.openToolsMenu();
+      c.openSpeedPicker();
+      expect(c.showToolsMenu, isFalse);
+      expect(c.showSpeedPicker, isTrue);
+    });
+  });
+
+  group('UI-F6 工具菜单开关', () {
+    test('切换即回填并上抛', () {
+      final List<bool> auto = <bool>[];
+      final List<bool> bg = <bool>[];
+      final List<bool> pip = <bool>[];
+      final List<bool> dbg = <bool>[];
+      final PlayerControlsController c = PlayerControlsController()
+        ..onToggleAutoPlayNext = auto.add
+        ..onToggleBackgroundPlay = bg.add
+        ..onTogglePipEnabled = pip.add
+        ..onToggleDebugOverlay = dbg.add;
+      c.setAutoPlayNext(true);
+      c.setBackgroundPlay(true);
+      c.setPipEnabled(true);
+      c.setDebugOverlay(true);
+      expect(c.autoPlayNext, isTrue);
+      expect(c.backgroundPlay, isTrue);
+      expect(c.pipEnabled, isTrue);
+      expect(c.debugOverlay, isTrue);
+      expect(auto, <bool>[true]);
+      expect(bg, <bool>[true]);
+      expect(pip, <bool>[true]);
+      expect(dbg, <bool>[true]);
+    });
+
+    test('同值重复设置不通知', () {
+      int notified = 0;
+      final PlayerControlsController c = PlayerControlsController()
+        ..addListener(() => notified++);
+      c.setAutoPlayNext(false);
+      expect(notified, 0);
+      c.setAutoPlayNext(true);
+      expect(notified, 1);
+    });
+  });
+
+  group('UI-F2 片头片尾 / UI-F5 字幕', () {
+    test('selectLongPressSpeed 回填并关闭面板', () {
+      double? picked;
+      final PlayerControlsController c = PlayerControlsController()
+        ..onSelectLongPressSpeed = (double v) => picked = v;
+      c.openLongPressSpeedSettings();
+      c.selectLongPressSpeed(3.0);
+      expect(c.longPressSpeed, 3.0);
+      expect(c.showLongPressSpeedSettings, isFalse);
+      expect(picked, 3.0);
+    });
+
+    test('updateSkipSettings 回填快照并上抛', () {
+      SkipSettings? captured;
+      final PlayerControlsController c = PlayerControlsController()
+        ..onSkipSettingsChanged = (SkipSettings v) => captured = v;
+      c.updateSkipSettings(const SkipSettings(
+        introEnabled: true,
+        introSeconds: 90,
+        outroEnabled: true,
+        outroSeconds: 20,
+      ));
+      expect(c.skipSettings.introEnabled, isTrue);
+      expect(c.skipSettings.introSeconds, 90);
+      expect(c.skipSettings.outroSeconds, 20);
+      expect(captured, isNotNull);
+      expect(captured!.outroEnabled, isTrue);
+    });
+
+    test('updateSubtitleStyle 回填并暴露快照', () {
+      SubtitleStyle? captured;
+      final PlayerControlsController c = PlayerControlsController()
+        ..onSubtitleStyleChanged = (SubtitleStyle v) => captured = v;
+      c.updateSubtitleStyle(
+        const SubtitleStyle().copyWith(visible: false, fontSize: 20, colorIndex: 2),
+      );
+      expect(c.showSubtitle, isFalse);
+      expect(c.subtitleFontSize, 20);
+      expect(c.subtitleColorIndex, 2);
+      expect(c.subtitleStyle.fontSize, 20);
+      expect(captured, isNotNull);
     });
   });
 

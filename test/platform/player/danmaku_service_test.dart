@@ -79,6 +79,51 @@ void main() {
         hasLength(1),
       );
     });
+
+    // ── UI-F3 弹幕搜索：多候选 + 分集列表 ──
+    test('parseAnimeMatches 保留完整候选（animes 形态）', () {
+      const String body = '{"animes":['
+          '{"animeId":1,"animeTitle":"剧A","type":"TV动画"},'
+          '{"anime_id":"2","title":"剧B","imageUrl":"http://x/y.jpg"}]}';
+      final List<DanmakuAnimeMatch> list =
+          DanmakuService.parseAnimeMatches(body);
+      expect(list, hasLength(2));
+      expect(list[0].animeId, 1);
+      expect(list[0].title, '剧A');
+      expect(list[0].type, 'TV动画');
+      expect(list[1].animeId, 2);
+      expect(list[1].title, '剧B');
+      expect(list[1].imageUrl, 'http://x/y.jpg');
+    });
+
+    test('parseAnimeMatches 兼容裸数组 / 无 id 条目跳过', () {
+      const String body = '[{"animeId":7,"animeTitle":"剧C"},{"animeTitle":"无 id"}]';
+      final List<DanmakuAnimeMatch> list =
+          DanmakuService.parseAnimeMatches(body);
+      expect(list, hasLength(1));
+      expect(list.single.animeId, 7);
+    });
+
+    test('parseAnimeMatches 非法输入 → 空列表', () {
+      expect(DanmakuService.parseAnimeMatches('not-json'), isEmpty);
+      expect(DanmakuService.parseAnimeMatches('{}'), isEmpty);
+    });
+
+    test('parseEpisodes 解析分集列表', () {
+      const String body = '{"bangumi":{"episodes":['
+          '{"episodeId":11,"episodeNumber":1,"episodeTitle":"第一话"},'
+          '{"episode_id":12,"episode_number":2}]}}';
+      final List<DanmakuEpisodeInfo> list = DanmakuService.parseEpisodes(body);
+      expect(list, hasLength(2));
+      expect(list[0].episodeId, 11);
+      expect(list[0].episodeNumber, 1);
+      expect(list[0].title, '第一话');
+    });
+
+    test('parseEpisodes 非法输入 / 缺 bangumi → 空列表', () {
+      expect(DanmakuService.parseEpisodes('not-json'), isEmpty);
+      expect(DanmakuService.parseEpisodes('{"bangumi":{}}'), isEmpty);
+    });
   });
 
   group('DanmakuService 网络（MockClient）', () {
