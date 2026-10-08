@@ -51,17 +51,15 @@ class PlayerController {
       bridge: MethodChannelPlayerBridge(),
       backendChain: chain,
       selectInitialBackend: (PlayerSource source, PlaybackRoute route) {
-        // 直播 FLV / 复杂封装（MKV/FLV/TS…）需全格式后端 → libVLC 优先（桌面 libmpv 同理）。
-        final bool needsFallback =
+        // 直播 FLV / 复杂封装（MKV/FLV/TS…）需全格式后端 → MDK 优先（统一内核），
+        // 其次 libVLC / libmpv（复杂封装回退预留，M4 收口再定去留）。
+        final bool needsFullFormat =
             PlayerBackendSelector.needsFallback(source.url) ||
                 (route == PlaybackRoute.live && _isFlv(source.url));
-        if (needsFallback && chain.contains(PlayerBackend.libVLC)) {
-          return PlayerBackend.libVLC;
-        }
-        if (needsFallback && chain.contains(PlayerBackend.libmpv)) {
-          return PlayerBackend.libmpv;
-        }
-        return chain.first;
+        return PlayerBackendSelector.initialBackend(
+          chain: chain,
+          needsFullFormat: needsFullFormat,
+        );
       },
     );
   }

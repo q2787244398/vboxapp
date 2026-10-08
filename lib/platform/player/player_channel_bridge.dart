@@ -15,6 +15,7 @@ String backendWireValue(PlayerBackend backend) => switch (backend) {
       PlayerBackend.media3 => 'media3',
       PlayerBackend.libVLC => 'libVLC',
       PlayerBackend.libmpv => 'libmpv',
+      PlayerBackend.mdk => 'mdk',
       PlayerBackend.nativeiOS => 'nativeiOS',
     };
 

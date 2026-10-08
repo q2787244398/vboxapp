@@ -17,6 +17,13 @@ enum PlayerBackend {
   /// 桌面播放器（libmpv，via media_kit）。
   libmpv,
 
+  /// 全格式硬解内核（MDK SDK）—— 统一内核接缝。
+  ///
+  /// M1 仅交付 Dart 侧接缝（枚举 / 链路 / 面板 / 降级）；原生接入见 M2（Android）
+  /// 与 M3（Windows / macOS）。原生未接入时 [open] 回 `E_BACKEND_UNAVAILABLE`，
+  /// 由降级链自动改投下一后端，行为与未接入前一致。
+  mdk,
+
   /// iOS 原生（不迁移，仅作契约对齐占位）。
   nativeiOS,
 }
@@ -28,6 +35,7 @@ extension PlayerBackendMeta on PlayerBackend {
         PlayerBackend.media3 => 'Media3（系统播放器）',
         PlayerBackend.libVLC => 'libVLC（全格式）',
         PlayerBackend.libmpv => 'libmpv',
+        PlayerBackend.mdk => 'MDK（全格式）',
         PlayerBackend.nativeiOS => '原生播放器',
       };
 
@@ -36,6 +44,7 @@ extension PlayerBackendMeta on PlayerBackend {
         PlayerBackend.media3 => 'Media3',
         PlayerBackend.libVLC => 'VLC',
         PlayerBackend.libmpv => 'MPV',
+        PlayerBackend.mdk => 'MDK',
         PlayerBackend.nativeiOS => '原生',
       };
 
@@ -45,6 +54,7 @@ extension PlayerBackendMeta on PlayerBackend {
         PlayerBackend.nativeiOS => true,
         PlayerBackend.libVLC => false,
         PlayerBackend.libmpv => false,
+        PlayerBackend.mdk => false,
       };
 }
 
@@ -208,24 +218,51 @@ class PlayerBackendSelector {
 
   /// 按平台返回后端降级链。
   ///
-  /// - Android：Media3 → libVLC
-  /// - Windows/macOS：libmpv
+  /// - Android：Media3 → MDK → libVLC
+  /// - Windows/macOS：libmpv → MDK
   /// - iOS：nativeiOS（不迁移）
+  ///
+  /// 链首为**默认主后端**（默认路径不经过 MDK，保持既有行为）；复杂封装 /
+  /// 直播 FLV 等需全格式时由 [PlayerBackendSelector] / `PlayerController` 改投
+  /// **MDK 优先**（统一内核），失败再依次回退。
   static List<PlayerBackend> chainFor(String platform) {
     switch (platform.toLowerCase()) {
       case 'android':
         return const <PlayerBackend>[
           PlayerBackend.media3,
+          PlayerBackend.mdk,
           PlayerBackend.libVLC,
         ];
       case 'windows':
       case 'macos':
-        return const <PlayerBackend>[PlayerBackend.libmpv];
+        return const <PlayerBackend>[
+          PlayerBackend.libmpv,
+          PlayerBackend.mdk,
+        ];
       case 'ios':
         return const <PlayerBackend>[PlayerBackend.nativeiOS];
       default:
         return const <PlayerBackend>[PlayerBackend.media3];
     }
+  }
+
+  /// 挑选初始后端（M1）。
+  ///
+  /// 默认返回**链首**（各端主后端，默认路径不经过 MDK）；当 [needsFullFormat]
+  /// 为真（复杂封装 / 直播 FLV）时按统一内核口径优先：**MDK → libVLC → libmpv**，
+  /// 三者皆不在链中则回链首。
+  ///
+  /// 纯函数（无平台分支），便于逐端单测。
+  static PlayerBackend initialBackend({
+    required List<PlayerBackend> chain,
+    required bool needsFullFormat,
+  }) {
+    if (needsFullFormat) {
+      if (chain.contains(PlayerBackend.mdk)) return PlayerBackend.mdk;
+      if (chain.contains(PlayerBackend.libVLC)) return PlayerBackend.libVLC;
+      if (chain.contains(PlayerBackend.libmpv)) return PlayerBackend.libmpv;
+    }
+    return chain.first;
   }
 
   /// 判断某 URL 是否需要回退到全格式播放器（libVLC）。
