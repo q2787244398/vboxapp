@@ -17,6 +17,7 @@ import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_files.dart';
 import '../../../domain/entities/cloud/cloud_play_item.dart';
 import '../../../domain/entities/cloud/node_pan.dart';
+import '../../../domain/entities/cloud/vbox_fragment.dart';
 import '../../../platform/player/pan_player.dart';
 
 /// 目录列举接缝（真实实现走 Node 常驻系统 / 网盘 OpenAPI）。
@@ -112,6 +113,24 @@ class CloudDriveFilesController extends ChangeNotifier {
   /// 是否分享模式（对齐 iOS 分享 → 文件列表 → 选集）。
   bool get isShareMode => (shareUrl ?? '').isNotEmpty;
 
+  /// 分享链接剥离 `vbox_*` fragment 后的干净地址（F-P27 消费端，对齐 iOS
+  /// `PlayerViewsV2.splitVboxFragment` 的 `baseURL` 语义）。
+  String get _cleanShareUrl => VboxFragmentCodec.strip(shareUrl ?? '');
+
+  /// 分享链接携带的 vbox 定位参数（F-P27；无 → 空）。
+  VboxFragment get fragment => VboxFragmentCodec.split(shareUrl ?? '').params;
+
+  /// 详情页指定剧集在文件列表中的下标：按 fragment 定位键匹配条目的
+  /// [CloudDriveFileEntry.fileId]（对齐 iOS `handleDriveUrl` 的
+  /// `files.firstIndex(where: { $0.fileId == fid })`）。
+  ///
+  /// 无定位键 / 未命中 → -1（播放器回落首条，对齐 iOS `?? 0`）。
+  int get locatedIndex {
+    final String key = fragment.locateValue;
+    if (key.isEmpty) return -1;
+    return _entries.indexWhere((CloudDriveFileEntry e) => e.fileId == key);
+  }
+
   /// 页面标题（分享模式优先分享标题，缺省网盘名）。
   String get title => isShareMode && _shareTitle.isNotEmpty
       ? _shareTitle
@@ -163,7 +182,7 @@ class CloudDriveFilesController extends ChangeNotifier {
       if (pan == null) {
         throw const CloudDriveFilesException('网盘分享链路尚未接入');
       }
-      final NodePanShare share = await pan.resolveShare(driveType, shareUrl!);
+      final NodePanShare share = await pan.resolveShare(driveType, _cleanShareUrl);
       _shareTitle = share.title;
       _entries = share.entries
           .map((NodePanEntry e) =>
@@ -190,7 +209,7 @@ class CloudDriveFilesController extends ChangeNotifier {
     }
     final CloudPlayItem item = await pan.prepare(
       type: driveType,
-      shareUrl: shareUrl!,
+      shareUrl: _cleanShareUrl,
       entry: NodePanEntry(playID: entry.fileId, name: entry.name),
     );
     if (!item.hasPlayURL) {

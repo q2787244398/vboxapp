@@ -81,7 +81,19 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
           shareUrl: widget.shareUrl,
           panPlayer: widget.panPlayer,
         );
-    _controller.load();
+    _autoLocatePlay();
+  }
+
+  /// 初次加载完成后的 F-P27 消费端定位（对齐 iOS `handleDriveUrl`）：
+  /// 分享链接携带 `vbox_*` 定位键时，文件列表加载完即自动播放指定剧集。
+  ///
+  /// 无定位键 / 未命中 → 不自动播放（保持手动点选）。
+  Future<void> _autoLocatePlay() async {
+    await _controller.load();
+    if (!mounted || !_controller.isShareMode) return;
+    final int index = _controller.locatedIndex;
+    if (index < 0) return;
+    await _onTapEntry(_controller.entries[index]);
   }
 
   @override

@@ -261,10 +261,17 @@ void main() {
     await tester.pumpWidget(_app(uc, initialIndex: 1));
     await tester.pumpAndSettle();
 
+    // 选中集以 `detailSelected` 描边高亮（`_EpisodeCell`：selected → BorderSide，
+    // 未选中 → BorderSide.none），宫格内应恰好 1 处高亮（对齐 iOS 续播定位）。
     expect(
       find.descendant(
         of: find.byType(GridView),
-        matching: find.byIcon(Icons.play_arrow),
+        matching: find.byWidgetPredicate((Widget w) {
+          if (w is! Material) return false;
+          final ShapeBorder? shape = w.shape;
+          return shape is RoundedRectangleBorder &&
+              shape.side != BorderSide.none;
+        }),
       ),
       findsOneWidget,
     );
@@ -318,7 +325,7 @@ void main() {
     expect(player.calls, isEmpty);
   });
 
-  testWidgets('下载：选集 sheet 多选/全选 → 确认 → 入队 DownloadManager（G-02 接线）',
+  testWidgets('下载：剧集展开弹窗多选 → 确认 → 入队 DownloadManager（G-02 接线）',
       (WidgetTester tester) async {
     final _FakeDetailUseCases uc = _FakeDetailUseCases(
       detailResult: () async => Success<PlaybackDetail>(detail()),
@@ -333,15 +340,14 @@ void main() {
     await tester.pumpWidget(_app(uc, manager: manager));
     await tester.pumpAndSettle();
 
-    // 打开下载选集 sheet
-    await tester.tap(find.text('下载'));
+    // 展开弹窗的下载多选模式（对齐 iOS `EpisodeExpandPopup`：↓ 图标进入多选）。
+    await tester.tap(find.byIcon(Icons.download_outlined).first);
     await tester.pumpAndSettle();
-    expect(find.text('下载选集 · 共 2 集'), findsOneWidget);
 
-    // 单选第1集并确认
+    // 单选第1集 → 头部打勾提交（对齐 iOS `checkmark.circle.fill` 提交下载）。
     await tester.tap(find.text('第1集').last);
     await tester.pump();
-    await tester.tap(find.text('下载选中 (1)'));
+    await tester.tap(find.byIcon(Icons.check_circle).first);
     await tester.pumpAndSettle();
 
     // 记录已入队（字段对齐 iOS handleBatchDownload）
@@ -353,15 +359,19 @@ void main() {
     expect(saved.jishu, 1);
     expect(saved.playurl, 'https://v.com/1.m3u8');
     expect(find.textContaining('已添加 1 集到下载'), findsOneWidget);
-    // 排空第一个 SnackBar，避免第二个提示被排队不显示
+    // 排空第一个 SnackBar（等其关闭动画结束），否则会遮挡底部剧集头部按钮。
     await tester.pump(const Duration(seconds: 5));
-
-    // 再次打开：全选 → 确认 → 两集全部入队
-    await tester.tap(find.text('下载'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('全选'));
+
+    // 再次打开：勾选两集 → 确认 → 两集全部入队（累计 3 条）
+    await tester.ensureVisible(find.byIcon(Icons.download_outlined).first);
+    await tester.tap(find.byIcon(Icons.download_outlined).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('第1集').last);
     await tester.pump();
-    await tester.tap(find.text('下载选中 (2)'));
+    await tester.tap(find.text('第2集').last);
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.check_circle).first);
     await tester.pumpAndSettle();
 
     expect(store.items, hasLength(3));

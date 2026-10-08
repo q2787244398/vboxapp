@@ -30,9 +30,16 @@ class _FakePanPlayer extends PanPlayer {
   int resolveCalls = 0;
   int prepareCalls = 0;
 
+  /// 最近一次 `resolveShare` 收到的分享链接（校验 F-P27 剥离 fragment）。
+  String? lastResolveShareUrl;
+
+  /// 最近一次 `prepare` 收到的条目（校验 F-P27 定位到指定剧集）。
+  NodePanEntry? lastPrepareEntry;
+
   @override
   Future<NodePanShare> resolveShare(CloudDriveType type, String shareUrl) async {
     resolveCalls++;
+    lastResolveShareUrl = shareUrl;
     return share;
   }
 
@@ -45,6 +52,7 @@ class _FakePanPlayer extends PanPlayer {
     DateTime? now,
   }) async {
     prepareCalls++;
+    lastPrepareEntry = entry;
     if (prepared == null) {
       throw const PanPlayException('未预置取链结果');
     }
@@ -246,6 +254,46 @@ void main() {
     expect(pan.resolveCalls, 1);
   });
 
+  test('分享模式：vbox fragment 剥离 + 定位下标（F-P27 消费端）', () async {
+    final _FakePanPlayer pan = _FakePanPlayer(
+      const NodePanShare(title: '季风剧场', entries: <NodePanEntry>[
+        NodePanEntry(playID: 'p1', name: 'EP01.mp4'),
+        NodePanEntry(playID: 'p2', name: 'EP02.mp4'),
+      ]),
+    );
+    final CloudDriveFilesController c = CloudDriveFilesController(
+      driveType: CloudDriveType.one15,
+      cleanupStore: store,
+      shareUrl: 'https://share/abc#vbox_fid=p2',
+      panPlayer: pan,
+    );
+    await c.load();
+
+    // 解析前剥离 vbox fragment，只把干净分享链接交给网盘链路。
+    expect(pan.lastResolveShareUrl, 'https://share/abc');
+    expect(c.fragment.fid, 'p2');
+    // 定位到用户点击的第 2 条（而非首条）。
+    expect(c.locatedIndex, 1);
+  });
+
+  test('分享模式：无 vbox fragment → locatedIndex = -1（不自动定位）', () async {
+    final _FakePanPlayer pan = _FakePanPlayer(
+      const NodePanShare(title: '季风剧场', entries: <NodePanEntry>[
+        NodePanEntry(playID: 'p1', name: 'EP01.mp4'),
+      ]),
+    );
+    final CloudDriveFilesController c = CloudDriveFilesController(
+      driveType: CloudDriveType.one15,
+      cleanupStore: store,
+      shareUrl: 'https://share/abc',
+      panPlayer: pan,
+    );
+    await c.load();
+
+    expect(c.fragment.isEmpty, isTrue);
+    expect(c.locatedIndex, -1);
+  });
+
   test('分享模式：未注入 PanPlayer → 报错文案', () async {
     final CloudDriveFilesController c = CloudDriveFilesController(
       driveType: CloudDriveType.one15,
@@ -279,6 +327,41 @@ void main() {
     expect(find.text('EP01.mp4'), findsOneWidget);
     expect(find.text('清理队列'), findsNothing);
     expect(find.text('当前目录没有文件'), findsNothing);
+  });
+
+  testWidgets('分享模式：vbox fragment 定位 → 自动播放指定条目（F-P27 消费端）',
+      (WidgetTester tester) async {
+    final _FakePanPlayer pan = _FakePanPlayer(
+      const NodePanShare(title: '季风剧场', entries: <NodePanEntry>[
+        NodePanEntry(playID: 'p1', name: 'EP01.mp4'),
+        NodePanEntry(playID: 'p2', name: 'EP02.mp4'),
+      ]),
+      // 取链返回空地址 → resolveEntry 抛错，不进入播放页（仅校验定位到指定条目）。
+      prepared: CloudPlayItem(
+        provider: CloudDriveType.one15.id,
+        sourceKey: 'p2',
+        fileName: 'EP02.mp4',
+        updatedAt: DateTime(2026, 10, 5),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudDriveFilesPage(
+          driveType: CloudDriveType.one15,
+          shareUrl: 'https://share/abc#vbox_fid=p2',
+          panPlayer: pan,
+          cleanupStore: store,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 加载完即自动定位：取链条目的 playID 为 fragment 指定的第 2 条（非首条）。
+    expect(pan.lastPrepareEntry?.playID, 'p2');
+    expect(pan.lastResolveShareUrl, 'https://share/abc');
+
+    // 排空 VboxToast（取链空地址提示）的自动关闭计时器。
+    await tester.pump(const Duration(seconds: 5));
   });
 
   test('分享模式：resolveEntry 取链返回播放源（F-08 接播放页）', () async {
