@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>3.1745</string>
+	<string>3.1746</string>
 	<key>CFBundleVersion</key>
-	<string>1745</string>
+	<string>1746</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>apple-magnifier</string>
