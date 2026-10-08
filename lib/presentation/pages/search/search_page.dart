@@ -24,6 +24,7 @@ import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/detail_page.dart';
 import '../../widgets/platform_async_image.dart';
+import '../../widgets/skeleton_shimmer.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../douban/douban_ranking_page.dart';
 
@@ -911,7 +912,21 @@ class _DoubanCardRow extends StatelessWidget {
               child: SizedBox(
                 width: 70,
                 height: 95,
-                child: PlatformAsyncImage(url: subject.coverUrl, fit: BoxFit.cover),
+                child: PlatformAsyncImage(
+                  url: subject.coverUrl,
+                  fit: BoxFit.cover,
+                  // UI-B3 骨架屏动效：静态占位 → 渐变扫光（保留影片图标，见 golden 像素契约）。
+                  placeholder: ShimmerBox(
+                    color: scheme.surfaceContainerHighest,
+                    child: Center(
+                      child: Icon(
+                        Icons.movie_outlined,
+                        size: VboxTypography.s24,
+                        color: Colors.white.withValues(alpha: 0.40),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: VboxSpacing.md),
@@ -1018,7 +1033,21 @@ class _ResultCard extends StatelessWidget {
               child: SizedBox(
                 width: 85,
                 height: 110,
-                child: PlatformAsyncImage(url: vod.vodPic, fit: BoxFit.cover),
+                child: PlatformAsyncImage(
+                  url: vod.vodPic,
+                  fit: BoxFit.cover,
+                  // UI-B3 骨架屏动效：静态占位 → 渐变扫光（保留影片图标，见 golden 像素契约）。
+                  placeholder: ShimmerBox(
+                    color: scheme.surfaceContainerHighest,
+                    child: Center(
+                      child: Icon(
+                        Icons.movie_outlined,
+                        size: VboxTypography.s24,
+                        color: Colors.white.withValues(alpha: 0.40),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: VboxSpacing.md),

@@ -22,6 +22,7 @@ import '../../ui_mode/ui_mode.dart';
 import '../../widgets/adaptive/responsive_grid.dart';
 import '../../widgets/detail_page.dart';
 import '../../widgets/platform_async_image.dart';
+import '../../widgets/skeleton_shimmer.dart';
 import '../../widgets/vbox/vbox.dart';
 
 /// 短剧分类关键词（对齐 iOS `ShortDramaService.dramaKeywords`）。
@@ -601,7 +602,17 @@ class _DramaCard extends StatelessWidget {
                   PlatformAsyncImage(
                     url: vod.vodPic,
                     fit: BoxFit.cover,
-                    placeholderColor: scheme.surfaceContainerHighest,
+                    // UI-B3 骨架屏动效：静态占位 → 渐变扫光（保留影片图标，见 golden 像素契约）。
+                    placeholder: ShimmerBox(
+                      color: scheme.surfaceContainerHighest,
+                      child: Center(
+                        child: Icon(
+                          Icons.movie_outlined,
+                          size: VboxTypography.s24,
+                          color: Colors.white.withValues(alpha: 0.40),
+                        ),
+                      ),
+                    ),
                   ),
                   if (remarks.isNotEmpty)
                     Positioned(

@@ -82,6 +82,8 @@ class PlayerTopBar extends StatelessWidget {
         child: Row(
           children: <Widget>[
             _IconButton(
+              // UI-D4 辅助功能：返回。
+              tooltip: '返回',
               icon: Icons.arrow_back_ios_new_rounded,
               color: foreground,
               onTap: onBack,
@@ -120,6 +122,8 @@ class PlayerTopBar extends StatelessWidget {
               ),
             ),
             _IconButton(
+              // UI-D4 辅助功能：旋转（进入 / 退出全屏）。
+              tooltip: landscape ? '退出全屏' : '进入全屏',
               // 对齐 iOS：竖屏「转横屏」，横屏「转竖屏」。
               icon: landscape
                   ? Icons.rotate_left_rounded
@@ -129,6 +133,8 @@ class PlayerTopBar extends StatelessWidget {
             ),
             if (showPip)
               _IconButton(
+                // UI-D4 辅助功能：画中画（进入 / 退出）。
+                tooltip: pipActive ? '退出画中画' : '进入画中画',
                 // 对齐 iOS：画中画中显示「退出」图标，否则「进入」。
                 icon: pipActive
                     ? Icons.picture_in_picture_alt_rounded
@@ -141,11 +147,15 @@ class PlayerTopBar extends StatelessWidget {
               ),
             if (showCast)
               _IconButton(
+                // UI-D4 辅助功能：投屏。
+                tooltip: '投屏',
                 icon: Icons.cast_rounded,
                 color: foreground,
                 onTap: onCast,
               ),
             _IconButton(
+              // UI-D4 辅助功能：更多。
+              tooltip: '更多',
               icon: Icons.more_vert_rounded,
               color: foreground,
               onTap: onToolsMenu,
@@ -163,16 +173,21 @@ class _IconButton extends StatelessWidget {
     required this.icon,
     required this.color,
     this.onTap,
+    this.tooltip,
   });
 
   final IconData icon;
   final Color color;
   final VoidCallback? onTap;
 
+  /// 无障碍 / 长按提示文案（[Tooltip] 同时贡献语义标签，见 UI-D4）。
+  final String? tooltip;
+
   @override
   Widget build(BuildContext context) {
     return IconButton(
       onPressed: onTap,
+      tooltip: tooltip,
       icon: Icon(icon, size: 22, color: color),
       constraints: const BoxConstraints(
         minWidth: 44,

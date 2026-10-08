@@ -681,6 +681,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       if (pip.isInPip) {
         await pip.exit();
       } else {
+        // UI-B1 触感反馈：对齐 iOS 启动画中画时的 medium 震动。
+        unawaited(HapticFeedback.mediumImpact());
         await pip.enter(title: widget.title, isLive: _controls.isLive);
       }
     } catch (_) {
@@ -782,6 +784,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 长按屏幕：切到长按倍速并显示提示浮层。
   Future<void> _beginLongPressSpeed() async {
     if (!_longPressSpeed.enabled) return;
+    // UI-B1 触感反馈：对齐 iOS `startLongPressSpeed` 的 medium 震动。
+    unawaited(HapticFeedback.mediumImpact());
     _preLongPressSpeed = _controls.speed;
     try {
       await _longPressSpeed.begin();

@@ -17,6 +17,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
@@ -93,6 +94,8 @@ class VboxWelfareTabs extends StatelessWidget {
     final bool on = category == selected;
     final Color textColor = on ? Colors.white : inactive;
     return Semantics(
+      // UI-D4 辅助功能：福利分类标签。
+      label: category.label,
       selected: on,
       button: true,
       child: Material(
@@ -217,11 +220,19 @@ class VboxWelfarePlatformGrid extends StatelessWidget {
   Widget _card(BuildContext context, VboxWelfarePlatform platform) {
     final List<Color> gradient = platform.resolvedGradient;
     return Semantics(
+      // UI-D4 辅助功能：福利平台入口。
+      label: platform.name,
       button: true,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onTap == null ? null : () => onTap!(platform),
+          onTap: onTap == null
+              ? null
+              : () {
+                  // UI-B1 触感反馈：对齐 iOS 福利平台入口 medium 震动。
+                  HapticFeedback.mediumImpact();
+                  onTap!(platform);
+                },
           borderRadius: BorderRadius.circular(VboxRadii.r16),
           child: SizedBox(
             height: 86,

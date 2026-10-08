@@ -176,21 +176,28 @@ class _LockButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.only(left: VboxSpacing.xs),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: const BorderRadius.all(Radius.circular(VboxRadii.capsule)),
-            child: SizedBox(
-              width: 44,
-              height: 44,
-              child: Icon(
-                locked ? Icons.lock_rounded : Icons.lock_open_rounded,
-                size: 20,
-                color: Colors.white.withValues(alpha: 0.9),
+    return Semantics(
+      // UI-D4 辅助功能：锁定 / 解除锁定。
+      label: locked ? '解除锁定' : '锁定屏幕',
+      button: true,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.only(left: VboxSpacing.xs),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: const BorderRadius.all(
+                Radius.circular(VboxRadii.capsule),
+              ),
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: Icon(
+                  locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                  size: 20,
+                  color: Colors.white.withValues(alpha: 0.9),
+                ),
               ),
             ),
           ),

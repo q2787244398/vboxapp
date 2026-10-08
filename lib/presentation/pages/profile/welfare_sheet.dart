@@ -11,6 +11,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../theme/tokens/colors.dart';
@@ -63,6 +64,8 @@ class _WelfareSheetState extends State<_WelfareSheet> {
     final bool ok = await controller.unlock(_password.text);
     if (!mounted) return;
     if (!ok) {
+      // UI-B1 触感反馈：对齐 iOS 福利密码错误 medium 震动（ProfileView.swift:585）。
+      HapticFeedback.mediumImpact();
       setState(() => _error = true);
       return;
     }

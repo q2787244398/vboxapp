@@ -139,6 +139,7 @@ class VboxSkinCard extends StatelessWidget {
     return Semantics(
       selected: isSelected,
       button: true,
+      label: skin.title,
       child: Material(
         color: Colors.transparent,
         child: InkWell(

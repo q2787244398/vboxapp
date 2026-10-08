@@ -17,6 +17,7 @@ import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
+import '../../widgets/skeleton_shimmer.dart';
 
 /// 播放量格式化（对齐 iOS `formatCount`：≥1 万 → 保留 1 位「万」）。
 String formatOneCount(int count) {
@@ -123,7 +124,8 @@ class OneVideoCard extends StatelessWidget {
           fit: StackFit.expand,
           children: <Widget>[
             if (placeholder || coverUrl.isEmpty)
-              Container(color: scheme.surfaceContainerHighest)
+              // UI-B3 骨架屏动效：静态占位 → 渐变扫光。
+              ShimmerBox(color: scheme.surfaceContainerHighest)
             else
               PlatformAsyncImage(
                 url: coverUrl,
@@ -207,7 +209,8 @@ class OneAlbumCard extends StatelessWidget {
                 fit: StackFit.expand,
                 children: <Widget>[
                   if (placeholder || coverUrl.isEmpty)
-                    Container(color: scheme.surfaceContainerHighest)
+                    // UI-B3 骨架屏动效：静态占位 → 渐变扫光。
+                    ShimmerBox(color: scheme.surfaceContainerHighest)
                   else
                     PlatformAsyncImage(
                       url: coverUrl,

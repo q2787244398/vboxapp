@@ -231,33 +231,38 @@ class _VboxHomePageState extends State<VboxHomePage> {
   /// 顶栏搜索框（只读按钮，点击进入搜索页；对齐 iOS `HomeSearchBar` 搜索栏）。
   Widget _buildSearchField(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: _openSearch,
-      child: Container(
-        height: 40,
-        margin: const EdgeInsets.symmetric(horizontal: VboxSpacing.xs),
-        padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.md),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: <Widget>[
-            Icon(Icons.search, size: VboxTypography.s16, color: scheme.outline),
-            const SizedBox(width: VboxSpacing.sm),
-            Expanded(
-              child: Text(
-                '搜索影片、剧集',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: VboxTypography.s15,
-                  color: scheme.outline,
+    // UI-D4 辅助功能：搜索入口（可见文案即标签）。
+    return Semantics(
+      button: true,
+      label: '搜索影片、剧集',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: _openSearch,
+        child: Container(
+          height: 40,
+          margin: const EdgeInsets.symmetric(horizontal: VboxSpacing.xs),
+          padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.md),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: <Widget>[
+              Icon(Icons.search, size: VboxTypography.s16, color: scheme.outline),
+              const SizedBox(width: VboxSpacing.sm),
+              Expanded(
+                child: Text(
+                  '搜索影片、剧集',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: VboxTypography.s15,
+                    color: scheme.outline,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

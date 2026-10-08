@@ -6,11 +6,13 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../domain/entities/douban/douban_models.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
+import '../../widgets/skeleton_shimmer.dart';
 import '../../widgets/vbox/vbox.dart';
 
 /// 评分文案（无评分 → null）。
@@ -283,7 +285,11 @@ class _SubjectRowCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           GestureDetector(
-            onTap: onTap,
+            onTap: () {
+              // UI-B1 触感反馈：对齐 iOS `SubjectCard.hapticGenerator.selectionChanged()`。
+              HapticFeedback.selectionClick();
+              onTap?.call();
+            },
             child: SizedBox(
               width: _coverWidth,
               height: _coverHeight,
@@ -295,7 +301,17 @@ class _SubjectRowCard extends StatelessWidget {
                     child: PlatformAsyncImage(
                       url: subject.coverUrl,
                       fit: BoxFit.cover,
-                      placeholderColor: scheme.surfaceContainerHighest,
+                      // UI-B3 骨架屏动效：静态占位 → 渐变扫光（保留影片图标，见 golden 像素契约）。
+                      placeholder: ShimmerBox(
+                        color: scheme.surfaceContainerHighest,
+                        child: Center(
+                          child: Icon(
+                            Icons.movie_outlined,
+                            size: VboxTypography.s24,
+                            color: Colors.white.withValues(alpha: 0.40),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                   if (rating != null)
