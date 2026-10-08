@@ -32,6 +32,8 @@ import '../../../platform/player/danmaku/danmaku_lane_engine.dart';
 import '../../../platform/player/danmaku/danmaku_service.dart';
 import '../../../platform/player/danmaku/danmaku_settings.dart';
 import '../../../platform/player/floating/floating.dart';
+import '../../../platform/player/gesture/gesture_control.dart';
+import '../../../platform/player/gesture/screen_controls.dart';
 import '../../../platform/player/media_url_checker.dart';
 import '../../../platform/player/pip/pip.dart';
 import '../../../platform/player/player_controller.dart';
@@ -47,6 +49,7 @@ import '../../ui_mode/ui_mode.dart';
 import '../../widgets/player/cast/cast_controller.dart';
 import '../../widgets/player/cast/cast_device_sheet.dart';
 import '../../widgets/player/danmaku/danmaku_overlay.dart';
+import '../../widgets/player/gesture_hud.dart';
 import '../../widgets/player/player_controls_controller.dart';
 import '../../widgets/player/player_controls_view.dart';
 import '../../widgets/player/player_error_view.dart';
@@ -215,6 +218,15 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 播放器运行日志（错误态调试查看用；对齐 iOS `ErrorViewWithLogs`）。
   final List<String> _playerLogs = <String>[];
 
+  /// 视频区手势控制器（UI-F1：亮度 / 音量 / 快进快退）。
+  late final PlayerGestureController _gestures;
+
+  /// 手势提示浮层数据（非 null 时显示 `PlayerGestureHud`）。
+  GestureAdjustment? _gestureHud;
+
+  /// 本次手势累计位移（手势状态机按「相对起点的总位移」判定）。
+  Offset _gestureTranslation = Offset.zero;
+
   /// 当前输出面纹理句柄（R-渲1）。
   int? _textureId;
 
@@ -237,6 +249,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _castService = widget.castService ?? DlnaCastService();
     _castController = CastController(service: _castService);
     _controls.castAvailable = _castController.isAvailable;
+    // UI-F1 视频区手势（亮度 / 音量 / 快进快退）；初值异步读取，失败保持 0.5。
+    _gestures = PlayerGestureController(screen: _createScreenControlsBridge());
+    unawaited(_gestures.load());
     _bindPlayer();
     _bindControls();
     _autoPlayNext = AutoPlayNextController(
@@ -754,6 +769,50 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     }
   }
 
+  // ─────────────── 视频区手势（UI-F1）───────────────
+
+  /// 屏幕控制桥：移动端走原生通道，桌面走进程内会话实现（原生接线归平台批次）。
+  ScreenControlsBridge _createScreenControlsBridge() =>
+      (Platform.isAndroid || Platform.isIOS)
+          ? MethodChannelScreenControlsBridge()
+          : SessionScreenControlsBridge();
+
+  /// 手势开始：记录起点快照（横竖形态决定是否允许横滑 seek）。
+  ///
+  /// 面板打开或方向锁定时禁用（对齐 iOS `isAnyPopupPresented` 守卫）：
+  /// 传入零视口使状态机整体 no-op。
+  void _onGestureStart(Offset localPosition) {
+    final Size size = MediaQuery.sizeOf(context);
+    final bool blocked =
+        _controls.hasAnyPanelOpen || _controls.orientationLocked;
+    _gestureTranslation = Offset.zero;
+    _gestures.begin(
+      localPosition: localPosition,
+      viewport: blocked ? Size.zero : size,
+      landscape: size.width > size.height,
+      positionMs: _controls.positionMs,
+      durationMs: _controls.durationMs,
+    );
+  }
+
+  /// 手势推进：按模式刷新亮度 / 音量 / 进度预览，并更新提示浮层。
+  Future<void> _onGestureUpdate(Offset delta) async {
+    _gestureTranslation += delta;
+    final GestureAdjustment? adj = await _gestures.update(_gestureTranslation);
+    if (!mounted) return;
+    if (adj == null) return;
+    // seek 模式：拖动中实时回显进度（对齐 iOS `playerState.currentTime = target`）。
+    if (adj.mode == GestureMode.seek) _controls.previewSeek(_gestures.seekTargetMs);
+    setState(() => _gestureHud = adj);
+  }
+
+  /// 手势结束：seek 模式提交跳转；隐藏提示浮层。
+  void _onGestureEnd() {
+    final int? seekMs = _gestures.end();
+    if (seekMs != null) _controls.onSeek?.call(seekMs);
+    if (mounted && _gestureHud != null) setState(() => _gestureHud = null);
+  }
+
   // ─────────────── 播放器接线 ───────────────
 
   void _bindPlayer() {
@@ -1205,6 +1264,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
           onLongPressCancel: _longPressSpeed.enabled
               ? () => unawaited(_endLongPressSpeed())
               : null,
+          // UI-F1 视频区手势：横滑快进快退 / 左半屏纵滑亮度 / 右半屏纵滑音量。
+          onPanStart: (DragStartDetails d) => _onGestureStart(d.localPosition),
+          onPanUpdate: (DragUpdateDetails d) =>
+              unawaited(_onGestureUpdate(d.delta)),
+          onPanEnd: (DragEndDetails _) => _onGestureEnd(),
+          onPanCancel: _gestures.cancel,
           child: Stack(
             fit: StackFit.expand,
             children: <Widget>[
@@ -1243,6 +1308,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                   text: _subtitleCueText!,
                   style: _controls.subtitleStyle,
                 ),
+              // UI-F1 手势提示浮层（亮度 / 音量 / 快进快退）。
+              if (_gestureHud != null)
+                PlayerGestureHud(adjustment: _gestureHud!),
               // C-05 长按倍速提示浮层。
               if (_longPressSpeedActive)
                 _LongPressSpeedOverlay(text: _controls.speedDisplayText),

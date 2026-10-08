@@ -350,6 +350,17 @@ class PlayerControlsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 拖动预览：仅刷新进度显示，不触发实际 seek（对齐 iOS 拖动中实时回显）。
+  ///
+  /// 目标位置钳制在 `0 ~ durationMs`；值未变则不通知（避免拖动中无谓重建）。
+  void previewSeek(int positionMs) {
+    final int clamped =
+        durationMs <= 0 ? positionMs : positionMs.clamp(0, durationMs);
+    if (this.positionMs == clamped) return;
+    this.positionMs = clamped;
+    notifyListeners();
+  }
+
   /// 设置形态（横竖切换时由调用方注入）。
   void setForm(UiForm form) {
     if (this.form == form) return;
