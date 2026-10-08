@@ -85,6 +85,11 @@ class PlayerSource {
     this.title,
     this.isLive = false,
     this.mimeType,
+    this.source = '',
+    this.fallbackUrl,
+    this.fallbackHeaders = const <String, String>{},
+    this.fallbackSource = '',
+    this.fallbackUseQuarkProxy = false,
   });
 
   /// 播放地址。
@@ -102,9 +107,32 @@ class PlayerSource {
   /// MIME 类型（如 `application/vnd.apple.mpegurl`）。
   final String? mimeType;
 
+  /// 主线路来源标记（对齐 iOS `PlayResult.source`：`download_url` /
+  /// `v2-play-m3u8` / `uc_tv_token` / `v2-play` / `transcode` / `node-pan` 等）。
+  ///
+  /// 兜底链用于识别「原画直链」主线路（`download_url`）以决定是否启用首帧超时。
+  final String source;
+
+  /// 兜底播放地址（对齐 iOS `PlayResult.fallbackURL`；null 表示无兜底链）。
+  final String? fallbackUrl;
+
+  /// 兜底请求头（对齐 iOS `PlayResult.fallbackHeaders`）。
+  final Map<String, String> fallbackHeaders;
+
+  /// 兜底来源标记（对齐 iOS `PlayResult.fallbackSource`）。
+  final String fallbackSource;
+
+  /// 兜底线路是否需要走夸克 Go 代理（`registerQuarkStream`）。
+  ///
+  /// 对齐 iOS：夸克兜底线路触发时经本地代理注入鉴权头；其余网盘走直链。
+  final bool fallbackUseQuarkProxy;
+
   /// 是否 HLS（m3u8）。
   bool get isHls =>
       url.contains('.m3u8') || (mimeType?.contains('mpegurl') ?? false);
+
+  /// 是否具备可切换的兜底线路。
+  bool get hasFallback => fallbackUrl != null && fallbackUrl!.isNotEmpty;
 
   Map<String, Object?> toJson() => <String, Object?>{
         'url': url,
@@ -112,6 +140,11 @@ class PlayerSource {
         if (title != null) 'title': title,
         'isLive': isLive,
         if (mimeType != null) 'mimeType': mimeType,
+        if (source.isNotEmpty) 'source': source,
+        if (fallbackUrl != null) 'fallbackUrl': fallbackUrl,
+        if (fallbackHeaders.isNotEmpty) 'fallbackHeaders': fallbackHeaders,
+        if (fallbackSource.isNotEmpty) 'fallbackSource': fallbackSource,
+        if (fallbackUseQuarkProxy) 'fallbackUseQuarkProxy': fallbackUseQuarkProxy,
       };
 
   factory PlayerSource.fromJson(Map<String, Object?> j) => PlayerSource(
@@ -122,6 +155,13 @@ class PlayerSource {
         title: j['title']?.toString(),
         isLive: j['isLive'] as bool? ?? false,
         mimeType: j['mimeType']?.toString(),
+        source: (j['source'] as String?) ?? '',
+        fallbackUrl: j['fallbackUrl']?.toString(),
+        fallbackHeaders: (j['fallbackHeaders'] as Map?)?.map(
+                (k, v) => MapEntry(k.toString(), v.toString())) ??
+            const <String, String>{},
+        fallbackSource: (j['fallbackSource'] as String?) ?? '',
+        fallbackUseQuarkProxy: j['fallbackUseQuarkProxy'] as bool? ?? false,
       );
 }
 

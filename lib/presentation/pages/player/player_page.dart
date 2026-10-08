@@ -35,6 +35,7 @@ import '../../../platform/player/floating/floating.dart';
 import '../../../platform/player/gesture/gesture_control.dart';
 import '../../../platform/player/gesture/screen_controls.dart';
 import '../../../platform/player/media_url_checker.dart';
+import '../../../platform/player/pan_fallback_chain.dart';
 import '../../../platform/player/pip/pip.dart';
 import '../../../platform/player/player_controller.dart';
 import '../../../platform/player/playback_progress.dart';
@@ -273,6 +274,18 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 回前台恢复播放的宽限任务（对齐 iOS 800ms 宽限；UI-F22）。
   Timer? _foregroundRestoreTimer;
+
+  /// 网盘播放兜底链（UI-F21；null 表示当前源无兜底线路）。
+  PanFallbackChain? _panFallback;
+
+  /// 首帧超时任务（对齐 iOS `quarkFallbackTimeoutTask`；8s 未出画即切兜底）。
+  Timer? _panFallbackTimeout;
+
+  /// 首帧是否已就绪（对齐 iOS `playerItem.status == .readyToPlay`）。
+  bool _firstFrameReady = false;
+
+  /// 是否处于 `open` 调用中（用于区分「打开期后端降级」与「运行期播放错误」）。
+  bool _openingInFlight = false;
 
   @override
   void initState() {
@@ -995,7 +1008,11 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       if (!mounted) return;
       _controls.updatePlaying(s == PlayerState.playing);
       // UI-F18：进入播放即收起加载层（首帧已就绪）。
-      if (s == PlayerState.playing) _controls.hideLoading();
+      if (s == PlayerState.playing) {
+        // UI-F21：首帧就绪 → 取消首帧超时兜底任务（对齐 iOS readyToPlay）。
+        _markFirstFrameReady();
+        _controls.hideLoading();
+      }
       // C-05 自动连播：由控制器按开关决定是否推进下一集。
       _autoPlayNext.handleState(s);
     };
@@ -1035,6 +1052,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       if (!mounted) return;
       // UI-F18：首帧尺寸上报 → 收起加载层（对齐 iOS 首帧就绪）。
       _controls.hideLoading();
+      // UI-F21：首帧就绪 → 取消首帧超时兜底任务（对齐 iOS readyToPlay）。
+      _markFirstFrameReady();
       // UI-F16：首帧就绪 → 应用续播 seek。
       _applyResumeIfNeeded();
       setState(() => _aspectRatio = width / height);
@@ -1048,6 +1067,15 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _appendLog('错误：$message');
       // 致命错误 → 覆盖错误态视图（可重试）；非致命仅提示（对齐 iOS 分级）。
       if (fatal) {
+        // UI-F21：运行期原画 403 / 断连 → 优先切兜底线路（对齐 iOS `.failed` /
+        // `AVPlayerItemFailedToPlayToEndTime` 分支）；打开期错误由 [_openSource]
+        // 的 catch 统一收口，此处不重复触发。
+        if (!_openingInFlight) {
+          unawaited(_tryPanFallbackForText(message).then((bool switched) {
+            if (!switched && mounted) setState(() => _errorMessage = message);
+          }));
+          return;
+        }
         setState(() => _errorMessage = message);
       } else {
         _toast(message);
@@ -1163,10 +1191,23 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 打开播放源并起播；失败抛 [PlayerOpenException] 已在导航层处理，此处仅提示。
   ///
+  /// [preparePanFallback] 为 true 时按源装载网盘兜底链并启动首帧超时（UI-F21）；
+  /// 兜底线路重开时传 false，保留 `attempted` 标记防重复切换。
+  ///
   /// 首开后端不支持时按两条既有能力补救（C-07 / C-12）：
-  ///  1. 复杂封装（MKV / FLV / TS…）经转封装代理换 fMP4 容器重试一次；
-  ///  2. 仍失败则探测直链可达性，给出精确诊断（地址不可达 vs 地址不可用）。
-  Future<void> _openSource(PlayerSource source) async {
+  ///  1. UI-F21：原画线路 403 / 断连 → 先切 m3u8 兜底线路（对齐 iOS 判据顺序）；
+  ///  2. 复杂封装（MKV / FLV / TS…）经转封装代理换 fMP4 容器重试一次；
+  ///  3. 仍失败则探测直链可达性，给出精确诊断（地址不可达 vs 地址不可用）。
+  Future<void> _openSource(
+    PlayerSource source, {
+    bool preparePanFallback = true,
+  }) async {
+    if (preparePanFallback) {
+      _configurePanFallback(source);
+      _scheduleFirstFrameFallbackTimeout();
+    }
+    _firstFrameReady = false;
+    _openingInFlight = true;
     // UI-F18：解析 / 打开期间显示加载层（首帧就绪后由 onVideoSize 收起）。
     _controls.showLoading();
     try {
@@ -1178,6 +1219,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       if (_errorMessage != null) setState(() => _errorMessage = null);
     } on PlayerOpenException catch (e) {
       _appendLog('打开失败：${e.code} ${e.message}');
+      // UI-F21：原画线路 403 / 断连 → 先切兜底线路（已接管则直接返回）。
+      if (await _tryPanFallbackForText('${e.code} ${e.message}')) return;
       final PlayerSource? remuxed = await _remuxFallback(source);
       if (remuxed != null) {
         try {
@@ -1194,7 +1237,83 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       final String message = await _diagnose(e, source);
       _controls.hideLoading();
       _showError(message);
+    } finally {
+      _openingInFlight = false;
     }
+  }
+
+  // ─────────────── 网盘兜底链（UI-F21）───────────────
+
+  /// 按播放源装载兜底链（对齐 iOS `playResolvedDriveVideo` 装载 `quarkFallback*`
+  /// 语义：每次装载重置 `attempted`）。
+  void _configurePanFallback(PlayerSource source) {
+    _panFallbackTimeout?.cancel();
+    _panFallbackTimeout = null;
+    if (!source.hasFallback) {
+      _panFallback = null;
+      return;
+    }
+    _panFallback = PanFallbackChain(
+      fallback: PanPlaybackLine(
+        url: source.fallbackUrl!,
+        headers: source.fallbackHeaders,
+        source: source.fallbackSource,
+        useQuarkProxy: source.fallbackUseQuarkProxy,
+      ),
+    );
+  }
+
+  /// 原画线路首帧超时任务（对齐 iOS `scheduleQuarkPrimaryFallbackTimeout`）。
+  ///
+  /// 仅当存在可用兜底线路时启动；8s 后仍未出画（[_firstFrameReady] 为 false）→
+  /// 以「首帧超时」原因切兜底（对齐 iOS `quarkFallbackTimeoutTask` 的 8s）。
+  void _scheduleFirstFrameFallbackTimeout() {
+    _panFallbackTimeout?.cancel();
+    _panFallbackTimeout = null;
+    final PanFallbackChain? chain = _panFallback;
+    if (chain == null || !chain.available) return;
+    _panFallbackTimeout = Timer(PanFallbackChain.firstFrameTimeout, () {
+      if (!mounted || _firstFrameReady) return;
+      final PanFallbackChain? c = _panFallback;
+      if (c == null || !c.available) return;
+      _appendLog('原画线路首帧超时，切换兜底线路');
+      unawaited(_tryPanFallback(PanFallbackTrigger.firstFrameTimeout));
+    });
+  }
+
+  /// 首帧就绪：取消首帧超时任务（对齐 iOS readyToPlay 取消 `quarkFallbackTimeoutTask`）。
+  void _markFirstFrameReady() {
+    if (_firstFrameReady) return;
+    _firstFrameReady = true;
+    _panFallbackTimeout?.cancel();
+    _panFallbackTimeout = null;
+  }
+
+  /// 按错误文案归类并尝试切换网盘兜底线路（UI-F21）。
+  Future<bool> _tryPanFallbackForText(String text) async {
+    final PanFallbackTrigger? trigger = PanFallbackChain.classifyFailure(text);
+    if (trigger == null) return false;
+    return _tryPanFallback(trigger);
+  }
+
+  /// 切换网盘兜底线路并重开播放（对齐 iOS `switchToQuarkFallback(reason:)`）。
+  ///
+  /// 仅当存在可用兜底线路且**尚未尝试过**时切换（[PanFallbackChain.claim]，对齐
+  /// iOS `quarkFallbackAttempted`）；返回 true 表示已接管（调用方不应再展示错误视图）。
+  Future<bool> _tryPanFallback(PanFallbackTrigger trigger) async {
+    final PanFallbackChain? chain = _panFallback;
+    if (chain == null || !chain.claim(trigger)) return false;
+    _panFallbackTimeout?.cancel();
+    _panFallbackTimeout = null;
+    final PanPlaybackLine line = chain.fallback!;
+    _appendLog('切换网盘兜底线路：${trigger.reason} → ${line.effectiveSource}');
+    // 兜底线路经 Go 代理落地（HLS / 夸克原画注入鉴权头；代理不可用降级直链）。
+    final PlayerSource fallbackSource =
+        await resolvePanPlaybackLine(line, title: widget.title);
+    if (!mounted) return true;
+    // 重开兜底源（不重置兜底链，保持 `attempted = true` 防重复切换）。
+    await _openSource(fallbackSource, preparePanFallback: false);
+    return true;
   }
 
   /// 记录播放器日志（错误态调试查看；仅保留最近 200 条，防无界增长）。
@@ -1434,6 +1553,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _rotateResetTimer?.cancel();
     _seekLoadingTimer?.cancel();
     _foregroundRestoreTimer?.cancel();
+    _panFallbackTimeout?.cancel();
     _danmakuTimer?.cancel();
     _castController.dispose();
     final CastService cast = _castService;

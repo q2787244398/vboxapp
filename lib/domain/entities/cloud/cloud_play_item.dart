@@ -33,6 +33,9 @@ class CloudPlayItem {
     this.preparedAt,
     required this.updatedAt,
     this.source = '',
+    this.fallbackURL,
+    this.fallbackHeaders = const <String, String>{},
+    this.fallbackSource = '',
   });
 
   /// 网盘类型契约值（[CloudDriveType.id]）。
@@ -77,11 +80,24 @@ class CloudPlayItem {
   /// 来源标记（清理时追加原因后缀）。
   final String source;
 
+  /// 兜底线路地址（对齐 iOS `PlayResult.fallbackURL`；null 表示无兜底链）。
+  final String? fallbackURL;
+
+  /// 兜底线路请求头（对齐 iOS `PlayResult.fallbackHeaders`）。
+  final Map<String, String> fallbackHeaders;
+
+  /// 兜底线路来源标记（对齐 iOS `PlayResult.fallbackSource`）。
+  final String fallbackSource;
+
   /// 缓存键（对齐 iOS `cloudPlayItemCacheKey`）。
   String get cacheKey => CloudPlayItemCache.keyOf(provider, sourceKey);
 
   /// 是否持有可用播放地址。
   bool get hasPlayURL => playURL != null && playURL!.isNotEmpty;
+
+  /// 是否具备可切换的兜底线路。
+  bool get hasFallback =>
+      fallbackURL != null && fallbackURL!.isNotEmpty;
 
   /// 在 [now] 时点是否已过期（无过期时间视为未过期）。
   bool isExpiredAt(DateTime now) =>
@@ -103,6 +119,9 @@ class CloudPlayItem {
     DateTime? preparedAt,
     DateTime? updatedAt,
     String? source,
+    String? fallbackURL,
+    Map<String, String>? fallbackHeaders,
+    String? fallbackSource,
   }) {
     return CloudPlayItem(
       provider: provider,
@@ -119,6 +138,13 @@ class CloudPlayItem {
       preparedAt: preparedAt ?? this.preparedAt,
       updatedAt: updatedAt ?? this.updatedAt,
       source: source ?? this.source,
+      // 播放地址被清空（失效 / 过期）→ 兜底线路一并作废。
+      fallbackURL: clearPlayURL ? null : (fallbackURL ?? this.fallbackURL),
+      fallbackHeaders: clearPlayURL
+          ? const <String, String>{}
+          : (fallbackHeaders ?? this.fallbackHeaders),
+      fallbackSource:
+          clearPlayURL ? '' : (fallbackSource ?? this.fallbackSource),
     );
   }
 
@@ -140,6 +166,9 @@ class CloudPlayItem {
       updatedAt: _parseDate(json['updatedAt']) ??
           DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
       source: (json['source'] as String?) ?? '',
+      fallbackURL: json['fallbackURL'] as String?,
+      fallbackHeaders: _parseStringMap(json['fallbackHeaders']),
+      fallbackSource: (json['fallbackSource'] as String?) ?? '',
     );
   }
 
@@ -159,6 +188,9 @@ class CloudPlayItem {
         'preparedAt': preparedAt?.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
         'source': source,
+        'fallbackURL': fallbackURL,
+        'fallbackHeaders': fallbackHeaders,
+        'fallbackSource': fallbackSource,
       };
 
   static DateTime? _parseDate(Object? value) {

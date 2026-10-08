@@ -12,7 +12,15 @@
 ///   · `quarkSaveShare`（L3845）：`POST …/sharepage/save`（转存到根 `to_pdir_fid=0`）；
 ///   · `quarkPollTask`（L3618）：`GET /1/clouddrive/task` 轮询转存落盘；
 ///   · `quarkRefreshVideoAuth`（L4211）：`POST /1/clouddrive/file/v2/play` →
-///     `video_list` 按 `low→4k` 选流。
+///     `video_list` 按 `low→4k` 选流（转码 m3u8，作兜底）；
+///   · `quarkAcquireDLToken`（L4049）：`POST drive-social-api.quark.cn
+///     /1/clouddrive/chat/conv/file/acquire_dl_token`（加速下载 token）；
+///   · `quarkGetDownloadURL`（L4086）：`POST /1/clouddrive/file/download` →
+///     原画直链 `download_url`（主线路）；
+///   · `quarkFindFirstVideoInFolder`（L4138）：v2/play 返回 `not video` 时
+///     BFS 定位文件夹内真实视频文件 fid；
+///   · `resolveQuarkPlayURL`（L2298）：线路拓扑 —— 主=原画 `download_url`、
+///     兜底=转码 `v2-play-m3u8`（`routePreference="transcode"` 时反转）。
 ///
 /// 简化登记（如实）：
 ///   · **Set-Cookie 合并**：由 HTTP 桥 `SpiderHttpBridge` 的 **cookie jar**
@@ -65,16 +73,41 @@ class QuarkShareFile {
   final bool isDir;
 }
 
-/// 夸克取链结果。
+/// 夸克取链结果（对齐 iOS `PlayResult`：主线路 + 兜底线路拓扑）。
 class QuarkPlayResult {
   /// 构造。
-  const QuarkPlayResult({required this.url, required this.fileName});
+  const QuarkPlayResult({
+    required this.url,
+    required this.fileName,
+    this.source = '',
+    this.headers = const <String, String>{},
+    this.fallbackUrl,
+    this.fallbackHeaders = const <String, String>{},
+    this.fallbackSource = '',
+  });
 
-  /// 播放地址。
+  /// 主线路播放地址（对齐 iOS `PlayResult.url`：原画直链 / 转码 m3u8）。
   final String url;
 
   /// 关联文件名（缓存键 / 展示用）。
   final String fileName;
+
+  /// 主线路来源标记（`download_url` / `v2-play-m3u8`，对齐 iOS
+  /// `resolveQuarkPlayURL` 的线路选择）。
+  final String source;
+
+  /// 主线路播放请求头（对齐 iOS `quarkPlaybackHeaders`；走 Go 代理时由代理
+  /// 注入，此处仅作降级直链用）。
+  final Map<String, String> headers;
+
+  /// 兜底线路地址（null 表示无兜底，对齐 iOS `PlayResult.fallbackURL`）。
+  final String? fallbackUrl;
+
+  /// 兜底线路请求头（对齐 iOS `PlayResult.fallbackHeaders`）。
+  final Map<String, String> fallbackHeaders;
+
+  /// 兜底线路来源标记（对齐 iOS `PlayResult.fallbackSource`）。
+  final String fallbackSource;
 }
 
 /// 夸克原生链异常（对齐 iOS `DriveError` 分档文案）。
@@ -108,8 +141,21 @@ class QuarkNativeClient {
   /// API 主机（对齐 iOS `quarkAPIURL`）。
   static const String apiHost = 'https://drive-pc.quark.cn';
 
+  /// 加速下载 token 主机（对齐 iOS `quarkAcquireDLToken`：不是 `drive-pc`）。
+  static const String socialHost = 'https://drive-social-api.quark.cn';
+
   /// 默认 Referer（非分享场景）。
   static const String defaultReferer = 'https://pan.quark.cn/';
+
+  /// 夸克桌面 UA（对齐 iOS `quarkPlaybackHeaders` 抓包值）。
+  static const String desktopUA =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) quark-cloud-drive/2.5.20 '
+      'Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 '
+      'Safari/537.36 Channel/pckk_other_ch';
+
+  /// 夸克设备 ID 契约键（对齐 iOS `quark_device_id`）。
+  static const String deviceIdKey = 'quark_device_id';
 
   /// 播放清晰度优先级（对齐 iOS：普通会员下 low 最流畅）。
   static const List<String> qualityOrder = <String>[
@@ -335,15 +381,61 @@ class QuarkNativeClient {
         if (cookie.isNotEmpty) 'Cookie': cookie,
         'Origin': 'https://pan.quark.cn',
         'Referer': referer ?? defaultReferer,
-        'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                '(KHTML, like Gecko) quark-cloud-drive/2.5.20 '
-                'Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 '
-                'Safari/537.36 Channel/pckk_other_ch',
+        'User-Agent': desktopUA,
         'X-Client': 'QingmanLslandApp/1.0',
       };
 
   static int _nowMs() => DateTime.now().millisecondsSinceEpoch;
+
+  // ─────────────── 设备指纹 / 播放请求头 ───────────────
+
+  String? _deviceIdCache;
+
+  /// 稳定设备 ID（对齐 iOS `quarkDeviceID`：取 `quark_device_id`，无则生成
+  /// 32 位 hex 并持久化）。
+  Future<String> deviceId() async {
+    if (_deviceIdCache != null && _deviceIdCache!.isNotEmpty) {
+      return _deviceIdCache!;
+    }
+    try {
+      final PrefsManager p = _prefs ?? PrefsManager.instance;
+      final String cached = await p.getString(deviceIdKey);
+      if (cached.isNotEmpty) {
+        _deviceIdCache = cached;
+        return cached;
+      }
+      final String generated = List<String>.generate(
+        32,
+        (_) => math.Random.secure().nextInt(16).toRadixString(16),
+      ).join();
+      _deviceIdCache = generated;
+      await p.set(deviceIdKey, generated);
+      return generated;
+    } catch (_) {
+      // 存储不可用 → 退化为会话内随机指纹。
+      return _deviceIdCache ??= List<String>.generate(
+        32,
+        (_) => math.Random.secure().nextInt(16).toRadixString(16),
+      ).join();
+    }
+  }
+
+  /// 夸克播放请求头（对齐 iOS `quarkPlaybackHeaders`：桌面 UA + X-Device-Id）。
+  ///
+  /// 走 Go 代理时鉴权头由代理注入，此处仅作降级直链使用。
+  Future<Map<String, String>> playbackHeaders(String cookie) async {
+    final String device = await deviceId();
+    return <String, String>{
+      if (cookie.isNotEmpty) 'Cookie': cookie,
+      'User-Agent': desktopUA,
+      'Referer': defaultReferer,
+      'Origin': 'https://pan.quark.cn',
+      'Accept': '*/*',
+      'Accept-Encoding': 'br, gzip, deflate',
+      'X-Device-Id': device,
+      'X-Client': 'QingmanLslandApp/1.0',
+    };
+  }
 
   // ─────────────── 分享 token ───────────────
 
@@ -719,11 +811,199 @@ class QuarkNativeClient {
     throw const QuarkNativeException('夸克未返回可用播放地址');
   }
 
-  /// 分享链接 → 取链（对齐 iOS `resolveQuarkPlayURL` 主链，简化清理/缓存）。
+  /// 获取加速下载 token（对齐 iOS `quarkAcquireDLToken`）。
+  ///
+  /// 注意：该接口主机为 [socialHost]（`drive-social-api.quark.cn`），非 `drive-pc`。
+  Future<String> acquireDlToken({required String cookie}) async {
+    final Uri url = Uri.parse(
+      '$socialHost/1/clouddrive/chat/conv/file/acquire_dl_token',
+    ).replace(queryParameters: <String, String>{
+      'pr': 'ucpro',
+      'fr': 'pc',
+      'sys': 'darwin',
+      've': '3.19.0',
+    });
+    final int ts = _nowMs();
+    final SpiderHttpResult res = await _bridge.request(
+      url.toString(),
+      options: SpiderHttpOptions(
+        method: 'POST',
+        headers: _commonHeaders(cookie),
+        data: jsonEncode(<String, Object?>{
+          'conversation_id': '300000$ts',
+          'conversation_type': 3,
+          'msg_id': '${ts}000',
+        }),
+      ),
+    );
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    if (json == null) {
+      throw const QuarkNativeException('夸克 acquire_dl_token 响应异常');
+    }
+    final int code = _asInt(json['code']) ?? 0;
+    if (code != 0) {
+      throw QuarkNativeException(
+        '夸克 acquire_dl_token 失败：${json['message'] ?? 'code=$code'}',
+      );
+    }
+    final String token = _asString(_asMap(json['data'])?['token']) ?? '';
+    if (token.isEmpty) {
+      throw const QuarkNativeException('夸克 acquire_dl_token 未返回 token');
+    }
+    return token;
+  }
+
+  /// 取原画直链（对齐 iOS `quarkGetDownloadURL`：`POST /file/download`）。
+  ///
+  /// 先取加速 token（失败降级普通下载），返回 `(url, fileName)`；`url` 为空表示
+  /// 该资源无原画直链（调用方降级转码 m3u8）。
+  Future<({String url, String fileName})> getDownloadUrl({
+    required String fileId,
+    required String cookie,
+  }) async {
+    String dlToken = '';
+    try {
+      dlToken = await acquireDlToken(cookie: cookie);
+    } catch (_) {
+      // 加速 token 失败不阻断：降级为普通下载。
+    }
+    final SpiderHttpResult res = await _bridge.request(
+      apiUrl('/1/clouddrive/file/download').toString(),
+      options: SpiderHttpOptions(
+        method: 'POST',
+        headers: _commonHeaders(cookie),
+        data: jsonEncode(<String, Object?>{
+          'fids': <String>[fileId],
+          'speedup_session': '',
+          if (dlToken.isNotEmpty) 'token': dlToken,
+        }),
+      ),
+    );
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    if (json == null) {
+      throw const QuarkNativeException('夸克 download_url 响应异常');
+    }
+    final int code = _asInt(json['code']) ?? 0;
+    if (code != 0) {
+      throw QuarkNativeException(
+        '夸克 download_url 获取失败：${json['message'] ?? 'code=$code'}',
+      );
+    }
+    // 对齐 iOS：`data` 为数组，取首项的 download_url / file_name。
+    final Object? data = json['data'];
+    if (data is List && data.isNotEmpty) {
+      final Map<String, Object?>? first = _asMap(data.first);
+      final String url = _asString(first?['download_url']) ?? '';
+      final String name = _asString(first?['file_name']) ?? '';
+      return (url: url, fileName: name);
+    }
+    final Map<String, Object?>? map = _asMap(data);
+    final List<Object?>? list = map?['list'] as List<Object?>?;
+    if (list != null && list.isNotEmpty) {
+      final Map<String, Object?>? first = _asMap(list.first);
+      return (
+        url: _asString(first?['download_url']) ?? '',
+        fileName: _asString(first?['file_name']) ?? '',
+      );
+    }
+    throw const QuarkNativeException('夸克未返回 download_url 数据');
+  }
+
+  /// 读取会员类型（对齐 iOS `quarkGetMemberInfo`；仅用于日志 / 清晰度判断）。
+  ///
+  /// 失败返回 null（不阻断取链）。
+  Future<String?> getMemberInfo({required String cookie}) async {
+    final SpiderHttpResult res = await _bridge.request(
+      apiUrl(
+        '/1/clouddrive/member',
+        extra: <(String, String)>[
+          ('fetch_subscribe', 'true'),
+          ('fetch_identity', 'true'),
+          ('_ch', 'home'),
+          ('ve', '3.19.0'),
+        ],
+      ).toString(),
+      options: SpiderHttpOptions(headers: _commonHeaders(cookie)),
+    );
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    final Map<String, Object?>? d = _asMap(json?['data']);
+    if (d == null) return null;
+    return _asString(d['member_type']) ??
+        _asString(_asMap(d['member_type'])?['type']);
+  }
+
+  /// 递归查找文件夹内首个视频 fid（对齐 iOS `quarkFindFirstVideoInFolder`）。
+  ///
+  /// v2/play 返回 `not video`（fid 实为文件夹）时用于定位真实视频文件；
+  /// BFS 最多 3 层。
+  Future<String?> findFirstVideoInFolder({
+    required String folderId,
+    required String cookie,
+  }) async {
+    const List<String> videoExts = <String>[
+      '.mp4', '.mkv', '.avi', '.ts', '.mov', '.flv', '.wmv', '.m4v', '.3gp',
+      '.webm', '.rmvb', '.rm', '.mpg', '.mpeg',
+    ];
+    final List<String> queue = <String>[folderId];
+    final Set<String> visited = <String>{};
+    int depth = 0;
+    while (queue.isNotEmpty && depth < 3) {
+      final int levelCount = queue.length;
+      for (int i = 0; i < levelCount; i++) {
+        final String fid = queue.removeAt(0);
+        if (!visited.add(fid)) continue;
+        final List<Map<String, Object?>> list = await _fileSortList(
+          cookie: cookie,
+          query: <(String, String)>[
+            ('pdir_fid', fid),
+            ('_sort', 'file_type:asc,updated_at:desc'),
+            ('_page', '1'),
+            ('_size', '200'),
+            ('_fetch_total', '1'),
+          ],
+        );
+        for (final Map<String, Object?> item in list) {
+          final bool isDir = (_asInt(item['file_type']) == 0) ||
+              (item['is_dir'] == true);
+          final String name =
+              (_asString(item['file_name']) ?? _asString(item['name']) ?? '')
+                  .toLowerCase();
+          final String itemFid = _asString(item['fid']) ??
+              _asString(item['file_id']) ??
+              (_asInt(item['fid']) != null ? '${item['fid']}' : '');
+          if (itemFid.isEmpty) continue;
+          if (isDir) {
+            queue.add(itemFid);
+          } else if (videoExts.any((String e) => name.endsWith(e))) {
+            return itemFid;
+          }
+        }
+      }
+      depth += 1;
+    }
+    return null;
+  }
+
+  /// 失效转存 fid 缓存（对齐 iOS `quarkInvalidateSavedFidCache`）。
+  Future<void> invalidateSavedFids(String key) async {
+    final Map<String, Object?> cache =
+        Map<String, Object?>.of(await _loadCache());
+    if (cache.remove(key) != null) await _saveCache(cache);
+  }
+
+  /// 分享链接 → 取链（对齐 iOS `resolveQuarkPlayURL` 主链：主=原画/兜底=m3u8）。
+  ///
+  /// 流程：清理空间 → 分享 token → 可播放文件 → 转存（含缓存）→ v2/play 转码
+  /// （失败按 `not video` 递归定位真实视频文件重试）→ download_url 原画 →
+  /// 按 [routePreference] 选定主线路并派生兜底线路。
+  ///
+  /// [routePreference]：`'original'`（缺省，原画直链为主）/ `'transcode'`
+  /// （转码 m3u8 为主），对齐 iOS `routePreference` 语义。
   Future<QuarkPlayResult> resolvePlayUrl({
     required String shareUrl,
     required String cookie,
     String? preferredFid,
+    String? routePreference,
   }) async {
     final ({String pwdId, String passcode}) info = extractShareInfo(shareUrl);
     if (info.pwdId.isEmpty) {
@@ -762,7 +1042,8 @@ class QuarkNativeClient {
       cookie: cookie,
     );
     List<String> saved = await cachedSavedFids(cacheKey) ?? const <String>[];
-    if (saved.isEmpty) {
+    bool fromCache = saved.isNotEmpty;
+    if (!fromCache) {
       saved = await saveShare(
         pwdId: info.pwdId,
         stoken: stoken,
@@ -778,9 +1059,108 @@ class QuarkNativeClient {
       );
       await cleanupPreviousSavedItems(excludingKey: cacheKey, cookie: cookie);
     }
-    final String fid = saved.first;
-    final String url = await getPlayUrl(fileId: fid, cookie: cookie);
-    return QuarkPlayResult(url: url, fileName: source.fileName);
+    String playbackFileId = saved.first;
+
+    // 会员信息仅用于日志 / 清晰度判断（失败不阻断）。
+    await getMemberInfo(cookie: cookie);
+
+    // 主链路：先 v2/play 刷新 Video-Auth（返回转码 m3u8，作为兜底）。
+    String transcode = '';
+    try {
+      transcode = await getPlayUrl(fileId: playbackFileId, cookie: cookie);
+    } on QuarkNativeException catch (e) {
+      // v2/play 返回 `not video` → fid 实为文件夹，递归定位真实视频文件重试。
+      if (e.message.toLowerCase().contains('not video')) {
+        final String? videoFid = await findFirstVideoInFolder(
+          folderId: playbackFileId,
+          cookie: cookie,
+        );
+        if (videoFid != null) {
+          playbackFileId = videoFid;
+          try {
+            transcode = await getPlayUrl(fileId: videoFid, cookie: cookie);
+          } on QuarkNativeException {
+            // 重试仍失败 → 继续尝试 download_url。
+          }
+        }
+      }
+    }
+
+    // 原画直链：失败时区分「缓存失效」（重转存）与「资源失效」（报错）。
+    ({String url, String fileName}) download = (url: '', fileName: '');
+    try {
+      download = await getDownloadUrl(fileId: playbackFileId, cookie: cookie);
+    } on QuarkNativeException catch (e) {
+      final String msg = e.message.toLowerCase();
+      if (msg.contains('not found') || msg.contains('不存在')) {
+        if (fromCache) {
+          // 缓存 fileId 已失效 → 清缓存重转存（对齐 iOS L2428-L2457）。
+          await invalidateSavedFids(cacheKey);
+          final List<String> newFids = await saveShare(
+            pwdId: info.pwdId,
+            stoken: stoken,
+            file: source,
+            cookie: cookie,
+          );
+          await storeSavedFids(cacheKey, newFids);
+          await cleanupScheduler?.schedule(
+            drive: CloudDriveType.quark,
+            fileIds: newFids,
+            delay: const Duration(hours: 1),
+          );
+          fromCache = false;
+          playbackFileId = newFids.first;
+          try {
+            download =
+                await getDownloadUrl(fileId: playbackFileId, cookie: cookie);
+          } on QuarkNativeException {
+            // 重转存后仍无原画 → 走下方拓扑（转码兜底）。
+          }
+        } else {
+          throw const QuarkNativeException('该资源已被和谐或禁止播放，请尝试其他资源');
+        }
+      }
+      // 其余错误不阻断：转码 m3u8 仍可用。
+    }
+
+    // 线路选择（对齐 iOS L2472-L2504）：缺省原画为主，转码 m3u8 为兜底。
+    final bool preferOriginal = routePreference != 'transcode';
+    final String url;
+    final String lineSource;
+    if (preferOriginal && download.url.isNotEmpty) {
+      url = download.url;
+      lineSource = 'download_url';
+    } else if (transcode.isNotEmpty) {
+      url = transcode;
+      lineSource = 'v2-play-m3u8';
+    } else if (download.url.isNotEmpty) {
+      url = download.url;
+      lineSource = 'download_url';
+    } else {
+      throw const QuarkNativeException('夸克: download_url 和转码地址均为空');
+    }
+    String? fallbackUrl;
+    String fallbackSource = '';
+    if (lineSource == 'download_url' && transcode.isNotEmpty) {
+      fallbackUrl = transcode;
+      fallbackSource = 'v2-play-m3u8';
+    } else if (lineSource == 'v2-play-m3u8' && download.url.isNotEmpty) {
+      fallbackUrl = download.url;
+      fallbackSource = 'download_url';
+    }
+
+    // 兜底线路不提前注册 Go 代理（避免与主线路共享 stream id）；播放请求头由
+    // 各线路在触发时注入（对齐 iOS L2529-L2539）。
+    final Map<String, String> headers = await playbackHeaders(cookie);
+    return QuarkPlayResult(
+      url: url,
+      fileName: download.fileName.isEmpty ? source.fileName : download.fileName,
+      source: lineSource,
+      headers: headers,
+      fallbackUrl: fallbackUrl,
+      fallbackHeaders: headers,
+      fallbackSource: fallbackSource,
+    );
   }
 
   // ─────────────── 空间清理（NC-清1，对齐 iOS `quarkCleanShareOriginIfNeeded` /

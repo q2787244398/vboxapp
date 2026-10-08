@@ -33,6 +33,7 @@ import '../../domain/entities/cloud/cloud_play_item.dart';
 import '../../domain/entities/cloud/node_pan.dart';
 import '../../domain/entities/cloud/pg_auto.dart';
 import '../../domain/entities/player/player.dart';
+import 'pan_fallback_chain.dart';
 import 'playback_route.dart';
 import 'player_controller.dart';
 
@@ -277,6 +278,10 @@ class PanPlayer {
     final String fileName;
     final Map<String, String> headers;
     final String source;
+    // 兜底线路（主=原画/兜底=m3u8 等拓扑，对齐 iOS `PlayResult`）。
+    String? fallbackUrl;
+    Map<String, String> fallbackHeaders = const <String, String>{};
+    String fallbackSource = '';
     switch (channelFor(type)) {
       case PanPlayChannel.nodePan:
         final NodePanPlayData data = await _client.resolvePlay(entry.playID);
@@ -295,13 +300,18 @@ class PanPlayer {
             );
             playURL = r.url;
             fileName = r.fileName.isEmpty ? entry.name : r.fileName;
+            headers = r.headers.isNotEmpty
+                ? r.headers
+                : <String, String>{
+                    if (cookie.isNotEmpty) 'Cookie': cookie,
+                    'Referer': QuarkNativeClient.defaultReferer,
+                  };
+            fallbackUrl = r.fallbackUrl;
+            fallbackHeaders = r.fallbackHeaders;
+            fallbackSource = r.fallbackSource;
           } on QuarkNativeException catch (e) {
             throw PanPlayException(e.message);
           }
-          headers = <String, String>{
-            if (cookie.isNotEmpty) 'Cookie': cookie,
-            'Referer': QuarkNativeClient.defaultReferer,
-          };
           source = 'quark-native';
         } else if (type == CloudDriveType.baidu) {
           final String cookie = await _cookie(type);
@@ -338,6 +348,9 @@ class PanPlayer {
           playURL = r.url;
           fileName = entry.name;
           headers = r.headers;
+          fallbackUrl = r.fallbackUrl;
+          fallbackHeaders = r.fallbackHeaders;
+          fallbackSource = r.fallbackSource;
           source = 'uc-native';
         } else {
           throw PanPlayException('${type.displayName} 原生路链尚未接入（待后续批次）');
@@ -362,6 +375,9 @@ class PanPlayer {
         playURL = r.url;
         fileName = r.fileName.isEmpty ? entry.name : r.fileName;
         headers = r.headers;
+        fallbackUrl = r.fallbackUrl;
+        fallbackHeaders = r.fallbackHeaders;
+        fallbackSource = r.fallbackSource;
         source = r.source;
       case PanPlayChannel.unsupported:
         throw PanPlayException('${type.displayName} 不支持网盘播放');
@@ -378,9 +394,45 @@ class PanPlayer {
       preparedAt: stamp,
       updatedAt: stamp,
       source: source,
+      fallbackURL: fallbackUrl,
+      fallbackHeaders: fallbackHeaders,
+      fallbackSource: fallbackSource,
     );
     await _cache.store(item);
     return item;
+  }
+
+  /// 网盘条目 → 播放源（主线路经 Go 代理落地 + 携带兜底线路）。
+  ///
+  /// 对齐 iOS `CloudDriveManager.resolveQuarkStream` / 各盘注册语义：HLS（m3u8）
+  /// 与夸克原画直链经本地 Go 代理注入鉴权头后播放；代理不可用则降级直链。
+  Future<PlayerSource> sourceFor(CloudPlayItem item, {String? title}) async {
+    final String? url = item.playURL;
+    if (url == null || url.isEmpty) {
+      throw const PanPlayException('播放地址为空');
+    }
+    final bool quark = item.provider == CloudDriveType.quark.id;
+    return resolvePanSource(
+      primary: PanPlaybackLine(
+        url: url,
+        headers: item.headers,
+        source: item.source.startsWith('quark-') ||
+                item.source.startsWith('uc-') ||
+                item.source == 'node-pan'
+            ? ''
+            : item.source,
+        useQuarkProxy: quark,
+      ),
+      fallback: item.hasFallback
+          ? PanPlaybackLine(
+              url: item.fallbackURL!,
+              headers: item.fallbackHeaders,
+              source: item.fallbackSource,
+              useQuarkProxy: quark,
+            )
+          : null,
+      title: title,
+    );
   }
 
   /// 解析并打开播放（显式 `pan` 路由）。

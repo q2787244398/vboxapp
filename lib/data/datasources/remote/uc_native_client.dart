@@ -68,13 +68,16 @@ class UcShareFile {
   final bool isDir;
 }
 
-/// UC 取链结果（对齐 iOS `PlayResult` 的 UC 子集）。
+/// UC 取链结果（对齐 iOS `PlayResult` 的 UC 子集：主线路 + 兜底线路）。
 class UcPlayResult {
   /// 构造。
   const UcPlayResult({
     required this.url,
     required this.headers,
     required this.source,
+    this.fallbackUrl,
+    this.fallbackHeaders = const <String, String>{},
+    this.fallbackSource = '',
   });
 
   /// 播放地址。
@@ -83,8 +86,17 @@ class UcPlayResult {
   /// 播放请求头（Cookie / UA / Referer / Origin / Accept）。
   final Map<String, String> headers;
 
-  /// 取链来源标记：`v2-play` / `download_url`。
+  /// 取链来源标记：`uc_tv_token` / `v2-play` / `download_url`。
   final String source;
+
+  /// 兜底线路地址（null 表示无兜底，对齐 iOS `PlayResult.fallbackURL`）。
+  final String? fallbackUrl;
+
+  /// 兜底线路请求头（对齐 iOS `PlayResult.fallbackHeaders`）。
+  final Map<String, String> fallbackHeaders;
+
+  /// 兜底线路来源标记（对齐 iOS `PlayResult.fallbackSource`）。
+  final String fallbackSource;
 }
 
 /// UC 原生链异常（对齐 iOS `DriveError` 分档文案）。
@@ -1083,12 +1095,39 @@ class UcNativeClient {
 
     // TV Token CDN 直链不传自定义 Header（对齐 iOS：让播放器原生网络栈处理
     // Range）；v2/play 与 download_url 需 UC Cookie 头。
+    final Map<String, String> headers = sourceTag == 'uc_tv_token'
+        ? const <String, String>{}
+        : playbackHeaders(cookie);
+    // 兜底线路派生（对齐 iOS `resolveUCPlayResult` 的 switch 拓扑）：
+    //   · uc_tv_token → 优先转码 v2-play，其次 download_url；
+    //   · v2-play     → download_url；
+    //   · download_url→ 无兜底。
+    String? fallbackUrl;
+    String fallbackSource = '';
+    Map<String, String> fallbackHeaders = const <String, String>{};
+    if (sourceTag == 'uc_tv_token') {
+      if (transcode.isNotEmpty) {
+        fallbackUrl = transcode;
+        fallbackSource = 'v2-play';
+      } else if (download.isNotEmpty) {
+        fallbackUrl = download;
+        fallbackSource = 'download_url';
+      }
+      if (fallbackUrl != null) fallbackHeaders = playbackHeaders(cookie);
+    } else if (sourceTag == 'v2-play') {
+      if (download.isNotEmpty) {
+        fallbackUrl = download;
+        fallbackSource = 'download_url';
+        fallbackHeaders = headers;
+      }
+    }
     return UcPlayResult(
       url: url,
-      headers: sourceTag == 'uc_tv_token'
-          ? const <String, String>{}
-          : playbackHeaders(cookie),
+      headers: headers,
       source: sourceTag,
+      fallbackUrl: fallbackUrl,
+      fallbackHeaders: fallbackHeaders,
+      fallbackSource: fallbackSource,
     );
   }
 

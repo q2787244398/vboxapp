@@ -81,6 +81,9 @@ class AliyunPlayResult {
     required this.headers,
     required this.source,
     required this.fileName,
+    this.fallbackUrl,
+    this.fallbackHeaders = const <String, String>{},
+    this.fallbackSource = '',
   });
 
   /// 播放地址。
@@ -95,6 +98,15 @@ class AliyunPlayResult {
 
   /// 关联文件名。
   final String fileName;
+
+  /// 兜底线路地址（null 表示无兜底，对齐 iOS `PlayResult.fallbackURL`）。
+  final String? fallbackUrl;
+
+  /// 兜底线路请求头（对齐 iOS `PlayResult.fallbackHeaders`）。
+  final Map<String, String> fallbackHeaders;
+
+  /// 兜底线路来源标记（`transcode` / `download_url`，对齐 iOS ali 拓扑）。
+  final String fallbackSource;
 }
 
 /// 阿里 PG 链异常。
@@ -821,7 +833,8 @@ class AliyunAdriveClient {
       target = playable.first;
     }
 
-    // 步骤4：分享直链优先（4A 转码 → 4B 原画）。
+    // 步骤4：分享直链（转码 m3u8 与原画直链**均尝试**，对齐 iOS 双取，
+    //        以便派生兜底线路）。
     String? transcodeUrl;
     AliyunDownloadInfo? download;
     String source = '';
@@ -835,18 +848,16 @@ class AliyunAdriveClient {
     } on AliyunAdriveException {
       transcodeUrl = null;
     }
-    if (transcodeUrl == null) {
-      try {
-        download = await getShareDownloadInfo(
-          accessToken: token.accessToken,
-          shareToken: shareToken,
-          shareId: shareId,
-          fileId: target.fileId,
-        );
-        source = 'ali-share-download';
-      } on AliyunAdriveException {
-        download = null;
-      }
+    try {
+      download = await getShareDownloadInfo(
+        accessToken: token.accessToken,
+        shareToken: shareToken,
+        shareId: shareId,
+        fileId: target.fileId,
+      );
+      if (source.isEmpty) source = 'ali-share-download';
+    } on AliyunAdriveException {
+      download = null;
     }
 
     // 步骤5：转存兜底（仅 4 全失败）。
@@ -895,16 +906,34 @@ class AliyunAdriveClient {
     // 步骤6/7：交付地址 + 请求头组装。
     final String url = transcodeUrl ?? download!.url;
     final bool isTranscode = transcodeUrl != null || isTranscodeM3u8(url);
-    final Map<String, String> headers;
+    // 原画直链请求头（下载信息自带头 + 缺省 UA / Referer）。
+    final Map<String, String> directHeaders =
+        Map<String, String>.of(download?.headers ?? const <String, String>{});
+    if (!directHeaders.containsKey('User-Agent')) {
+      directHeaders['User-Agent'] = desktopUA;
+    }
+    if (!directHeaders.containsKey('Referer')) {
+      directHeaders['Referer'] = 'https://api.alipan.com';
+    }
+    // 转码 m3u8 不注入 UA/Referer（避免 CDN 防盗链 -1102）。
+    final Map<String, String> headers =
+        isTranscode ? const <String, String>{} : directHeaders;
+
+    // 兜底线路派生（对齐 iOS `resolveAliyunSharePlayURL` 拓扑）：
+    //   转码为主 → 兜底原画直链（`download_url`）；
+    //   原画为主 → 兜底转码（`transcode`）。
+    String? fallbackUrl;
+    String fallbackSource = '';
+    Map<String, String> fallbackHeaders = const <String, String>{};
     if (isTranscode) {
-      // 转码 m3u8 不注入 UA/Referer（避免 CDN 防盗链 -1102）。
-      headers = const <String, String>{};
-    } else {
-      final Map<String, String> base =
-          Map<String, String>.of(download?.headers ?? const <String, String>{});
-      if (!base.containsKey('User-Agent')) base['User-Agent'] = desktopUA;
-      if (!base.containsKey('Referer')) base['Referer'] = 'https://api.alipan.com';
-      headers = base;
+      if (download != null && download.url.isNotEmpty) {
+        fallbackUrl = download.url;
+        fallbackSource = 'download_url';
+        fallbackHeaders = directHeaders;
+      }
+    } else if (transcodeUrl != null && transcodeUrl.isNotEmpty) {
+      fallbackUrl = transcodeUrl;
+      fallbackSource = 'transcode';
     }
 
     // 步骤8：转存路径按 `autoCleanup` 登记延迟清理（对齐 iOS）。
@@ -920,6 +949,9 @@ class AliyunAdriveClient {
       headers: headers,
       source: source,
       fileName: target.name,
+      fallbackUrl: fallbackUrl,
+      fallbackHeaders: fallbackHeaders,
+      fallbackSource: fallbackSource,
     );
   }
 

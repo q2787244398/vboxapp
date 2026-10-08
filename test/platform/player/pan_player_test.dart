@@ -105,6 +105,7 @@ class _FakeQuarkClient extends QuarkNativeClient {
     required String shareUrl,
     required String cookie,
     String? preferredFid,
+    String? routePreference,
   }) async =>
       const QuarkPlayResult(url: 'https://v/play.m3u8', fileName: 'EP01.mp4');
 }
