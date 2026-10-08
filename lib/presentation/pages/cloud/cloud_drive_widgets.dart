@@ -562,7 +562,7 @@ class _ManualTokenFallbackCardState extends State<ManualTokenFallbackCard> {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final Color accent = VboxColors.skinPrimaryRose;
+    const Color accent = VboxColors.skinPrimaryRose;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
