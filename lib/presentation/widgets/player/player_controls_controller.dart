@@ -51,6 +51,51 @@ class PlayerControlsController extends ChangeNotifier {
 
   // ── 标题区 ───────────────────────────────────────────
 
+  /// 默认清晰度标签（对齐 iOS `QualityPickerPanelV2.qualities` 的固定三档）。
+  static const List<String> kDefaultQualities = <String>['标清', '高清', '蓝光'];
+
+  /// 按播放地址探测初始清晰度档位（对齐 iOS `PlayerState.detectVideoQuality`）。
+  ///
+  /// 判定顺序与 iOS 一致：蓝光/4K → 2，高清/1080 → 1，标清/720 及以下 → 0；
+  /// **未命中返回 null**（调用方保持当前档，对齐 iOS 不改动语义）。
+  static int? detectQualityIndex(String url) {
+    final String lower = url.toLowerCase();
+    const List<String> bluray = <String>[
+      '蓝光',
+      'bd',
+      'bluray',
+      '2160',
+      '4k',
+      'uhd',
+    ];
+    for (final String k in bluray) {
+      if (lower.contains(k)) return 2;
+    }
+    const List<String> hd = <String>[
+      '高清',
+      '1080',
+      '超清',
+      'hd',
+      'fhd',
+      'full',
+    ];
+    for (final String k in hd) {
+      if (lower.contains(k)) return 1;
+    }
+    const List<String> sd = <String>[
+      '标清',
+      '720',
+      '480',
+      '360',
+      'sd',
+      'low',
+    ];
+    for (final String k in sd) {
+      if (lower.contains(k)) return 0;
+    }
+    return null;
+  }
+
   /// 主标题（剧名）。
   String? title;
 

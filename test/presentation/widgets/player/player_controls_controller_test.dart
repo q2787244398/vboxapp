@@ -463,4 +463,46 @@ void main() {
       expect(c.hasDanmaku, isFalse);
     });
   });
+
+  group('清晰度（R-04）', () {
+    test('默认三档标签（对齐 iOS 固定档位）', () {
+      expect(PlayerControlsController.kDefaultQualities, <String>['标清', '高清', '蓝光']);
+    });
+
+    test('detectQualityIndex 按地址探测档位', () {
+      expect(
+        PlayerControlsController.detectQualityIndex('http://x/蓝光/1.m3u8'),
+        2,
+      );
+      expect(
+        PlayerControlsController.detectQualityIndex('http://x/2160p/a.mp4'),
+        2,
+      );
+      expect(
+        PlayerControlsController.detectQualityIndex('http://x/1080p/a.mp4'),
+        1,
+      );
+      expect(
+        PlayerControlsController.detectQualityIndex('http://x/720/标清.mp4'),
+        0,
+      );
+    });
+
+    test('detectQualityIndex 未命中返回 null（保持当前档）', () {
+      expect(
+        PlayerControlsController.detectQualityIndex('http://x/stream/index.m3u8'),
+        isNull,
+      );
+    });
+
+    test('qualityDisplayText 随档位变化', () {
+      final PlayerControlsController c = PlayerControlsController()
+        ..qualities = PlayerControlsController.kDefaultQualities;
+      expect(c.hasQuality, isTrue);
+      c.selectQuality(2);
+      expect(c.qualityDisplayText, '蓝光');
+      c.selectQuality(0);
+      expect(c.qualityDisplayText, '标清');
+    });
+  });
 }

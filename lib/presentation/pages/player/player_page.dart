@@ -272,7 +272,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       ..subtitle = widget.subtitle
       ..episodes = widget.episodes
       ..currentEpisodeIndex = initialIndex
-      ..qualities = widget.qualities
+      ..qualities = widget.qualities.isEmpty
+          ? PlayerControlsController.kDefaultQualities
+          : widget.qualities
+      // R-04：按播放地址探测初始清晰度档（对齐 iOS `detectVideoQuality`）。
+      ..selectedQuality =
+          PlayerControlsController.detectQualityIndex(widget.source.url) ?? 0
       ..backends = _player.availableBackends
       ..hasDanmaku = true
       ..showDanmaku = _danmaku.enabled
