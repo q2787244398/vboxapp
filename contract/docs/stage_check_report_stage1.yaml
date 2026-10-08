@@ -76,7 +76,7 @@ checks:
       - { name: "应产出文件齐全", status: pass, detail: "lib/ 100 + test/ 46 + contract/schema/ 8 + scripts/check_*.py 11 + conformance 全量 + 真机验收清单（G-09/G-10）" }
       - { name: "决策记录已追加", status: pass, detail: "D1-D31 全表维护（v6.32 新增 D31 Spider 引擎三端口径；v6.31 新增 D30 真机验收排期），编号唯一性守卫通过" }
       - { name: "风险清单已更新", status: pass, detail: "P.28-P.37 逐轮登记；P.36 G-05 收尾/真机清单、P.37 遗留清理裁定" }
-      - { name: "已知限制已记录", status: pass, detail: "本沙箱已装 Flutter 3.47.5（P.7 约束 v6.30 解除）；三端原生 build 仍由 CI 承担" }
+      - { name: "已知限制已记录", status: pass, detail: "环境口径 v6.51 起：本机不安装 Flutter SDK（Trae 沙箱按会话创建、工作区不跨会话保留），Dart 编译/静态/单测/构建一律由 CI（flutter-check.yml）承担；三端原生 build 仍由 CI 承担" }
       - { name: "下阶段输入就绪", status: pass, detail: "第 1 轮代码侧已过 D13 门禁（真机验收后移至第 2 轮末，D30）；下批输入 = 第 2 轮功能补全（含 UI 令牌层 G1/G2）+ 第 2 轮末 G-09/G-10 全量真机" }
 
 # ────────────────────────────────────────────────────────────
