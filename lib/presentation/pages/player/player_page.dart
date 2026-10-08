@@ -268,6 +268,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 是否处于「跳转加载」中（等待首个进度回执或安全超时收起）。
   bool _seekLoadingPending = false;
 
+  /// 是否因退后台被自动暂停（回前台据此恢复；UI-F22）。
+  bool _pausedForBackground = false;
+
+  /// 回前台恢复播放的宽限任务（对齐 iOS 800ms 宽限；UI-F22）。
+  Timer? _foregroundRestoreTimer;
+
   @override
   void initState() {
     super.initState();
@@ -625,6 +631,46 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         if (mounted) _controls.setInPip(pip.isInPip);
       }, onError: (Object _) {}));
     }
+    // UI-F22：前后台恢复保护（对齐 iOS `handleSceneBackground` /
+    // `handleSceneForeground`；iOS 把 `.background` 与 `.inactive` 一并视为退后台）。
+    if (lifecycle == PlaybackLifecycle.background) {
+      _handleEnterBackground();
+    } else {
+      _handleEnterForeground();
+    }
+  }
+
+  // ─────────────── 前后台恢复保护（UI-F22）───────────────
+
+  /// 进入后台（对齐 iOS `handleSceneBackground`）。
+  ///
+  /// 未开启后台播放 → 暂停播放器（防后台耗电 / 越权播放）并**强制落库进度**；
+  /// 开启后台播放 → 保持播放（音频续播，由 C-05 后台承载负责）。
+  void _handleEnterBackground() {
+    _foregroundRestoreTimer?.cancel();
+    _foregroundRestoreTimer = null;
+    if (!_playback.backgroundPlay && _controls.isPlaying) {
+      _pausedForBackground = true;
+      unawaited(_player.pause());
+    }
+    // 退后台即强制落库（跳过 5s 节流，保留 >5s 与看完清除守卫）。
+    _persistProgress(
+      _controls.positionMs,
+      _controls.durationMs,
+      throttle: false,
+    );
+  }
+
+  /// 回到前台（对齐 iOS `handleSceneForeground`）：**800ms 宽限**后恢复播放。
+  ///
+  /// 仅恢复「因退后台被自动暂停」的播放（用户主动暂停的不在此列，比 iOS 更保守）。
+  void _handleEnterForeground() {
+    _foregroundRestoreTimer?.cancel();
+    _foregroundRestoreTimer = Timer(const Duration(milliseconds: 800), () {
+      if (!mounted || !_pausedForBackground) return;
+      _pausedForBackground = false;
+      unawaited(_player.play());
+    });
   }
 
   /// 「更多 → 画中画」：进入 / 退出画中画。
@@ -802,21 +848,35 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     unawaited(_player.seekTo(target.round()));
   }
 
-  /// 按 iOS 口径落库进度：`> 5s` 才存、节流 5s、距结尾 `< 15s` 视为看完清除。
-  void _saveProgressThrottled(PlaybackProgress p) {
-    if (widget.vodId.isEmpty || p.durationMs <= 0) return;
-    final double seconds = p.positionMs / 1000.0;
+  /// 按 iOS 口径落库进度：`> 5s` 才存、距结尾 `< 15s` 视为看完清除。
+  ///
+  /// [throttle] 为 true 时套用 5s 节流（播放中进度事件）；为 false 时强制落库
+  /// （退后台等关键切换点，对齐 iOS `handleSceneBackground` 的强制保存）。
+  void _persistProgress(
+    int positionMs,
+    int durationMs, {
+    required bool throttle,
+  }) {
+    if (widget.vodId.isEmpty || durationMs <= 0) return;
+    final double seconds = positionMs / 1000.0;
     if (!PlaybackProgressStore.shouldSave(seconds)) return;
-    if (PlaybackProgressStore.isNearEnd(seconds, p.durationMs / 1000.0)) {
+    if (PlaybackProgressStore.isNearEnd(seconds, durationMs / 1000.0)) {
       unawaited(PlaybackProgressStore.clear(widget.vodId));
       return;
     }
     final int now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastProgressSaveMs < PlaybackProgressStore.saveThrottleMs) {
-      return;
+    if (throttle) {
+      if (now - _lastProgressSaveMs < PlaybackProgressStore.saveThrottleMs) {
+        return;
+      }
     }
     _lastProgressSaveMs = now;
     unawaited(PlaybackProgressStore.save(widget.vodId, seconds));
+  }
+
+  /// 播放中进度事件 → 节流落库。
+  void _saveProgressThrottled(PlaybackProgress p) {
+    _persistProgress(p.positionMs, p.durationMs, throttle: true);
   }
 
   // ─────────────── 下一集预取（UI-F17）───────────────
@@ -1369,6 +1429,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _lockHideTimer?.cancel();
     _rotateResetTimer?.cancel();
     _seekLoadingTimer?.cancel();
+    _foregroundRestoreTimer?.cancel();
     _danmakuTimer?.cancel();
     _castController.dispose();
     final CastService cast = _castService;
