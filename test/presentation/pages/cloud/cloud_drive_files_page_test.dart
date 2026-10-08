@@ -14,9 +14,54 @@ import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive_files.dart';
 import 'package:vbox/domain/entities/cloud/cloud_play_item.dart';
 import 'package:vbox/domain/entities/cloud/node_pan.dart';
+import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/platform/player/pan_player.dart';
+import 'package:vbox/platform/player/player_channel_bridge.dart';
+import 'package:vbox/platform/player/player_controller.dart';
+import 'package:vbox/platform/player/playback_route.dart';
 import 'package:vbox/presentation/pages/cloud/files.dart';
 import 'package:vbox/presentation/pages/cloud/files_controller.dart';
+import 'package:vbox/presentation/pages/player/player_page.dart';
+
+/// 假播放器控制器（避免播放页走真实平台通道）。
+class _StubBridge implements PlayerChannelBridge {
+  @override
+  Future<Object?> invoke(String method, [Object? arguments]) async => null;
+
+  @override
+  Stream<Map<String, Object?>> events() =>
+      const Stream<Map<String, Object?>>.empty();
+
+  @override
+  Future<void> dispose() async {}
+}
+
+class _FakePlayerController extends PlayerController {
+  _FakePlayerController()
+      : super(
+          bridge: _StubBridge(),
+          backendChain: const <PlayerBackend>[PlayerBackend.media3],
+          selectInitialBackend: (_, PlaybackRoute route) => PlayerBackend.media3,
+        );
+
+  @override
+  Future<void> open(PlayerSource source, {PlaybackRoute? route}) async {}
+
+  @override
+  Future<void> play() async {}
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> seekTo(int positionMs) async {}
+
+  @override
+  Future<void> setSpeed(double speed) async {}
+
+  @override
+  Future<void> setVolume(double volume) async {}
+}
 
 /// 假网盘播放编排：覆盖分享解析（C-盘2）与取链（F-08 接播放页）。
 class _FakePanPlayer extends PanPlayer {
@@ -327,6 +372,91 @@ void main() {
     expect(find.text('EP01.mp4'), findsOneWidget);
     expect(find.text('清理队列'), findsNothing);
     expect(find.text('当前目录没有文件'), findsNothing);
+  });
+
+  testWidgets('分享模式：多视频文件 → 进入播放页并带选集列表（点选即播 + 选集切换）',
+      (WidgetTester tester) async {
+    PlayerController.overrideForTest(_FakePlayerController());
+    final _FakePanPlayer pan = _FakePanPlayer(
+      const NodePanShare(title: '季风剧场', entries: <NodePanEntry>[
+        NodePanEntry(playID: 'p1', name: 'EP01.mp4'),
+        NodePanEntry(playID: 'p2', name: 'EP02.mp4'),
+      ]),
+      prepared: CloudPlayItem(
+        provider: CloudDriveType.one15.id,
+        sourceKey: 'p1',
+        fileName: 'EP01.mp4',
+        playURL: 'https://cdn.example/ep1.m3u8',
+        updatedAt: DateTime(2026, 10, 5),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudDriveFilesPage(
+          driveType: CloudDriveType.one15,
+          shareUrl: 'https://share/abc',
+          panPlayer: pan,
+          cleanupStore: store,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('EP01.mp4'));
+    // 播放页进入后常驻加载层（转圈动画），不能用 pumpAndSettle（永不 settle）。
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final PlayerPage page = tester.widget<PlayerPage>(find.byType(PlayerPage));
+    expect(
+      page.episodes.map((e) => e.name).toList(),
+      <String>['EP01.mp4', 'EP02.mp4'],
+    );
+    expect(page.episodes.first.fileId, 'p1');
+    expect(page.initialEpisodeIndex, 0);
+    expect(page.onResolveEpisode, isNotNull);
+    expect(page.route, PlaybackRoute.pan);
+
+    // 排空播放页计时器（自动隐藏 + 加载层）。
+    await tester.pump(const Duration(seconds: 6));
+  });
+
+  testWidgets('分享模式：仅一个视频文件 → 单文件播放（不引入选集）',
+      (WidgetTester tester) async {
+    PlayerController.overrideForTest(_FakePlayerController());
+    final _FakePanPlayer pan = _FakePanPlayer(
+      const NodePanShare(title: '季风剧场', entries: <NodePanEntry>[
+        NodePanEntry(playID: 'p1', name: 'EP01.mp4'),
+      ]),
+      prepared: CloudPlayItem(
+        provider: CloudDriveType.one15.id,
+        sourceKey: 'p1',
+        fileName: 'EP01.mp4',
+        playURL: 'https://cdn.example/ep1.m3u8',
+        updatedAt: DateTime(2026, 10, 5),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CloudDriveFilesPage(
+          driveType: CloudDriveType.one15,
+          shareUrl: 'https://share/abc',
+          panPlayer: pan,
+          cleanupStore: store,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('EP01.mp4'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final PlayerPage page = tester.widget<PlayerPage>(find.byType(PlayerPage));
+    expect(page.episodes, isEmpty);
+    expect(page.onResolveEpisode, isNull);
+
+    await tester.pump(const Duration(seconds: 6));
   });
 
   testWidgets('分享模式：vbox fragment 定位 → 自动播放指定条目（F-P27 消费端）',

@@ -15,6 +15,7 @@ class PlaybackEpisode {
     required this.name,
     required this.url,
     this.from,
+    this.fileId = '',
   });
 
   /// 剧集名（如「第 1 集」，解析失败时可能为空串）。
@@ -25,6 +26,12 @@ class PlaybackEpisode {
 
   /// 所属线路（`vod_play_from` 对应项；未知为 null）。
   final String? from;
+
+  /// 网盘文件 ID（分享 / 文件列表选集定位用；非网盘源为空串）。
+  ///
+  /// F-P06 网盘字段扩展的首批落地字段 —— 仅供「分享内多文件选集」定位使用；
+  /// 其余网盘字段（各盘 fileIndex / playID / headers 等）随第 4 批网盘链路补入。
+  final String fileId;
 
   /// 是否直链媒体（无需 playerContent 二次解析）。
   bool get isDirectMedia => PlaybackUrlParser.looksDirectMedia(url);

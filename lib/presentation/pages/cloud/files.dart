@@ -18,6 +18,7 @@ import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_files.dart';
 import '../../../domain/entities/cloud/cloud_play_item.dart';
 import '../../../domain/entities/player/player.dart';
+import '../../../domain/entities/playback/playback_detail.dart';
 import '../../../platform/player/go_proxy_client.dart';
 import '../../../platform/player/pan_player.dart';
 import '../../../platform/player/playback_route.dart';
@@ -111,25 +112,13 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
   Future<void> _onTapEntry(CloudDriveFileEntry entry) async {
     if (_controller.isShareMode) {
       try {
-        final CloudPlayItem item = await _controller.resolveEntry(entry);
-        if (!mounted) return;
-        final String title =
-            item.fileName.isEmpty ? entry.name : item.fileName;
-        final PlayerSource source = await _panSource(item, title);
-        if (!mounted) return;
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (BuildContext context) => PlayerPage(
-              source: source,
-              // 直链特征无法自证 pan 路由，显式传入（对齐 F-08）。
-              route: PlaybackRoute.pan,
-              title: title,
-            ),
-          ),
-        );
+        await _openSharePlayback(entry);
       } catch (e) {
         if (!mounted) return;
-        VboxToast.show(context, e is CloudDriveFilesException ? e.message : '$e');
+        VboxToast.show(
+          context,
+          e is CloudDriveFilesException ? e.message : '$e',
+        );
       }
       return;
     }
@@ -141,6 +130,57 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
       context,
       added > 0 ? '已转存并加入清理队列' : '该文件已在清理队列中',
     );
+  }
+
+  /// 分享模式播放：分享内**多个视频文件**时以整列表为选集进入播放页
+  /// （点选即播 + 选集切换 + 下一集预取，对齐 iOS 分享选集）；
+  /// 仅一个视频文件时维持单文件播放（不引入多余选集入口）。
+  Future<void> _openSharePlayback(CloudDriveFileEntry entry) async {
+    final List<CloudDriveFileEntry> playable = _playableEntries();
+    final CloudPlayItem item = await _controller.resolveEntry(entry);
+    if (!mounted) return;
+    final String title = item.fileName.isEmpty ? entry.name : item.fileName;
+    final PlayerSource source = await _panSource(item, title);
+    if (!mounted) return;
+    final int index = playable.indexWhere(
+      (CloudDriveFileEntry e) => e.fileId == entry.fileId,
+    );
+    final bool multi = playable.length > 1 && index >= 0;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => PlayerPage(
+          source: source,
+          // 直链特征无法自证 pan 路由，显式传入（对齐 F-08）。
+          route: PlaybackRoute.pan,
+          title: title,
+          episodes: multi
+              ? <PlaybackEpisode>[
+                  for (final CloudDriveFileEntry e in playable)
+                    PlaybackEpisode(name: e.name, url: '', fileId: e.fileId),
+                ]
+              : const <PlaybackEpisode>[],
+          initialEpisodeIndex: multi ? index : 0,
+          onResolveEpisode: multi ? _resolveShareEpisode : null,
+        ),
+      ),
+    );
+  }
+
+  /// 分享内可播放视频文件（选集列表数据源；文件夹与非视频文件排除）。
+  List<CloudDriveFileEntry> _playableEntries() => _controller.entries
+      .where((CloudDriveFileEntry e) => !e.isFolder && e.isVideo)
+      .toList(growable: false);
+
+  /// 选集重开：`fileId` → 网盘直链（分享模式；未命中 / 取链失败回 null）。
+  Future<PlayerSource?> _resolveShareEpisode(PlaybackEpisode episode) async {
+    final int i = _controller.entries.indexWhere(
+      (CloudDriveFileEntry e) => e.fileId == episode.fileId,
+    );
+    if (i < 0) return null;
+    final CloudDriveFileEntry entry = _controller.entries[i];
+    final CloudPlayItem item = await _controller.resolveEntry(entry);
+    final String title = item.fileName.isEmpty ? entry.name : item.fileName;
+    return _panSource(item, title);
   }
 
   /// 网盘直链 → 播放源（C-10 Go 代理）。
