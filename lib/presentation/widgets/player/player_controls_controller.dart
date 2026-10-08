@@ -152,6 +152,38 @@ class PlayerControlsController extends ChangeNotifier {
   /// 当前内核（null 表示未开播）。
   PlayerBackend? currentBackend;
 
+  // ── 加载态（UI-F18；对齐 iOS `PlayerState.isLoading` / `loadingMessage`）──
+
+  /// 是否显示中央加载层（对齐 iOS `isLoading`）。
+  ///
+  /// 缺省 `false`（裸控制器不显示加载层）；播放页进入时经 [showLoading] 置起。
+  bool isLoading = false;
+
+  /// 加载提示文案（[isLoading] 为 true 时显示；对齐 iOS `loadingMessage`）。
+  String loadingMessage = loadingResolving;
+
+  /// 加载文案：解析播放地址（对齐 iOS `loadingMessage` 默认值）。
+  static const String loadingResolving = '正在解析播放地址...';
+
+  /// 加载文案：缓冲首帧（对齐 iOS `正在缓冲首帧...`）。
+  static const String loadingFirstFrame = '正在缓冲首帧...';
+
+  /// 加载文案：兼容内核（对齐 iOS `正在使用兼容内核...`）。
+  static const String loadingCompatKernel = '正在使用兼容内核...';
+
+  /// 加载文案：获取媒体 / 网盘地址（对齐 iOS `正在获取百度视频地址...`）。
+  static const String loadingFetchingUrl = '正在获取视频地址...';
+
+  /// 加载文案：播放失败（对齐 iOS `播放失败`）。
+  static const String loadingFailed = '播放失败';
+
+  /// 加载文案：切换内核（对齐 iOS `正在切换 \(engineName)...`）。
+  static String loadingSwitchingEngine(String engineName) =>
+      '正在切换 $engineName...';
+
+  /// 加载文案：跳转中（对齐 iOS `正在跳转到 \(target)...`；target 为已格式化时长）。
+  static String loadingSeeking(String target) => '正在跳转到 $target...';
+
   // ── 弹幕 ─────────────────────────────────────────────
 
   /// 弹幕显示开关（会话级）。
@@ -330,10 +362,10 @@ class PlayerControlsController extends ChangeNotifier {
   }
 
   /// 当前播放位置时间文案（`HH:MM:SS` / `MM:SS`）。
-  String get positionText => _formatTime(positionMs);
+  String get positionText => formatTime(positionMs);
 
   /// 总时长时间文案（未知时长显示 `--:--`）。
-  String get durationText => durationMs <= 0 ? '--:--' : _formatTime(durationMs);
+  String get durationText => durationMs <= 0 ? '--:--' : formatTime(durationMs);
 
   /// 是否有上一集 / 下一集。
   bool get hasPrevEpisode => currentEpisodeIndex > 0;
@@ -403,6 +435,22 @@ class PlayerControlsController extends ChangeNotifier {
         durationMs <= 0 ? positionMs : positionMs.clamp(0, durationMs);
     if (this.positionMs == clamped) return;
     this.positionMs = clamped;
+    notifyListeners();
+  }
+
+  /// 进入加载态并设置文案（对齐 iOS `isLoading = true` + `loadingMessage = ...`）。
+  ///
+  /// 文案未变也会通知（加载层可能由隐藏转为显示）。
+  void showLoading([String message = loadingResolving]) {
+    isLoading = true;
+    loadingMessage = message;
+    notifyListeners();
+  }
+
+  /// 退出加载态（幂等；对齐 iOS `isLoading = false`）。
+  void hideLoading() {
+    if (!isLoading) return;
+    isLoading = false;
     notifyListeners();
   }
 
@@ -624,7 +672,7 @@ class PlayerControlsController extends ChangeNotifier {
 
   // ── 内部工具 ─────────────────────────────────────────
 
-  static String _formatTime(int ms) {
+  static String formatTime(int ms) {
     final int totalSec = ms ~/ 1000;
     final int h = totalSec ~/ 3600;
     final int m = (totalSec % 3600) ~/ 60;

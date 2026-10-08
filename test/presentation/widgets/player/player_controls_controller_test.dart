@@ -505,4 +505,39 @@ void main() {
       expect(c.qualityDisplayText, '标清');
     });
   });
+
+  group('加载态（UI-F18）', () {
+    test('showLoading 置起并回填文案；hideLoading 幂等', () {
+      final PlayerControlsController c = PlayerControlsController();
+      expect(c.isLoading, isFalse);
+      c.showLoading();
+      expect(c.isLoading, isTrue);
+      expect(c.loadingMessage, PlayerControlsController.loadingResolving);
+      c.showLoading(PlayerControlsController.loadingFirstFrame);
+      expect(c.loadingMessage, PlayerControlsController.loadingFirstFrame);
+      c.hideLoading();
+      expect(c.isLoading, isFalse);
+      // 幂等：重复收起不抛。
+      c.hideLoading();
+      expect(c.isLoading, isFalse);
+    });
+
+    test('文案常量与动态文案对齐 iOS', () {
+      expect(PlayerControlsController.loadingResolving, '正在解析播放地址...');
+      expect(PlayerControlsController.loadingFirstFrame, '正在缓冲首帧...');
+      expect(PlayerControlsController.loadingCompatKernel, '正在使用兼容内核...');
+      expect(PlayerControlsController.loadingFetchingUrl, '正在获取视频地址...');
+      expect(PlayerControlsController.loadingFailed, '播放失败');
+      expect(
+        PlayerControlsController.loadingSwitchingEngine('VLC'),
+        '正在切换 VLC...',
+      );
+      expect(PlayerControlsController.loadingSeeking('02:04'), '正在跳转到 02:04...');
+    });
+
+    test('formatTime 公开可用（供加载文案复用）', () {
+      expect(PlayerControlsController.formatTime(124000), '02:04');
+      expect(PlayerControlsController.formatTime(3725000), '01:02:05');
+    });
+  });
 }

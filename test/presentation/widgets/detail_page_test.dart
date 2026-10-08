@@ -285,7 +285,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('立即播放'));
-    await tester.pumpAndSettle();
+    // 播放页进入后常驻加载层（转圈动画），不能用 pumpAndSettle（永不 settle）；
+    // 用有界 pump 完成导航转场与首轮异步（open/play）。
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     // Wave A · R-渲2：不在详情页直接起播，而是进入全屏播放页。
     expect(find.byType(PlayerPage), findsOneWidget);

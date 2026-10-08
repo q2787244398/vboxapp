@@ -37,6 +37,7 @@ import '../../../platform/player/gesture/screen_controls.dart';
 import '../../../platform/player/media_url_checker.dart';
 import '../../../platform/player/pip/pip.dart';
 import '../../../platform/player/player_controller.dart';
+import '../../../platform/player/playback_progress.dart';
 import '../../../platform/player/playback_route.dart';
 import '../../../platform/player/playback_settings.dart';
 import '../../../platform/player/playthrough.dart';
@@ -203,6 +204,15 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   bool _skipIntroTriggered = false;
   bool _skipOutroTriggered = false;
 
+  /// 待应用的续播位置（毫秒；null = 无记录或已应用；UI-F16）。
+  double? _resumePositionMs;
+
+  /// 续播是否已应用（首帧就绪后仅 seek 一次，切集不重复；UI-F16）。
+  bool _resumeApplied = false;
+
+  /// 上次进度落库墙钟（节流 5s；UI-F16）。
+  int _lastProgressSaveMs = 0;
+
   /// 当前应显示的字幕文本（随进度更新）。
   String? _subtitleCueText;
 
@@ -241,6 +251,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   Timer? _hideTimer;
   Timer? _lockHideTimer;
   Timer? _rotateResetTimer;
+
+  /// 跳转加载层的安全超时（UI-F18；对齐 iOS `seekTimeoutTask` 的 3s 兜底）。
+  Timer? _seekLoadingTimer;
+
+  /// 是否处于「跳转加载」中（等待首个进度回执或安全超时收起）。
+  bool _seekLoadingPending = false;
 
   @override
   void initState() {
@@ -286,6 +302,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       ..backgroundPlay = _playback.backgroundPlay
       ..pipEnabled = _playback.pipEnabled
       ..longPressSpeed = _playback.longPressSpeed;
+    // UI-F18：进入即进入加载态（对齐 iOS `isLoading` 默认 true）。
+    _controls.showLoading();
     unawaited(_initDanmaku());
     unawaited(_enter());
     unawaited(_loadCapabilities());
@@ -743,8 +761,52 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   Future<void> _enter() async {
     unawaited(
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
+    // UI-F16：进度读取与起播**并行**（续播在首帧就绪时才应用，无需阻塞起播）。
+    unawaited(_loadResumePosition());
     await _openSource(widget.source);
     _scheduleHide();
+  }
+
+  // ─────────────── 进度续播（UI-F16）───────────────
+
+  /// 读取该视频上次进度；命中恢复守卫（>10s）则记为待续播位置。
+  ///
+  /// 读取失败（存储未初始化等）→ 不续播，不阻断播放。
+  Future<void> _loadResumePosition() async {
+    if (widget.vodId.isEmpty) return;
+    double saved = 0;
+    try {
+      saved = await PlaybackProgressStore.load(widget.vodId);
+    } catch (_) {
+      return;
+    }
+    if (!PlaybackProgressStore.shouldResume(saved)) return;
+    _resumePositionMs = saved * 1000;
+  }
+
+  /// 首帧就绪后应用一次续播 seek（幂等；切集不重复）。
+  void _applyResumeIfNeeded() {
+    final double? target = _resumePositionMs;
+    if (_resumeApplied || target == null || target <= 0) return;
+    _resumeApplied = true;
+    unawaited(_player.seekTo(target.round()));
+  }
+
+  /// 按 iOS 口径落库进度：`> 5s` 才存、节流 5s、距结尾 `< 15s` 视为看完清除。
+  void _saveProgressThrottled(PlaybackProgress p) {
+    if (widget.vodId.isEmpty || p.durationMs <= 0) return;
+    final double seconds = p.positionMs / 1000.0;
+    if (!PlaybackProgressStore.shouldSave(seconds)) return;
+    if (PlaybackProgressStore.isNearEnd(seconds, p.durationMs / 1000.0)) {
+      unawaited(PlaybackProgressStore.clear(widget.vodId));
+      return;
+    }
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastProgressSaveMs < PlaybackProgressStore.saveThrottleMs) {
+      return;
+    }
+    _lastProgressSaveMs = now;
+    unawaited(PlaybackProgressStore.save(widget.vodId, seconds));
   }
 
   // ─────────────── 片头片尾跳过（UI-F2）───────────────
@@ -824,11 +886,22 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _player.onStateChanged = (PlayerState s) {
       if (!mounted) return;
       _controls.updatePlaying(s == PlayerState.playing);
+      // UI-F18：进入播放即收起加载层（首帧已就绪）。
+      if (s == PlayerState.playing) _controls.hideLoading();
       // C-05 自动连播：由控制器按开关决定是否推进下一集。
       _autoPlayNext.handleState(s);
     };
     _player.onProgress = (PlaybackProgress p) {
       if (!mounted) return;
+      // UI-F18：跳转加载的进度回执 → 收起加载层（对齐 iOS seek 完成回调）。
+      if (_seekLoadingPending) {
+        _seekLoadingPending = false;
+        _seekLoadingTimer?.cancel();
+        _controls.hideLoading();
+      }
+      // UI-F16：首个进度事件即视为首帧就绪 → 应用续播 + 节流落库进度。
+      _applyResumeIfNeeded();
+      _saveProgressThrottled(p);
       _controls.updateProgress(
         positionMs: p.positionMs,
         durationMs: p.durationMs,
@@ -850,6 +923,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     };
     _player.onVideoSize = (int width, int height) {
       if (!mounted) return;
+      // UI-F18：首帧尺寸上报 → 收起加载层（对齐 iOS 首帧就绪）。
+      _controls.hideLoading();
+      // UI-F16：首帧就绪 → 应用续播 seek。
+      _applyResumeIfNeeded();
       setState(() => _aspectRatio = width / height);
     };
     _player.onSurfaceChanged = (int? id) {
@@ -876,6 +953,18 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _danmakuPosMs = ms;
       _danmakuSyncAtMs = DateTime.now().millisecondsSinceEpoch;
       if (mounted) setState(() => _danmakuStates = const <DanmakuRenderState>[]);
+      // UI-F18：跳转期间显示加载层，3s 安全超时兜底（对齐 iOS seekTimeoutTask）。
+      _seekLoadingPending = true;
+      _controls.showLoading(
+        PlayerControlsController.loadingSeeking(
+          PlayerControlsController.formatTime(ms),
+        ),
+      );
+      _seekLoadingTimer?.cancel();
+      _seekLoadingTimer = Timer(const Duration(seconds: 3), () {
+        _seekLoadingPending = false;
+        if (mounted) _controls.hideLoading();
+      });
       unawaited(_player.seekTo(ms));
     };
     _controls.onSelectSpeed = (double s) => unawaited(_player.setSpeed(s));
@@ -968,6 +1057,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   ///  1. 复杂封装（MKV / FLV / TS…）经转封装代理换 fMP4 容器重试一次；
   ///  2. 仍失败则探测直链可达性，给出精确诊断（地址不可达 vs 地址不可用）。
   Future<void> _openSource(PlayerSource source) async {
+    // UI-F18：解析 / 打开期间显示加载层（首帧就绪后由 onVideoSize 收起）。
+    _controls.showLoading();
     try {
       await _player.open(source, route: widget.route);
       await _player.play();
@@ -991,6 +1082,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         }
       }
       final String message = await _diagnose(e, source);
+      _controls.hideLoading();
       _showError(message);
     }
   }
@@ -1059,9 +1151,18 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 切换内核（P-芯2）：以当前源在指定后端重开。
   Future<void> _switchBackend(PlayerBackend backend) async {
-    await _player.switchBackend(backend);
-    if (!mounted) return;
-    _controls.currentBackend = _player.backend;
+    // UI-F18：切换内核期间显示加载层（对齐 iOS `正在切换 \(engineName)...`）。
+    _controls.showLoading(
+      PlayerControlsController.loadingSwitchingEngine(backend.shortName),
+    );
+    try {
+      await _player.switchBackend(backend);
+      if (!mounted) return;
+      _controls.currentBackend = _player.backend;
+    } catch (_) {
+      // 切换失败 → 收起加载层，不误报（错误经 onError 分类呈现）。
+      if (mounted) _controls.hideLoading();
+    }
   }
 
   /// 选集重开（对齐 iOS 预解析集数：解析 → 重开 → 回填当前集）。
@@ -1074,8 +1175,14 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       index,
       subtitle: episode.name.isEmpty ? null : episode.name,
     );
+    // UI-F18：切换集数期间显示加载层（对齐 iOS `正在解析播放地址...`）。
+    _controls.showLoading();
     final PlayerSource? source = await resolver(episode);
-    if (!mounted || source == null) return;
+    if (!mounted) return;
+    if (source == null) {
+      _controls.hideLoading();
+      return;
+    }
     await _openSource(source);
     // 切集 → 重新拉取该集弹幕并重置进度时基。
     _danmakuPosMs = 0;
@@ -1210,6 +1317,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _hideTimer?.cancel();
     _lockHideTimer?.cancel();
     _rotateResetTimer?.cancel();
+    _seekLoadingTimer?.cancel();
     _danmakuTimer?.cancel();
     _castController.dispose();
     final CastService cast = _castService;

@@ -934,6 +934,8 @@ class _DetailPageState extends State<DetailPage> {
             title: d.vod.vodName,
             subtitle: link.name,
             vodId: d.vod.vodId,
+            // UI-F16：网盘路径同样落库观看进度（此前缺失）。
+            onProgress: _onPlaybackProgress,
           ),
         ),
       );

@@ -25,6 +25,7 @@ import 'danmaku/danmaku_settings_panel.dart';
 import 'panels/player_panels.dart';
 import 'player_bottom_bar.dart';
 import 'player_controls_controller.dart';
+import 'player_loading_overlay.dart';
 import 'player_progress_bar.dart';
 import 'player_top_bar.dart';
 
@@ -104,6 +105,9 @@ class PlayerControlsView extends StatelessWidget {
                   const ColoredBox(color: VboxColors.playerBackground),
               // 弹幕层 —— 叠于画面之上、控制层之下（常驻，随开关由调用方决定）
               if (danmakuBuilder != null) danmakuBuilder!.call(context),
+              // UI-F18 加载层 —— 叠于画面之上、控制层之下，不拦截手势。
+              if (controller.isLoading)
+                PlayerLoadingOverlay(message: controller.loadingMessage),
               if (overlays) ...<Widget>[
                 // 顶栏
                 Positioned(
