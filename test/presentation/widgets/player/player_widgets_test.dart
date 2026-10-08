@@ -73,6 +73,45 @@ void main() {
       await tester.pumpWidget(_host(const PlayerTopBar(form: UiForm.portrait)));
       expect(find.byType(Text), findsNothing);
     });
+
+    testWidgets('UI-D3 画中画入口：pipEnabled 才显示 / 不支持置灰 / 激活换图标',
+        (WidgetTester tester) async {
+      // 默认不显示（pipEnabled 未开）。
+      await tester.pumpWidget(_host(const PlayerTopBar(form: UiForm.landscape)));
+      expect(find.byIcon(Icons.picture_in_picture_alt_outlined), findsNothing);
+
+      // 显示但无回调（能力不支持）→ 置灰。
+      await tester.pumpWidget(_host(const PlayerTopBar(
+        form: UiForm.landscape,
+        showPip: true,
+      )));
+      final Icon disabled =
+          tester.widget<Icon>(find.byIcon(Icons.picture_in_picture_alt_outlined));
+      expect(disabled.color, Colors.white.withValues(alpha: 0.3));
+
+      // 有回调 → 可点且触发。
+      bool pip = false;
+      await tester.pumpWidget(_host(PlayerTopBar(
+        form: UiForm.landscape,
+        showPip: true,
+        onTogglePip: () => pip = true,
+      )));
+      final Icon enabled =
+          tester.widget<Icon>(find.byIcon(Icons.picture_in_picture_alt_outlined));
+      expect(enabled.color, Colors.white);
+      await tester.tap(find.byIcon(Icons.picture_in_picture_alt_outlined));
+      expect(pip, isTrue);
+
+      // 处于画中画 → 换「退出」图标。
+      await tester.pumpWidget(_host(PlayerTopBar(
+        form: UiForm.landscape,
+        showPip: true,
+        pipActive: true,
+        onTogglePip: () {},
+      )));
+      expect(find.byIcon(Icons.picture_in_picture_alt_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.picture_in_picture_alt_outlined), findsNothing);
+    });
   });
 
   group('PlayerProgressBar', () {

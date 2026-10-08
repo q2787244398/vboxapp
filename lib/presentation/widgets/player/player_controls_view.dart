@@ -122,6 +122,10 @@ class PlayerControlsView extends StatelessWidget {
                     onCast: controller.onCast,
                     showCast: controller.castAvailable,
                     onRotate: controller.onToggleFullscreen,
+                    // UI-D3：画中画入口（能力可用才显示，不支持置灰）。
+                    onTogglePip: controller.onTogglePip,
+                    showPip: controller.pipAvailable,
+                    pipActive: controller.inPip,
                     onToolsMenu: controller.onToggleToolsMenu,
                   ),
                 ),

@@ -1,8 +1,11 @@
-/// 表现层：播放器顶栏（批次 C · C-02）。
+/// 表现层：播放器顶栏（批次 C · C-02；UI-D3 补画中画入口）。
 ///
 /// 对齐 iOS `PlayerTopBarView`（[PlayerViewsV2.swift](../../../../vbox/Views/PlayerViewsV2.swift#L7665)）：
-/// 左上「返回 + 标题 + 副标题（第 N 集 · 源）」；右上「旋转（切换横竖屏）+ 投屏 + 更多」。
-/// 横竖共用同一结构，仅内边距 / 字号差异（表单态由 [form] 驱动）。
+/// 左上「返回 + 标题 + 副标题（第 N 集 · 源）」；右上「旋转（切换横竖屏）+
+/// 画中画 + 投屏 + 更多」。横竖共用同一结构，仅内边距 / 字号差异（表单态由 [form] 驱动）。
+///
+/// 画中画入口（UI-D3，对齐 iOS L7802-L7812）：`pipEnabled` 为真才显示，
+/// **不支持时置灰**（30% 白，按钮仍占位）；处于画中画时切换为「退出」图标。
 ///
 /// 注：iOS 的方向锁定按钮固定在**屏幕左缘垂直居中**，不在顶栏内，
 /// 由 [PlayerControlsView] 的锁屏覆盖层承载。
@@ -27,6 +30,9 @@ class PlayerTopBar extends StatelessWidget {
     this.onCast,
     this.showCast = true,
     this.onRotate,
+    this.onTogglePip,
+    this.showPip = false,
+    this.pipActive = false,
     this.onToolsMenu,
   });
 
@@ -50,6 +56,15 @@ class PlayerTopBar extends StatelessWidget {
 
   /// 旋转（切换横竖屏）回调。
   final VoidCallback? onRotate;
+
+  /// 画中画回调（进入 / 退出）。
+  final VoidCallback? onTogglePip;
+
+  /// 是否显示画中画入口（对齐 iOS `playerState.pipEnabled`）。
+  final bool showPip;
+
+  /// 是否处于画中画中（决定图标为「退出」；对齐 iOS `isPiPActive`）。
+  final bool pipActive;
 
   /// 更多菜单回调。
   final VoidCallback? onToolsMenu;
@@ -112,6 +127,18 @@ class PlayerTopBar extends StatelessWidget {
               color: foreground,
               onTap: onRotate,
             ),
+            if (showPip)
+              _IconButton(
+                // 对齐 iOS：画中画中显示「退出」图标，否则「进入」。
+                icon: pipActive
+                    ? Icons.picture_in_picture_alt_rounded
+                    : Icons.picture_in_picture_alt_outlined,
+                // 不支持画中画（无回调）→ 置灰（对齐 iOS `.disabled` 的 30% 白）。
+                color: onTogglePip == null
+                    ? Colors.white.withValues(alpha: 0.3)
+                    : foreground,
+                onTap: onTogglePip,
+              ),
             if (showCast)
               _IconButton(
                 icon: Icons.cast_rounded,

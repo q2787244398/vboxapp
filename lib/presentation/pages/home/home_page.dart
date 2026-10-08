@@ -164,7 +164,11 @@ class _VboxHomePageState extends State<VboxHomePage> {
                       onSubjectTap: (DoubanSubject subject) =>
                           _openSearchForKey(subject.title),
                     )
-                  : _buildSiteBody(),
+                  : RefreshIndicator(
+                      // UI-B2：下拉刷新当前源首页。
+                      onRefresh: _refreshHome,
+                      child: _buildSiteBody(),
+                    ),
             ),
           ],
         ),
@@ -316,6 +320,8 @@ class _VboxHomePageState extends State<VboxHomePage> {
       return const _EmptyHint(text: '站点暂无内容\n点击右上角切换源试试');
     }
     return ListView(
+      // UI-B2：允许内容不足一屏时也能下拉（配合外层 RefreshIndicator）。
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(vertical: VboxSpacing.md),
       children: <Widget>[
         if (items.isNotEmpty) _buildCarousel(items),
@@ -324,6 +330,16 @@ class _VboxHomePageState extends State<VboxHomePage> {
         if (items.isNotEmpty) _buildPosterSection(items),
       ],
     );
+  }
+
+  /// 下拉刷新（UI-B2）：重载当前源首页（无源时退回源列表加载）。
+  Future<void> _refreshHome() async {
+    final String? key = _siteKey;
+    if (key == null) {
+      await _loadSites();
+      return;
+    }
+    await _loadHome(key);
   }
 
   void _retry() {

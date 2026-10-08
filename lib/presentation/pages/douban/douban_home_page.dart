@@ -134,7 +134,11 @@ class _DoubanHomeViewState extends State<DoubanHomeView> {
 
   @override
   Widget build(BuildContext context) {
-    return _buildBody();
+    // UI-B2：下拉刷新豆瓣首页。
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: _buildBody(),
+    );
   }
 
   Widget _buildBody() {
@@ -148,6 +152,8 @@ class _DoubanHomeViewState extends State<DoubanHomeView> {
       return const DoubanEmptyHint(text: '豆瓣暂无内容\n请稍后重试');
     }
     return ListView(
+      // UI-B2：允许内容不足一屏时也能下拉（配合外层 RefreshIndicator）。
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(vertical: VboxSpacing.md),
       children: <Widget>[
         if (feed.banner.isNotEmpty) _buildBanner(feed.banner),
