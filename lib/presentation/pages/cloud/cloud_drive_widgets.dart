@@ -574,7 +574,7 @@ class _ManualTokenFallbackCardState extends State<ManualTokenFallbackCard> {
         children: <Widget>[
           Row(
             children: <Widget>[
-              SizedBox(
+              const SizedBox(
                 width: 26,
                 child: Icon(Icons.key, size: VboxTypography.s18, color: accent),
               ),

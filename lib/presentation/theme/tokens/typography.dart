@@ -44,6 +44,17 @@ class VboxTypography {
   /// 28 · 空态标题。
   static const double s28 = 28;
 
+  /// Hero 大标题专用字号（对齐 iOS `HeroTitleView.fallbackTitle` 的
+  /// `.font(.custom("Ma Shan Zheng", size: 48))`）。
+  ///
+  /// 该值来自 iOS 的自定义字体调用（非 `.font(.system(size:` 枚举），
+  /// 故**不并入**常规档位 [scale]；Hero 标题是唯一使用者。
+  static const double heroTitle = 48;
+
+  /// Hero 大标题兜底字体族（对齐 iOS `Ma Shan Zheng` 注册名；资源见
+  /// `pubspec.yaml` 的 `fonts`，文件由 iOS 侧 `vbox/Resources/Fonts/` 同源拷贝）。
+  static const String heroFontFamily = 'MaShanZheng';
+
   /// 全部字号档位（升序；供守卫 R-3 白名单与单测断言）。
   static const List<double> scale = <double>[
     s10,

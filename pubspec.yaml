@@ -86,3 +86,8 @@ flutter:
     - family: VboxBrand
       fonts:
         - asset: assets/fonts/VboxBrand-Bold.otf
+    # Hero 大标题兜底字体（D-11）：与 iOS `MaShanZheng-Regular.ttf` 同源，
+    # 对齐 iOS `HeroTitleView.fallbackTitle` 的 `.font(.custom("Ma Shan Zheng", size: 48))`。
+    - family: MaShanZheng
+      fonts:
+        - asset: assets/fonts/MaShanZheng-Regular.ttf

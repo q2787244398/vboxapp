@@ -23,8 +23,14 @@ import 'package:provider/provider.dart';
 import '../../core/errors/failures.dart';
 import '../../core/utils/result.dart';
 import '../../core/utils/time_utils.dart';
+import '../../data/datasources/local/cloud_drive_sort_store.dart';
+import '../../data/datasources/local/prefs_manager.dart';
 import '../../data/models/download.dart';
 import '../../domain/entities/cloud/cloud_drive.dart';
+import '../../domain/entities/cloud/cloud_play_item.dart';
+import '../../domain/entities/cloud/node_pan.dart';
+import '../../domain/entities/cloud/vbox_fragment.dart';
+import '../../domain/entities/douban/douban_models.dart';
 import '../../domain/entities/library/library.dart';
 import '../../domain/entities/player/player.dart';
 import '../../domain/entities/playback/playback.dart';
@@ -33,6 +39,7 @@ import '../../domain/entities/tmdb/tmdb_models.dart';
 import '../../domain/usecases/usecases.dart';
 import '../../platform/download/download.dart';
 import '../../platform/player/pan_player.dart';
+import '../../platform/player/playback_route.dart';
 import '../pages/cloud/files.dart';
 import '../pages/player/player_page.dart';
 import '../theme/tokens/colors.dart';
@@ -49,6 +56,7 @@ class DetailPage extends StatefulWidget {
     required this.vodId,
     this.initialIndex = 0,
     this.title,
+    this.isFromSourceDiscovery = false,
   });
 
   /// 站点 key（收藏/历史条目的 laiyuan）。
@@ -62,6 +70,12 @@ class DetailPage extends StatefulWidget {
 
   /// 页面标题（缺省用详情名）。
   final String? title;
+
+  /// 是否由「源发现」页进入（对齐 iOS `isFromSourceDiscovery`）。
+  ///
+  /// 为真时启用**沉浸式**观感：隐藏 AppBar（`navigationBarHidden`），
+  /// 顶部保留系统返回热区（对齐 iOS `edgeSwipeBack`）。
+  final bool isFromSourceDiscovery;
 
   @override
   State<DetailPage> createState() => _DetailPageState();
@@ -78,8 +92,19 @@ class _DetailPageState extends State<DetailPage> {
   FavoriteUseCases? _favUc;
   HistoryUseCases? _histUc;
 
+  /// 豆瓣用例（演职兜底；宿主未装配时为 null → 跳过）。
+  DoubanUseCases? _doubanUc;
+
   /// TMDB 增强结果（封面 / 演职）。
   TmdbEnrichment? _tmdb;
+
+  /// 豆瓣演职兜底（对齐 iOS `loadDoubanData`：TMDB 无演职 / 关闭时回退豆瓣）。
+  DoubanCredits? _doubanCredits;
+
+  /// 豆瓣大封面（竖版剧照；仅当无 TMDB 封面时作为背景兜底，对齐 iOS
+  /// `doubanBackdropURL`）。
+  String? _doubanBackdropUrl;
+
   Failure? _error;
   bool _loaded = false;
   bool _playing = false;
@@ -92,6 +117,24 @@ class _DetailPageState extends State<DetailPage> {
   /// 观看记录写入节流时间戳（毫秒；对齐 iOS 5s 节流）。
   int _lastHistoryWriteMs = 0;
 
+  // ─────────────── 网盘（对齐 iOS panSection / driveExpandStates）───────────────
+
+  /// 网盘播放编排（详情页内联展开 / 取链播放）。
+  final PanPlayer _pan = PanPlayer();
+
+  /// 原始网盘链接（已按网盘排序顺序排列，对齐 iOS `rawCloudLinks`）。
+  final List<_RawCloudLink> _rawCloudLinks = <_RawCloudLink>[];
+
+  /// 每个网盘的展开状态（对齐 iOS `driveExpandStates`）。
+  final Map<String, _DriveExpandState> _driveExpandStates =
+      <String, _DriveExpandState>{};
+
+  /// 当前选中的网盘（对齐 iOS `selectedCloudDrive`）。
+  String? _selectedCloudDrive;
+
+  /// 网盘链接加载中（对齐 iOS `isLoadingPan`）。
+  bool _isLoadingPan = false;
+
   @override
   void initState() {
     super.initState();
@@ -100,6 +143,7 @@ class _DetailPageState extends State<DetailPage> {
     _tmdbUc = _tryRead<TmdbUseCases>();
     _favUc = _tryRead<FavoriteUseCases>();
     _histUc = _tryRead<HistoryUseCases>();
+    _doubanUc = _tryRead<DoubanUseCases>();
     _load();
   }
 
@@ -129,8 +173,14 @@ class _DetailPageState extends State<DetailPage> {
       // 详情就绪后异步拉取 TMDB 增强（对齐 iOS `loadTMDBData`，不阻塞首屏）。
       unawaited(_loadTmdb());
       unawaited(_checkFavorite());
+      // 云源（☁️）→ 内联加载网盘源区块（对齐 iOS `onAppear` 的 `loadPanLinks`）。
+      if (_isCloudVideo) unawaited(_loadPanLinks());
     }
   }
+
+  /// 是否云源（对齐 iOS `isCloudVideo`：`vod_remarks` 以 `☁️` 开头）。
+  bool get _isCloudVideo =>
+      _detail?.vod.vodRemarks?.startsWith('☁️') ?? false;
 
   /// TMDB 详情增强（对齐 iOS `VideoDetailView.loadTMDBData`）。
   ///
@@ -138,15 +188,61 @@ class _DetailPageState extends State<DetailPage> {
   Future<void> _loadTmdb() async {
     final TmdbUseCases? uc = _tmdbUc;
     final PlaybackDetail? d = _detail;
-    if (uc == null || d == null) return;
+    if (uc == null || d == null) {
+      unawaited(_loadDouban());
+      return;
+    }
     final Result<TmdbEnrichment?> result = await uc.enrich(
       name: d.vod.vodName,
       year: d.vod.vodYear,
     );
     if (!mounted) return;
     final TmdbEnrichment? enrichment = result.valueOrNull;
-    if (enrichment == null || enrichment.isEmpty) return;
-    setState(() => _tmdb = enrichment);
+    if (enrichment != null && !enrichment.isEmpty) {
+      setState(() => _tmdb = enrichment);
+    }
+    // 对齐 iOS：TMDB 无演职（或无大封面）时回退豆瓣演职 / 大封面。
+    final bool hasTmdbCredits = enrichment?.hasCredits ?? false;
+    if (!hasTmdbCredits) unawaited(_loadDouban());
+  }
+
+  /// 豆瓣演职兜底（对齐 iOS `loadDoubanData`：仅当 TMDB 未拿到演职时才写入，
+  /// 避免覆盖 TMDB 数据；并补拉竖版大封面作为背景兜底）。
+  Future<void> _loadDouban() async {
+    final DoubanUseCases? uc = _doubanUc;
+    final PlaybackDetail? d = _detail;
+    if (uc == null || d == null) return;
+    final Result<DoubanCredits> result = await uc.credits(d.vod.vodName);
+    if (!mounted) return;
+    final DoubanCredits? credits = result.valueOrNull;
+    if (credits == null || credits.isEmpty) return;
+
+    // 仅当当前无任何演职人员时才写入（对齐 iOS 覆盖策略）。
+    final (List<_CastMember>, List<_CastMember>, List<_CastMember>) existing =
+        _castData(d);
+    if (existing.$1.isNotEmpty ||
+        existing.$2.isNotEmpty ||
+        existing.$3.isNotEmpty) {
+      return;
+    }
+
+    // 有 subjectId 时补拉竖版大封面（对齐 iOS `fetchWallpaperURL`）。
+    String? backdrop;
+    final String? subjectId = credits.subjectId;
+    if (subjectId != null && subjectId.isNotEmpty) {
+      final Result<String?> wallpaper = await uc.wallpaper(subjectId);
+      backdrop = wallpaper.valueOrNull;
+    }
+    if (!mounted) return;
+    setState(() {
+      _doubanCredits = credits;
+      // 仅当没有 TMDB 大封面时才写入豆瓣封面（对齐 iOS `tmdbPosterURL == nil
+      // && tmdbBackdropURL == nil` 判定）。
+      if ((_tmdb?.posterUrl ?? '').isEmpty &&
+          (_tmdb?.backdropUrl ?? '').isEmpty) {
+        _doubanBackdropUrl = backdrop;
+      }
+    });
   }
 
   /// 初始剧集索引 → 线路索引 + 线路内剧集索引。
@@ -263,6 +359,24 @@ class _DetailPageState extends State<DetailPage> {
   Future<void> _play() async {
     final PlaybackDetail? d = _detail;
     if (d == null || _playing) return;
+
+    // 云源（☁️）→ 播首个网盘的第一集（对齐 iOS `handlePlay` 的 isCloudVideo 分支）；
+    // 尚未加载完且无原始链接 → 触发网盘源加载。
+    if (_isCloudVideo) {
+      if (_rawCloudLinks.isEmpty) {
+        if (!_isLoadingPan) unawaited(_loadPanLinks());
+        return;
+      }
+      final String drive = _selectedCloudDrive ?? _firstCloudDriveName ?? '';
+      final List<_CloudPanLink> links = _linksForDrive(drive);
+      if (links.isEmpty) {
+        _toast('暂无可播放的网盘条目');
+        return;
+      }
+      await _playPanLink(links.first);
+      return;
+    }
+
     final List<PlaybackEpisode> visible = _episodesForLine(_fromIndex);
     if (visible.isEmpty) return;
     final PlaybackEpisode episode =
@@ -427,33 +541,459 @@ class _DetailPageState extends State<DetailPage> {
 
   // ─────────────── 剧集弹窗 ───────────────
 
+  /// 展开弹窗标题（对齐 iOS `expandedEpisodeTitle` L174-185）：
+  /// 云源 → `<当前网盘> 剧集列表`；非云源 → `<线路名> 剧集列表`；
+  /// 名称缺失 → `剧集列表`。
+  String _expandedEpisodeTitle(PlaybackDetail d) {
+    if (_isCloudVideo) {
+      final String drive = _selectedCloudDrive ?? _firstCloudDriveName ?? '网盘资源';
+      return '$drive 剧集列表';
+    }
+    if (d.froms.isEmpty) return '剧集列表';
+    final String name = d.froms[_fromIndex.clamp(0, d.froms.length - 1)];
+    return name.isEmpty ? '剧集列表' : '$name 剧集列表';
+  }
+
+  /// 首个网盘名（对齐 iOS `cloudDriveGroups.first?.drive`）。
+  String? get _firstCloudDriveName {
+    for (final _RawCloudLink link in _rawCloudLinks) {
+      return link.driveName;
+    }
+    return null;
+  }
+
+  /// 当前选中网盘的剧集项（云源；对齐 iOS `expandedEpisodeItems` 的云分支）。
+  ///
+  /// 返回合成 [PlaybackEpisode]（`url` = 带 fragment 的条目地址，供播放时定位）。
+  List<PlaybackEpisode> _cloudEpisodesForPopup() {
+    final String? drive = _selectedCloudDrive ?? _firstCloudDriveName;
+    if (drive == null) return const <PlaybackEpisode>[];
+    final List<_CloudPanLink> links = _linksForDrive(drive);
+    final List<_CloudPanLink> ordered =
+        _episodesReversed ? links.reversed.toList(growable: false) : links;
+    return <PlaybackEpisode>[
+      for (int i = 0; i < ordered.length; i++)
+        PlaybackEpisode(
+          name: _cloudEpisodeTitle(ordered[i], i),
+          url: ordered[i].url,
+        ),
+    ];
+  }
+
+  /// 指定网盘当前展开的条目（未展开时用原始链接占位）。
+  List<_CloudPanLink> _linksForDrive(String drive) {
+    final _DriveExpandState? state = _driveExpandStates[drive];
+    if (state != null && state.kind == _DriveExpandKind.loaded) {
+      return state.links;
+    }
+    return _fallbackLinks(
+      drive,
+      _rawCloudLinks
+          .where((_RawCloudLink l) => l.driveName == drive)
+          .toList(growable: false),
+    );
+  }
+
+  /// 未展开 / 展开失败时的占位条目（对齐 iOS `cloudDriveGroups` 的 fallback 分支）。
+  List<_CloudPanLink> _fallbackLinks(String drive, List<_RawCloudLink> raw) =>
+      <_CloudPanLink>[
+        for (int i = 0; i < raw.length; i++)
+          _makeCloudPanLink(
+            url: raw[i].url,
+            name: raw[i].name,
+            driveType: raw[i].driveType,
+            driveName: drive,
+            index: i,
+          ),
+      ];
+
+  /// 网盘分组（去重保序；对齐 iOS `cloudDriveGroups` 的 `orderedDrives`）。
+  List<String> get _cloudDriveNames {
+    final List<String> out = <String>[];
+    for (final _RawCloudLink link in _rawCloudLinks) {
+      if (!out.contains(link.driveName)) out.add(link.driveName);
+    }
+    return out;
+  }
+
+  /// 云源剧集标题（对齐 iOS `cloudEpisodeTitle`：剥掉网盘名后缀，空则「第 N 集」）。
+  String _cloudEpisodeTitle(_CloudPanLink link, int index) {
+    final String drive = link.driveName;
+    String cleaned = link.name
+        .replaceAll(drive, '')
+        .replaceAll('网盘', '')
+        .replaceAll('云盘', '')
+        .replaceAll('·', '')
+        .trim();
+    if (cleaned.isEmpty) cleaned = link.name.trim();
+    return cleaned.isEmpty ? '第${index + 1}集' : cleaned;
+  }
+
+  /// 网盘条目 id（对齐 iOS `makeCloudPanLink` 的 `driveName|index|name|url`）。
+  _CloudPanLink _makeCloudPanLink({
+    required String url,
+    required String name,
+    required CloudDriveType? driveType,
+    required String driveName,
+    required int index,
+  }) =>
+      _CloudPanLink(
+        id: '$driveName|$index|$name|$url',
+        url: url,
+        name: name,
+        driveType: driveType,
+        driveName: driveName,
+      );
+
+  // ─────────────── 网盘源加载（对齐 iOS `loadPanLinks`）───────────────
+
+  /// 内联加载网盘源：识别盘别 → 派生 Node 路链 → 排序 → 逐个网盘展开文件列表。
+  ///
+  /// 与 iOS 的差异：iOS 由 `video.vodId` 二次 `resolveCloudPlay` 取原始链接；
+  /// Flutter 端 [DetailPlaybackUseCases.loadDetail] 已把同一结果落到
+  /// `d.episodes`（`name$shareUrl`），故直接复用，避免重复网络请求。
+  Future<void> _loadPanLinks() async {
+    final PlaybackDetail? d = _detail;
+    if (d == null) return;
+    if (_rawCloudLinks.isNotEmpty || _isLoadingPan) return;
+    setState(() => _isLoadingPan = true);
+
+    try {
+      // ① 预处理：识别盘别 + 派生 Node 路链（对齐 iOS `loadPanLinks` step 1-2）。
+      final List<_RawCloudLink> split = <_RawCloudLink>[];
+      for (final PlaybackEpisode e in d.episodes) {
+        final String url = e.url;
+        final CloudDriveType? dt = CloudDriveType.fromShareUrl(url);
+        final String driveName = dt?.displayName ?? _driveNameFromLink(e.name);
+        split.add(_RawCloudLink(
+          url: url,
+          name: e.name,
+          driveType: dt,
+          driveName: driveName,
+        ));
+        if (dt == CloudDriveType.quark) {
+          split.add(_RawCloudLink(
+            url: url,
+            name: e.name,
+            driveType: dt,
+            driveName: '备用夸克',
+          ));
+          split.add(_RawCloudLink(
+            url: VboxFragmentCodec.appendNodeMark(url),
+            name: e.name,
+            driveType: CloudDriveType.quarkNode,
+            driveName: '夸克Node',
+          ));
+        }
+        if (dt == CloudDriveType.uc) {
+          split.add(_RawCloudLink(
+            url: VboxFragmentCodec.appendNodeMark(url),
+            name: e.name,
+            driveType: CloudDriveType.ucNode,
+            driveName: 'UC网盘Node',
+          ));
+        }
+        if (dt == CloudDriveType.baidu) {
+          split.add(_RawCloudLink(
+            url: VboxFragmentCodec.appendNodeMark(url),
+            name: e.name,
+            driveType: CloudDriveType.baiduNode,
+            driveName: '百度网盘Node',
+          ));
+        }
+      }
+
+      // ② 按网盘排序顺序排列（对齐 iOS `sortRawCloudLinks`）。
+      final List<CloudDriveType> order =
+          await CloudDriveSortStore(PrefsManager.instance).order();
+      final List<_RawCloudLink> sorted = _sortRawCloudLinks(split, order);
+      if (!mounted) return;
+      setState(() {
+        _rawCloudLinks
+          ..clear()
+          ..addAll(sorted);
+        for (final String drive in _cloudDriveNames) {
+          _driveExpandStates[drive] = _DriveExpandState.loading;
+        }
+      });
+
+      // ③ 按网盘分组，首个同步展开，其余后台预加载（对齐 iOS step 2-4）。
+      final List<(String, List<_RawCloudLink>)> grouped =
+          _groupRawCloudLinks(sorted);
+      if (grouped.isEmpty) {
+        if (mounted) setState(() => _isLoadingPan = false);
+        return;
+      }
+      final _DriveExpandState first =
+          await _expandSingleDrive(grouped.first.$1, grouped.first.$2);
+      if (!mounted) return;
+      setState(() {
+        _driveExpandStates[grouped.first.$1] = first;
+        _isLoadingPan = false;
+        _selectedCloudDrive ??= grouped.first.$1;
+      });
+      for (final (String drive, List<_RawCloudLink> links) in grouped.skip(1)) {
+        final _DriveExpandState state = await _expandSingleDrive(drive, links);
+        if (!mounted) return;
+        setState(() => _driveExpandStates[drive] = state);
+      }
+    } finally {
+      if (mounted && _isLoadingPan) setState(() => _isLoadingPan = false);
+    }
+  }
+
+  /// 原始链接排序（对齐 iOS `sortRawCloudLinks`：位次升序，同序按名称）。
+  List<_RawCloudLink> _sortRawCloudLinks(
+    List<_RawCloudLink> links,
+    List<CloudDriveType> order,
+  ) {
+    final List<_RawCloudLink> sorted = List<_RawCloudLink>.of(links);
+    sorted.sort((_RawCloudLink a, _RawCloudLink b) {
+      final int la = _sortIndex(a, order);
+      final int lb = _sortIndex(b, order);
+      if (la != lb) return la.compareTo(lb);
+      return a.driveName.compareTo(b.driveName);
+    });
+    return sorted;
+  }
+
+  /// 排序位次（对齐 iOS `sortIndex`：Node 派生盘紧跟其原生盘）。
+  int _sortIndex(_RawCloudLink link, List<CloudDriveType> order) {
+    int baseOf(CloudDriveType t) {
+      final int i = order.indexOf(t);
+      return i < 0 ? order.length : i;
+    }
+
+    switch (link.driveName) {
+      case '备用夸克':
+        return baseOf(CloudDriveType.quark) + 1;
+      case '夸克Node':
+        return baseOf(CloudDriveType.quark) + 2;
+      case 'UC网盘Node':
+        return baseOf(CloudDriveType.uc) + 1;
+      case '百度网盘Node':
+        return baseOf(CloudDriveType.baidu) + 1;
+    }
+    final CloudDriveType? dt = link.driveType;
+    if (dt != null) return baseOf(dt);
+    return order.length;
+  }
+
+  /// 按网盘名分组（保序；对齐 iOS `groupRawLinks`）。
+  List<(String, List<_RawCloudLink>)> _groupRawCloudLinks(
+    List<_RawCloudLink> links,
+  ) {
+    final List<(String, List<_RawCloudLink>)> groups =
+        <(String, List<_RawCloudLink>)>[];
+    final Set<String> seen = <String>{};
+    for (final _RawCloudLink link in links) {
+      if (!seen.contains(link.driveName)) {
+        seen.add(link.driveName);
+        groups.add((link.driveName, <_RawCloudLink>[]));
+      }
+      groups.last.$2.add(link);
+    }
+    return groups;
+  }
+
+  /// 展开单个网盘的文件列表（对齐 iOS `expandSingleDrive`）。
+  ///
+  /// 逐盘生成 F-P27 fragment 定位键：
+  /// - Node 托管盘 → `vbox_node=<playID>`；
+  /// - 夸克原生 → `vbox_fid=<fid>`（+ `vbox_route`）/ 备用夸克走 `transcode`；
+  /// - 百度原生 → `vbox_fsid=<fsId>`；
+  /// - UC 原生 → `vbox_fid=<fid>` + `vbox_token=<shareFidToken>`；
+  /// - 阿里 / 迅雷等 → `vbox_fid=<fileId>`。
+  Future<_DriveExpandState> _expandSingleDrive(
+    String driveName,
+    List<_RawCloudLink> links,
+  ) async {
+    final CloudDriveType? driveType = links.first.driveType;
+    if (driveType == null) {
+      return _DriveExpandState.loaded(_fallbackLinks(driveName, links));
+    }
+    final List<_CloudPanLink> out = <_CloudPanLink>[];
+    int failures = 0;
+    for (final _RawCloudLink link in links) {
+      // Node 派生盘链接带 `#vbox_nd=1` 标记，解析分享时须剥离 fragment
+      // （对齐 iOS `resolveNodeShare` 内部 `splitVboxFragment` 的干净链接语义）。
+      final String cleanShare = VboxFragmentCodec.strip(link.url);
+      try {
+        final NodePanShare share =
+            await _pan.resolveShare(driveType, cleanShare);
+        for (final NodePanEntry entry in share.entries) {
+          out.add(_makeCloudPanLink(
+            url: VboxFragmentCodec.append(
+              link.url,
+              _locateParams(driveType, entry.playID, driveName),
+            ),
+            name: entry.name,
+            driveType: driveType,
+            driveName: driveName,
+            index: out.length,
+          ));
+        }
+      } catch (e) {
+        failures++;
+        if (out.isEmpty && failures == links.length) {
+          return _DriveExpandState.failed(
+            '$driveName资源加载失败：'
+            '${e is PanPlayException ? e.message : e}',
+          );
+        }
+      }
+    }
+    return out.isEmpty
+        ? _DriveExpandState.empty
+        : _DriveExpandState.loaded(out);
+  }
+
+  /// 按盘别生成 F-P27 定位 fragment 参数（对齐 iOS 各 `expand*Drive` 分支）。
+  Map<String, String> _locateParams(
+    CloudDriveType type,
+    String playID,
+    String driveName,
+  ) {
+    switch (type) {
+      case CloudDriveType.quarkNode:
+      case CloudDriveType.ucNode:
+      case CloudDriveType.baiduNode:
+        return <String, String>{'vbox_node': playID};
+      case CloudDriveType.quark:
+        return <String, String>{
+          'vbox_fid': playID,
+          'vbox_route': driveName == '备用夸克' ? 'transcode' : 'original',
+        };
+      case CloudDriveType.baidu:
+        return <String, String>{'vbox_fsid': playID};
+      case CloudDriveType.uc:
+        return <String, String>{'vbox_fid': playID};
+      default:
+        // Node 托管盘（115/123/139/189/迅雷/光鸭/蜗牛）→ playID 即 vbox_node。
+        return NodePanRouting.isNodeManaged(type)
+            ? <String, String>{'vbox_node': playID}
+            : <String, String>{'vbox_fid': playID};
+    }
+  }
+
+  /// 由链接名推断网盘名（对齐 iOS `driveNameFromLink`）。
+  String _driveNameFromLink(String name) {
+    if (name.contains('115')) return '115网盘';
+    if (name.contains('阿里')) return '阿里云盘';
+    if (name.contains('夸克')) return '夸克网盘';
+    if (name.contains('百度')) return '百度网盘';
+    if (name.contains('UC')) return 'UC网盘';
+    if (name.contains('天翼')) return '天翼云盘';
+    if (name.contains('123')) return '123云盘';
+    return '其他网盘';
+  }
+
+  /// 播放网盘条目（对齐 iOS `playPanLink` → 播放器 `handleDriveUrl`）：
+  /// 剥离 fragment 得干净分享链接 + 定位键 → 取链 → 全屏播放页（显式 pan 路由）。
+  Future<void> _playPanLink(_CloudPanLink link) async {
+    final PlaybackDetail? d = _detail;
+    if (d == null) return;
+    final VboxFragmentSplit split = VboxFragmentCodec.split(link.url);
+    final CloudDriveType? type =
+        link.driveType ?? VboxFragmentCodec.resolveShareType(link.url);
+    if (type == null) {
+      _toast('无法识别的网盘链接');
+      return;
+    }
+    if (_playing) return;
+    setState(() => _playing = true);
+    try {
+      final CloudPlayItem item = await _pan.prepare(
+        type: type,
+        shareUrl: split.baseUrl,
+        entry: NodePanEntry(
+          playID: split.params.locateValue.isEmpty
+              ? link.name
+              : split.params.locateValue,
+          name: link.name,
+        ),
+      );
+      if (!mounted) return;
+      final String url = item.playURL ?? '';
+      if (url.isEmpty) {
+        _toast('播放地址为空');
+        return;
+      }
+      unawaited(_recordHistory());
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) => PlayerPage(
+            source: PlayerSource(
+              url: url,
+              headers: item.headers,
+              title: d.vod.vodName,
+            ),
+            // 直链特征无法自证 pan 路由，显式传入（对齐 F-08）。
+            route: PlaybackRoute.pan,
+            title: d.vod.vodName,
+            subtitle: link.name,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _toast('播放失败：${e is PanPlayException ? e.message : e}');
+    } finally {
+      if (mounted) setState(() => _playing = false);
+    }
+  }
+
   /// 打开剧集展开弹窗（对齐 iOS `EpisodeExpandPopup`）。
+  ///
+  /// 云源（☁️）→ 弹窗内容为当前网盘的网盘条目，点击走 [PanPlayer] 取链播放；
+  /// 非云源 → 线路剧集，点击走解析播放（对齐 iOS `handleExpandedEpisodeSelect`）。
   Future<void> _showEpisodePopup({bool downloadMode = false}) async {
-    final List<PlaybackEpisode> visible = _episodesForLine(_fromIndex);
-    if (visible.isEmpty) {
+    final PlaybackDetail? d = _detail;
+    if (d == null) return;
+    final bool cloud = _isCloudVideo;
+    final List<PlaybackEpisode> episodes =
+        cloud ? _cloudEpisodesForPopup() : _episodesForLine(_fromIndex);
+    if (episodes.isEmpty) {
       _toast('暂无剧集');
       return;
     }
+    // 云源弹窗不支持批量下载（对齐 iOS：网盘条目无 vbox 下载链路）。
+    final bool allowDownload = !cloud && downloadMode;
     await showDialog<void>(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.38),
       builder: (BuildContext ctx) => _EpisodeExpandDialog(
-        title: '剧集列表',
-        episodes: visible,
+        title: _expandedEpisodeTitle(d),
+        episodes: episodes,
         initialReversed: _episodesReversed,
-        initialDownloadMode: downloadMode,
+        initialDownloadMode: allowDownload,
         onReversedChanged: (bool value) =>
             setState(() => _episodesReversed = value),
         onPlay: (PlaybackEpisode episode) {
           Navigator.of(ctx).pop();
-          unawaited(_playEpisode(episode));
+          if (cloud) {
+            unawaited(_playCloudEpisode(episode));
+          } else {
+            unawaited(_playEpisode(episode));
+          }
         },
-        onDownload: (List<PlaybackEpisode> episodes) {
+        onDownload: (List<PlaybackEpisode> list) {
           Navigator.of(ctx).pop();
-          unawaited(_enqueueDownloads(episodes));
+          unawaited(_enqueueDownloads(list));
         },
       ),
     );
+  }
+
+  /// 播放云源弹窗中被点选的条目（按 `url` 回到对应网盘条目后取链）。
+  Future<void> _playCloudEpisode(PlaybackEpisode episode) async {
+    final String drive = _selectedCloudDrive ?? _firstCloudDriveName ?? '';
+    for (final _CloudPanLink link in _linksForDrive(drive)) {
+      if (link.url == episode.url) {
+        await _playPanLink(link);
+        return;
+      }
+    }
   }
 
   // ─────────────── UI ───────────────
@@ -461,26 +1001,67 @@ class _DetailPageState extends State<DetailPage> {
   @override
   Widget build(BuildContext context) {
     final String title = widget.title ?? _detail?.vod.vodName ?? '详情';
+    // 沉浸式：由「源发现」页进入时隐藏 AppBar（对齐 iOS `navigationBarHidden`）。
+    final bool immersive = widget.isFromSourceDiscovery;
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: Colors.white,
-        title: Text(
-          title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: VboxTypography.s18,
-            fontWeight: FontWeight.w600,
+      appBar: immersive
+          ? null
+          : AppBar(
+              backgroundColor: Colors.transparent,
+              surfaceTintColor: Colors.transparent,
+              elevation: 0,
+              foregroundColor: Colors.white,
+              title: Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: VboxTypography.s18,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+      body: Stack(
+        children: <Widget>[
+          _buildBody(),
+          // 沉浸式下 AppBar 隐藏，保留顶部返回热区（对齐 iOS `edgeSwipeBack`）。
+          if (immersive) _buildImmersiveBackZone(),
+        ],
+      ),
+    );
+  }
+
+  /// 沉浸式返回热区（AppBar 隐藏时的兜底返回入口）。
+  Widget _buildImmersiveBackZone() {
+    return Positioned(
+      top: 0,
+      left: 0,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => Navigator.of(context).maybePop(),
+            child: Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.28),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.arrow_back_ios_new,
+                size: 18,
+                color: Colors.white,
+              ),
+            ),
           ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
         ),
       ),
-      body: _buildBody(),
     );
   }
 
@@ -523,7 +1104,10 @@ class _DetailPageState extends State<DetailPage> {
 
   /// 背景层（对齐 iOS `backgroundLayer` + `bottomDimmingOverlay`）。
   Widget _buildBackground(PlaybackDetail d, double height) {
-    final String cover = _tmdb?.posterUrl ?? _tmdb?.backdropUrl ?? d.vod.vodPic;
+    final String cover = _tmdb?.posterUrl ??
+        _tmdb?.backdropUrl ??
+        _doubanBackdropUrl ??
+        d.vod.vodPic;
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
@@ -570,7 +1154,10 @@ class _DetailPageState extends State<DetailPage> {
                 _buildPlayButton(),
                 _buildCast(d),
                 _buildSynopsis(d),
-                _buildEpisodeSection(d),
+                // 云源（☁️）→ 网盘源区块；非云源 → 剧集列表（对齐 iOS
+                // `contentLayer`：`panSection` 后 `if !isCloudVideo { episodeSection }`）。
+                _buildPanSection(),
+                if (!_isCloudVideo) _buildEpisodeSection(d),
               ],
             ),
           ),
@@ -579,7 +1166,7 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  /// 片名 / logo / 剧情标签行（对齐 iOS HeroTitleView 段）。
+  /// 片名 / logo / 剧情标签行（对齐 iOS `HeroTitleView` + 片名 + 剧情标签）。
   Widget _buildTitleBlock(PlaybackDetail d) {
     final VodItem vod = d.vod;
     final String? logo = _tmdb?.logoUrl;
@@ -591,25 +1178,27 @@ class _DetailPageState extends State<DetailPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        if (hasLogo)
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 70),
-            child: PlatformAsyncImage(
-              url: logo,
-              fit: BoxFit.contain,
-              placeholderColor: Colors.transparent,
-              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-            ),
-          ),
-        if (hasLogo) const SizedBox(height: 12),
+        // 大标题（对齐 iOS `HeroTitleView`）：TMDB logo 优先，加载失败 / 无 logo
+        // → 马善政毛笔楷体兜底（48pt 白字带阴影）。
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 70),
+          child: hasLogo
+              ? PlatformAsyncImage(
+                  url: logo,
+                  fit: BoxFit.contain,
+                  placeholderColor: Colors.transparent,
+                  errorBuilder: (_, __, ___) => _heroFallbackTitle(vod.vodName),
+                )
+              : _heroFallbackTitle(vod.vodName),
+        ),
+        const SizedBox(height: 12),
         Text(
           vod.vodName,
-          maxLines: 2,
+          maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: hasLogo ? 14 : 26,
-            fontWeight: FontWeight.w700,
-            color: Colors.white.withValues(alpha: hasLogo ? 0.9 : 1.0),
+            fontSize: VboxTypography.s14,
+            color: Colors.white.withValues(alpha: 0.9),
           ),
         ),
         const SizedBox(height: 12),
@@ -656,6 +1245,28 @@ class _DetailPageState extends State<DetailPage> {
           ],
         ),
       ],
+    );
+  }
+
+  /// Hero 大标题兜底（对齐 iOS `HeroTitleView.fallbackTitle`）：
+  /// 马善政毛笔楷体 48pt 白字 + 黑色阴影。
+  Widget _heroFallbackTitle(String name) {
+    return Text(
+      name,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontFamily: VboxTypography.heroFontFamily,
+        fontSize: VboxTypography.heroTitle,
+        color: Colors.white,
+        shadows: <Shadow>[
+          Shadow(
+            color: Colors.black.withValues(alpha: 0.6),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
     );
   }
 
@@ -826,6 +1437,15 @@ class _DetailPageState extends State<DetailPage> {
             .toList(growable: false),
       );
     }
+    // TMDB 无演职 / 未启用 → 回退豆瓣演职（对齐 iOS `loadDoubanData` 写入后展示）。
+    final DoubanCredits? douban = _doubanCredits;
+    if (douban != null && !douban.isEmpty) {
+      return (
+        douban.actors.map(_doubanToCast).toList(growable: false),
+        douban.directors.map(_doubanToCast).toList(growable: false),
+        douban.writers.map(_doubanToCast).toList(growable: false),
+      );
+    }
     return (
       _splitNames(d.vod.vodActor)
           .map((String s) => _CastMember(name: s))
@@ -836,6 +1456,10 @@ class _DetailPageState extends State<DetailPage> {
       const <_CastMember>[],
     );
   }
+
+  /// 豆瓣演职人员 → 卡片模型（角色文案对齐 iOS `DoubanCelebrity.roleText`）。
+  _CastMember _doubanToCast(DoubanCelebrity p) =>
+      _CastMember(name: p.name, coverUrl: p.coverUrl, role: p.roleText);
 
   List<String> _splitNames(String? raw) => (raw ?? '')
       .split(RegExp(r'[,，、/\s]+'))
@@ -884,6 +1508,286 @@ class _DetailPageState extends State<DetailPage> {
         ),
       ],
     );
+  }
+
+  /// 网盘源区块（对齐 iOS `panSection`）：云源（☁️）时内联展示网盘 tab 栏 +
+  /// 当前网盘的剧集列表；非云源返回空。
+  Widget _buildPanSection() {
+    if (!_isCloudVideo) return const SizedBox.shrink();
+    if (_rawCloudLinks.isEmpty && !_isLoadingPan) return const SizedBox.shrink();
+    final List<String> drives = _cloudDriveNames;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Icon(
+                Icons.cloud,
+                size: 14,
+                color: VboxColors.selected,
+              ),
+              const SizedBox(width: 6),
+              if (_isLoadingPan && _rawCloudLinks.isEmpty) ...<Widget>[
+                Expanded(
+                  child: Text(
+                    '正在加载网盘资源…',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.white.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ),
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ] else if (_rawCloudLinks.isEmpty)
+                Text(
+                  '未找到网盘链接',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withValues(alpha: 0.6),
+                  ),
+                )
+              else
+                Text(
+                  '网盘源 (${drives.length} 个)',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: VboxColors.selected,
+                  ),
+                ),
+            ],
+          ),
+          if (_rawCloudLinks.isNotEmpty && drives.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 10),
+            _buildDriveTabs(drives),
+            const SizedBox(height: 10),
+            _buildDriveEpisodeSection(
+              _selectedCloudDrive != null && drives.contains(_selectedCloudDrive)
+                  ? _selectedCloudDrive!
+                  : drives.first,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 网盘 tab 栏（对齐 iOS `panSection` 的横向 ScrollView）。
+  Widget _buildDriveTabs(List<String> drives) {
+    return SizedBox(
+      height: 36,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: drives.length,
+        separatorBuilder: (BuildContext context, int index) =>
+            const SizedBox(width: 8),
+        itemBuilder: (BuildContext context, int index) {
+          final String drive = drives[index];
+          final bool selected = (_selectedCloudDrive ?? drives.first) == drive;
+          final _DriveExpandState? state = _driveExpandStates[drive];
+          final String countText = switch (state?.kind) {
+            _DriveExpandKind.loaded => '${state!.links.length}',
+            _DriveExpandKind.loading => '...',
+            _ => '-',
+          };
+          return GestureDetector(
+            onTap: () => setState(() => _selectedCloudDrive = drive),
+            child: Container(
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: selected
+                    ? VboxColors.detailSelected
+                    : Colors.white.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(VboxRadii.r8),
+              ),
+              child: Row(
+                children: <Widget>[
+                  Icon(_driveIcon(drive), size: 13, color: Colors.white),
+                  const SizedBox(width: 6),
+                  Text(
+                    drive,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    countText,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.white.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// 单个网盘的剧集列表（对齐 iOS `driveEpisodeSection` 的四种状态）。
+  Widget _buildDriveEpisodeSection(String driveName) {
+    final _DriveExpandState state =
+        _driveExpandStates[driveName] ?? _DriveExpandState.loading;
+    switch (state.kind) {
+      case _DriveExpandKind.loading:
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Row(
+            children: <Widget>[
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '正在加载 $driveName 剧集列表…',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.white.withValues(alpha: 0.6),
+                ),
+              ),
+            ],
+          ),
+        );
+      case _DriveExpandKind.failed:
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            children: <Widget>[
+              const Icon(
+                Icons.warning_amber_rounded,
+                size: 14,
+                color: VboxColors.warning,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  state.message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white.withValues(alpha: 0.5),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      case _DriveExpandKind.empty:
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            children: <Widget>[
+              Icon(
+                Icons.all_inbox,
+                size: 14,
+                color: Colors.white.withValues(alpha: 0.5),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$driveName 暂无视频文件',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
+              ),
+            ],
+          ),
+        );
+      case _DriveExpandKind.loaded:
+        final List<_CloudPanLink> links = state.links;
+        if (links.isEmpty) return const SizedBox.shrink();
+        final List<_CloudPanLink> ordered = _episodesReversed
+            ? links.reversed.toList(growable: false)
+            : links;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Text(
+                  '$driveName 剧集列表',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () =>
+                      setState(() => _episodesReversed = !_episodesReversed),
+                  icon: Icon(
+                    Icons.swap_vert,
+                    size: 18,
+                    color: _episodesReversed
+                        ? VboxColors.detailSelected
+                        : Colors.white.withValues(alpha: 0.7),
+                  ),
+                ),
+                Text(
+                  '共 ${links.length} 集',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withValues(alpha: 0.6),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _showEpisodePopup(),
+                  icon: Icon(
+                    Icons.grid_view,
+                    size: 18,
+                    color: Colors.white.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 300),
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: EdgeInsets.zero,
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 76,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: 1.9,
+                ),
+                itemCount: ordered.length,
+                itemBuilder: (BuildContext context, int index) =>
+                    _EpisodeCell(
+                  label: _cloudEpisodeTitle(ordered[index], index),
+                  selected: false,
+                  onTap: () => unawaited(_playPanLink(ordered[index])),
+                ),
+              ),
+            ),
+          ],
+        );
+    }
+  }
+
+  /// 网盘图标（对齐 iOS `driveIcon`：按盘名关键词匹配）。
+  IconData _driveIcon(String drive) {
+    if (drive.contains('115')) return Icons.cloud_outlined;
+    if (drive.contains('阿里')) return Icons.cloud;
+    return Icons.link;
   }
 
   /// 剧集列表（对齐 iOS `episodeSection`）。
@@ -1095,6 +1999,102 @@ class _CastMember {
   final String name;
   final String? coverUrl;
   final String? role;
+}
+
+/// 原始网盘链接（对齐 iOS `rawCloudLinks` 元组：url / name / driveType / driveName）。
+class _RawCloudLink {
+  const _RawCloudLink({
+    required this.url,
+    required this.name,
+    this.driveType,
+    required this.driveName,
+  });
+
+  /// 分享链接（Node 派生盘带 `#vbox_nd=1` 标记）。
+  final String url;
+
+  /// 链接名（展示用；用于推断盘别）。
+  final String name;
+
+  /// 识别出的网盘类型（无法识别为 null）。
+  final CloudDriveType? driveType;
+
+  /// 网盘显示名（tab 栏 / 分组键）。
+  final String driveName;
+}
+
+/// 网盘条目（对齐 iOS `CloudPanLink`）：单集 + F-P27 定位 fragment。
+class _CloudPanLink {
+  const _CloudPanLink({
+    required this.id,
+    required this.url,
+    required this.name,
+    this.driveType,
+    required this.driveName,
+  });
+
+  /// 唯一 id（`driveName|index|name|url`）。
+  final String id;
+
+  /// 条目地址（分享链接 + `#vbox_*` 定位参数）。
+  final String url;
+
+  /// 文件名。
+  final String name;
+
+  /// 网盘类型。
+  final CloudDriveType? driveType;
+
+  /// 网盘显示名。
+  final String driveName;
+}
+
+/// 网盘展开状态（对齐 iOS `DriveExpandState`）。
+enum _DriveExpandKind {
+  /// 加载中。
+  loading,
+
+  /// 已加载。
+  loaded,
+
+  /// 加载失败。
+  failed,
+
+  /// 空（无视频文件）。
+  empty,
+}
+
+/// 网盘展开状态载体。
+class _DriveExpandState {
+  const _DriveExpandState(
+    this.kind, {
+    this.links = const <_CloudPanLink>[],
+    this.message = '',
+  });
+
+  /// 状态种类。
+  final _DriveExpandKind kind;
+
+  /// 已加载条目（[kind] 为 loaded 时有效）。
+  final List<_CloudPanLink> links;
+
+  /// 失败文案（[kind] 为 failed 时有效）。
+  final String message;
+
+  /// 加载中。
+  static const _DriveExpandState loading =
+      _DriveExpandState(_DriveExpandKind.loading);
+
+  /// 空。
+  static const _DriveExpandState empty = _DriveExpandState(_DriveExpandKind.empty);
+
+  /// 已加载。
+  factory _DriveExpandState.loaded(List<_CloudPanLink> links) =>
+      _DriveExpandState(_DriveExpandKind.loaded, links: links);
+
+  /// 失败。
+  factory _DriveExpandState.failed(String message) =>
+      _DriveExpandState(_DriveExpandKind.failed, message: message);
 }
 
 /// 单集宫格项（对齐 iOS 剧集网格：白色 12% 底 + 白字）。

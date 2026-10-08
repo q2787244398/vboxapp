@@ -268,4 +268,39 @@ class DoubanUseCases {
     final String text = '${s.cardSubtitle ?? ''} ${s.intro ?? ''} ${s.title}';
     return text.contains(platform);
   }
+
+  // ─────────────── 详情增强：演职 / 大封面（对齐 iOS `fetchCredits` / `fetchWallpaperURL`）───────────────
+
+  /// 拉取作品演职（对齐 iOS `DoubanService.fetchCredits(for:)`）：
+  /// 先按作品名搜索出 subject id，再拉 `/movie/{id}/celebrities`。
+  ///
+  /// 搜索不到 / 请求失败 → 返回空演职（不阻断详情页），对齐 iOS 的兜底语义。
+  Future<Result<DoubanCredits>> credits(String workName) async {
+    final String name = workName.trim();
+    if (name.isEmpty) return const Success<DoubanCredits>(DoubanCredits());
+    try {
+      final String? subjectId = await _datasource.searchSubjectId(name);
+      if (subjectId == null || subjectId.isEmpty) {
+        return const Success<DoubanCredits>(DoubanCredits());
+      }
+      final DoubanCredits credits =
+          await _datasource.fetchCelebrities(subjectId);
+      return Success<DoubanCredits>(credits);
+    } catch (e) {
+      return Err<DoubanCredits>(Failure.from(e));
+    }
+  }
+
+  /// 拉取竖版大封面（对齐 iOS `fetchWallpaperURL(subjectId:)`）。
+  ///
+  /// 无封面 / 请求失败 → 返回 null（详情页回退站点封面）。
+  Future<Result<String?>> wallpaper(String subjectId) async {
+    if (subjectId.isEmpty) return const Success<String?>(null);
+    try {
+      final String? url = await _datasource.fetchWallpaperUrl(subjectId);
+      return Success<String?>(url);
+    } catch (e) {
+      return Err<String?>(Failure.from(e));
+    }
+  }
 }

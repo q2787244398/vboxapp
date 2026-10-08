@@ -193,7 +193,8 @@ void main() {
 
     completer.complete(Success<PlaybackDetail>(detail()));
     await tester.pumpAndSettle();
-    expect(find.text('示例片'), findsOneWidget);
+    // Hero 大标题（无 TMDB logo 时以片名兜底）+ 下方 14pt 片名 = 2 处（对齐 iOS）。
+    expect(find.text('示例片'), findsNWidgets(2));
   });
 
   testWidgets('加载失败：错误提示 + 重试后恢复', (WidgetTester tester) async {
@@ -212,7 +213,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(uc.loadCalls, 2);
-    expect(find.text('示例片'), findsOneWidget);
+    // Hero 大标题（无 TMDB logo 时以片名兜底）+ 下方 14pt 片名 = 2 处（对齐 iOS）。
+    expect(find.text('示例片'), findsNWidgets(2));
   });
 
   testWidgets('加载成功：影片信息 / 线路 / 剧集 / 播放按钮', (WidgetTester tester) async {
@@ -222,7 +224,8 @@ void main() {
     await tester.pumpWidget(_app(uc));
     await tester.pumpAndSettle();
 
-    expect(find.text('示例片'), findsOneWidget);
+    // Hero 大标题（无 TMDB logo 时以片名兜底）+ 下方 14pt 片名 = 2 处（对齐 iOS）。
+    expect(find.text('示例片'), findsNWidgets(2));
     expect(find.text('线路1'), findsOneWidget);
     expect(find.text('线路2'), findsOneWidget);
     expect(find.text('第1集'), findsOneWidget);
@@ -241,6 +244,8 @@ void main() {
     expect(find.text('第1集'), findsOneWidget);
     expect(find.text('第2集'), findsOneWidget);
 
+    // Hero 大标题使内容整体下移，线路胶囊可能落在视口外 → 先滚动到可见再点。
+    await tester.ensureVisible(find.text('线路2'));
     await tester.tap(find.text('线路2'));
     await tester.pumpAndSettle();
 

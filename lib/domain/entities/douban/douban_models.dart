@@ -3,9 +3,8 @@
 /// 逆向来源：iOS `vbox/Services/DoubanService.swift`（rexxar API）、
 /// `vbox/Services/DoubanChartService.swift`（chart top_list API）。
 ///
-/// 本批只做「浏览」所需实体：条目（subject）、榜单条目（chart subject）、
-/// 榜单分类（chart category）、大分类（category）+ 筛选参数（filter params）。
-/// 演职人员 / 详情大图 / 图片代理留待后续批次（D-05 详情页）。
+/// 实体：条目（subject）、榜单条目（chart subject）、榜单分类（chart category）、
+/// 大分类（category）+ 筛选参数（filter params）、演职人员（celebrity / credits）。
 library;
 
 import '../../../core/utils/json_utils.dart';
@@ -436,4 +435,124 @@ class DoubanHomeFeed {
 
   /// 是否完全无内容。
   bool get isEmpty => banner.isEmpty && sections.isEmpty;
+}
+
+/// 豆瓣演职人员（对齐 iOS `DoubanService.swift:628 DoubanCelebrity`）。
+///
+/// 来源：`GET /rexxar/api/v2/movie/{id}/celebrities` 的 `actors` / `directors`
+/// 列表项（`id` / `name` / `avatar.{large,normal}` / `roles` / `character`）。
+class DoubanCelebrity {
+  /// 构造。
+  const DoubanCelebrity({
+    required this.id,
+    required this.name,
+    this.coverUrl,
+    this.roles = const <String>[],
+    this.character,
+  });
+
+  /// 演职人员 ID（缺失时对齐 iOS 用 UUID 兜底，由数据源生成）。
+  final String id;
+
+  /// 姓名。
+  final String name;
+
+  /// 归一后的头像 URL（`avatar.large` → `avatar.normal` → `cover_url`）。
+  ///
+  /// 防盗链由表现层 `PlatformAsyncImage` 统一注入 Referer，此处只做前缀归一
+  /// （对齐 iOS `DoubanCelebrity.avatarURL` 的 `//` / 裸域名归一）。
+  final String? coverUrl;
+
+  /// 角色列表（如 `["演员"]` / `["导演"]`）。
+  final List<String> roles;
+
+  /// 饰演角色名（演员专属，如 `"张三"`）。
+  final String? character;
+
+  /// 角色文案（对齐 iOS `DoubanCelebrity.roleText`）：
+  /// `character` 非空 → 「饰 X」；否则 `roles` 以 ` / ` 连接；皆空 → 空串。
+  String get roleText {
+    final String? c = character;
+    if (c != null && c.isNotEmpty) return '饰 $c';
+    if (roles.isNotEmpty) return roles.join(' / ');
+    return '';
+  }
+
+  /// 从 JSON 解析（容错：缺 `name` 返回 null，对齐 iOS `parseCelebrity` 的 guard）。
+  ///
+  /// [defaultRole] 非空时覆盖 `roles`（对齐 iOS：导演/编剧解析传入固定角色）。
+  static DoubanCelebrity? fromJson(
+    Map<String, Object?> j, {
+    String? defaultRole,
+  }) {
+    final String? name = JsonUtils.pickString(j, 'name');
+    if (name == null || name.isEmpty) return null;
+    final String id = JsonUtils.pickStringOr(j, 'id', '');
+    return DoubanCelebrity(
+      id: id.isEmpty ? name : id,
+      name: name,
+      coverUrl: _celebrityAvatar(j),
+      roles: defaultRole != null
+          ? <String>[defaultRole]
+          : JsonUtils.asList(j['roles']).map((Object? e) => '$e').toList(),
+      character: JsonUtils.pickString(j, 'character'),
+    );
+  }
+
+  /// 头像 URL 提取（对齐 iOS `extractCelebrityAvatar`）：
+  /// `avatar.large` → `avatar.normal` → `avatar`(字符串) → `cover_url`。
+  static String? _celebrityAvatar(Map<String, Object?> j) {
+    final Object? avatar = j['avatar'];
+    if (avatar is Map) {
+      final Map<String, Object?> map = JsonUtils.asMap(avatar);
+      final String? large = JsonUtils.pickString(map, 'large');
+      if (large != null && large.isNotEmpty) return _normalizeCover(large);
+      final String? normal = JsonUtils.pickString(map, 'normal');
+      if (normal != null && normal.isNotEmpty) return _normalizeCover(normal);
+    }
+    final String? rawAvatar = JsonUtils.pickString(j, 'avatar');
+    if (rawAvatar != null && rawAvatar.isNotEmpty) {
+      return _normalizeCover(rawAvatar);
+    }
+    final String? cover = JsonUtils.pickString(j, 'cover_url');
+    return _normalizeCover(cover);
+  }
+
+  /// 封面 URL 归一：补 `https:` / `https://` 前缀（对齐 iOS `avatarURL`）。
+  static String? _normalizeCover(String? raw) {
+    if (raw == null) return null;
+    final String trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    if (trimmed.startsWith('//')) return 'https:$trimmed';
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      return 'https://$trimmed';
+    }
+    return trimmed;
+  }
+}
+
+/// 豆瓣演职聚合（对齐 iOS `fetchCredits` 返回的元组语义）。
+class DoubanCredits {
+  /// 构造。
+  const DoubanCredits({
+    this.actors = const <DoubanCelebrity>[],
+    this.directors = const <DoubanCelebrity>[],
+    this.writers = const <DoubanCelebrity>[],
+    this.subjectId,
+  });
+
+  /// 演员（`celebrities.actors`）。
+  final List<DoubanCelebrity> actors;
+
+  /// 导演（`celebrities.directors`，角色固定「导演」）。
+  final List<DoubanCelebrity> directors;
+
+  /// 编剧（`directors` 中 `roles` 含「编剧」的条目）。
+  final List<DoubanCelebrity> writers;
+
+  /// 作品豆瓣 subject id（用于补拉大封面；搜索失败时为 null）。
+  final String? subjectId;
+
+  /// 是否无任何演职人员。
+  bool get isEmpty => actors.isEmpty && directors.isEmpty && writers.isEmpty;
 }

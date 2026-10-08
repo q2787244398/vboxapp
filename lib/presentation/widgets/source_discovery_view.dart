@@ -246,6 +246,8 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
           siteKey: _siteKey ?? '',
           vodId: vod.vodId,
           title: vod.vodName,
+          // 源发现进入 → 沉浸式（隐藏 AppBar，对齐 iOS `isFromSourceDiscovery`）。
+          isFromSourceDiscovery: true,
         ),
       ),
     );
