@@ -116,41 +116,47 @@ class _SourceOverlay extends StatelessWidget {
               ),
             ],
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                _buildHeader(context),
-                Divider(
-                  height: 1,
-                  thickness: 1,
-                  color: scheme.outlineVariant.withValues(alpha: 0.5),
-                ),
-                Flexible(
-                  child: ListView(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    children: <Widget>[
-                      for (final _SourceGroup group in groups) ...<Widget>[
-                        _buildGroupHeader(context, group),
-                        for (int i = 0; i < group.items.length; i++) ...<Widget>[
-                          _buildRow(context, group.items[i]),
-                          if (i < group.items.length - 1)
-                            Divider(
-                              height: 1,
-                              thickness: 1,
-                              indent: 38,
-                              color:
-                                  scheme.outlineVariant.withValues(alpha: 0.5),
-                            ),
+          // Material 仅作 InkWell 的水波纹宿主（透明，视觉仍由外层 Container 决定）。
+          child: Material(
+            type: MaterialType.transparency,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  _buildHeader(context),
+                  Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: scheme.outlineVariant.withValues(alpha: 0.5),
+                  ),
+                  Flexible(
+                    child: ListView(
+                      padding: EdgeInsets.zero,
+                      shrinkWrap: true,
+                      children: <Widget>[
+                        for (final _SourceGroup group in groups) ...<Widget>[
+                          _buildGroupHeader(context, group),
+                          for (int i = 0;
+                              i < group.items.length;
+                              i++) ...<Widget>[
+                            _buildRow(context, group.items[i]),
+                            if (i < group.items.length - 1)
+                              Divider(
+                                height: 1,
+                                thickness: 1,
+                                indent: 38,
+                                color: scheme.outlineVariant
+                                    .withValues(alpha: 0.5),
+                              ),
+                          ],
                         ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -197,7 +203,8 @@ class _SourceOverlay extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          _CountBadge(count: group.items.length, accent: _accent, compact: true),
+          _CountBadge(
+              count: group.items.length, accent: _accent, compact: true),
         ],
       ),
     );

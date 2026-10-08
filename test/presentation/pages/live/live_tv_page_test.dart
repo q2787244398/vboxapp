@@ -37,11 +37,11 @@ Future<LiveTvController> _preload(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('渲染频道源胶囊 + 分类胶囊 + 双列频道卡', (WidgetTester tester) async {
+  testWidgets('渲染源切换浮动按钮 + 分类胶囊 + 双列频道卡', (WidgetTester tester) async {
     await _preload(tester);
 
-    // 频道源胶囊：当前源展示名。
-    expect(find.text('默认源1 (秒播)'), findsOneWidget);
+    // 源切换入口：右下角天线浮动按钮（对齐 iOS `LiveTVView`）。
+    expect(find.byIcon(Icons.settings_input_antenna), findsOneWidget);
 
     // 分类胶囊：动态分组。
     expect(find.text('News'), findsOneWidget);
@@ -64,10 +64,10 @@ void main() {
     expect(find.text('CCTV-1'), findsNothing);
   });
 
-  testWidgets('点击频道源胶囊弹出切换源浮层', (WidgetTester tester) async {
+  testWidgets('点击源切换浮动按钮弹出切换源浮层', (WidgetTester tester) async {
     await _preload(tester);
 
-    await tester.tap(find.text('默认源1 (秒播)'));
+    await tester.tap(find.byIcon(Icons.settings_input_antenna));
     await tester.pumpAndSettle();
 
     // 浮层标题 + 全部可用源（默认2个）。
@@ -124,6 +124,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('暂无频道'), findsOneWidget);
-    expect(find.text('默认源1 (秒播)'), findsOneWidget);
+    // 源切换入口仍在（右下角天线浮动按钮）。
+    expect(find.byIcon(Icons.settings_input_antenna), findsOneWidget);
   });
 }

@@ -152,8 +152,9 @@ void main() {
 
       expect(find.text('已获取'), findsOneWidget);
       expect(find.text('未获取'), findsNWidgets(11));
-      // 副标题与详情行回退文案都取 displayName。
-      expect(find.text('夸友'), findsNWidgets(2));
+      // 副标题与详情行回退文案都取 displayName（2 处），
+      // 另加「已保存 Token」列表内的账号名（1 处）= 3。
+      expect(find.text('夸友'), findsNWidgets(3));
     });
 
     testWidgets('点击「测试」刷新本地检测时间', (WidgetTester tester) async {

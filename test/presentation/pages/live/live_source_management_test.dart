@@ -43,7 +43,8 @@ Future<LiveTvController> _pumpPage(
 }
 
 Future<void> _openSourceSheet(WidgetTester tester) async {
-  await tester.tap(find.text('默认源1 (秒播)'));
+  // 源切换入口：右下角天线浮动按钮（对齐 iOS `LiveTVView`）。
+  await tester.tap(find.byIcon(Icons.settings_input_antenna));
   await tester.pumpAndSettle();
 }
 

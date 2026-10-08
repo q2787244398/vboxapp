@@ -155,7 +155,7 @@ void main() {
     expect(find.text('末页片'), findsOneWidget);
   });
 
-  testWidgets('切换源下拉：切换站点重载', (WidgetTester tester) async {
+  testWidgets('切换源浮层：切换站点重载', (WidgetTester tester) async {
     final _FakeContentBrowseUseCases uc = _FakeContentBrowseUseCases(
       sites: <SiteConfig>[site('s1', '站点1'), site('s2', '站点2')],
       categoryList: <VodCategory>[cat('1', '电影')],
@@ -166,8 +166,10 @@ void main() {
 
     expect(find.text('站点1'), findsOneWidget);
 
-    await tester.tap(find.byType(DropdownButton<String>));
+    // 源切换：顶部源名 + 下拉箭头 → 左上角悬浮源浮层（对齐 iOS showSourceDropdown）。
+    await tester.tap(find.text('站点1'));
     await tester.pumpAndSettle();
+    expect(find.text('切换源'), findsOneWidget);
     await tester.tap(find.text('站点2'));
     await tester.pumpAndSettle();
 
