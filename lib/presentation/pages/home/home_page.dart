@@ -92,7 +92,7 @@ class _VboxHomePageState extends State<VboxHomePage> {
         _home = cached;
         _siteKey = siteKey;
       });
-      if ((cached.list).isNotEmpty) {
+      if (cached.list?.isNotEmpty ?? false) {
         SplashGateMonitor.instance.markHomeReady();
       }
       return;

@@ -37,6 +37,7 @@ import '../pages/cloud/files.dart';
 import '../pages/player/player_page.dart';
 import '../theme/tokens/colors.dart';
 import '../theme/tokens/radii.dart';
+import '../theme/tokens/typography.dart';
 import 'platform_async_image.dart';
 
 /// 详情页。
@@ -179,12 +180,6 @@ class _DetailPageState extends State<DetailPage> {
         .where((PlaybackEpisode e) => e.from == from)
         .toList();
     return out.isEmpty ? d.episodes : out;
-  }
-
-  PlaybackEpisode? get _currentEpisode {
-    final List<PlaybackEpisode> visible = _episodesForLine(_fromIndex);
-    if (visible.isEmpty) return null;
-    return visible[_episodeIndex.clamp(0, visible.length - 1)];
   }
 
   // ─────────────── 收藏 / 历史 ───────────────
@@ -478,7 +473,7 @@ class _DetailPageState extends State<DetailPage> {
           title,
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 17,
+            fontSize: VboxTypography.s18,
             fontWeight: FontWeight.w600,
           ),
           maxLines: 1,
@@ -528,12 +523,12 @@ class _DetailPageState extends State<DetailPage> {
 
   /// 背景层（对齐 iOS `backgroundLayer` + `bottomDimmingOverlay`）。
   Widget _buildBackground(PlaybackDetail d, double height) {
-    final String? cover = _tmdb?.posterUrl ?? _tmdb?.backdropUrl ?? d.vod.vodPic;
+    final String cover = _tmdb?.posterUrl ?? _tmdb?.backdropUrl ?? d.vod.vodPic;
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
         const ColoredBox(color: Colors.black),
-        if (cover != null && cover.trim().isNotEmpty)
+        if (cover.trim().isNotEmpty)
           PlatformAsyncImage(
             url: cover,
             fit: BoxFit.cover,
@@ -548,11 +543,7 @@ class _DetailPageState extends State<DetailPage> {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: <Color>[
-                  Color(0x00000000),
-                  Color(0x1A000000),
-                  Color(0x59000000),
-                ],
+                colors: VboxColors.detailCoverFadeGradient,
                 stops: <double>[0.0, 0.35, 1.0],
               ),
             ),
@@ -628,7 +619,10 @@ class _DetailPageState extends State<DetailPage> {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               child: const Text(
                 '剧情',
-                style: TextStyle(fontSize: 11, color: Color(0xE6FFFFFF)),
+                style: TextStyle(
+                  fontSize: VboxTypography.s11,
+                  color: VboxColors.detailLabelText,
+                ),
               ),
             ),
             if (meta.isNotEmpty) ...<Widget>[
@@ -676,10 +670,10 @@ class _DetailPageState extends State<DetailPage> {
           width: double.infinity,
           child: Material(
             color: VboxColors.detailPlayButton,
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(VboxRadii.capsule),
             child: InkWell(
               onTap: enabled ? _play : null,
-              borderRadius: BorderRadius.circular(28),
+              borderRadius: BorderRadius.circular(VboxRadii.capsule),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 child: Row(

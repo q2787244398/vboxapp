@@ -499,3 +499,314 @@ IconData _nodeStatusIcon(NodeRuntimeState state) {
   if (state == NodeRuntimeState.stopped) return Icons.power_settings_new;
   return Icons.help_outline;
 }
+
+/// 底部「复制粘贴 Token 兜底」卡片（对齐 iOS `manualTokenFallbackCard`）。
+///
+/// 结构（自上而下）：标题行（钥匙图标 + 「复制粘贴 Token 兜底」+ 副标题）→
+/// 已保存 Token 列表（空态「暂无已保存 Token」，最高 170）→「网页登录获取
+/// Token（兜底）」主按钮 → 网盘类型下拉 + 备注名 + 凭据输入 +「保存 Token」
+/// 按钮。凭据读写经 [onSave] / [onRemove] / [onFetchWeb] 回调外部落库。
+class ManualTokenFallbackCard extends StatefulWidget {
+  /// 构造。
+  const ManualTokenFallbackCard({
+    super.key,
+    required this.tokens,
+    required this.onSave,
+    required this.onRemove,
+    required this.onFetchWeb,
+  });
+
+  /// 已保存凭据清单（[CloudDriveAuthController.savedTokens]）。
+  final List<CloudDriveCredential> tokens;
+
+  /// 保存手动粘贴的 Token / Cookie。
+  final Future<void> Function(CloudDriveType type, String name, String value)
+      onSave;
+
+  /// 删除指定网盘凭据（对齐 iOS `removeToken(at:)`）。
+  final Future<void> Function(CloudDriveType type) onRemove;
+
+  /// 打开网页登录兜底获取 Token（对齐 iOS `showTokenFetcher`）。
+  final Future<void> Function(CloudDriveType type) onFetchWeb;
+
+  @override
+  State<ManualTokenFallbackCard> createState() =>
+      _ManualTokenFallbackCardState();
+}
+
+class _ManualTokenFallbackCardState extends State<ManualTokenFallbackCard> {
+  CloudDriveType _selected = CloudDriveType.ali;
+  final TextEditingController _name = TextEditingController();
+  final TextEditingController _value = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _value.dispose();
+    super.dispose();
+  }
+
+  bool get _canSave =>
+      _name.text.trim().isNotEmpty && _value.text.trim().isNotEmpty;
+
+  Future<void> _save() async {
+    if (!_canSave) return;
+    await widget.onSave(_selected, _name.text.trim(), _value.text.trim());
+    if (!mounted) return;
+    setState(() {
+      _name.clear();
+      _value.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final Color accent = VboxColors.skinPrimaryRose;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(VboxRadii.r14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              SizedBox(
+                width: 26,
+                child: Icon(Icons.key, size: VboxTypography.s18, color: accent),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      '复制粘贴 Token 兜底',
+                      style: TextStyle(
+                        fontSize: VboxTypography.s15,
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '用于查看、网页登录获取、手动粘贴各网盘 Token',
+                      style: TextStyle(
+                        fontSize: VboxTypography.s12,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: VboxSpacing.md),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 170),
+            child: widget.tokens.isEmpty
+                ? _emptyHint(scheme)
+                : ListView.separated(
+                    shrinkWrap: true,
+                    primary: false,
+                    padding: EdgeInsets.zero,
+                    itemCount: widget.tokens.length,
+                    separatorBuilder: (BuildContext _, int __) =>
+                        const SizedBox(height: VboxSpacing.sm),
+                    itemBuilder: (BuildContext _, int index) =>
+                        _tokenRow(scheme, widget.tokens[index]),
+                  ),
+          ),
+          const SizedBox(height: VboxSpacing.md),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => widget.onFetchWeb(_selected),
+              icon: const Icon(Icons.public, size: VboxTypography.s16),
+              label: const Text(
+                '网页登录获取 Token（兜底）',
+                style: TextStyle(fontSize: VboxTypography.s14),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: accent,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(44),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(VboxRadii.r12),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: VboxSpacing.md),
+          InputDecorator(
+            decoration: const InputDecoration(
+              labelText: '网盘类型',
+              isDense: true,
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<CloudDriveType>(
+                value: _selected,
+                isExpanded: true,
+                isDense: true,
+                items: <DropdownMenuItem<CloudDriveType>>[
+                  for (final CloudDriveType type in CloudDriveType.values)
+                    DropdownMenuItem<CloudDriveType>(
+                      value: type,
+                      child: Text(
+                        type.displayName,
+                        style: TextStyle(
+                          fontSize: VboxTypography.s13,
+                          color: scheme.onSurface,
+                        ),
+                      ),
+                    ),
+                ],
+                onChanged: (CloudDriveType? type) {
+                  if (type != null) setState(() => _selected = type);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: VboxSpacing.sm),
+          TextField(
+            controller: _name,
+            onChanged: (String _) => setState(() {}),
+            decoration: const InputDecoration(
+              hintText: '备注名称',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
+            style: TextStyle(
+              fontSize: VboxTypography.s13,
+              color: scheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: VboxSpacing.sm),
+          TextField(
+            controller: _value,
+            autocorrect: false,
+            enableSuggestions: false,
+            onChanged: (String _) => setState(() {}),
+            decoration: InputDecoration(
+              hintText: _selected.tokenLabel,
+              isDense: true,
+              border: const OutlineInputBorder(),
+            ),
+            style: TextStyle(
+              fontSize: VboxTypography.s12,
+              color: scheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: VboxSpacing.md),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _canSave ? _save : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: accent,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor:
+                    scheme.onSurfaceVariant.withValues(alpha: 0.3),
+                minimumSize: const Size.fromHeight(42),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(VboxRadii.r10),
+                ),
+              ),
+              child: const Text(
+                '保存 Token',
+                style: TextStyle(
+                  fontSize: VboxTypography.s14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyHint(ColorScheme scheme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(VboxRadii.r10),
+      ),
+      child: Text(
+        '暂无已保存 Token',
+        style: TextStyle(
+          fontSize: VboxTypography.s12,
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+
+  Widget _tokenRow(ColorScheme scheme, CloudDriveCredential token) {
+    final CloudDriveType? type = token.type;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(VboxRadii.r10),
+      ),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 24,
+            child: Icon(
+              type != null ? cloudDriveIcon(type) : Icons.cloud,
+              size: VboxTypography.s16,
+              color: VboxColors.skinPrimaryRose,
+            ),
+          ),
+          const SizedBox(width: VboxSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  type?.displayName ?? token.driveType,
+                  style: TextStyle(
+                    fontSize: VboxTypography.s13,
+                    fontWeight: FontWeight.w500,
+                    color: scheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  token.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: VboxTypography.s11,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: '删除',
+            icon: const Icon(
+              Icons.delete_outline,
+              size: VboxTypography.s16,
+              color: VboxColors.danger,
+            ),
+            onPressed: type == null ? null : () => widget.onRemove(type),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          ),
+        ],
+      ),
+    );
+  }
+}

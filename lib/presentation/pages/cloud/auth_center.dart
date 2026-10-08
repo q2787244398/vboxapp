@@ -132,6 +132,31 @@ class _CloudDriveAuthCenterPageState extends State<CloudDriveAuthCenterPage> {
     );
   }
 
+  /// 保存手动粘贴的 Token / Cookie（底部兜底卡片回调）。
+  Future<void> _saveManualToken(
+    CloudDriveType type,
+    String name,
+    String value,
+  ) async {
+    await _controller.saveManualToken(type, name, value);
+  }
+
+  /// 删除某网盘已保存凭据（底部兜底卡片回调）。
+  Future<void> _removeManualToken(CloudDriveType type) async {
+    await _controller.removeCredential(type);
+  }
+
+  /// 打开网页登录兜底获取 Token（底部兜底卡片回调）。
+  Future<void> _openWebFallbackForToken(CloudDriveType type) async {
+    await openCloudDriveLoginSheet(
+      context,
+      type: type,
+      action: '网页登录兜底',
+      gateway: widget.loginGateway,
+    );
+    await _controller.load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;

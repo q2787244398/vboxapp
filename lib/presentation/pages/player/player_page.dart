@@ -66,6 +66,7 @@ class PlayerPage extends StatefulWidget {
     this.initialEpisodeIndex = 0,
     this.qualities = const <String>[],
     this.onResolveEpisode,
+    this.onProgress,
     this.route,
     this.controller,
     this.danmakuService,
@@ -97,6 +98,9 @@ class PlayerPage extends StatefulWidget {
 
   /// 选集重开解析器（null 时选集只切 UI 不换源 → 面板禁用）。
   final EpisodeSourceResolver? onResolveEpisode;
+
+  /// 播放进度回调（详情页用于写入观看记录，对齐 iOS 进度落库）。
+  final void Function(PlaybackProgress progress)? onProgress;
 
   /// 显式播放路由覆盖（F-08：网盘直链无法自证 `pan` 路由，由入口传入）。
   final PlaybackRoute? route;
@@ -644,6 +648,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       if (pip != null && pip.isInPip) {
         unawaited(pip.updateProgress(p.positionMs, p.durationMs));
       }
+      // 观看记录：详情页经此回调按节流落库（对齐 iOS 进度落库）。
+      widget.onProgress?.call(p);
     };
     _player.onVideoSize = (int width, int height) {
       if (!mounted) return;

@@ -257,7 +257,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     });
     final SpiderHttpResult res = await _bridge.request(
       url.toString(),
-      options: SpiderHttpOptions(
+      options: const SpiderHttpOptions(
         headers: <String, String>{
           'Origin': 'https://drive.uc.cn',
           'Referer': 'https://drive.uc.cn/',
@@ -313,7 +313,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     });
     final SpiderHttpResult res = await _bridge.request(
       url.toString(),
-      options: SpiderHttpOptions(
+      options: const SpiderHttpOptions(
         headers: <String, String>{
           'User-Agent': _baiduUserAgent,
           'Accept': 'application/json, text/plain, */*',
@@ -354,7 +354,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     });
     final SpiderHttpResult res = await _bridge.request(
       url.toString(),
-      options: SpiderHttpOptions(
+      options: const SpiderHttpOptions(
         headers: <String, String>{
           'User-Agent': _baiduUserAgent,
           'Accept': 'application/json, text/plain, */*',
@@ -488,7 +488,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     });
     final SpiderHttpResult res = await _bridge.request(
       url.toString(),
-      options: SpiderHttpOptions(
+      options: const SpiderHttpOptions(
         headers: <String, String>{
           'Origin': 'https://pan.quark.cn',
           'Referer': 'https://pan.quark.cn/',
@@ -528,7 +528,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     });
     final SpiderHttpResult res = await _bridge.request(
       url.toString(),
-      options: SpiderHttpOptions(
+      options: const SpiderHttpOptions(
         headers: <String, String>{
           'Origin': 'https://pan.quark.cn',
           'Referer': 'https://pan.quark.cn/',
@@ -569,7 +569,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     });
     final SpiderHttpResult res = await _bridge.request(
       url.toString(),
-      options: SpiderHttpOptions(
+      options: const SpiderHttpOptions(
         headers: <String, String>{
           'Origin': 'https://pan.quark.cn',
           'Referer': 'https://pan.quark.cn/',

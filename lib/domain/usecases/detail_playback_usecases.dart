@@ -9,6 +9,7 @@
 /// - jsSpider 由 QuickJS 顶替（G-03-B 决策：JSC 为 iOS 原生保留）。
 library;
 
+import '../../core/errors/exceptions.dart';
 import '../../core/errors/failures.dart';
 import '../../core/network/http_client.dart';
 import '../../core/utils/logger.dart';

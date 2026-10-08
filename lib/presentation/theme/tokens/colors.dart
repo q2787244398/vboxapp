@@ -206,6 +206,16 @@ class VboxColors {
   /// 详情页选中强调（线路 chip / 剧集排序激活态；iOS `Color(hex: "E11D48")`）。
   static const Color detailSelected = Color(0xFFE11D48);
 
+  /// 详情页封面底部渐隐（透明 → 黑 10% → 黑 35%）。
+  static const List<Color> detailCoverFadeGradient = <Color>[
+    Color(0x00000000),
+    Color(0x1A000000),
+    Color(0x59000000),
+  ];
+
+  /// 详情页「剧情」标签文字色（白 @ 90%）。
+  static const Color detailLabelText = Color(0xE6FFFFFF);
+
   // ── TG 搜索（G-04，对齐 iOS `SettingsViews.swift` / `TGChannelListView.swift`）──
   /// TG 频道管理图标色（设置入口天线图标；iOS `Color(hex: "8B5CF6")`）。
   static const Color tgChannelPurple = Color(0xFF8B5CF6);
@@ -278,6 +288,19 @@ class VboxColors {
     VboxCategory.download: Color(0xFFEC4899),
     VboxCategory.welfare: Color(0xFFF97316),
     VboxCategory.node: Color(0xFF14B8A6),
+  };
+
+  // ── 源类型徽标配色（对齐 iOS `SourceDiscoveryView.categoryBadgeColor`）──
+  /// 源类型徽标配色（键为 `SiteConfig.categoryLabel`）。
+  ///
+  /// 键用字符串而非领域枚举，避免主题层反向依赖领域层（分层约束）；
+  /// 未登记的键回退 [skinPrimaryRose]。
+  static const Map<String, Color> siteCategoryBadgeColors = <String, Color>{
+    '网盘': Color(0xFF2563EB),
+    'API': Color(0xFF16A34A),
+    '站源': Color(0xFFEA580C),
+    'JS': Color(0xFF7C3AED),
+    '论坛': Color(0xFF0891B2),
   };
 
   // ── 网盘品牌角标底色（批次 F · F-01 授权中心 / F-06 排序列表）──────

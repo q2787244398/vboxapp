@@ -27,19 +27,8 @@ import '../home/source_sheet.dart';
 /// 源类型徽标配色（对齐 iOS `SourceDiscoveryView.categoryBadgeColor`：
 /// 网盘蓝 / 其它按类型区分）。
 Color categoryBadgeColor(SiteConfig site) {
-  switch (site.categoryLabel) {
-    case '网盘':
-      return const Color(0xFF2563EB);
-    case 'API':
-      return const Color(0xFF16A34A);
-    case '站源':
-      return const Color(0xFFEA580C);
-    case 'JS':
-      return const Color(0xFF7C3AED);
-    case '论坛':
-      return const Color(0xFF0891B2);
-  }
-  return VboxColors.skinPrimaryRose;
+  return VboxColors.siteCategoryBadgeColors[site.categoryLabel] ??
+      VboxColors.skinPrimaryRose;
 }
 
 /// 分类浏览页。
@@ -349,7 +338,7 @@ class _CategoryPageState extends State<CategoryPage> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(VboxRadii.capsule),
       ),
       child: Text(
         site.categoryLabel,

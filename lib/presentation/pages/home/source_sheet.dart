@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 
 import '../../../domain/entities/spider/spider.dart';
 import '../../theme/tokens/colors.dart';
+import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/typography.dart';
 
 /// 源分组固定顺序（对齐 iOS `homeGroupedSources` 的 `order`）。
@@ -259,7 +260,7 @@ class _CountBadge extends StatelessWidget {
           : const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: accent.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(VboxRadii.capsule),
       ),
       child: Text(
         '$count',
