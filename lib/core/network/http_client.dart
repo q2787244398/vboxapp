@@ -6,15 +6,20 @@
 /// - 响应体按契约 §4.2 探测链解码（见 `http_body_decoder.dart`）
 /// - 网络层异常归一为 `NetworkException`
 ///
-/// 不做的事：cookie 管理、代理、证书绕过 —— 属平台层/蜘蛛桥接层职责。
+/// 不做的事：cookie 管理、代理 —— 属平台层/蜘蛛桥接层职责。
+///
+/// 关于证书：缺省**严格校验**；仅「必须可达」的通道（远程源清单 / 版本探测）
+/// 可按需打开 [HttpClient.allowBadCertificate]，理由见 `_createInner` 注释
+/// （Dart 不补中间证书，而 iOS NSURLSession 会用系统信任库自动补链）。
 library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' as io;
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 
 import '../constants/app_constants.dart';
 import '../errors/exceptions.dart';
@@ -68,14 +73,38 @@ class HttpClientResponse {
 /// HTTP 客户端。
 class HttpClient {
   /// 构造（[inner] 便于测试注入 MockClient）。
+  ///
+  /// [allowBadCertificate] 见 [_createInner]；缺省 false（严格校验）。
   HttpClient({
     http.Client? inner,
     this.networkInfo,
+    bool allowBadCertificate = false,
     this.maxRetries = NetConstants.maxRetries,
     this.retryBaseDelay = NetConstants.retryBaseDelay,
     this.receiveTimeout = NetConstants.receiveTimeout,
     this.userAgent = NetConstants.defaultUserAgent,
-  }) : _inner = inner ?? http.Client();
+  }) : _inner = inner ?? _createInner(allowBadCertificate);
+
+  /// 构造底层客户端。
+  ///
+  /// [allowBadCertificate] 为真时返回放宽 TLS 校验的 [IOClient]。存在的理由
+  /// （对齐 iOS 的**可达性**而非其实现）：
+  ///   · Dart 走**内置根证书链**且**不会补齐中间证书**（BoringSSL 不做 AIA），
+  ///     服务端证书链不完整时直接抛
+  ///     `HandshakeException: unable to get local issuer certificate`；
+  ///   · iOS 的 NSURLSession 用**系统信任库**并会自动补链，同一地址在 iOS 正常、
+  ///     在桌面端失败；
+  ///   · 该开关与既有同类实现同口径：图片 `PlatformAsyncImage.sslBypass`、
+  ///     蜘蛛 `spider_http_bridge`。
+  ///
+  /// 因此仅对「必须可达」的通道（远程源清单 / 探测）按需开启，不作为全局缺省
+  /// （iOS 信任的是系统根证书，不等于信任任意证书）。
+  static http.Client _createInner(bool allowBadCertificate) {
+    if (!allowBadCertificate) return http.Client();
+    return IOClient(
+      io.HttpClient()..badCertificateCallback = ((_, __, ___) => true),
+    );
+  }
 
   final http.Client _inner;
 
@@ -182,7 +211,7 @@ class HttpClient {
         return decoded;
       } on TimeoutException catch (e) {
         lastError = e;
-      } on SocketException catch (e) {
+      } on io.SocketException catch (e) {
         lastError = e;
       } on http.ClientException catch (e) {
         lastError = e;

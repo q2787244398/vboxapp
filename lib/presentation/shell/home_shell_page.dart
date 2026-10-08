@@ -25,6 +25,7 @@ import '../widgets/adaptive/adaptive.dart';
 import '../widgets/download/download_overlay_widgets.dart';
 import '../widgets/input/input.dart';
 import '../widgets/music/mini_player.dart';
+import '../widgets/remote_source/remote_source_status_bar.dart';
 import 'app_tab.dart';
 
 /// 首页外壳：单一页树，全端统一底部悬浮胶囊 TabBar。
@@ -95,11 +96,24 @@ class _HomeShellPageState extends State<HomeShellPage> {
     //   ② 悬浮下载按键（有记录时显示；点击打开管理弹窗）
     // 音乐 MiniPlayer 全局浮层（G-音2，对齐 iOS ContentView L140-L143）：
     //   有播放队列时底部居中常驻；点击主体展开全屏播放器。
+    //
+    // 布局加固（桌面端「启动后看不到底栏、最大化后才出现」的根因防御）：
+    // RenderStack 的尺寸只由**非定位子项**决定；若存在一个会收缩为 0 的非定位
+    // 子项（悬浮下载按键在无记录时返回 SizedBox.shrink），一旦父级下发松约束，
+    // 整个 Stack 就会塌缩为 0×0 → 底栏随外壳一起消失。这里把所有子项统一为
+    // Positioned，使 Stack 退化为「无非定位子项」分支（取 constraints.biggest），
+    // 无论父级给紧约束还是松约束都能铺满，不再依赖上游的约束形态。
     return Stack(
       children: <Widget>[
         Positioned.fill(child: base),
         const Positioned.fill(
           child: DownloadCapsuleNotification(),
+        ),
+        // 远程源加载状态胶囊（UI-D1，对齐 iOS ContentView L88-L91 的
+        // `RemoteSourceStatusBar`，位于底栏正上方）。订阅 `RemoteSourceConfigManager
+        // .shared.loadState`，由启动同步 / 手动刷新驱动显隐。
+        const Positioned.fill(
+          child: RemoteSourceStatusBar(),
         ),
         Positioned.fill(
           child: MiniPlayerBar(
@@ -110,8 +124,10 @@ class _HomeShellPageState extends State<HomeShellPage> {
             ),
           ),
         ),
-        FloatingVideoDownloadButton(
-          onTap: () => showDownloadManagementPopup(context),
+        Positioned.fill(
+          child: FloatingVideoDownloadButton(
+            onTap: () => showDownloadManagementPopup(context),
+          ),
         ),
       ],
     );

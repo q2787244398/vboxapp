@@ -8,8 +8,8 @@
   4. shouldSync 判定（force/未同步/过期/版本变化）
   5. LoadState displayText 5 态
 
-播放器（对齐 D6）：
-  6. 后端降级链：Android=Media3→libVLC；桌面=libmpv；iOS=nativeiOS
+播放器（对齐 D6 · M1 MDK 接入后）：
+  6. 后端降级链：Android=Media3→MDK→libVLC；桌面=libmpv→MDK；iOS=nativeiOS
   7. MKV 等复杂封装触发回退
   8. PlayMode 解析
 """
@@ -104,7 +104,7 @@ def main() -> int:
         lines = pl.splitlines()
         in_fn = False
         pending: list[str] = []
-        for ln in lines:
+        for idx, ln in enumerate(lines):
             if "static List<PlayerBackend> chainFor" in ln:
                 in_fn = True
                 continue
@@ -116,10 +116,12 @@ def main() -> int:
                 pending.append(m_case.group(1))
                 continue
             if s.startswith("return"):
-                # 可能是多行 return：累积到 "];" 或行内闭合
+                # 可能是多行 return：累积到 "];" 或行内闭合。
+                # 注意：多行 return 的**首行文本在各分支可能完全相同**
+                # （如 android 与 windows/macos 都是 `return const <PlayerBackend>[`），
+                # 故必须用 enumerate 的当前下标，不能用 lines.index(ln)（会命中首个同文本行）。
                 buf = s
                 if "];" not in s:
-                    idx = lines.index(ln)
                     for nxt in lines[idx + 1:]:
                         buf += " " + nxt.strip()
                         if "];" in nxt:
@@ -131,9 +133,9 @@ def main() -> int:
         return []
 
     for plat, want_chain in [
-        ("android", ["media3", "libVLC"]),
-        ("windows", ["libmpv"]),
-        ("macos", ["libmpv"]),
+        ("android", ["media3", "mdk", "libVLC"]),
+        ("windows", ["libmpv", "mdk"]),
+        ("macos", ["libmpv", "mdk"]),
         ("ios", ["nativeiOS"]),
     ]:
         got = chain_for_platform(plat)
@@ -143,7 +145,7 @@ def main() -> int:
         print(f"  {tag} {plat}: {got}")
     # 确认 windows 与 macos 共用分支
     if re.search(r"case 'windows':\s*\n\s*case 'macos':", pl):
-        print("  ✅ windows/macos 共用 libmpv 分支（case 穿透）")
+        print("  ✅ windows/macos 共用 libmpv+MDK 分支（case 穿透）")
     else:
         print("  ⚠️ windows/macos 未共用分支")
 

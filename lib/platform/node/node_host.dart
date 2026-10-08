@@ -18,6 +18,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 
 /// Node 宿主异常。
 class NodeHostException implements Exception {
@@ -65,8 +66,11 @@ class NodeHostConfig {
 /// Node 宿主（拉起 / 停止）。
 abstract class NodeHost {
   /// 按平台选择宿主：Android 走 [ChannelNodeHost]，其余走 [ProcessNodeHost]。
+  ///
+  /// [nodeExecutable] 为 null（缺省）时，[ProcessNodeHost] 会按
+  /// [ProcessNodeHost.locate] 自动解析桌面端 Node 运行时，不再硬依赖 PATH。
   factory NodeHost.forCurrentPlatform({
-    String nodeExecutable = 'node',
+    String? nodeExecutable,
     MethodChannel? channel,
   }) =>
       Platform.isAndroid
@@ -91,37 +95,190 @@ abstract class NodeHost {
   Future<bool> isRunning();
 }
 
-/// 子进程宿主（`node <main.js>`；macOS / Windows / 测试）。
-class ProcessNodeHost implements NodeHost {
-  /// [nodeExecutable] 可注入（测试用；缺省走 PATH 上的 `node`）。
-  ProcessNodeHost({this.nodeExecutable = 'node'});
+/// Node 可执行文件解析结果。
+class NodeExecutableLocation {
+  /// 构造。
+  const NodeExecutableLocation({required this.resolved, required this.probed});
 
-  /// Node 可执行文件（PATH 名或绝对路径）。
-  final String nodeExecutable;
+  /// 命中的绝对路径；全部落空为 null。
+  final String? resolved;
+
+  /// 本次探测过的候选位置（失败文案用）。
+  final List<String> probed;
+}
+
+/// 子进程宿主（`node <main.js>`；macOS / Windows / 测试）。
+///
+/// 桌面端 Node 运行时解析（对齐 iOS「引擎随包内置、零外部依赖」语义）：
+/// iOS 走 nodejs-mobile 进程内引擎，天然不存在「找不到 node」的问题；桌面端
+/// 原先直接 `Process.start('node')` 硬依赖 **PATH**，而打包后的 GUI 程序继承到的
+/// PATH 通常不含 Node（Windows 装 NVM 或安装未勾选 PATH、macOS 从 Finder 启动
+/// 只有 `/usr/bin:/bin`），于是必然报「未找到可执行文件 node」。此处按 [locate]
+/// 依次探测内置位置与平台常见安装位置，PATH 仅作最后兜底。
+class ProcessNodeHost implements NodeHost {
+  /// [nodeExecutable] 可注入（测试 / 自定义打包）；为 null 时自动解析。
+  ProcessNodeHost({this.nodeExecutable});
+
+  /// 显式指定的 Node 可执行文件（绝对路径或 PATH 名）；null → 自动解析。
+  final String? nodeExecutable;
 
   Process? _process;
   StreamSubscription<String>? _outSub;
   StreamSubscription<String>? _errSub;
 
+  /// 本次 start 实际使用的可执行文件（诊断用）。
+  String? _resolvedExecutable;
+
   @override
   void Function(String)? onLog;
 
   @override
-  String get hostLabel => '子进程 $nodeExecutable';
+  String get hostLabel =>
+      '子进程 ${_resolvedExecutable ?? nodeExecutable ?? 'node（待解析）'}';
+
+  /// 解析 Node 可执行文件：命中返回绝对路径，全部落空返回 null。
+  ///
+  /// 探测顺序：
+  ///   ① 运行时目录 `<runtimeDir>/node(.exe)`（便携版 node 落点，随包内置）；
+  ///   ② 可执行文件同级 `<exeDir>/node(.exe)` · `<exeDir>/noderuntime/node(.exe)`；
+  ///   ③ 平台常见安装位置（Windows：Program Files / Program Files(x86) /
+  ///      LOCALAPPDATA\Programs\nodejs / nvm-windows；macOS：Homebrew arm64 与
+  ///      x86 / /usr/local；Linux：/usr/bin、/usr/local/bin、/snap/bin）；
+  ///   ④ PATH 兜底（保留原有行为）。
+  static NodeExecutableLocation locate({NodeHostConfig? config}) {
+    final String fileName = Platform.isWindows ? 'node.exe' : 'node';
+    final List<String> candidates = <String>[
+      if (config != null) ..._bundledCandidates(config.runtimeDir, fileName),
+      ..._installCandidates(fileName),
+    ];
+    for (final String candidate in candidates) {
+      if (File(candidate).existsSync()) {
+        return NodeExecutableLocation(resolved: candidate, probed: candidates);
+      }
+    }
+    return NodeExecutableLocation(
+      resolved: _fromPath(fileName),
+      probed: candidates,
+    );
+  }
+
+  /// 随包 / 运行目录候选：优先「便携版 node 与运行时资源放在一起」。
+  static List<String> _bundledCandidates(String runtimeDir, String fileName) {
+    final String exeDir = File(Platform.resolvedExecutable).parent.path;
+    return <String>[
+      p.join(runtimeDir, fileName),
+      p.join(exeDir, fileName),
+      p.join(exeDir, 'noderuntime', fileName),
+    ];
+  }
+
+  /// 平台常见安装位置候选。
+  static List<String> _installCandidates(String fileName) {
+    if (Platform.isWindows) {
+      final Map<String, String> env = Platform.environment;
+      final String programFiles = env['ProgramFiles'] ?? r'C:\Program Files';
+      final String programFilesX86 =
+          env['ProgramFiles(x86)'] ?? r'C:\Program Files (x86)';
+      final List<String> out = <String>[
+        p.join(programFiles, 'nodejs', fileName),
+        p.join(programFilesX86, 'nodejs', fileName),
+      ];
+      final String? localAppData = env['LOCALAPPDATA'];
+      if (localAppData != null) {
+        out.add(p.join(localAppData, 'Programs', 'nodejs', fileName));
+      }
+      // nvm-windows：`<APPDATA>\nvm\v22.11.0\node.exe`，目录名带版本号 → 逐个扫描。
+      final String? appData = env['APPDATA'];
+      if (appData != null) {
+        out.addAll(_subdirFiles(p.join(appData, 'nvm'), fileName));
+      }
+      return out;
+    }
+    return <String>[
+      '/opt/homebrew/bin/$fileName',
+      '/usr/local/bin/$fileName',
+      '/usr/bin/$fileName',
+      '/snap/bin/$fileName',
+    ];
+  }
+
+  /// 列出 [root] 下一级子目录中存在的 [fileName] 绝对路径（容错：目录不存在返回空）。
+  static List<String> _subdirFiles(String root, String fileName) {
+    final Directory dir = Directory(root);
+    if (!dir.existsSync()) return const <String>[];
+    final List<String> out = <String>[];
+    try {
+      for (final FileSystemEntity entity in dir.listSync()) {
+        if (entity is Directory) {
+          final String candidate = p.join(entity.path, fileName);
+          if (File(candidate).existsSync()) out.add(candidate);
+        }
+      }
+    } on FileSystemException {
+      // 目录不可读 → 视为无候选。
+    }
+    return out;
+  }
+
+  /// PATH 兜底探测（返回绝对路径；未命中返回 null）。
+  static String? _fromPath(String fileName) {
+    final String? raw = Platform.environment['PATH'];
+    if (raw == null || raw.isEmpty) return null;
+    final String separator = Platform.isWindows ? ';' : ':';
+    for (final String dir in raw.split(separator)) {
+      final String trimmed = dir.trim();
+      if (trimmed.isEmpty) continue;
+      final String candidate = p.join(trimmed, fileName);
+      if (File(candidate).existsSync()) return candidate;
+    }
+    return null;
+  }
+
+  /// 启动失败文案（可操作）：列出全部已探测位置与两条修复路径。
+  static String _failureMessage(
+    String executable,
+    NodeExecutableLocation located,
+    ProcessException e,
+  ) {
+    final StringBuffer buffer = StringBuffer()
+      ..writeln('Node 宿主启动失败：未找到可执行文件「$executable」（${e.message}）')
+      ..writeln('已探测以下位置（均不存在）：');
+    for (final String candidate in located.probed) {
+      buffer.writeln('  · $candidate');
+    }
+    buffer
+      ..writeln('  · PATH 环境变量中的 node / node.exe')
+      ..writeln('请任选其一：')
+      ..writeln('  ① 安装 Node.js（https://nodejs.org）并确认已加入 PATH；')
+      ..writeln('  ② 或把便携版 node 放到运行时目录（与 noderuntime 同级）后重启。')
+      ..write('说明：iOS 端内置 nodejs-mobile 引擎、无外部依赖；桌面端需本机提供 Node 运行时。');
+    return buffer.toString();
+  }
 
   @override
   Future<void> start(NodeHostConfig config) async {
     await stop();
+    // ① 显式注入优先；② 否则自动解析；③ 仍无 → 退回 PATH 名（保留旧行为，
+    //    覆盖 Windows 应用执行别名等「非真实文件」的 shim 情形）。
+    final NodeExecutableLocation located = locate(config: config);
+    final String executable = nodeExecutable ??
+        located.resolved ??
+        (Platform.isWindows ? 'node.exe' : 'node');
+    _resolvedExecutable = executable;
+    final String? autoResolved = located.resolved;
+    if (nodeExecutable == null && autoResolved != null) {
+      onLog?.call('🔍 Node 可执行文件解析：$autoResolved');
+    }
     try {
       _process = await Process.start(
-        nodeExecutable,
+        executable,
         <String>[config.mainScript],
         workingDirectory: config.runtimeDir,
         environment: config.environment,
         includeParentEnvironment: true,
       );
     } on ProcessException catch (e) {
-      throw NodeHostException('Node 宿主启动失败：未找到可执行文件「$nodeExecutable」（${e.message}）');
+      throw NodeHostException(_failureMessage(executable, located, e));
     }
     _outSub = _process!.stdout
         .transform(utf8.decoder)
@@ -135,7 +292,7 @@ class ProcessNodeHost implements NodeHost {
         .listen((String line) {
       if (line.trim().isNotEmpty) onLog?.call('[node:err] $line');
     });
-    onLog?.call('🚀 已拉起 Node 子进程（$nodeExecutable ${config.mainScript}）');
+    onLog?.call('🚀 已拉起 Node 子进程（$executable ${config.mainScript}）');
   }
 
   @override

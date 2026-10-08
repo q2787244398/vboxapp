@@ -78,6 +78,12 @@ class _VBoxAppState extends State<VBoxApp> {
   late final HistoryUseCases _historyUseCases;
   late final SubscriptionUseCases _subscriptionUseCases;
   late final RemoteSourceUseCases _remoteSourceUseCases;
+
+  /// 远程源配置管理器（B-01/B-02/B-03 编排器；对齐 iOS `RemoteSourceConfigManager`）。
+  ///
+  /// 承载「启动自动同步（版本探测 → 按需全量）+ `loadState` 状态源」，
+  /// 供首页胶囊（[RemoteSourceStatusBar]）与设置页订阅。
+  late final RemoteSourceConfigManager _remoteSourceConfigManager;
   late final DetailPlaybackUseCases _detailPlaybackUseCases;
   late final ContentBrowseUseCases _contentBrowseUseCases;
   late final SearchHistoryUseCases _searchHistoryUseCases;
@@ -310,15 +316,32 @@ class _VBoxAppState extends State<VBoxApp> {
       _historyUseCases = HistoryUseCases(HistoryRepositoryImpl());
       _searchHistoryUseCases = SearchHistoryUseCases(SearchHistoryRepositoryImpl());
       _subscriptionUseCases = SubscriptionUseCases(SubscriptionRepositoryImpl());
+      // 远程源通道（清单 / 版本探测 / 6 合 1 聚合）：仅此通道放宽 TLS 校验。
+      // 理由见 [HttpClient.allowBadCertificate]：Dart 走内置根证书链且不补齐
+      // 中间证书，而 iOS `NSURLSession` 走系统信任库会自动补链 —— 同一地址在
+      // iOS 可达、桌面端却报 `unable to get local issuer certificate`（用户实测）。
+      // 该开关对齐的是 iOS 的**可达性**而非其实现，不作为全局缺省。
+      final HttpClient remoteSourceClient =
+          HttpClient(networkInfo: networkInfo, allowBadCertificate: true);
+      final RemoteManifestDatasource remoteManifestDatasource =
+          RemoteManifestDatasource(client: remoteSourceClient);
       _remoteSourceUseCases = RemoteSourceUseCases(
-        RemoteSourceRepositoryImpl(
-          datasource: RemoteManifestDatasource(
-            client: HttpClient(networkInfo: networkInfo),
-          ),
-        ),
+        RemoteSourceRepositoryImpl(datasource: remoteManifestDatasource),
       );
-      _allSourcesDatasource =
-          AllSourcesDatasource(client: HttpClient(networkInfo: networkInfo));
+      _allSourcesDatasource = AllSourcesDatasource(client: remoteSourceClient);
+      // 远程源编排器（对齐 iOS `RemoteSourceConfigManager.shared`）：启动时
+      // 按官方状态机（开关 → 空地址 → 首同步 / App 升级 / force → 版本探测 →
+      // 降级 TTL）决定是否全量拉取，并把 `loadState` 暴露给首页胶囊与设置页。
+      _remoteSourceConfigManager = RemoteSourceConfigManager(
+        manifestDatasource: remoteManifestDatasource,
+        allSourcesDatasource: _allSourcesDatasource,
+        repository:
+            RemoteSourceRepositoryImpl(datasource: remoteManifestDatasource),
+        probeClient: remoteSourceClient,
+      );
+      // 注册全局单例（对齐 iOS `RemoteSourceConfigManager.shared`）：首页胶囊
+      // 与设置页经 `shared` 订阅 `loadState` / 触发手动刷新，无需 Provider 传递。
+      RemoteSourceConfigManager.install(_remoteSourceConfigManager);
       _cmsDatasource =
           CmsV10Datasource(client: HttpClient(networkInfo: networkInfo));
       // Wave D：源治理（兜底开关 / 自定义切片源 / 自定义解析器 / 站源启停）；
@@ -381,11 +404,17 @@ class _VBoxAppState extends State<VBoxApp> {
       StartupTask('会话恢复', () async {
         await MusicPlayerController.instance.restore();
       }),
-      // ② 远程源同步：清单按 TTL 预热（对齐 iOS `RemoteSourceConfigManager`）。
+      // ② 远程源同步：走配置管理器状态机（对齐 iOS `SpiderManager.initialize`
+      //    调用的 `RemoteSourceConfigManager.shared.syncIfNeeded()`）——开关 / 空地址
+      //    门控 → 首同步 / App 升级 / force → 版本探测（未变不进全量）→ 降级 TTL。
+      //    失败由编排器收敛（胶囊显示失败态），不阻断启动。
       StartupTask('远程源同步', () async {
-        final Result<RemoteManifest> result = await _remoteSourceUseCases.refresh();
-        final Failure? failure = result.failureOrNull;
-        if (failure != null) throw failure;
+        final RemoteSourceSyncResult result =
+            await _remoteSourceConfigManager.syncIfNeeded();
+        if (result.action == RemoteSourceSyncAction.syncFailed ||
+            result.action == RemoteSourceSyncAction.incompatibleMinAppVersion) {
+          throw StateError(result.error ?? '远程源同步失败');
+        }
       }),
       // ③ 引擎就绪：D6 JS 引擎探测（JSC 主 / QuickJS 降级位，降级可观测）。
       StartupTask('引擎就绪', () async {

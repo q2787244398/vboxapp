@@ -125,10 +125,16 @@ class _RemoteSourcePageState extends State<RemoteSourcePage>
     setState(() => _settings = _settings.copyWith(manifestUrl: url));
   }
 
-  /// 强制刷新远程清单（跳过 TTL 与缓存）。
+  /// 强制刷新远程清单（对齐 iOS `SettingsViews` 刷新按钮：无视 TTL 立即拉取）。
+  ///
+  /// 证书问题（`HandshakeException: unable to get local issuer certificate`）已在
+  /// **数据源层**解决：装配时该仓储持有的 `RemoteManifestDatasource` 使用放宽 TLS
+  /// 校验的 HttpClient（见 `app.dart` 的 `allowBadCertificate`），故此处经用例层
+  /// `_remote.refresh` 即可，无需改走全局单例（保留页面可注入测试）。
   Future<void> _refresh() async {
     setState(() => _refreshing = true);
-    final Result<RemoteManifest> result = await _remote.refresh(forceRefresh: true);
+    final Result<RemoteManifest> result =
+        await _remote.refresh(forceRefresh: true);
     if (!mounted) return;
     setState(() {
       _refreshing = false;

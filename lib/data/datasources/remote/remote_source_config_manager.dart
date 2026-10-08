@@ -20,6 +20,8 @@
 /// 时间 / App 版本由调用方注入（单测确定性）；时间基准为 Unix 秒。
 library;
 
+import 'package:flutter/foundation.dart';
+
 import '../../../contract/prefs_keys.dart' show findPrefsKey;
 import '../../../core/constants/app_constants.dart';
 import '../../../core/errors/failures.dart';
@@ -29,6 +31,7 @@ import '../../../core/utils/time_utils.dart';
 import '../../../core/utils/result.dart';
 import '../../../domain/entities/remote_source/remote_source.dart';
 import '../../../domain/repositories/remote_source_repository.dart';
+import '../../repositories/remote_source_repository_impl.dart';
 import '../local/prefs_manager.dart';
 import 'all_sources_datasource.dart';
 import 'remote_manifest_datasource.dart';
@@ -138,6 +141,35 @@ class RemoteSourceConfigManager {
   final int Function()? _nowSeconds;
   final List<ProxyHost> _proxies;
 
+  // ────────────── 加载状态源（对齐 iOS `@Published loadState`）──────────────
+  // iOS `RemoteSourceConfigManager` 自身是 `ObservableObject`，`loadState`
+  // 为 `@Published private(set)`，UI（`RemoteSourceStatusBar` / 设置页）直接订阅。
+  // Flutter 侧用 [ValueNotifier] 等价承载：编排器在同步生命周期各节点写入，
+  // 表现层经 [loadState] 订阅渲染胶囊 / 副标题。
+
+  /// 当前加载状态（同步生命周期内更新；缺省 idle）。
+  final ValueNotifier<RemoteLoadStatus> _loadState =
+      ValueNotifier<RemoteLoadStatus>(const RemoteLoadStatus.idle());
+
+  /// 上次同步成功的配置版本（对齐 iOS `lastConfigVersion`，同步成功 / 读缓存时刷新）。
+  String _lastConfigVersion = '';
+
+  /// 加载状态只读视图（表现层订阅）。
+  ValueListenable<RemoteLoadStatus> get loadState => _loadState;
+
+  /// 上次同步的配置版本（失败态胶囊文案消费）。
+  String get lastConfigVersion => _lastConfigVersion;
+
+  /// 释放状态源（管理器随 App 生命周期常驻，通常无需调用；测试用）。
+  void dispose() => _loadState.dispose();
+
+  /// 写入加载状态（同时同步版本快照）。
+  void _emit(RemoteLoadStatus status) {
+    final String? version = status.version;
+    if (version != null && version.isNotEmpty) _lastConfigVersion = version;
+    _loadState.value = status;
+  }
+
   // ────────────── 契约同步键（`_group_remote_source`）──────────────
 
   static const String _keyEnabled = 'remote_default_source_enabled';
@@ -241,6 +273,8 @@ class RemoteSourceConfigManager {
     String url,
     RemoteSourceSyncAction action,
   ) async {
+    // 对齐 iOS `syncNow`：进入全量同步即置 loading（胶囊「同步中」不自动消失）。
+    _emit(const RemoteLoadStatus.loading());
     // ① 拉取 manifest：仅 GitHub 域名套代理降级链（B-02，对齐 iOS fetchData）
     Result<RemoteManifest>? lastFailure;
     RemoteManifest? manifest;
@@ -268,6 +302,7 @@ class RemoteSourceConfigManager {
           'manifest.minAppVersion=$minAppVersion 高于当前版本 ${_appVer()}，'
           '需升级 App 后同步';
       await _p.set(_keyLastError, msg);
+      _emit(RemoteLoadStatus.failed(msg));
       return RemoteSourceSyncResult(
         action: RemoteSourceSyncAction.incompatibleMinAppVersion,
         status: RemoteLoadStatus.failed(msg),
@@ -296,6 +331,7 @@ class RemoteSourceConfigManager {
     await _p.remove(_keyLastError);
     await _mirrorNodeBundleKeys(manifest);
 
+    _emit(RemoteLoadStatus.loadedRemote(manifest.configVersion));
     return RemoteSourceSyncResult(
       action: action,
       status: RemoteLoadStatus.loadedRemote(manifest.configVersion),
@@ -330,10 +366,15 @@ class RemoteSourceConfigManager {
   /// 同步失败：错误落盘 + 缓存兜底（对齐 iOS `updateFailure` + `loadCachedManifestState`）。
   Future<RemoteSourceSyncResult> _fail(String message) async {
     await _p.set(_keyLastError, message);
+    // 对齐 iOS `loadCachedManifestState`：失败前先读缓存刷新 `lastConfigVersion`
+    //（失败态胶囊文案「已用缓存 vX」依赖它），最终状态仍收敛为 failed。
+    final RemoteManifest? cached = await _cachedManifestOrNull();
+    if (cached != null) _lastConfigVersion = cached.configVersion;
+    _emit(RemoteLoadStatus.failed(message));
     return RemoteSourceSyncResult(
       action: RemoteSourceSyncAction.syncFailed,
       status: RemoteLoadStatus.failed(message),
-      manifest: await _cachedManifestOrNull(),
+      manifest: cached,
       error: message,
     );
   }
@@ -341,16 +382,35 @@ class RemoteSourceConfigManager {
   Future<RemoteSourceSyncResult> _fromCache(RemoteSourceSyncAction action) async {
     final RemoteManifest? cached = await _cachedManifestOrNull();
     if (cached == null) {
+      _emit(const RemoteLoadStatus.idle());
       return RemoteSourceSyncResult(
         action: action,
         status: const RemoteLoadStatus.idle(),
       );
     }
+    _emit(RemoteLoadStatus.loadedCache(cached.configVersion));
     return RemoteSourceSyncResult(
       action: action,
       status: RemoteLoadStatus.loadedCache(cached.configVersion),
       manifest: cached,
     );
+  }
+
+  /// 重读缓存以刷新 [loadState]（对齐 iOS `refreshLoadState()`；清缓存 / 外部改键后调用）。
+  Future<void> refreshLoadState() async {
+    final RemoteManifest? cached = await _cachedManifestOrNull();
+    if (cached == null) {
+      _emit(const RemoteLoadStatus.idle());
+      return;
+    }
+    _emit(RemoteLoadStatus.loadedCache(cached.configVersion));
+  }
+
+  /// 清空远程源缓存（对齐 iOS `clearCache()`：清文件缓存 + 版本 / 时间 / 错误键 + 置 idle）。
+  Future<void> clearCache() async {
+    await _repository.clearCache();
+    _lastConfigVersion = '';
+    _emit(const RemoteLoadStatus.idle());
   }
 
   Future<RemoteManifest?> _cachedManifestOrNull() async =>
@@ -486,4 +546,28 @@ class RemoteSourceConfigManager {
       .split('.')
       .map((String s) => int.tryParse(s.trim()) ?? 0)
       .toList(growable: false);
+
+  // ────────────── 全局单例（对齐 iOS `RemoteSourceConfigManager.shared`）──────
+
+  static RemoteSourceConfigManager? _shared;
+
+  /// 全局单例：App 启动时经 [install] 注入装配好的实例；未注入时**惰性构造**
+  /// 一套默认依赖（状态 idle、不触网），保证表现层 / 单测在无 Provider 时也可用。
+  static RemoteSourceConfigManager get shared => _shared ??= _createDefault();
+
+  /// 注入全局实例（App 装配阶段调用，复用同一 HttpClient / 数据源）。
+  static void install(RemoteSourceConfigManager manager) => _shared = manager;
+
+  /// 默认依赖装配（远程源通道放宽 TLS 校验，理由见 `HttpClient.allowBadCertificate`）。
+  static RemoteSourceConfigManager _createDefault() {
+    final HttpClient client = HttpClient(allowBadCertificate: true);
+    final RemoteManifestDatasource manifestDatasource =
+        RemoteManifestDatasource(client: client);
+    return RemoteSourceConfigManager(
+      manifestDatasource: manifestDatasource,
+      allSourcesDatasource: AllSourcesDatasource(client: client),
+      repository: RemoteSourceRepositoryImpl(datasource: manifestDatasource),
+      probeClient: client,
+    );
+  }
 }
