@@ -306,6 +306,45 @@ class _FakeAliyunClient extends AliyunAdriveClient {
       );
 }
 
+/// 记录 `registerStream` 调用的 Go 代理替身（F-P09 百度 PCS 直链落地断言）。
+class _RecordingGoProxyClient implements GoProxyClient {
+  final List<Map<String, String>> streamCalls = <Map<String, String>>[];
+
+  @override
+  bool get isRunning => true;
+
+  @override
+  Future<String> start({int port = GoProxyClient.kDefaultPort}) async =>
+      'ok:$port';
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<String> registerStream({
+    required String upstreamUrl,
+    required Map<String, String> headers,
+  }) async {
+    streamCalls.add(<String, String>{'url': upstreamUrl, ...headers});
+    return 'http://127.0.0.1:10078/play?id=baidu';
+  }
+
+  @override
+  Future<String> registerQuarkStream({
+    required String upstreamUrl,
+    required String cookie,
+    String? deviceID,
+    String source = '',
+  }) async =>
+      upstreamUrl;
+
+  @override
+  Future<String> status() async => 'running';
+
+  @override
+  Future<void> clearCache() async {}
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -751,6 +790,33 @@ void main() {
       expect(source.hasFallback, isTrue);
       expect(source.fallbackUrl, 'https://v/transcode.m3u8');
       expect(source.fallbackSource, 'v2-play-m3u8');
+    });
+
+    test('sourceFor：百度 PCS 直链经本地代理落地（F-P09）', () async {
+      final _RecordingGoProxyClient proxy = _RecordingGoProxyClient();
+      GoProxyRegistry.instance = proxy;
+      final CloudPlayItem item = CloudPlayItem(
+        provider: 'baidu',
+        sourceKey: 'fs1',
+        shareURL: 'https://pan.baidu.com/s/1x',
+        resourceId: 'fs1',
+        fileName: 'EP01.mp4',
+        playURL: 'https://d.pcs.baidu.com/file/ep01.mp4',
+        headers: <String, String>{
+          'Cookie': 'BDUSS=x; STOKEN=y',
+          'User-Agent': 'netdisk',
+          'Referer': 'https://pan.baidu.com/',
+        },
+        updatedAt: t0,
+        source: 'local-locatedownload',
+      );
+      final PlayerSource source = await fbPlayer.sourceFor(item, title: '百度示例');
+      expect(source.url, 'http://127.0.0.1:10078/play?id=baidu');
+      expect(
+        proxy.streamCalls.single['url'],
+        'https://d.pcs.baidu.com/file/ep01.mp4',
+      );
+      expect(proxy.streamCalls.single['Cookie'], 'BDUSS=x; STOKEN=y');
     });
 
     test('open 经统一播放源（显式 pan 路由）', () async {

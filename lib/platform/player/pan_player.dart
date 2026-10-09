@@ -514,6 +514,9 @@ class PanPlayer {
       throw const PanPlayException('播放地址为空');
     }
     final bool quark = item.provider == CloudDriveType.quark.id;
+    // F-P09：百度 PCS 直链经本地代理注入合并后的 Cookie/UA/Referer（对齐 iOS
+    // `playDriveVideo` 的 `provider:"baidu"` 分支，`PlayerViewsV2.swift:3814-3825`）。
+    final bool baiduPcs = _isBaiduPcsUrl(url);
     return resolvePanSource(
       primary: PanPlaybackLine(
         url: url,
@@ -524,6 +527,7 @@ class PanPlayer {
             ? ''
             : item.source,
         useQuarkProxy: quark,
+        useStreamProxy: baiduPcs,
       ),
       fallback: item.hasFallback
           ? PanPlaybackLine(
@@ -536,6 +540,11 @@ class PanPlayer {
       title: title,
     );
   }
+
+  /// 是否百度 PCS 直链（对齐 iOS `playDriveVideo` 的 `url.contains("baidupcs.com")
+  /// || url.contains("d.pcs.baidu.com")` 判定，`PlayerViewsV2.swift:3815`）。
+  static bool _isBaiduPcsUrl(String url) =>
+      url.contains('baidupcs.com') || url.contains('d.pcs.baidu.com');
 
   /// 解析并打开播放（显式 `pan` 路由）。
   Future<CloudPlayItem> open({

@@ -11,6 +11,56 @@ import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/platform/player/go_proxy_client.dart';
 import 'package:vbox/platform/player/pan_fallback_chain.dart';
 
+/// 记录 `registerStream` 调用的 Go 代理替身（返回固定本地地址）。
+///
+/// 用于断言「百度 PCS 直链经通用本地代理落地」—— 对齐 iOS `playDriveVideo`
+/// 的 `provider:"baidu"` 分支。
+class _RecordingGoProxyClient implements GoProxyClient {
+  _RecordingGoProxyClient({
+    this.proxyUrl = 'http://127.0.0.1:10078/play?id=abc',
+  });
+
+  final String proxyUrl;
+  final List<Map<String, String>> streamCalls = <Map<String, String>>[];
+  bool _running = true;
+
+  @override
+  bool get isRunning => _running;
+
+  @override
+  Future<String> start({int port = GoProxyClient.kDefaultPort}) async {
+    _running = true;
+    return 'ok:$port';
+  }
+
+  @override
+  Future<void> stop() async => _running = false;
+
+  @override
+  Future<String> registerStream({
+    required String upstreamUrl,
+    required Map<String, String> headers,
+  }) async {
+    streamCalls.add(<String, String>{'url': upstreamUrl, ...headers});
+    return proxyUrl;
+  }
+
+  @override
+  Future<String> registerQuarkStream({
+    required String upstreamUrl,
+    required String cookie,
+    String? deviceID,
+    String source = '',
+  }) async =>
+      proxyUrl;
+
+  @override
+  Future<String> status() async => 'running';
+
+  @override
+  Future<void> clearCache() async {}
+}
+
 void main() {
   group('判据分类（classifyFailure）', () {
     test('HTTP 403 / forbidden → forbidden（优先于连接中断）', () {
@@ -130,6 +180,46 @@ void main() {
       );
       expect(source.hasFallback, isFalse);
       expect(source.fallbackSource, isEmpty);
+    });
+
+    test('百度 PCS 直链（非 HLS + useStreamProxy）→ 经本地代理落地（F-P09）', () async {
+      final _RecordingGoProxyClient proxy = _RecordingGoProxyClient();
+      GoProxyRegistry.instance = proxy;
+      final PlayerSource source = await resolvePanPlaybackLine(
+        const PanPlaybackLine(
+          url: 'https://d.pcs.baidu.com/file/abc.mp4',
+          headers: <String, String>{
+            'Cookie': 'BDUSS=x; STOKEN=y',
+            'User-Agent': 'netdisk',
+            'Referer': 'https://pan.baidu.com/',
+          },
+          useStreamProxy: true,
+        ),
+        title: '百度示例',
+      );
+      expect(source.url, 'http://127.0.0.1:10078/play?id=abc');
+      expect(proxy.streamCalls, hasLength(1));
+      expect(
+        proxy.streamCalls.single['url'],
+        'https://d.pcs.baidu.com/file/abc.mp4',
+      );
+      expect(proxy.streamCalls.single['Cookie'], 'BDUSS=x; STOKEN=y');
+      // 代理接管后不再携带请求头（鉴权由本地代理注入）。
+      expect(source.headers, isEmpty);
+    });
+
+    test('非 HLS 且未标记 useStreamProxy → 直链回落（不注册代理）', () async {
+      final _RecordingGoProxyClient proxy = _RecordingGoProxyClient();
+      GoProxyRegistry.instance = proxy;
+      final PlayerSource source = await resolvePanPlaybackLine(
+        const PanPlaybackLine(
+          url: 'https://d.pcs.baidu.com/file/abc.mp4',
+          headers: <String, String>{'Cookie': 'ck'},
+        ),
+      );
+      expect(source.url, 'https://d.pcs.baidu.com/file/abc.mp4');
+      expect(source.headers['Cookie'], 'ck');
+      expect(proxy.streamCalls, isEmpty);
     });
   });
 }

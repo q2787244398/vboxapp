@@ -36,6 +36,7 @@ class PanPlaybackLine {
     this.headers = const <String, String>{},
     this.source = '',
     this.useQuarkProxy = false,
+    this.useStreamProxy = false,
   });
 
   /// 线路地址（上游直链，未注册代理）。
@@ -49,6 +50,14 @@ class PanPlaybackLine {
 
   /// 是否走夸克 Go 代理（`registerQuarkStream`）；否则 HLS 走通用 `registerStream`。
   final bool useQuarkProxy;
+
+  /// 是否**强制**走通用本地代理（`registerStream`），即使线路非 HLS。
+  ///
+  /// 对齐 iOS `playDriveVideo`（`PlayerViewsV2.swift:3814-3825`）：百度 PCS 直链
+  /// （`baidupcs.com` / `d.pcs.baidu.com`）经本地代理（`provider:"baidu"`）注入合并
+  /// 后的 Cookie / UA / Referer，而非播放器直连。非 HLS 且该标记为 false 时维持
+  /// 「直链回落」语义。
+  final bool useStreamProxy;
 
   /// 线路是否可用（地址非空）。
   bool get isUsable => url.isNotEmpty;
@@ -146,7 +155,9 @@ class PanFallbackChain {
 /// - 夸克线路：经 Go 代理 `registerQuarkStream`（`source` 决定 `quark-m3u8` /
 ///   `quark-stream` 前缀，对齐 iOS L2514 / L2533-2535）；代理接管后返回本地地址且
 ///   不带请求头（鉴权由 Go 层注入，对齐 iOS `playbackHeaders = [:]`）。
-/// - 其余线路：HLS（m3u8）经通用 `registerStream`；非 HLS 直接回落带原请求头。
+/// - 其余线路：HLS（m3u8）或显式 [PanPlaybackLine.useStreamProxy]（百度 PCS
+///   直链，对齐 iOS `provider:"baidu"`）经通用 `registerStream`；其余非 HLS 直接
+///   回落带原请求头。
 /// - 代理未启动 / 不可用 / 未返回合法本地地址 → 一律回落直链并保留原请求头
 ///   （对齐 iOS `guard isRunning else { return upstreamURL }` 降级直链）。
 Future<PlayerSource> resolvePanPlaybackLine(
@@ -181,7 +192,7 @@ Future<PlayerSource> resolvePanPlaybackLine(
     return direct();
   }
 
-  if (!line.isHls) return direct();
+  if (!line.isHls && !line.useStreamProxy) return direct();
   try {
     final GoProxyClient proxy = GoProxyRegistry.instance;
     if (!proxy.isRunning) {
