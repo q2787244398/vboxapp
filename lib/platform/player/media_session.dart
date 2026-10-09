@@ -137,10 +137,9 @@ typedef MusicMediaCommandHandler = void Function(MusicMediaCommand command);
 /// 媒体会话后端接缝（原生实现：Android `MediaSession` / 桌面 SMTC）。
 abstract class MusicMediaSession {
   /// 命令回调（编排层在构造时注入；原生端收到线控后回派）。
-  MusicMediaCommandHandler? get onCommand => _onCommand;
-  MusicMediaCommandHandler? _onCommand;
+  MusicMediaCommandHandler? get onCommand;
 
-  set onCommand(MusicMediaCommandHandler? handler) => _onCommand = handler;
+  set onCommand(MusicMediaCommandHandler? handler);
 
   /// 更新锁屏信息（对齐 iOS `updateNowPlayingInfo`：元数据 + 播放态一次写入）。
   Future<void> updateNowPlaying(
@@ -155,7 +154,7 @@ abstract class MusicMediaSession {
 /// 未接入的媒体会话后端（no-op；原生接入前保证编排链路可跑，D28 口径）。
 class NoopMusicMediaSession implements MusicMediaSession {
   /// 构造。
-  const NoopMusicMediaSession();
+  NoopMusicMediaSession();
 
   @override
   MusicMediaCommandHandler? get onCommand => _onCommand;

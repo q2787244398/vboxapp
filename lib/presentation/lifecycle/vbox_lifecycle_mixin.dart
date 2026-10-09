@@ -16,15 +16,19 @@ import 'package:flutter/material.dart';
 
 /// 应用生命周期监听 Mixin。
 mixin VboxLifecycleMixin<T extends StatefulWidget> on State<T> {
+  _VboxLifecycleObserver? _observer;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
+    _observer = _VboxLifecycleObserver(didChangeAppLifecycleState);
+    WidgetsBinding.instance.addObserver(_observer!);
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
+    WidgetsBinding.instance.removeObserver(_observer!);
+    _observer = null;
     super.dispose();
   }
 
@@ -51,4 +55,16 @@ mixin VboxLifecycleMixin<T extends StatefulWidget> on State<T> {
   /// 进后台：停止轮播 / 释放大资源（对齐 iOS `scenePhase .background` /
   /// didEnterBackground）。
   void onAppPaused() {}
+}
+
+/// 内部 observer（`with WidgetsBindingObserver` 挂默认实现，仅转发生命周期
+/// 事件到宿主回调；宿主 `this` 未实现 observer 协议，不可直接注册）。
+class _VboxLifecycleObserver with WidgetsBindingObserver {
+  _VboxLifecycleObserver(this._onStateChanged);
+
+  final void Function(AppLifecycleState state) _onStateChanged;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) =>
+      _onStateChanged(state);
 }

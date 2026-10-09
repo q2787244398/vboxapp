@@ -13,6 +13,7 @@ import '../../../core/utils/result.dart';
 import '../../../domain/entities/douban/douban_models.dart';
 import '../../../domain/usecases/douban_usecases.dart';
 import '../../theme/tokens/spacing.dart';
+import '../../theme/tokens/typography.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/adaptive/responsive_grid.dart';
 import '../../widgets/vbox/vbox.dart';

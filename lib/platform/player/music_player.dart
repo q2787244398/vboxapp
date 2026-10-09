@@ -79,7 +79,7 @@ class MusicPlayerController extends ChangeNotifier {
     MusicMediaSession? mediaSession,
   })  : _store = store ?? MusicQueueStore(PrefsManager.instance),
         _engine = engine ?? const UnavailableMusicAudioEngine(),
-        _mediaSession = mediaSession ?? const NoopMusicMediaSession() {
+        _mediaSession = mediaSession ?? NoopMusicMediaSession() {
     // 线控命令接线（对齐 iOS `MPRemoteCommandCenter` handler → 播放编排）。
     _mediaSession.onCommand = _handleMediaCommand;
   }

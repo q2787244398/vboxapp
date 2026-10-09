@@ -280,86 +280,101 @@ class DoubanCategory {
     '2018', '2017', '2010年代', '2000年代', '90年代', '更早',
   ];
 
+  /// 电影（对齐 iOS `DoubanCategoryConfig` movie 分支）。
+  static const DoubanCategory movie = DoubanCategory(
+    type: 'movie',
+    name: '电影',
+    collectionId: 'movie_hot_gaia',
+    genres: <String>[
+      '全部', '喜剧', '爱情', '动作', '科幻', '悬疑', '恐怖', '动画', '剧情',
+      '犯罪', '冒险', '奇幻', '战争', '历史', '传记', '音乐', '家庭', '武侠', '古装',
+    ],
+    years: _commonYears,
+    platforms: <String>[
+      '全部', 'Netflix', 'HBO', 'BBC', 'Hulu', 'Apple TV+', 'Disney+',
+      'Amazon', 'YouTube', '院线',
+    ],
+    regions: <String>['全部', '华语', '欧美', '日本', '韩国', '印度', '泰国', '其他'],
+  );
+
+  /// 剧集（对齐 iOS tv 分支）。
+  static const DoubanCategory tv = DoubanCategory(
+    type: 'tv',
+    name: '剧集',
+    collectionId: 'tv_real_time_hotest',
+    genres: <String>[
+      '全部', '剧情', '喜剧', '爱情', '悬疑', '犯罪', '科幻', '动画', '动作',
+      '战争', '恐怖', '家庭', '古装', '武侠', '历史', '传记', '音乐', '真人秀', '脱口秀',
+    ],
+    years: _commonYears,
+    platforms: <String>[
+      '全部', 'Netflix', 'HBO', 'BBC', 'Hulu', 'Apple TV+', 'Disney+',
+      'Amazon', 'YouTube', '腾讯视频', '爱奇艺', '优酷', '芒果TV', '央视',
+    ],
+    regions: <String>['全部', '华语', '欧美', '日本', '韩国', '其他'],
+  );
+
+  /// 综艺（对齐 iOS variety 分支）。
+  static const DoubanCategory variety = DoubanCategory(
+    type: 'variety',
+    name: '综艺',
+    collectionId: 'tv_variety_show',
+    genres: <String>[
+      '全部', '真人秀', '脱口秀', '音乐', '舞蹈', '美食', '旅行', '竞技',
+      '访谈', '情感', '喜剧', '游戏', '文化', '职场',
+    ],
+    years: <String>[
+      '全部', '2026', '2025', '2024', '2023', '2022', '2021', '2020', '2019',
+      '2018', '2017', '2010年代', '更早',
+    ],
+    platforms: <String>[
+      '全部', '腾讯视频', '爱奇艺', '优酷', '芒果TV', '央视', 'Netflix', 'HBO',
+      'BBC', 'Hulu', 'Apple TV+', 'Disney+', 'Amazon',
+    ],
+    regions: <String>['全部', '华语', '欧美', '日本', '韩国', '其他'],
+  );
+
+  /// 动漫（对齐 iOS animation 分支）。
+  static const DoubanCategory animation = DoubanCategory(
+    type: 'animation',
+    name: '动漫',
+    collectionId: 'tv_animation',
+    genres: <String>[
+      '全部', '剧情', '喜剧', '动作', '科幻', '奇幻', '冒险', '悬疑', '恐怖',
+      '爱情', '家庭', '动画', '短片',
+    ],
+    years: _commonYears,
+    platforms: <String>[
+      '全部', 'Netflix', 'Crunchyroll', 'Bilibili', '腾讯视频', '爱奇艺',
+      '优酷', 'Disney+', 'HBO', 'Hulu', 'Amazon', 'YouTube',
+    ],
+    regions: <String>['全部', '日本', '华语', '欧美', '韩国', '其他'],
+  );
+
+  /// 纪录片（对齐 iOS documentary 分支）。
+  static const DoubanCategory documentary = DoubanCategory(
+    type: 'documentary',
+    name: '纪录片',
+    collectionId: 'movie_documentary',
+    genres: <String>[
+      '全部', '历史', '自然', '科学', '社会', '文化', '传记', '战争', '探险',
+      '美食', '旅行', '音乐', '艺术', '体育',
+    ],
+    years: _commonYears,
+    platforms: <String>[
+      '全部', 'Netflix', 'BBC', 'Discovery', 'National Geographic', 'HBO',
+      'Apple TV+', 'Disney+', 'Amazon', 'YouTube', '央视', 'Bilibili',
+    ],
+    regions: <String>['全部', '华语', '欧美', '日本', '韩国', '其他'],
+  );
+
   /// 全部大分类（对齐 iOS `DoubanCategoryConfig.allCategories`）。
   static const List<DoubanCategory> all = <DoubanCategory>[
-    DoubanCategory(
-      type: 'movie',
-      name: '电影',
-      collectionId: 'movie_hot_gaia',
-      genres: <String>[
-        '全部', '喜剧', '爱情', '动作', '科幻', '悬疑', '恐怖', '动画', '剧情',
-        '犯罪', '冒险', '奇幻', '战争', '历史', '传记', '音乐', '家庭', '武侠', '古装',
-      ],
-      years: _commonYears,
-      platforms: <String>[
-        '全部', 'Netflix', 'HBO', 'BBC', 'Hulu', 'Apple TV+', 'Disney+',
-        'Amazon', 'YouTube', '院线',
-      ],
-      regions: <String>['全部', '华语', '欧美', '日本', '韩国', '印度', '泰国', '其他'],
-    ),
-    DoubanCategory(
-      type: 'tv',
-      name: '剧集',
-      collectionId: 'tv_real_time_hotest',
-      genres: <String>[
-        '全部', '剧情', '喜剧', '爱情', '悬疑', '犯罪', '科幻', '动画', '动作',
-        '战争', '恐怖', '家庭', '古装', '武侠', '历史', '传记', '音乐', '真人秀', '脱口秀',
-      ],
-      years: _commonYears,
-      platforms: <String>[
-        '全部', 'Netflix', 'HBO', 'BBC', 'Hulu', 'Apple TV+', 'Disney+',
-        'Amazon', 'YouTube', '腾讯视频', '爱奇艺', '优酷', '芒果TV', '央视',
-      ],
-      regions: <String>['全部', '华语', '欧美', '日本', '韩国', '其他'],
-    ),
-    DoubanCategory(
-      type: 'variety',
-      name: '综艺',
-      collectionId: 'tv_variety_show',
-      genres: <String>[
-        '全部', '真人秀', '脱口秀', '音乐', '舞蹈', '美食', '旅行', '竞技',
-        '访谈', '情感', '喜剧', '游戏', '文化', '职场',
-      ],
-      years: <String>[
-        '全部', '2026', '2025', '2024', '2023', '2022', '2021', '2020', '2019',
-        '2018', '2017', '2010年代', '更早',
-      ],
-      platforms: <String>[
-        '全部', '腾讯视频', '爱奇艺', '优酷', '芒果TV', '央视', 'Netflix', 'HBO',
-        'BBC', 'Hulu', 'Apple TV+', 'Disney+', 'Amazon',
-      ],
-      regions: <String>['全部', '华语', '欧美', '日本', '韩国', '其他'],
-    ),
-    DoubanCategory(
-      type: 'animation',
-      name: '动漫',
-      collectionId: 'tv_animation',
-      genres: <String>[
-        '全部', '剧情', '喜剧', '动作', '科幻', '奇幻', '冒险', '悬疑', '恐怖',
-        '爱情', '家庭', '动画', '短片',
-      ],
-      years: _commonYears,
-      platforms: <String>[
-        '全部', 'Netflix', 'Crunchyroll', 'Bilibili', '腾讯视频', '爱奇艺',
-        '优酷', 'Disney+', 'HBO', 'Hulu', 'Amazon', 'YouTube',
-      ],
-      regions: <String>['全部', '日本', '华语', '欧美', '韩国', '其他'],
-    ),
-    DoubanCategory(
-      type: 'documentary',
-      name: '纪录片',
-      collectionId: 'movie_documentary',
-      genres: <String>[
-        '全部', '历史', '自然', '科学', '社会', '文化', '传记', '战争', '探险',
-        '美食', '旅行', '音乐', '艺术', '体育',
-      ],
-      years: _commonYears,
-      platforms: <String>[
-        '全部', 'Netflix', 'BBC', 'Discovery', 'National Geographic', 'HBO',
-        'Apple TV+', 'Disney+', 'Amazon', 'YouTube', '央视', 'Bilibili',
-      ],
-      regions: <String>['全部', '华语', '欧美', '日本', '韩国', '其他'],
-    ),
+    movie,
+    tv,
+    variety,
+    animation,
+    documentary,
   ];
 
   /// 榜单（TOP250；对齐 iOS `CategoryDetailView` `top250` 分支：
