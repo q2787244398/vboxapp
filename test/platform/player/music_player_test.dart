@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/music_queue_store.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/domain/entities/music/music.dart';
+import 'package:vbox/platform/player/media_session.dart';
 import 'package:vbox/platform/player/music_player.dart';
 
 MusicQueueItem _item(String id, {String? url, int? duration}) {
@@ -72,8 +73,11 @@ void main() {
     store = MusicQueueStore(pm);
   });
 
-  MusicPlayerController build() =>
-      MusicPlayerController(store: store, engine: engine);
+  MusicPlayerController build([MusicMediaSession? mediaSession]) =>
+      MusicPlayerController(store: store, engine: engine, mediaSession: mediaSession);
+
+  /// 等待 unawaited 的媒体会话同步落定。
+  Future<void> flushMediaSync() => Future<void>.delayed(Duration.zero);
 
   test('setQueue 起播并落盘', () async {
     final MusicPlayerController c = build();
@@ -257,5 +261,124 @@ void main() {
     await c.setQueue(<MusicQueueItem>[_item('1'), _item('2')]);
     await c.reportCompleted();
     expect(c.currentSong?.id, '2');
+  });
+
+  group('UI-F15 媒体会话（对齐 iOS AudioPlayerManager 媒体会话段）', () {
+    late RecordingMusicMediaSession session;
+
+    setUp(() {
+      session = RecordingMusicMediaSession();
+    });
+
+    test('起播 → 锁屏信息一次写入（元数据 + 播放态）', () async {
+      final MusicPlayerController c =
+          build(session);
+      await c.setQueue(<MusicQueueItem>[_item('1', duration: 180)]);
+      await flushMediaSync();
+
+      expect(session.updates, hasLength(1));
+      final (MusicMediaMetadata meta, MusicMediaPlaybackState st) =
+          session.updates.single;
+      expect(meta.title, '歌1');
+      expect(meta.artist, '来源');
+      expect(meta.coverURL, 'https://c/1.jpg');
+      expect(meta.duration, const Duration(seconds: 180));
+      expect(st.playing, isTrue);
+      expect(st.position, Duration.zero);
+      expect(session.clearCount, 0);
+    });
+
+    test('暂停 / 恢复 / seek → 播放态随状态刷新', () async {
+      final MusicPlayerController c = build(session);
+      await c.setQueue(<MusicQueueItem>[_item('1')]);
+      await flushMediaSync();
+
+      await c.pause();
+      await flushMediaSync();
+      expect(session.updates.last.$2.playing, isFalse);
+
+      await c.resume();
+      await flushMediaSync();
+      expect(session.updates.last.$2.playing, isTrue);
+
+      c.reportPosition(const Duration(seconds: 42));
+      await c.seek(const Duration(seconds: 42));
+      await flushMediaSync();
+      expect(session.updates.last.$2.position, const Duration(seconds: 42));
+      expect(session.clearCount, 0);
+    });
+
+    test('stop / 移除末曲 → 清空锁屏信息（对齐 iOS nowPlayingInfo = nil）',
+        () async {
+      final MusicPlayerController c = build(session);
+      await c.setQueue(<MusicQueueItem>[_item('1')]);
+      await flushMediaSync();
+      expect(session.updates, isNotEmpty);
+
+      await c.stop();
+      await flushMediaSync();
+      expect(session.clearCount, 1);
+
+      // 再走一遍「移除清空」分支。
+      final MusicPlayerController c2 = build(session);
+      await c2.setQueue(<MusicQueueItem>[_item('1')]);
+      await flushMediaSync();
+      await c2.removeFromQueue(0);
+      await flushMediaSync();
+      expect(session.clearCount, 2);
+    });
+
+    test('无当前曲目 → 不写锁屏（restore 空存档等场景）', () async {
+      final MusicPlayerController c = build(session);
+      await c.restore();
+      await flushMediaSync();
+      expect(session.updates, isEmpty);
+      expect(session.clearCount, 0);
+    });
+
+    test('线控命令分派（对齐 iOS MPRemoteCommandCenter 六命令）', () async {
+      final MusicPlayerController c = build(session);
+      await c.setQueue(<MusicQueueItem>[_item('1'), _item('2')]);
+      await flushMediaSync();
+
+      final MusicMediaCommandHandler? dispatch = session.onCommand;
+      expect(dispatch, isNotNull);
+
+      dispatch!(MusicMediaCommand.pause);
+      await flushMediaSync();
+      expect(c.isPlaying, isFalse);
+
+      dispatch(MusicMediaCommand.play);
+      await flushMediaSync();
+      expect(c.isPlaying, isTrue);
+
+      dispatch(MusicMediaCommand.toggle);
+      await flushMediaSync();
+      expect(c.isPlaying, isFalse);
+
+      dispatch(MusicMediaCommand.play);
+      await flushMediaSync();
+      expect(c.isPlaying, isTrue);
+
+      dispatch(MusicMediaCommand.next);
+      await flushMediaSync();
+      expect(c.currentSong?.id, '2');
+
+      // 上一曲（进度 < 3s → 切回上一首）。
+      dispatch(MusicMediaCommand.previous);
+      await flushMediaSync();
+      expect(c.currentSong?.id, '1');
+
+      dispatch(MusicMediaSeekCommand(const Duration(seconds: 7)));
+      await flushMediaSync();
+      expect(c.position, const Duration(seconds: 7));
+    });
+
+    test('缺省构造 → Noop 后端不抛', () async {
+      final MusicPlayerController c = build();
+      await c.setQueue(<MusicQueueItem>[_item('1')]);
+      await c.stop();
+      expect(c.hasQueue, isFalse);
+    });
   });
 }

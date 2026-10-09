@@ -7,15 +7,20 @@
 ///    空实现，真机原生接入后替换；对齐 D28 口径：编排先行、原生能力后接）。
 ///
 /// 对齐说明：iOS `AudioPlayerManager` 的 `playNext` / `playPrevious` / `stop` /
-/// `switchQuality` 语义逐条映射到本类同名方法；歌词 / NowPlaying / 锁屏控制属平台
-/// 能力，留待后续批次。
+/// `switchQuality` 语义逐条映射到本类同名方法；歌词 / NowPlaying 锁屏控制经
+/// [MusicMediaSession] 接缝承接（UI-F15：更新 / 清理 / 命令分派编排已接线，
+/// 对齐 iOS `MPNowPlayingInfoCenter` + `MPRemoteCommandCenter` 语义；原生后端
+/// 随真机批次替换缺省 [NoopMusicMediaSession]）。
 library;
+
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
 import '../../data/datasources/local/music_queue_store.dart';
 import '../../data/datasources/local/prefs_manager.dart';
 import '../../domain/entities/music/music.dart';
+import 'media_session.dart';
 
 /// 音频输出引擎接缝（缺省空实现，原生接入后替换）。
 abstract class MusicAudioEngine {
@@ -67,15 +72,21 @@ class UnavailableMusicAudioEngine implements MusicAudioEngine {
 
 /// 音乐播放控制器（对齐 iOS `AudioPlayerManager` 的可观测状态 + 队列方法）。
 class MusicPlayerController extends ChangeNotifier {
-  /// 构造（[store] / [engine] 可注入；测试用替身）。
+  /// 构造（[store] / [engine] / [mediaSession] 可注入；测试用替身）。
   MusicPlayerController({
     MusicQueueStore? store,
     MusicAudioEngine? engine,
+    MusicMediaSession? mediaSession,
   })  : _store = store ?? MusicQueueStore(PrefsManager.instance),
-        _engine = engine ?? const UnavailableMusicAudioEngine();
+        _engine = engine ?? const UnavailableMusicAudioEngine(),
+        _mediaSession = mediaSession ?? const NoopMusicMediaSession() {
+    // 线控命令接线（对齐 iOS `MPRemoteCommandCenter` handler → 播放编排）。
+    _mediaSession.onCommand = _handleMediaCommand;
+  }
 
   final MusicQueueStore _store;
   final MusicAudioEngine _engine;
+  final MusicMediaSession _mediaSession;
 
   static MusicPlayerController? _instance;
 
@@ -176,6 +187,7 @@ class MusicPlayerController extends ChangeNotifier {
     if (_queue.isEmpty) {
       await _engine.stop();
       _resetPlaybackState();
+      unawaited(_mediaSession.clear());
     }
     await _persist();
     notifyListeners();
@@ -201,6 +213,7 @@ class MusicPlayerController extends ChangeNotifier {
     await _engine.play();
     _isPlaying = true;
     notifyListeners();
+    unawaited(_syncMediaSession());
   }
 
   /// 暂停（对齐 iOS `pause`）。
@@ -209,6 +222,7 @@ class MusicPlayerController extends ChangeNotifier {
     await _engine.pause();
     _isPlaying = false;
     notifyListeners();
+    unawaited(_syncMediaSession());
   }
 
   /// 下一首（对齐 iOS `playNext`：单曲循环重播，其余按模式换下标）。
@@ -220,6 +234,7 @@ class MusicPlayerController extends ChangeNotifier {
       await _engine.play();
       _isPlaying = true;
       notifyListeners();
+      unawaited(_syncMediaSession());
       return;
     }
     final int? next = _queue.nextIndex(_repeatMode);
@@ -243,14 +258,16 @@ class MusicPlayerController extends ChangeNotifier {
     await _startPlayback();
   }
 
-  /// 定位（对齐 iOS `seek(to:)`）。
+  /// 定位（对齐 iOS `seek(to:)`；seek 后刷新锁屏信息）。
   Future<void> seek(Duration position) async {
     _position = position;
     await _engine.seek(position);
     notifyListeners();
+    unawaited(_syncMediaSession());
   }
 
-  /// 停止并清空队列（对齐 iOS `stop`：队列清空后 MiniPlayer 自动隐藏）。
+  /// 停止并清空队列（对齐 iOS `stop`：队列清空后 MiniPlayer 自动隐藏；
+  /// 同时清空锁屏信息，对齐 iOS `nowPlayingInfo = nil`）。
   Future<void> stop() async {
     await _engine.stop();
     _queue = MusicQueue.empty;
@@ -258,6 +275,7 @@ class MusicPlayerController extends ChangeNotifier {
     _resetPlaybackState();
     await _persist();
     notifyListeners();
+    unawaited(_mediaSession.clear());
   }
 
   /// 设置播放模式。
@@ -313,6 +331,40 @@ class MusicPlayerController extends ChangeNotifier {
   // 内部
   // ─────────────────────────────────────────────────────────
 
+  /// 同步锁屏媒体会话（UI-F15，对齐 iOS `updateNowPlayingInfo`：
+  /// 当前曲目元数据 + 播放态一次写入；无当前曲目时不更新）。
+  Future<void> _syncMediaSession() async {
+    final MusicQueueItem? item = _queue.current;
+    if (item == null) return;
+    await _mediaSession.updateNowPlaying(
+      MusicMediaMetadata.fromItem(
+        item,
+        duration: _duration > Duration.zero
+            ? _duration
+            : Duration(seconds: item.duration ?? 0),
+      ),
+      MusicMediaPlaybackState(playing: _isPlaying, position: _position),
+    );
+  }
+
+  /// 线控命令分派（对齐 iOS `MPRemoteCommandCenter` 六命令 → 播放编排）。
+  void _handleMediaCommand(MusicMediaCommand command) {
+    switch (command) {
+      case MusicMediaPlayCommand():
+        unawaited(resume());
+      case MusicMediaPauseCommand():
+        unawaited(pause());
+      case MusicMediaToggleCommand():
+        unawaited(togglePlayPause());
+      case MusicMediaNextCommand():
+        unawaited(playNext());
+      case MusicMediaPreviousCommand():
+        unawaited(playPrevious());
+      case MusicMediaSeekCommand(:final Duration position):
+        unawaited(seek(position));
+    }
+  }
+
   /// 起播当前曲目（对齐 iOS `startPlayback`）。
   Future<void> _startPlayback() async {
     final MusicQueueItem? item = _queue.current;
@@ -330,6 +382,7 @@ class MusicPlayerController extends ChangeNotifier {
       _isPlaying = false;
       _notice = '播放地址为空';
       notifyListeners();
+      unawaited(_syncMediaSession());
       return;
     }
 
@@ -340,6 +393,7 @@ class MusicPlayerController extends ChangeNotifier {
       _isLoading = false;
       _consecutiveFailures = 0;
       notifyListeners();
+      unawaited(_syncMediaSession());
     } catch (_) {
       _isLoading = false;
       _isPlaying = false;
@@ -351,6 +405,7 @@ class MusicPlayerController extends ChangeNotifier {
       } else {
         _consecutiveFailures = 0;
         notifyListeners();
+        unawaited(_syncMediaSession());
       }
     }
   }
