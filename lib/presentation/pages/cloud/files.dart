@@ -213,6 +213,8 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
       url: item.playURL ?? '',
       headers: item.headers,
       title: title,
+      // F-P28：替身路径同样携带 provider（按盘内核策略分派键）。
+      provider: item.provider,
     );
   }
 

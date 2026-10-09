@@ -1324,8 +1324,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     final PanPlaybackLine line = chain.fallback!;
     _appendLog('切换网盘兜底线路：${trigger.reason} → ${line.effectiveSource}');
     // 兜底线路经 Go 代理落地（HLS / 夸克原画注入鉴权头；代理不可用降级直链）。
-    final PlayerSource fallbackSource =
-        await resolvePanPlaybackLine(line, title: widget.title);
+    // provider 沿当前盘透传（F-P28：同盘切集 provider 不变，兜底重开维持按盘策略）。
+    final PlayerSource fallbackSource = await resolvePanPlaybackLine(
+      line,
+      title: widget.title,
+      provider: widget.source.provider,
+    );
     if (!mounted) return true;
     // 重开兜底源（不重置兜底链，保持 `attempted = true` 防重复切换）。
     await _openSource(fallbackSource, preparePanFallback: false);

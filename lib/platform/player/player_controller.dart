@@ -51,6 +51,26 @@ class PlayerController {
       bridge: MethodChannelPlayerBridge(),
       backendChain: chain,
       selectInitialBackend: (PlayerSource source, PlaybackRoute route) {
+        // F-P28：网盘源先按盘分派（对齐 iOS `preferredCompatibilityEngineName`
+        // 的 `.auto` 门闸——UC/百度/139 等按盘内核策略**优先于**源特征判定，
+        // `PlayerViewsV2.swift:3911-4117`）。命中即取按盘链中平台可用的首位；
+        // 未命中（null）回落下方既有「源特征」逻辑。
+        final String? provider = source.provider;
+        if (route == PlaybackRoute.pan && provider != null && provider.isNotEmpty) {
+          final List<PlayerBackend>? driveChain =
+              PlayerBackendSelector.driveChainFor(
+            provider: provider,
+            url: source.url,
+            resourceName: source.title,
+          );
+          if (driveChain != null) {
+            final PlayerBackend? picked = PlayerBackendSelector.pickDriveBackend(
+              driveChain: driveChain,
+              available: chain,
+            );
+            if (picked != null) return picked;
+          }
+        }
         // 直播 FLV / 复杂封装（MKV/FLV/TS…）需全格式后端 → MDK 优先（统一内核），
         // 其次 libVLC / libmpv（复杂封装回退预留，M4 收口再定去留）。
         final bool needsFullFormat =

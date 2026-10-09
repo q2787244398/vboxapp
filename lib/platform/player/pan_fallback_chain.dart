@@ -164,14 +164,20 @@ class PanFallbackChain {
 Future<PlayerSource> resolvePanPlaybackLine(
   PanPlaybackLine line, {
   String? title,
+  String? provider,
 }) async {
   final String url = line.url;
   // 集中层固化「转码 m3u8 不注入 UA/Referer」（对齐 iOS 步骤7 特例，F-P12）：
   // 各盘取链与兜底线路落地共用同一判据，防特例在消费点遗漏。
   final Map<String, String> headers =
       PlaybackHeaders.guardTranscode(url: url, headers: line.headers);
-  PlayerSource direct() =>
-      PlayerSource(url: url, headers: headers, title: title);
+  // F-P28：provider 随源透传（按盘内核策略的分派键，非网盘调用方为 null）。
+  PlayerSource direct() => PlayerSource(
+        url: url,
+        headers: headers,
+        title: title,
+        provider: provider,
+      );
 
   if (!line.isUsable) return direct();
 
@@ -188,7 +194,7 @@ Future<PlayerSource> resolvePanPlaybackLine(
         source: line.effectiveSource,
       );
       if (proxied.startsWith('http://127.0.0.1')) {
-        return PlayerSource(url: proxied, title: title);
+        return PlayerSource(url: proxied, title: title, provider: provider);
       }
     } catch (_) {
       // 代理异常 → 回落直链。
@@ -208,7 +214,7 @@ Future<PlayerSource> resolvePanPlaybackLine(
       headers: headers,
     );
     if (proxied.startsWith('http://127.0.0.1')) {
-      return PlayerSource(url: proxied, title: title);
+      return PlayerSource(url: proxied, title: title, provider: provider);
     }
   } catch (_) {
     // 代理异常 → 回落直链。
@@ -226,8 +232,13 @@ Future<PlayerSource> resolvePanSource({
   required PanPlaybackLine primary,
   PanPlaybackLine? fallback,
   String? title,
+  String? provider,
 }) async {
-  final PlayerSource main = await resolvePanPlaybackLine(primary, title: title);
+  final PlayerSource main = await resolvePanPlaybackLine(
+    primary,
+    title: title,
+    provider: provider,
+  );
   // 仅保留「可用」的兜底线路（地址非空），否则视为无兜底。
   final PanPlaybackLine? fb =
       (fallback != null && fallback.isUsable) ? fallback : null;
@@ -245,5 +256,7 @@ Future<PlayerSource> resolvePanSource({
     ),
     fallbackSource: fb?.effectiveSource ?? '',
     fallbackUseQuarkProxy: fb?.useQuarkProxy ?? false,
+    // F-P28：provider 随源透传（按盘内核策略的分派键）。
+    provider: provider,
   );
 }

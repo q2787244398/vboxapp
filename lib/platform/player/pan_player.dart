@@ -554,6 +554,8 @@ class PanPlayer {
             )
           : null,
       title: title,
+      // F-P28：provider 随源透传（按盘内核策略分派键，对齐 iOS 按盘门闸）。
+      provider: item.provider,
     );
   }
 

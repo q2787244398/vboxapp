@@ -90,6 +90,7 @@ class PlayerSource {
     this.fallbackHeaders = const <String, String>{},
     this.fallbackSource = '',
     this.fallbackUseQuarkProxy = false,
+    this.provider,
   });
 
   /// 播放地址。
@@ -127,6 +128,11 @@ class PlayerSource {
   /// 对齐 iOS：夸克兜底线路触发时经本地代理注入鉴权头；其余网盘走直链。
   final bool fallbackUseQuarkProxy;
 
+  /// 网盘 provider id（F-P28 按盘内核策略的分派键；对齐 `CloudPlayItem.provider`
+  /// 即 `CloudDriveType.id`：`quark` / `baidu` / `baiduNode` / `uc` / `ucNode` /
+  /// `139pan` / `115` …）。null = 非网盘源（蜘蛛直链等，无按盘维度）。
+  final String? provider;
+
   /// 是否 HLS（m3u8）。
   bool get isHls =>
       url.contains('.m3u8') || (mimeType?.contains('mpegurl') ?? false);
@@ -145,6 +151,7 @@ class PlayerSource {
         if (fallbackHeaders.isNotEmpty) 'fallbackHeaders': fallbackHeaders,
         if (fallbackSource.isNotEmpty) 'fallbackSource': fallbackSource,
         if (fallbackUseQuarkProxy) 'fallbackUseQuarkProxy': fallbackUseQuarkProxy,
+        if (provider != null) 'provider': provider,
       };
 
   factory PlayerSource.fromJson(Map<String, Object?> j) => PlayerSource(
@@ -162,6 +169,7 @@ class PlayerSource {
             const <String, String>{},
         fallbackSource: (j['fallbackSource'] as String?) ?? '',
         fallbackUseQuarkProxy: j['fallbackUseQuarkProxy'] as bool? ?? false,
+        provider: j['provider']?.toString(),
       );
 }
 
@@ -317,5 +325,198 @@ class PlayerBackendSelector {
       if (u.contains(ext)) return true;
     }
     return false;
+  }
+
+  // ─────────────── F-P28 · 按盘内核策略表 ───────────────
+
+  /// Node 常驻代理流判定（逐字对齐 iOS `isNodePanProxyURL`，
+  /// `PlayerViewsV2.swift:1251-1254`：本地回环 + `/spider/push/` 路径）。
+  static bool isNodePanProxyUrl(String url) {
+    final Uri? u = Uri.tryParse(url);
+    if (u == null) return false;
+    return (u.host == '127.0.0.1' || u.host == 'localhost') &&
+        u.path.contains('/spider/push/');
+  }
+
+  /// UC 播放直链判定（逐字对齐 iOS `isUCPlaybackURL`，L4576-4588：
+  /// `*.uc.cn`（排除 `drive.uc.cn` / `pc-api.uc.cn` / `www.uc.cn`）、
+  /// UC TV Token CDN（`*.cdn.yun.cn`）、`ucdl` / `ucloud` 主机片段）。
+  static bool isUcPlaybackUrl(String url) {
+    final Uri? u = Uri.tryParse(url);
+    final String? host = u?.host.toLowerCase();
+    if (u == null || host == null || host.isEmpty) return false;
+    if (host == 'uc.cn' || host.endsWith('.uc.cn')) {
+      const Set<String> excluded = <String>{
+        'drive.uc.cn', 'pc-api.uc.cn', 'www.uc.cn',
+      };
+      return !excluded.contains(host);
+    }
+    if (host.endsWith('.cdn.yun.cn')) return true;
+    return host.contains('ucdl') || host.contains('ucloud');
+  }
+
+  /// UC 流判定（对齐 iOS `isUCStreamURL`，L4570-4574：`uc-stream` 本地代理
+  /// 或 UC 播放直链）。
+  static bool isUcStreamUrl(String url) {
+    final Uri? u = Uri.tryParse(url);
+    if (u != null &&
+        (u.host == '127.0.0.1' || u.host == 'localhost') &&
+        u.path.contains('uc-stream')) {
+      return true;
+    }
+    return isUcPlaybackUrl(url);
+  }
+
+  /// Node 代理流的「系统内核明确不支持」封装 / 编码判定（对齐 iOS
+  /// `nodeCompatibilityReason`，L1314-1333；只认明确不支持项，避免仅含
+  /// `4k` 的 MP4 误判——Node 代理 URL 无扩展名，只能靠真实文件名）。
+  static String? nodeCompatibilityReason(String fileName) {
+    final String lower = fileName.toLowerCase();
+    const List<(String, String)> rules = <(String, String)>[
+      ('.mkv', 'MKV 封装'),
+      ('.flv', 'FLV 封装'),
+      ('.avi', 'AVI 封装'),
+      ('.rmvb', 'RMVB 封装'),
+      ('hevc', 'HEVC/H.265'),
+      ('h265', 'HEVC/H.265'),
+      ('x265', 'HEVC/H.265'),
+      ('10bit', '10bit 视频'),
+      ('hdr', 'HDR 视频'),
+      ('ddp', 'DDP/E-AC-3 音轨'),
+      ('eac3', 'DDP/E-AC-3 音轨'),
+      ('dts', 'DTS 音轨'),
+      ('truehd', 'TrueHD 音轨'),
+      ('atmos', 'Atmos 音轨'),
+    ];
+    for (final (String, String) r in rules) {
+      if (lower.contains(r.$1)) return r.$2;
+    }
+    return null;
+  }
+
+  /// AVPlayer 必定打不开的硬容器（对齐 iOS `hardUnsupportedContainers`，
+  /// L1337-1345；刻意不含 mp4/m3u8/mov/webm/hevc/hdr，避免把本就能播的
+  /// 资源误推兼容内核）。
+  static String? hardContainerReason(String fileName) {
+    final String lower = fileName.toLowerCase();
+    const List<(String, String)> rules = <(String, String)>[
+      ('.iso', 'ISO 镜像'),
+      ('.m2ts', 'M2TS 原盘'),
+      ('.vob', 'DVD VOB'),
+      ('.rmvb', 'RMVB 封装'),
+      ('.flv', 'FLV 封装'),
+      ('.avi', 'AVI 封装'),
+      ('.mkv', 'MKV 封装'),
+    ];
+    for (final (String, String) r in rules) {
+      if (lower.contains(r.$1)) return r.$2;
+    }
+    return null;
+  }
+
+  /// 按盘内核链（F-P28，对齐 iOS `preferredCompatibilityEngineName` 的
+  /// `.auto` 分支 + 主分派链 `PlayerViewsV2.swift:3911-4117`）。
+  ///
+  /// 返回 null = 该盘 / 该 URL 形态**无按盘策略**（回落既有「源特征」逻辑：
+  /// 复杂封装 / 直播 FLV → MDK，默认链首），对齐 iOS 落默认 AVPlayer。
+  ///
+  /// 逐盘依据（IJK / AliPlayer 在 Flutter 端无对应后端，从 iOS 序列中剔除）：
+  /// - **夸克**（代理流 `quark-stream` / `quark-m3u8`）→ `mdk → libmpv → libVLC`
+  ///   （iOS L3918-3930：MDK → MPV → IJK → VLC，MDK 针对 VT 硬解 / FFmpeg 软解
+  ///   + 缓冲预热专项优化；夸克**直链**不命中 → 落默认，对齐 iOS）；
+  /// - **UC**（原生 `uc` / Node `ucNode`，UC CDN 直链或 `uc-stream` 代理）→
+  ///   `mdk → libVLC → libmpv`（iOS L1194-1209 门闸：MDK 优先，**禁 MPV**——
+  ///   MPV-MoltenVK 在 UC 流上有声无画且 `mpv_initialize` 闪退，VLC 兜底
+  ///   4K HDR 黑屏，故 libmpv 沉底仅作最后兜底）；
+  /// - **百度**（原生 `baidu` / Node `baiduNode`，`baidu-stream` 代理或 Node
+  ///   代理流）→ `mdk → libmpv → libVLC`（iOS `shouldPreferMDK` L1262-1266：
+  ///   `baidu-stream` / Node 代理命中 MDK 优先；L1279 `shouldPreferMPV` 的
+  ///   baidu-stream 分支仅在 MDK 不可用时可达，故 libmpv 次位）；
+  /// - **139**（`139pan`，真实文件名命中硬容器 ISO/M2TS/VOB/RMVB/FLV/AVI/MKV）→
+  ///   `mdk → libVLC → libmpv`（iOS L1185-1192 门闸钉死 pan139 + 硬容器；
+  ///   非硬容器 → null 落默认，对齐 iOS）；
+  /// - **其它 Node 托管盘**（115 / 123 / 189 / 迅雷 / 光鸭 / 蜗牛 / bilibili）：
+  ///   Node 代理流 + 真实文件名命中 [nodeCompatibilityReason] →
+  ///   `mdk → libVLC → libmpv`（iOS L4098-4114 + L1238-1243：Node 代理流
+  ///   兜底禁 MPV）；否则 null。
+  static List<PlayerBackend>? driveChainFor({
+    required String provider,
+    required String url,
+    String? resourceName,
+  }) {
+    switch (provider) {
+      case 'quark':
+        final bool proxyStream =
+            url.contains('quark-stream') || url.contains('quark-m3u8');
+        if (!proxyStream) return null;
+        return const <PlayerBackend>[
+          PlayerBackend.mdk,
+          PlayerBackend.libmpv,
+          PlayerBackend.libVLC,
+        ];
+      case 'uc':
+      case 'ucNode':
+        if (!isUcStreamUrl(url)) return null;
+        return const <PlayerBackend>[
+          PlayerBackend.mdk,
+          PlayerBackend.libVLC,
+          PlayerBackend.libmpv,
+        ];
+      case 'baidu':
+      case 'baiduNode':
+        if (!url.contains('baidu-stream') && !isNodePanProxyUrl(url)) {
+          return null;
+        }
+        return const <PlayerBackend>[
+          PlayerBackend.mdk,
+          PlayerBackend.libmpv,
+          PlayerBackend.libVLC,
+        ];
+      case '139pan':
+        if (resourceName == null ||
+            resourceName.isEmpty ||
+            hardContainerReason(resourceName) == null) {
+          return null;
+        }
+        return const <PlayerBackend>[
+          PlayerBackend.mdk,
+          PlayerBackend.libVLC,
+          PlayerBackend.libmpv,
+        ];
+      case '115':
+      case '123pan':
+      case '189pan':
+      case 'xunlei':
+      case 'guangya':
+      case 'woniu4k':
+      case 'bilibili':
+        if (!isNodePanProxyUrl(url)) return null;
+        if (resourceName == null ||
+            resourceName.isEmpty ||
+            nodeCompatibilityReason(resourceName) == null) {
+          return null;
+        }
+        return const <PlayerBackend>[
+          PlayerBackend.mdk,
+          PlayerBackend.libVLC,
+          PlayerBackend.libmpv,
+        ];
+      default:
+        // 阿里及其它未列盘：iOS 无专门分支（`shouldPreferAliPlayer` 恒 false，
+        // L1298-1308）→ 回落源特征逻辑。
+        return null;
+    }
+  }
+
+  /// 从按盘链中挑选平台**可用**的首个后端（等价 iOS `isXXXBuildAvailable`
+  /// 逐级可用性检查）；全不可用 → null（调用方回落源特征逻辑）。
+  static PlayerBackend? pickDriveBackend({
+    required List<PlayerBackend> driveChain,
+    required List<PlayerBackend> available,
+  }) {
+    for (final PlayerBackend b in driveChain) {
+      if (available.contains(b)) return b;
+    }
+    return null;
   }
 }

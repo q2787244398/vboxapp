@@ -177,4 +177,316 @@ void main() {
       );
     });
   });
+
+  group('F-P28 · 按盘内核策略（对齐 iOS preferredCompatibilityEngineName）', () {
+    group('URL 判据（逐字对齐 iOS）', () {
+      test('isNodePanProxyUrl：本地回环 + /spider/push/ 路径（iOS L1251-1254）', () {
+        expect(
+          PlayerBackendSelector.isNodePanProxyUrl(
+              'http://127.0.0.1:18080/spider/push/4/proxy/quark/x'),
+          isTrue,
+        );
+        expect(
+          PlayerBackendSelector.isNodePanProxyUrl(
+              'http://localhost:18080/spider/push/4/proxy/115/x'),
+          isTrue,
+        );
+        // 非本地回环 / 非 Node 代理路径。
+        expect(
+          PlayerBackendSelector.isNodePanProxyUrl(
+              'https://cdn.example.com/spider/push/x'),
+          isFalse,
+        );
+        expect(
+          PlayerBackendSelector.isNodePanProxyUrl('http://127.0.0.1/quark-stream/x'),
+          isFalse,
+        );
+      });
+
+      test('isUcPlaybackUrl：*.uc.cn（排除三域）/ *.cdn.yun.cn / ucdl / ucloud'
+          '（iOS L4576-4588）', () {
+        // *.uc.cn：排除 drive.uc.cn / pc-api.uc.cn / www.uc.cn。
+        expect(PlayerBackendSelector.isUcPlaybackUrl('https://video.uc.cn/a.mp4'),
+            isTrue);
+        expect(PlayerBackendSelector.isUcPlaybackUrl('https://drive.uc.cn/a'),
+            isFalse);
+        expect(PlayerBackendSelector.isUcPlaybackUrl('https://pc-api.uc.cn/a'),
+            isFalse);
+        expect(PlayerBackendSelector.isUcPlaybackUrl('https://www.uc.cn/a'),
+            isFalse);
+        // UC TV Token CDN 直链（iOS 坑：漏判致 UC 内核策略失效）。
+        expect(
+          PlayerBackendSelector.isUcPlaybackUrl(
+              'https://video-play-p-zb.cdn.yun.cn/a.mp4'),
+          isTrue,
+        );
+        expect(PlayerBackendSelector.isUcPlaybackUrl('https://x-ucdl.aly.cn/a'),
+            isTrue);
+        expect(PlayerBackendSelector.isUcPlaybackUrl('https://ucloud.example.cn/a'),
+            isTrue);
+        // 非 UC 域。
+        expect(PlayerBackendSelector.isUcPlaybackUrl('https://cdn.baidu.com/a'),
+            isFalse);
+      });
+
+      test('isUcStreamUrl：uc-stream 本地代理 或 UC 播放直链（iOS L4570-4574）', () {
+        expect(
+          PlayerBackendSelector.isUcStreamUrl(
+              'http://127.0.0.1:18080/uc-stream/abc'),
+          isTrue,
+        );
+        expect(
+          PlayerBackendSelector.isUcStreamUrl(
+              'https://video-play-p-zb.cdn.yun.cn/a.mp4'),
+          isTrue,
+        );
+        expect(PlayerBackendSelector.isUcStreamUrl('https://cdn.baidu.com/a.mp4'),
+            isFalse);
+      });
+
+      test('nodeCompatibilityReason：Node 代理复杂封装判定（iOS L1314-1333）', () {
+        expect(
+          PlayerBackendSelector.nodeCompatibilityReason('[xxx]01_4K.mp4'),
+          isNull,
+          reason: '仅含 4k 的 MP4 不得误判（iOS 刻意不含 4k 规则）',
+        );
+        expect(
+          PlayerBackendSelector.nodeCompatibilityReason('Movie 2024 hevc.mkv'),
+          'HEVC/H.265',
+        );
+        expect(PlayerBackendSelector.nodeCompatibilityReason('a.hdr.mp4'),
+            'HDR 视频');
+        expect(PlayerBackendSelector.nodeCompatibilityReason('b.dts.mkv'),
+            'DTS 音轨');
+      });
+
+      test('hardContainerReason：139 硬容器清单（iOS L1337-1345）', () {
+        for (final String f in <String>[
+          'x.iso', 'x.m2ts', 'x.vob', 'x.rmvb', 'x.flv', 'x.avi', 'x.mkv',
+        ]) {
+          expect(PlayerBackendSelector.hardContainerReason(f), isNotNull,
+              reason: f);
+        }
+        // 刻意不含 mp4/m3u8/hevc/hdr——139 上 AVPlayer 本就能播。
+        expect(PlayerBackendSelector.hardContainerReason('x.mp4'), isNull);
+        expect(PlayerBackendSelector.hardContainerReason('x.hevc.mp4'), isNull);
+      });
+    });
+
+    group('driveChainFor（逐盘对齐 iOS auto 门闸）', () {
+      test('quark 代理流 → mdk → libmpv → libVLC；直链 → null 落默认', () {
+        expect(
+          PlayerBackendSelector.driveChainFor(
+            provider: 'quark',
+            url: 'http://127.0.0.1:18080/quark-stream/x',
+          ),
+          const <PlayerBackend>[
+            PlayerBackend.mdk,
+            PlayerBackend.libmpv,
+            PlayerBackend.libVLC,
+          ],
+        );
+        expect(
+          PlayerBackendSelector.driveChainFor(
+            provider: 'quark',
+            url: 'http://127.0.0.1:18080/quark-m3u8/x',
+          ),
+          isNotNull,
+        );
+        // 夸克直链（非代理）→ iOS 落默认 AVPlayer。
+        expect(
+          PlayerBackendSelector.driveChainFor(
+            provider: 'quark',
+            url: 'https://dl-quark.cn/a.mp4',
+          ),
+          isNull,
+        );
+      });
+
+      test('uc / ucNode 流 → mdk → libVLC → libmpv（禁 MPV 沉底）', () {
+        for (final String p in <String>['uc', 'ucNode']) {
+          expect(
+            PlayerBackendSelector.driveChainFor(
+              provider: p,
+              url: 'http://127.0.0.1:18080/uc-stream/abc',
+            ),
+            const <PlayerBackend>[
+              PlayerBackend.mdk,
+              PlayerBackend.libVLC,
+              PlayerBackend.libmpv,
+            ],
+            reason: p,
+          );
+          expect(
+            PlayerBackendSelector.driveChainFor(
+              provider: p,
+              url: 'https://video-play-p-zb.cdn.yun.cn/a.mp4',
+            ),
+            const <PlayerBackend>[
+              PlayerBackend.mdk,
+              PlayerBackend.libVLC,
+              PlayerBackend.libmpv,
+            ],
+            reason: '$p CDN 直链',
+          );
+          // 非 UC 流 → null。
+          expect(
+            PlayerBackendSelector.driveChainFor(
+              provider: p,
+              url: 'https://cdn.other.cn/a.mp4',
+            ),
+            isNull,
+          );
+        }
+      });
+
+      test('baidu / baiduNode 代理流 → mdk → libmpv → libVLC（MDK 优先）', () {
+        for (final String p in <String>['baidu', 'baiduNode']) {
+          expect(
+            PlayerBackendSelector.driveChainFor(
+              provider: p,
+              url: 'http://127.0.0.1:18080/baidu-stream/x',
+            ),
+            const <PlayerBackend>[
+              PlayerBackend.mdk,
+              PlayerBackend.libmpv,
+              PlayerBackend.libVLC,
+            ],
+            reason: p,
+          );
+          expect(
+            PlayerBackendSelector.driveChainFor(
+              provider: p,
+              url: 'http://127.0.0.1:18080/spider/push/4/proxy/baidu/x',
+            ),
+            isNotNull,
+            reason: '$p Node 代理流',
+          );
+          // 非代理直链 → null。
+          expect(
+            PlayerBackendSelector.driveChainFor(
+              provider: p,
+              url: 'https://d.pcs.baidu.com/file',
+            ),
+            isNull,
+          );
+        }
+      });
+
+      test('139pan：硬容器文件名 → mdk → libVLC → libmpv；非硬容器 → null', () {
+        expect(
+          PlayerBackendSelector.driveChainFor(
+            provider: '139pan',
+            url: 'https://eos.example.cn/abc',
+            resourceName: 'Movie.2024.mkv',
+          ),
+          const <PlayerBackend>[
+            PlayerBackend.mdk,
+            PlayerBackend.libVLC,
+            PlayerBackend.libmpv,
+          ],
+        );
+        // 非硬容器（EOS 直链可播）→ iOS 落默认 AVPlayer。
+        expect(
+          PlayerBackendSelector.driveChainFor(
+            provider: '139pan',
+            url: 'https://eos.example.cn/abc',
+            resourceName: 'Movie.mp4',
+          ),
+          isNull,
+        );
+      });
+
+      test('其它 Node 盘：代理流 + 复杂封装文件名 → 命中；否则 null', () {
+        expect(
+          PlayerBackendSelector.driveChainFor(
+            provider: '115',
+            url: 'http://127.0.0.1:18080/spider/push/4/proxy/115/x',
+            resourceName: 'Show.S01.hevc.mkv',
+          ),
+          const <PlayerBackend>[
+            PlayerBackend.mdk,
+            PlayerBackend.libVLC,
+            PlayerBackend.libmpv,
+          ],
+        );
+        // 代理流但文件名普通 → null（iOS 落默认）。
+        expect(
+          PlayerBackendSelector.driveChainFor(
+            provider: 'xunlei',
+            url: 'http://127.0.0.1:18080/spider/push/4/proxy/xunlei/x',
+            resourceName: '[xxx]01_4K.mp4',
+          ),
+          isNull,
+        );
+        // 非代理 URL → null。
+        expect(
+          PlayerBackendSelector.driveChainFor(
+            provider: '123pan',
+            url: 'https://cdn.123pan.cn/a.mkv',
+            resourceName: 'a.mkv',
+          ),
+          isNull,
+        );
+      });
+
+      test('ali 及未列盘 → null（iOS shouldPreferAliPlayer 恒 false）', () {
+        expect(
+          PlayerBackendSelector.driveChainFor(
+            provider: 'ali',
+            url: 'http://127.0.0.1:18080/ali-stream/x',
+          ),
+          isNull,
+        );
+      });
+    });
+
+    group('pickDriveBackend（平台可用性交集，等价 isXXXBuildAvailable）', () {
+      const List<PlayerBackend> android = <PlayerBackend>[
+        PlayerBackend.media3,
+        PlayerBackend.mdk,
+        PlayerBackend.libVLC,
+      ];
+      const List<PlayerBackend> desktop = <PlayerBackend>[
+        PlayerBackend.libmpv,
+        PlayerBackend.mdk,
+      ];
+
+      test('按盘链序取首个平台可用后端', () {
+        // mdk 在两端均可用 → 首位。
+        expect(
+          PlayerBackendSelector.pickDriveBackend(
+            driveChain: const <PlayerBackend>[
+              PlayerBackend.mdk,
+              PlayerBackend.libVLC,
+            ],
+            available: android,
+          ),
+          PlayerBackend.mdk,
+        );
+        // libVLC 不在桌面链 → 顺延。
+        expect(
+          PlayerBackendSelector.pickDriveBackend(
+            driveChain: const <PlayerBackend>[
+              PlayerBackend.mdk,
+              PlayerBackend.libVLC,
+              PlayerBackend.libmpv,
+            ],
+            available: desktop,
+          ),
+          PlayerBackend.mdk,
+        );
+      });
+
+      test('全不可用 → null（回落源特征逻辑）', () {
+        expect(
+          PlayerBackendSelector.pickDriveBackend(
+            driveChain: const <PlayerBackend>[PlayerBackend.libVLC],
+            available: desktop,
+          ),
+          isNull,
+        );
+      });
+    });
+  });
 }
