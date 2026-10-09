@@ -11,8 +11,9 @@
 /// - 状态文本 [CloudDriveAccount.statusText] 对齐 iOS `statusText(for:)`
 ///   （过期 / 30 分钟内即将过期 / `正常 · HH:mm检测`）。
 ///
-/// 说明：真实授权（扫码 / 短信 / 网页兜底）与网络校验属 F-02；本控制器只做
-/// 「读取本地凭据 → 构建展示态」与「测试按钮刷新本地检测时间」。
+/// 说明：真实授权（扫码 / 短信 / 网页兜底）属 F-02；本控制器做「读取本地凭据 →
+/// 构建展示态」+「测试按钮真实网络校验并落库状态」（F-P24，对齐 iOS
+/// `validateCredential(for:)` → `markValid` / `markInvalid`）。
 library;
 
 import 'dart:async';
@@ -21,6 +22,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
+import '../../../data/datasources/remote/cloud_drive_credential_validator.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../platform/node/node_runtime_manager.dart' as node;
 
@@ -228,7 +230,8 @@ class CloudDriveAccount {
 /// 生命周期由使用方持有（页面自建或测试注入）；[load] 读契约安全存储
 /// （`cloud_drive_credentials_v1`）构建 [accounts]。
 class CloudDriveAuthController extends ChangeNotifier {
-  /// 构造（[credentialStore] 供测试注入；缺省走 [PrefsManager]）。
+  /// 构造（[credentialStore] / [validator] 供测试注入；缺省走
+  /// [PrefsManager] / [CloudDriveCredentialValidator]）。
   ///
   /// [nodeRuntimeManager] 非空时订阅其状态流，把 Node 常驻系统的真实运行态
   /// （就绪 / 启动中 / 内存告警 / 失败 / 崩溃）映射到 [nodeStatus]，对齐 iOS
@@ -236,10 +239,12 @@ class CloudDriveAuthController extends ChangeNotifier {
   /// 的做法（此前恒为 `未知` 是因为从未接线状态源）。
   CloudDriveAuthController({
     CloudDriveCredentialStore? credentialStore,
+    CloudDriveCredentialValidator? validator,
     NodeRuntimeStatus nodeStatus = const NodeRuntimeStatus(),
     node.NodeRuntimeManager? nodeRuntimeManager,
   })  : _store = credentialStore ??
             CloudDriveCredentialStore(PrefsManager.instance),
+        _validator = validator ?? CloudDriveCredentialValidator(),
         _nodeStatus = nodeStatus,
         _nodeRuntime = nodeRuntimeManager {
     final node.NodeRuntimeManager? runtime = _nodeRuntime;
@@ -252,6 +257,7 @@ class CloudDriveAuthController extends ChangeNotifier {
   }
 
   final CloudDriveCredentialStore _store;
+  final CloudDriveCredentialValidator _validator;
   final node.NodeRuntimeManager? _nodeRuntime;
   StreamSubscription<node.NodeRuntimeStatus>? _nodeSub;
   NodeRuntimeStatus _nodeStatus;
@@ -333,11 +339,22 @@ class CloudDriveAuthController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 「测试」按钮：刷新本地检测时间（真实网络校验随 F-02 授权链落地）。
+  /// 「测试」按钮：真实校验凭据并落库状态（F-P24，对齐 iOS
+  /// `validateCredential(for:)` → `markValid` / `markInvalid`）。
   Future<void> testCredential(CloudDriveType type) async {
     final CloudDriveCredential? credential = await _store.credential(type);
     if (credential == null) return;
-    await _store.save(credential.copyWith(lastCheckedAt: DateTime.now()));
+    final CredentialValidationResult result =
+        await _validator.validate(type, credential);
+    final DateTime now = DateTime.now();
+    await _store.save(
+      credential.copyWith(
+        state: result.valid ? CloudDriveAuthState.valid : CloudDriveAuthState.invalid,
+        statusMessage: result.message,
+        lastCheckedAt: now,
+        updatedAt: now,
+      ),
+    );
     await load();
   }
 

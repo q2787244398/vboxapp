@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/cloud_drive_credential_store.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
+import 'package:vbox/data/datasources/remote/cloud_drive_credential_validator.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/presentation/pages/cloud/cloud_drive_auth_controller.dart';
 
@@ -34,6 +35,20 @@ CloudDriveCredential _cred(
       state: state,
       extra: extra,
     );
+
+/// 固定结果的校验器桩（继承并覆写 [CloudDriveCredentialValidator.validate]）。
+class _StubValidator extends CloudDriveCredentialValidator {
+  _StubValidator(this.result);
+
+  final CredentialValidationResult result;
+
+  @override
+  Future<CredentialValidationResult> validate(
+    CloudDriveType type,
+    CloudDriveCredential credential,
+  ) async =>
+      result;
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -360,6 +375,48 @@ void main() {
       await controller.load();
       await controller.testCredential(CloudDriveType.ali);
       expect(await store.credential(CloudDriveType.ali), isNull);
+    });
+
+    test('testCredential 校验通过 → 落库 valid + 文案（F-P24 对齐 markValid）',
+        () async {
+      await store.save(_cred(CloudDriveType.uc, cookie: 'k=v'));
+      final CloudDriveAuthController controller = CloudDriveAuthController(
+        credentialStore: store,
+        validator: _StubValidator(
+          const CredentialValidationResult(valid: true, message: '授权检测正常'),
+        ),
+      );
+      await controller.load();
+
+      await controller.testCredential(CloudDriveType.uc);
+
+      final CloudDriveCredential? after = await store.credential(CloudDriveType.uc);
+      expect(after!.state, CloudDriveAuthState.valid);
+      expect(after.statusMessage, '授权检测正常');
+      expect(after.lastCheckedAt, isNotNull);
+    });
+
+    test('testCredential 校验失败 → 落库 invalid + 失败文案（对齐 markInvalid）',
+        () async {
+      await store.save(_cred(CloudDriveType.uc, cookie: 'k=v'));
+      final CloudDriveAuthController controller = CloudDriveAuthController(
+        credentialStore: store,
+        validator: _StubValidator(
+          const CredentialValidationResult(valid: false, message: 'HTTP 401'),
+        ),
+      );
+      await controller.load();
+
+      await controller.testCredential(CloudDriveType.uc);
+
+      final CloudDriveCredential? after = await store.credential(CloudDriveType.uc);
+      expect(after!.state, CloudDriveAuthState.invalid);
+      expect(after.statusMessage, 'HTTP 401');
+      // 对齐 iOS：invalid 凭据 `isAuthorized` 直接 false。
+      expect(
+        CloudDriveAccount.isAuthorized(CloudDriveType.uc, after),
+        isFalse,
+      );
     });
 
     test('load() 通知监听者', () async {
