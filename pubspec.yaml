@@ -40,6 +40,7 @@ dependencies:
   flutter_inappwebview: ^6.2.0-beta.3
   html: ^0.15.4                     # HTML5 解析（B-11 站源原生搜索，配 core/html/xpath_engine.dart）
   connectivity_plus: ^6.1.0          # 网络可达性（A2；仅平台层使用，核心层走 NetworkInfo 抽象）
+  wakelock_plus: ^1.2.8              # UI-D2 屏幕常亮：播放中禁用 idle timer（对齐 iOS isIdleTimerDisabled）
   enough_convert: ^1.6.0             # GBK/GB2312/Big5/Latin 编解码（B-09 HTTP 桥 5 级编码链，MPL-2.0）
 
   # ── 二维码渲染（F-04/C-盘3：PG 阿里云盘返回授权链接 → 本地编码二维码）──

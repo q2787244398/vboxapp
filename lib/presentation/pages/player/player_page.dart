@@ -46,6 +46,7 @@ import '../../../platform/player/remux_proxy.dart';
 import '../../../platform/player/skip_settings.dart';
 import '../../../platform/player/subtitle_parser.dart';
 import '../../../platform/player/subtitle_style.dart';
+import '../../../platform/player/wake_lock.dart';
 import '../../theme/tokens/colors.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/player/cast/cast_controller.dart';
@@ -81,6 +82,7 @@ class PlayerPage extends StatefulWidget {
     this.controller,
     this.danmakuService,
     this.castService,
+    this.wakeLock,
   });
 
   /// 首个播放源（详情页已解析好的直链 + 鉴权头）。
@@ -127,6 +129,9 @@ class PlayerPage extends StatefulWidget {
   /// 投屏服务（缺省 DLNA；测试注入假实现）。
   final CastService? castService;
 
+  /// 屏幕常亮控制器（UI-D2，测试可注入；null 用 wakelock_plus 默认实现）。
+  final WakeLockController? wakeLock;
+
   @override
   State<PlayerPage> createState() => _PlayerPageState();
 }
@@ -142,6 +147,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   static const int _preloadRemainMs = 30000;
 
   late final PlayerController _player;
+
+  /// 屏幕常亮控制器（UI-D2，按播放状态驱动，对齐 iOS `updateIdleTimer`）。
+  late final WakeLockController _wakeLock;
   final PlayerControlsController _controls = PlayerControlsController();
 
   DanmakuSettings _danmaku = DanmakuSettings.defaults;
@@ -294,6 +302,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _player = widget.controller ?? PlayerController.instance;
+    // UI-D2：屏幕常亮（对齐 iOS isIdleTimerDisabled；播放中开启，暂停/退出恢复）。
+    _wakeLock = widget.wakeLock ?? const WakelockPlusController();
     _castService = widget.castService ?? DlnaCastService();
     _castController = CastController(service: _castService);
     _controls.castAvailable = _castController.isAvailable;
@@ -1026,6 +1036,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _player.onStateChanged = (PlayerState s) {
       if (!mounted) return;
       _controls.updatePlaying(s == PlayerState.playing);
+      // UI-D2：屏幕常亮按播放状态驱动（对齐 iOS `updateIdleTimer()` 收口：
+      // 播放中 `isIdleTimerDisabled = true`；暂停 / 停止 / 结束显式恢复，
+      // iOS 注释——后台场景系统可能重置 idle timer，故每次状态变化都同步）。
+      unawaited(s == PlayerState.playing
+          ? _wakeLock.enable()
+          : _wakeLock.disable());
       // UI-F18：进入播放即收起加载层（首帧已就绪）。
       if (s == PlayerState.playing) {
         // UI-F21：首帧就绪 → 取消首帧超时兜底任务（对齐 iOS readyToPlay）。
@@ -1589,6 +1605,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _foregroundRestoreTimer?.cancel();
     _panFallbackTimeout?.cancel();
     _danmakuTimer?.cancel();
+    // UI-D2：退出播放页兜底恢复锁屏（对齐 iOS dismiss 后内核 stop 恢复 idle timer；
+    // 常规路径 pause 已触发 disable，此处防控制器状态回调丢失）。
+    unawaited(_wakeLock.disable());
     _castController.dispose();
     final CastService cast = _castService;
     if (cast is DlnaCastService) cast.close();
