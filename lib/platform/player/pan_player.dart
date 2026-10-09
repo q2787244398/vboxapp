@@ -26,6 +26,7 @@ import '../../data/datasources/local/prefs_manager.dart';
 import '../../data/datasources/remote/aliyun_adrive_client.dart';
 import '../../data/datasources/remote/baidu_ibox_client.dart';
 import '../../data/datasources/remote/node_pan_client.dart';
+import '../../data/datasources/remote/node_play_id.dart';
 import '../../data/datasources/remote/quark_native_client.dart';
 import '../../data/datasources/remote/uc_native_client.dart';
 import '../../domain/entities/cloud/cloud_drive.dart';
@@ -284,9 +285,12 @@ class PanPlayer {
     String fallbackSource = '';
     switch (channelFor(type)) {
       case PanPlayChannel.nodePan:
-        final NodePanPlayData data = await _client.resolvePlay(entry.playID);
+        // F-P26：fragment 携带的 playID 可能已过期（Node 每次 detail 重签
+        // playToken）→ 先重取本次文件列表三级匹配，再用新 playID 取链。
+        final NodePanEntry matched = await _matchNodeEntry(shareUrl, entry);
+        final NodePanPlayData data = await _client.resolvePlay(matched.playID);
         playURL = data.url;
-        fileName = entry.name;
+        fileName = matched.name.isEmpty ? entry.name : matched.name;
         headers = data.headers;
         source = 'node-pan';
       case PanPlayChannel.native:
@@ -400,6 +404,43 @@ class PanPlayer {
     );
     await _cache.store(item);
     return item;
+  }
+
+  /// Node playID 稳定匹配（对齐 iOS `handleNodeManagedDrive` 三级匹配）。
+  ///
+  /// [shareUrl] 非空时先重取**本次**文件列表，再依次按
+  /// ① playID 整串精确 → ② 稳定文件键（`fileId`，其次 `playToken.fid`）→
+  /// ③ 文件名兜底 匹配详情页指定的剧集；命中后一律返回本次新解析出的条目，
+  /// 用其新 playID 取链（避免 fragment 携带的旧 token 过期）。
+  ///
+  /// 三级皆未命中 → 明确报错（对齐 iOS `NodePanError.nodeRejected`
+  /// 「详情页指定剧集未命中文件列表」）；[target] 无 playID（未指定剧集）→
+  /// 回落首条（对齐 iOS `vbox_node` 缺省 `selectedIndex = 0`）。
+  Future<NodePanEntry> _matchNodeEntry(
+    String shareUrl,
+    NodePanEntry target,
+  ) async {
+    if (shareUrl.isEmpty) return target;
+    final NodePanShare share = await _client.resolveShare(shareUrl);
+    final List<NodePanEntry> entries = share.entries;
+    if (target.playID.isEmpty) return entries.first;
+
+    for (final NodePanEntry e in entries) {
+      if (e.playID == target.playID) return e;
+    }
+    final String? key = NodePlayId.stableFileKey(target.playID);
+    if (key != null) {
+      for (final NodePanEntry e in entries) {
+        if (NodePlayId.stableFileKey(e.playID) == key) return e;
+      }
+    }
+    final String? name = NodePlayId.fileName(target.playID);
+    if (name != null) {
+      for (final NodePanEntry e in entries) {
+        if (e.name == name) return e;
+      }
+    }
+    throw const PanPlayException('详情页指定剧集未命中文件列表');
   }
 
   /// 网盘条目 → 播放源（主线路经 Go 代理落地 + 携带兜底线路）。

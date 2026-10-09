@@ -574,11 +574,24 @@ class _DetailPageState extends State<DetailPage> {
         _episodesReversed ? links.reversed.toList(growable: false) : links;
     return <PlaybackEpisode>[
       for (int i = 0; i < ordered.length; i++)
-        PlaybackEpisode(
-          name: _cloudEpisodeTitle(ordered[i], i),
-          url: ordered[i].url,
-        ),
+        _cloudEpisodeOf(ordered[i], i),
     ];
+  }
+
+  /// 云源剧集项（F-P06：携带 `sourceType` / `nodePlayID` / `nodeDriveType`，
+  /// 对齐 iOS `expandedEpisodeItems` 的云分支 `EpisodeItem`）。
+  PlaybackEpisode _cloudEpisodeOf(_CloudPanLink link, int index) {
+    final CloudDriveType? type = link.driveType;
+    final bool nodeManaged = type != null && NodePanRouting.isNodeManaged(type);
+    return PlaybackEpisode(
+      name: _cloudEpisodeTitle(link, index),
+      url: link.url,
+      sourceType: EpisodeSourceType.fromDriveType(type),
+      // Node 托管盘：fragment 的 vbox_node 即条目 playID。
+      nodePlayID:
+          nodeManaged ? VboxFragmentCodec.split(link.url).params.node : null,
+      nodeDriveType: nodeManaged ? type : null,
+    );
   }
 
   /// 指定网盘当前展开的条目（未展开时用原始链接占位）。
@@ -799,12 +812,24 @@ class _DetailPageState extends State<DetailPage> {
 
   /// 展开单个网盘的文件列表（对齐 iOS `expandSingleDrive`）。
   ///
-  /// 逐盘生成 F-P27 fragment 定位键：
-  /// - Node 托管盘 → `vbox_node=<playID>`；
+  /// 逐盘生成 fragment 定位键（对齐 iOS `expandSingleDrive` 的**可达**分支）：
+  /// - Node 托管盘（115/123/139/189/迅雷/光鸭/蜗牛/夸克Node/UCNode/百度Node）
+  ///   → `vbox_node=<playID>`（iOS 首个 case 即归 Node，优先于原生分支）；
   /// - 夸克原生 → `vbox_fid=<fid>`（+ `vbox_route`）/ 备用夸克走 `transcode`；
   /// - 百度原生 → `vbox_fsid=<fsId>`；
-  /// - UC 原生 → `vbox_fid=<fid>` + `vbox_token=<shareFidToken>`；
-  /// - 阿里 / 迅雷等 → `vbox_fid=<fileId>`。
+  /// - UC 原生 → `vbox_fid=<fid>`；
+  /// - 阿里 → `vbox_fid=<fileId>`。
+  ///
+  /// 说明一：iOS 另有 `vbox_pickcode`（115）/ `vbox_fileId`（123/189）/
+  /// `vbox_contentId`（139）三键，但均落在 `isNodeManagedDrive` 首判之后，
+  /// 属**不可达死分支**；且 Flutter 这些盘同样走 Node 链路（playID 为 base64
+  /// 载荷，非原生 pickCode/fileId），故不产出这三键。
+  ///
+  /// 说明二：iOS V1 详情页（`PlayerViews.swift:590`）UC 分支另发
+  /// `vbox_token=<shareFidToken>`，但 V2 播放器（`PlayerViewsV2.swift:3244-3262`）
+  /// **不消费**该键 —— 它按 `vbox_fid` 命中后从本次重取的文件列表拿
+  /// `targetFile.shareFidToken`。故 Flutter 仅发 `vbox_fid` 即与 V2 消费端一致；
+  /// 若后续要逐字对齐 V1 的生成，随 F-P06 二批 `ucShareFidToken` 一并补齐。
   Future<_DriveExpandState> _expandSingleDrive(
     String driveName,
     List<_RawCloudLink> links,

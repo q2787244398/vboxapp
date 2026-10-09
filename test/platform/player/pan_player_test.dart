@@ -30,6 +30,57 @@ import 'package:vbox/platform/player/player_controller.dart';
 String _idWithName(String name) =>
     base64.encode(utf8.encode(jsonEncode(<String, String>{'name': name})));
 
+/// 任意载荷 → base64 JSON playID（F-P26 匹配测试用）。
+String _idWith(Map<String, Object?> obj) =>
+    base64.encode(utf8.encode(jsonEncode(obj)));
+
+/// 可编排条目列表的 Node 传输替身：detail 返回注入的 playID 列表，
+/// play 记录取链入参并回显（便于断言「命中后使用新 playID 取链」）。
+class _PlayIdTransport implements NodePanTransport {
+  _PlayIdTransport(this.playIDs);
+
+  /// detail 返回的 playID 列表（顺序即文件列表顺序）。
+  final List<String> playIDs;
+
+  /// play 取链入参（playID）记录。
+  final List<String> playCalls = <String>[];
+
+  @override
+  Future<NodePanHttpResponse> postJson(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    if (path == NodePanPaths.detail) {
+      final String joined = playIDs
+          .map((String id) => '${_nameOfPlayId(id)}\$$id')
+          .join('#');
+      return NodePanHttpResponse(
+        statusCode: 200,
+        json: <String, dynamic>{
+          'list': <Map<String, dynamic>>[
+            <String, dynamic>{'vod_name': '示例剧', 'vod_play_url': joined},
+          ],
+        },
+      );
+    }
+    playCalls.add('${body['id']}');
+    return NodePanHttpResponse(
+      statusCode: 200,
+      json: <String, dynamic>{'url': 'https://cdn/${body['id']}.m3u8'},
+    );
+  }
+
+  static String _nameOfPlayId(String id) {
+    try {
+      final Object? obj = jsonDecode(utf8.decode(base64.decode(id)));
+      if (obj is Map && obj['name'] is String) return obj['name'] as String;
+    } catch (_) {
+      // 非 JSON playID 用占位名（解析器会回落）。
+    }
+    return '视频';
+  }
+}
+
 class _FakeTransport implements NodePanTransport {
   _FakeTransport(this.handler);
 
@@ -630,6 +681,130 @@ void main() {
       );
       expect(bridge.calls, contains('open'));
       expect(controller.route, PlaybackRoute.pan);
+    });
+  });
+
+  group('Node playID 稳定匹配（F-P26 三级匹配）', () {
+    late _PlayIdTransport transport;
+
+    PanPlayer playerFor(List<String> playIDs) {
+      transport = _PlayIdTransport(playIDs);
+      return PanPlayer(
+        client: NodePanClient(transport: transport),
+        cacheStore: cache,
+        controller: controller,
+      );
+    }
+
+    test('① 整串精确命中 → 用该条目取链', () async {
+      final String target = _idWith(<String, Object?>{
+        'name': '第02集.mp4',
+        'playToken': jsonEncode(<String, Object?>{'fid': 'T2'}),
+      });
+      final PanPlayer p = playerFor(<String>[
+        _idWith(<String, Object?>{'name': '第01集.mp4'}),
+        target,
+      ]);
+      final CloudPlayItem item = await p.prepare(
+        type: CloudDriveType.ucNode,
+        shareUrl: 'https://pan.uc.cn/s/x',
+        entry: NodePanEntry(playID: target, name: '旧名'),
+        now: t0,
+      );
+      expect(transport.playCalls.last, target);
+      expect(item.fileName, '第02集.mp4');
+    });
+
+    test('② 整串未命中 → 按 fileId 稳定键命中新 playID', () async {
+      final String stale = _idWith(<String, Object?>{
+        'fileId': 'F1',
+        'name': '旧名',
+        'playToken': jsonEncode(<String, Object?>{'fid': 'T1', 'stoken': 'old'}),
+      });
+      final String fresh = _idWith(<String, Object?>{
+        'fileId': 'F1',
+        'name': '第01集.mp4',
+        'playToken': jsonEncode(<String, Object?>{'fid': 'T1', 'stoken': 'new'}),
+      });
+      final PanPlayer p = playerFor(<String>[
+        _idWith(<String, Object?>{'name': '第00集.mp4'}),
+        fresh,
+      ]);
+      final CloudPlayItem item = await p.prepare(
+        type: CloudDriveType.ucNode,
+        shareUrl: 'https://pan.uc.cn/s/x',
+        entry: NodePanEntry(playID: stale, name: '旧名'),
+        now: t0,
+      );
+      expect(transport.playCalls.last, fresh);
+      expect(item.fileName, '第01集.mp4');
+    });
+
+    test('② 无 fileId → 按 playToken.fid 命中', () async {
+      final String stale = _idWith(<String, Object?>{
+        'name': '旧名',
+        'playToken': jsonEncode(<String, Object?>{'fid': 'T9', 'stoken': 'old'}),
+      });
+      final String fresh = _idWith(<String, Object?>{
+        'name': '第05集.mp4',
+        'playToken': jsonEncode(<String, Object?>{'fid': 'T9', 'stoken': 'new'}),
+      });
+      final PanPlayer p = playerFor(<String>[
+        _idWith(<String, Object?>{'name': '第01集.mp4'}),
+        fresh,
+      ]);
+      await p.prepare(
+        type: CloudDriveType.ucNode,
+        shareUrl: 'https://pan.uc.cn/s/x',
+        entry: NodePanEntry(playID: stale, name: '旧名'),
+        now: t0,
+      );
+      expect(transport.playCalls.last, fresh);
+    });
+
+    test('③ 整串 / 稳定键均未命中 → 按文件名兜底', () async {
+      final String stale = _idWith(<String, Object?>{'name': '第03集.mp4'});
+      final String fresh = _idWith(<String, Object?>{
+        'name': '第03集.mp4',
+        'playToken': jsonEncode(<String, Object?>{'fid': 'T3'}),
+      });
+      final PanPlayer p = playerFor(<String>[
+        _idWith(<String, Object?>{'name': '第01集.mp4'}),
+        fresh,
+      ]);
+      await p.prepare(
+        type: CloudDriveType.ucNode,
+        shareUrl: 'https://pan.uc.cn/s/x',
+        entry: NodePanEntry(playID: stale, name: '旧名'),
+        now: t0,
+      );
+      expect(transport.playCalls.last, fresh);
+    });
+
+    test('三级皆未命中 → 明确报错（详情页指定剧集未命中文件列表）', () async {
+      final String stale = _idWith(<String, Object?>{
+        'fileId': 'X',
+        'name': '不存在.mp4',
+      });
+      final PanPlayer p = playerFor(<String>[
+        _idWith(<String, Object?>{'name': '第01集.mp4'}),
+      ]);
+      await expectLater(
+        p.prepare(
+          type: CloudDriveType.ucNode,
+          shareUrl: 'https://pan.uc.cn/s/x',
+          entry: NodePanEntry(playID: stale, name: '不存在.mp4'),
+          now: t0,
+        ),
+        throwsA(
+          isA<PanPlayException>().having(
+            (PanPlayException e) => e.message,
+            'msg',
+            contains('未命中文件列表'),
+          ),
+        ),
+      );
+      expect(transport.playCalls, isEmpty);
     });
   });
 }

@@ -17,6 +17,7 @@ import '../../../data/datasources/local/cloud_drive_cleanup_queue_store.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_files.dart';
 import '../../../domain/entities/cloud/cloud_play_item.dart';
+import '../../../domain/entities/cloud/node_pan.dart';
 import '../../../domain/entities/player/player.dart';
 import '../../../domain/entities/playback/playback_detail.dart';
 import '../../../platform/player/pan_player.dart';
@@ -145,6 +146,11 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
       (CloudDriveFileEntry e) => e.fileId == entry.fileId,
     );
     final bool multi = playable.length > 1 && index >= 0;
+    // F-P06：分享选集剧集携带网盘字段（对齐 iOS `EpisodeItem`——
+    // `sourceType` 分派切集逻辑，Node 托管盘并记 `nodePlayID` / `nodeDriveType`）。
+    final bool nodeManaged = NodePanRouting.isNodeManaged(widget.driveType);
+    final EpisodeSourceType sourceType =
+        EpisodeSourceType.fromDriveType(widget.driveType);
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => PlayerPage(
@@ -155,7 +161,14 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
           episodes: multi
               ? <PlaybackEpisode>[
                   for (final CloudDriveFileEntry e in playable)
-                    PlaybackEpisode(name: e.name, url: '', fileId: e.fileId),
+                    PlaybackEpisode(
+                      name: e.name,
+                      url: '',
+                      fileId: e.fileId,
+                      sourceType: sourceType,
+                      nodePlayID: nodeManaged ? e.fileId : null,
+                      nodeDriveType: nodeManaged ? widget.driveType : null,
+                    ),
                 ]
               : const <PlaybackEpisode>[],
           initialEpisodeIndex: multi ? index : 0,

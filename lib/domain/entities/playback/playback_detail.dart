@@ -5,8 +5,69 @@
 /// 示例见契约 §3.4：`"线路1$$$线路2"` + `"第1集$url1#第2集$url2$$$第1集$url3"`。
 library;
 
+import '../cloud/cloud_drive.dart';
+import '../cloud/node_pan.dart';
 import '../spider/site_config.dart';
 import '../spider/spider_models.dart';
+
+/// 剧集资源类型（对齐 iOS `EpisodeItem.EpisodeSourceType`，11 档）。
+///
+/// 切集时用于选择对应播放逻辑；`rawValue` 与 iOS 一致。
+enum EpisodeSourceType {
+  /// 普通资源（蜘蛛直链）。
+  normal('normal'),
+
+  /// 百度网盘（原生）。
+  baidu('baidu'),
+
+  /// 夸克网盘（原生）。
+  quark('quark'),
+
+  /// 迅雷云盘。
+  xunlei('xunlei'),
+
+  /// 阿里云盘。
+  ali('ali'),
+
+  /// 115 网盘。
+  one15('one15'),
+
+  /// 123 云盘。
+  pan123('pan123'),
+
+  /// 139 云盘。
+  pan139('pan139'),
+
+  /// 天翼云盘（189）。
+  pan189('pan189'),
+
+  /// 其他网盘（UC 等）。
+  drive('drive'),
+
+  /// Node 托管网盘（115/123/139/189/迅雷/光鸭/蜗牛/夸克Node/UCNode/百度Node）。
+  node('node');
+
+  const EpisodeSourceType(this.value);
+
+  /// 契约字符串值（对齐 iOS `rawValue`）。
+  final String value;
+
+  /// 由网盘类型映射资源类型（对齐 iOS 各 `handleDriveUrl` 分支的 `sourceType`）。
+  ///
+  /// Node 托管盘一律归 [node]（iOS 可达路径经 `handleNodeManagedDrive`）；
+  /// 原生盘按盘别映射；非网盘（null）归 [normal]。
+  static EpisodeSourceType fromDriveType(CloudDriveType? type) {
+    if (type == null) return EpisodeSourceType.normal;
+    if (NodePanRouting.isNodeManaged(type)) return EpisodeSourceType.node;
+    return switch (type) {
+      CloudDriveType.ali => EpisodeSourceType.ali,
+      CloudDriveType.quark => EpisodeSourceType.quark,
+      CloudDriveType.baidu => EpisodeSourceType.baidu,
+      // UC 原生在 iOS 归 `.drive`（无独立档）。
+      _ => EpisodeSourceType.drive,
+    };
+  }
+}
 
 /// 单集可播放项。
 class PlaybackEpisode {
@@ -16,6 +77,9 @@ class PlaybackEpisode {
     required this.url,
     this.from,
     this.fileId = '',
+    this.sourceType = EpisodeSourceType.normal,
+    this.nodePlayID,
+    this.nodeDriveType,
   });
 
   /// 剧集名（如「第 1 集」，解析失败时可能为空串）。
@@ -30,8 +94,19 @@ class PlaybackEpisode {
   /// 网盘文件 ID（分享 / 文件列表选集定位用；非网盘源为空串）。
   ///
   /// F-P06 网盘字段扩展的首批落地字段 —— 仅供「分享内多文件选集」定位使用；
-  /// 其余网盘字段（各盘 fileIndex / playID / headers 等）随第 4 批网盘链路补入。
+  /// 其余网盘字段（各盘 fileIndex / headers 等）随第 4 批网盘链路补入。
   final String fileId;
+
+  /// 资源类型（对齐 iOS `EpisodeItem.sourceType`）：切集时选择对应播放逻辑。
+  final EpisodeSourceType sourceType;
+
+  /// Node 托管盘 playID（对齐 iOS `EpisodeItem.nodePlayID`）—— 切集取链时
+  /// 交给 `/spider/push/4/play`；非 Node 源为 null。
+  final String? nodePlayID;
+
+  /// Node 托管盘类型（对齐 iOS `EpisodeItem.nodeDriveType`）—— 切集取链时
+  /// 用于映射盘别；非 Node 源为 null。
+  final CloudDriveType? nodeDriveType;
 
   /// 是否直链媒体（无需 playerContent 二次解析）。
   bool get isDirectMedia => PlaybackUrlParser.looksDirectMedia(url);
