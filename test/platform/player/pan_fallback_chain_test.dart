@@ -16,11 +16,9 @@ import 'package:vbox/platform/player/pan_fallback_chain.dart';
 /// 用于断言「百度 PCS 直链经通用本地代理落地」—— 对齐 iOS `playDriveVideo`
 /// 的 `provider:"baidu"` 分支。
 class _RecordingGoProxyClient implements GoProxyClient {
-  _RecordingGoProxyClient({
-    this.proxyUrl = 'http://127.0.0.1:10078/play?id=abc',
-  });
+  _RecordingGoProxyClient();
 
-  final String proxyUrl;
+  final String proxyUrl = 'http://127.0.0.1:10078/play?id=abc';
   final List<Map<String, String>> streamCalls = <Map<String, String>>[];
   bool _running = true;
 

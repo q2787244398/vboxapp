@@ -146,13 +146,13 @@ class CloudDriveCredentialStore {
               isBaiduPcsToken(t) || isBaiduAccountWebToken(t))
           .toList();
     }
-    final CloudDriveCredential? credential = await credential(type);
-    final String? value = _bestTokenValue(type, credential);
+    final CloudDriveCredential? account = await credential(type);
+    final String? value = _bestTokenValue(type, account);
     if (value != null && !tokens.any((DriveToken t) => t.value == value)) {
-      final bool named = credential?.userName?.isNotEmpty ?? false;
+      final bool named = account?.userName?.isNotEmpty ?? false;
       final DriveToken authToken = DriveToken(
         type: type.id,
-        name: named ? credential!.userName! : '授权中心',
+        name: named ? account!.userName! : '授权中心',
         value: value,
       );
       // 百度 Worker 链路优先保持旧手动 Token 顺序，授权中心仅作兜底（队尾）。
@@ -173,15 +173,15 @@ class CloudDriveCredentialStore {
     final List<DriveToken> list = await tokensFor(CloudDriveType.baidu);
     if (list.isEmpty) return null;
 
-    final CloudDriveCredential? credential =
+    final CloudDriveCredential? account =
         await credential(CloudDriveType.baidu);
-    final String? cookie = credential?.cookie;
+    final String? cookie = account?.cookie;
     DriveToken? web;
     if (isBaiduAccountWebCookie(cookie)) {
-      final bool named = credential?.userName?.isNotEmpty ?? false;
+      final bool named = account?.userName?.isNotEmpty ?? false;
       web = DriveToken(
         type: CloudDriveType.baidu.id,
-        name: named ? credential!.userName! : '授权中心',
+        name: named ? account!.userName! : '授权中心',
         value: cookie!,
       );
     } else {
@@ -194,7 +194,7 @@ class CloudDriveCredentialStore {
     }
     if (web == null) return null;
 
-    final String? pcsValue = credential?.extra['pcs_cookie'];
+    final String? pcsValue = account?.extra['pcs_cookie'];
     final DriveToken? pcs =
         (pcsValue != null && isBaiduPcsCookie(pcsValue))
             ? DriveToken(

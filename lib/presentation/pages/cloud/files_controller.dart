@@ -18,6 +18,7 @@ import '../../../domain/entities/cloud/cloud_drive_files.dart';
 import '../../../domain/entities/cloud/cloud_play_item.dart';
 import '../../../domain/entities/cloud/node_pan.dart';
 import '../../../domain/entities/cloud/vbox_fragment.dart';
+import '../../../platform/player/drive_error_mapper.dart';
 import '../../../platform/player/pan_player.dart';
 
 /// 目录列举接缝（真实实现走 Node 常驻系统 / 网盘 OpenAPI）。
@@ -224,11 +225,11 @@ class CloudDriveFilesController extends ChangeNotifier {
     return item;
   }
 
+  /// 统一展示文案（F-P14 集中映射层：本页私有 `CloudDriveFilesException` 之外
+  /// 全部交 [DriveErrorMapper]，与详情页共用同一分档口径，避免文案漂移）。
   String _messageOf(Object e) {
     if (e is CloudDriveFilesException) return e.message;
-    if (e is NodePanException) return e.displayMessage;
-    if (e is PanPlayException) return e.message;
-    return '$e';
+    return DriveErrorMapper.messageOf(e);
   }
 
   /// 进入子目录（分享模式无目录层级，空操作）。

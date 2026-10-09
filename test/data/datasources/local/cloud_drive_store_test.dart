@@ -6,6 +6,8 @@
 /// - iOS `SecureCredentialStore`（Keychain `cloud_drive_credentials_v1`）
 library;
 
+import 'dart:convert';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';

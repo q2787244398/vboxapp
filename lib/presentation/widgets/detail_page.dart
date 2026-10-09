@@ -38,6 +38,7 @@ import '../../domain/entities/spider/spider_models.dart';
 import '../../domain/entities/tmdb/tmdb_models.dart';
 import '../../domain/usecases/usecases.dart';
 import '../../platform/download/download.dart';
+import '../../platform/player/drive_error_mapper.dart';
 import '../../platform/player/pan_player.dart';
 import '../../platform/player/playback_route.dart';
 import '../pages/cloud/files.dart';
@@ -879,8 +880,7 @@ class _DetailPageState extends State<DetailPage> {
         failures++;
         if (out.isEmpty && failures == links.length) {
           return _DriveExpandState.failed(
-            '$driveName资源加载失败：'
-            '${e is PanPlayException ? e.message : e}',
+            '$driveName资源加载失败：${DriveErrorMapper.messageOf(e)}',
           );
         }
       }
@@ -981,7 +981,7 @@ class _DetailPageState extends State<DetailPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      _toast('播放失败：${e is PanPlayException ? e.message : e}');
+      _toast('播放失败：${DriveErrorMapper.messageOf(e)}');
     } finally {
       if (mounted) setState(() => _playing = false);
     }

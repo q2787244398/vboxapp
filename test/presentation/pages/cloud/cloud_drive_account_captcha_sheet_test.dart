@@ -109,6 +109,9 @@ void main() {
       find.byKey(const ValueKey<String>('cloud_login_password')),
       'pwd',
     );
+    // 待输入经 setState 生效后再点击：按钮 `enabled` 依赖非空校验，
+    // 未 rebuild 时 `onTap` 仍为 null，点击会落空。
+    await tester.pumpAndSettle();
     await tester.tap(find.text('登录并保存'));
     await tester.pumpAndSettle();
 
@@ -123,6 +126,8 @@ void main() {
       find.byKey(const ValueKey<String>('cloud_login_sms_code')),
       '8888',
     );
+    // 同上：待短信码非空经 setState 生效后再点击。
+    await tester.pumpAndSettle();
     await tester.tap(find.text('验证短信并登录'));
     await tester.pumpAndSettle();
 

@@ -34,6 +34,7 @@ import '../../domain/entities/cloud/cloud_play_item.dart';
 import '../../domain/entities/cloud/node_pan.dart';
 import '../../domain/entities/cloud/pg_auto.dart';
 import '../../domain/entities/player/player.dart';
+import 'drive_error.dart';
 import 'pan_fallback_chain.dart';
 import 'playback_route.dart';
 import 'player_controller.dart';
@@ -56,10 +57,19 @@ enum PanPlayChannel {
 /// 网盘播放入口不可用 / 业务错误。
 class PanPlayException implements Exception {
   /// 构造。
-  const PanPlayException(this.message);
+  const PanPlayException(this.message, {this.driveError});
+
+  /// 由分档错误构造：展示文案取 [DriveError.description]，并保留分档信息，
+  /// 供 [DriveErrorMapper] 施加 iOS 播放站点文案（如 `notImplemented` → 「暂不支持」）。
+  PanPlayException.fromDrive(DriveError error)
+      : message = error.description,
+        driveError = error;
 
   /// 展示文案。
   final String message;
+
+  /// 分档错误（可空；非空时展示文案由集中映射层按播放站点档位给出）。
+  final DriveError? driveError;
 
   @override
   String toString() => 'PanPlayException($message)';
@@ -205,7 +215,9 @@ class PanPlayer {
     }
     final List<DriveToken> tokens = await _tokensFor(type);
     if (tokens.isEmpty) {
-      throw PanPlayException('未配置${type.displayName} Token');
+      throw PanPlayException.fromDrive(
+        DriveError.tokenNotConfigured(type.displayName),
+      );
     }
   }
 
@@ -254,7 +266,9 @@ class PanPlayer {
           // F-P17：经 baiduTokenPair 取 Web Cookie（账号态 BDUSS+STOKEN）。
           final BaiduTokenPair? pair = await _baiduTokenPair();
           if (pair == null) {
-            throw const PanPlayException('未配置百度网盘 Token');
+            throw PanPlayException.fromDrive(
+              const DriveError.tokenNotConfigured('百度网盘'),
+            );
           }
           final List<BaiduFileItem> files;
           try {
@@ -294,7 +308,7 @@ class PanPlayer {
                 .toList(growable: false),
           );
         }
-        throw PanPlayException('${type.displayName} 原生路链尚未接入（待后续批次）');
+        throw PanPlayException.fromDrive(const DriveError.notImplemented());
       case PanPlayChannel.pgAli:
         final String refreshToken = await _aliyunRefreshToken();
         if (refreshToken.isEmpty) {
@@ -317,7 +331,7 @@ class PanPlayer {
               .toList(growable: false),
         );
       case PanPlayChannel.unsupported:
-        throw PanPlayException('${type.displayName} 不支持网盘播放');
+        throw PanPlayException.fromDrive(const DriveError.notImplemented());
     }
   }
 
@@ -379,7 +393,9 @@ class PanPlayer {
           // F-P17：Web Cookie（bduss）与 PCS Cookie 分离取用（对齐 iOS baiduTokenPair）。
           final BaiduTokenPair? pair = await _baiduTokenPair();
           if (pair == null) {
-            throw const PanPlayException('未配置百度网盘 Token');
+            throw PanPlayException.fromDrive(
+              const DriveError.tokenNotConfigured('百度网盘'),
+            );
           }
           final BaiduPlayResult r;
           try {
@@ -418,7 +434,7 @@ class PanPlayer {
           fallbackSource = r.fallbackSource;
           source = 'uc-native';
         } else {
-          throw PanPlayException('${type.displayName} 原生路链尚未接入（待后续批次）');
+          throw PanPlayException.fromDrive(const DriveError.notImplemented());
         }
       case PanPlayChannel.pgAli:
         final String refreshToken = await _aliyunRefreshToken();
@@ -445,7 +461,7 @@ class PanPlayer {
         fallbackSource = r.fallbackSource;
         source = r.source;
       case PanPlayChannel.unsupported:
-        throw PanPlayException('${type.displayName} 不支持网盘播放');
+        throw PanPlayException.fromDrive(const DriveError.notImplemented());
     }
     final CloudPlayItem item = CloudPlayItem(
       provider: type.id,
