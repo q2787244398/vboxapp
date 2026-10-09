@@ -7,23 +7,32 @@
 ///
 /// 差异登记：
 ///   · SF Symbols 图标名 → Material 图标映射（[_sfIcon]，名字段由平台层透传）；
-///   · iOS 完成行含「保存到文件 / 保存到相册」（相册为 iOS 平台能力），
-///     Flutter 三端完成行仅保留「删除」，差异在注释登记；
+///   · iOS 完成行「播放 / 保存到文件 / 保存到相册」三动作 → Flutter 实现
+///     播放（对齐 iOS `createLocalVodItem`，DownloadOverlayViews.swift
+///     L1001-L1016）与保存到文件（share 系统面板导出，对齐 iOS
+///     `UIDocumentPicker` 语义）；保存到相册需原生 TS→MP4 转封装 +
+///     MediaStore/PHPhotoLibrary 通道（iOS 亦仅对可转换格式开放，L683-L704），
+///     归真机批次，未开放；
 ///   · iOS 用 Timer 1s 轮询弹窗列表，Flutter 走 [DownloadManager] ChangeNotifier
 ///     自动刷新，无需轮询。
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../data/models/download.dart';
+import '../../../domain/entities/player/player.dart';
 import '../../../platform/download/download.dart';
+import '../../pages/player/player_page.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../vbox/vbox_toast.dart';
 
 /// SF Symbol → Material 图标（由 [DownloadCapsuleMessage.icon] 名字段映射）。
 IconData _sfIcon(String sf) => switch (sf) {
@@ -798,10 +807,7 @@ class _SourceTag extends StatelessWidget {
   }
 }
 
-/// 已完成行（名称 / 来源 + 大小 / 删除）。
-///
-/// 差异登记：iOS 完成行含「播放 / 保存到文件 / 保存到相册」菜单，
-/// 相册为 iOS 平台能力、Flutter 三端无对应系统入口，故仅保留「删除」。
+/// 已完成行（播放 / 保存到文件 / 删除；对齐 iOS 完成行动作排布）。
 class _CompletedRow extends StatelessWidget {
   const _CompletedRow({required this.record, required this.manager});
 
@@ -811,6 +817,7 @@ class _CompletedRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool canOpen = record.filePath.isNotEmpty;
     return Row(
       children: <Widget>[
         Expanded(
@@ -852,6 +859,22 @@ class _CompletedRow extends StatelessWidget {
             ],
           ),
         ),
+        // 播放（对齐 iOS 完成行首位动作：createLocalVodItem → 原播放器）。
+        IconButton(
+          onPressed: canOpen ? () => _playLocal(context) : null,
+          icon: const Icon(
+            Icons.play_circle_fill,
+            size: 20,
+            color: Colors.green,
+          ),
+          tooltip: '播放',
+        ),
+        // 保存到文件（对齐 iOS `UIDocumentPicker` 导出语义，经系统分享面板）。
+        IconButton(
+          onPressed: canOpen ? () => _exportFile(context) : null,
+          icon: Icon(Icons.ios_share_rounded, size: 18, color: scheme.outline),
+          tooltip: '保存到文件',
+        ),
         IconButton(
           onPressed: () => manager.deleteRecord(record.id ?? 0),
           icon: Icon(Icons.delete, size: 20, color: scheme.outline),
@@ -859,6 +882,41 @@ class _CompletedRow extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// 播放本地文件（对齐 iOS `createLocalVodItem(from:)`：
+  /// filePath 非空 + 文件存在守卫；vodId 取 `local_<id>` 供片头片尾设置
+  /// 按本地记录独立存储；`.ts` 产物由播放内核（libmpv）原生支持）。
+  void _playLocal(BuildContext context) {
+    if (!File(record.filePath).existsSync()) {
+      VboxToast.show(context, '本地文件不存在');
+      return;
+    }
+    unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => PlayerPage(
+        source: PlayerSource(
+          url: record.filePath,
+          headers: const <String, String>{},
+          provider: 'local',
+        ),
+        title: record.name,
+        subtitle: '本地文件',
+        vodId: 'local_${record.id ?? 0}',
+      ),
+    )));
+  }
+
+  /// 保存到文件（系统分享面板导出；对齐 iOS「保存到文件 App」降级语义——
+  /// 相册通道未开放前，一切格式均可经此导出）。
+  Future<void> _exportFile(BuildContext context) async {
+    try {
+      await SharePlus.instance.share(
+        ShareParams(files: <XFile>[XFile(record.filePath)], subject: record.name),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      VboxToast.show(context, '当前平台不支持导出');
+    }
   }
 }
 

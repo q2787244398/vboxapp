@@ -484,13 +484,20 @@ class _DetailPageState extends State<DetailPage> {
 
   // ─────────────── 下载 ───────────────
 
-  /// 下载接线（G-02）：逐集解析真实地址 → 建 [Download] 记录 → 交
+  /// 下载接线（G-02 / P2b）：逐集解析真实地址 → 建 [Download] 记录 → 交
   /// [DownloadManager] 入队（对齐 iOS `VideoDetailView.handleBatchDownload`）。
+  ///
+  /// 云源（☁️）→ `episode.url`（带 vbox 定位 fragment 的分享链）直接入队
+  /// `sourceType: 'cloud'`，**执行时**由 [CloudDownloadUrlResolver] 取链
+  /// （对齐 iOS L920 `isCloudVideo ? "cloud" : "normal"` + L243
+  /// `resolveCloudDriveURL`：定位 token 有时效性，入队不解析）；
+  /// 非云源 → 维持蜘蛛链路入队前预解析（Flutter 侧现行实现）。
   Future<void> _enqueueDownloads(List<PlaybackEpisode> episodes) async {
     final PlaybackDetail? d = _detail;
     if (d == null || episodes.isEmpty) return;
     final DownloadManager manager = context.read<DownloadManager>();
     final List<PlaybackEpisode> visible = _episodesForLine(_fromIndex);
+    final bool cloud = _isCloudVideo;
 
     int added = 0;
     final List<String> failed = <String>[];
@@ -501,6 +508,24 @@ class _DetailPageState extends State<DetailPage> {
       final int jishu = original >= 0 ? original + 1 : i + 1;
       final String label =
           episode.name.isEmpty ? '第$jishu集' : episode.name;
+
+      if (cloud) {
+        await manager.enqueue(
+          Download(
+            name: '${d.vod.vodName} $label',
+            laiyuan: d.site.name,
+            imgurl: d.vod.vodPic,
+            detailurl: widget.vodId,
+            playurl: episode.url,
+            jishu: jishu,
+            addedAt: TimeUtils.nowUnixSeconds(),
+            sourceType: 'cloud',
+            vodId: widget.vodId,
+          ),
+        );
+        added++;
+        continue;
+      }
 
       final Result<PlayerContentResult> result =
           await _uc.resolvePlayUrl(detail: d, episode: episode);
@@ -1001,8 +1026,9 @@ class _DetailPageState extends State<DetailPage> {
       _toast('暂无剧集');
       return;
     }
-    // 云源弹窗不支持批量下载（对齐 iOS：网盘条目无 vbox 下载链路）。
-    final bool allowDownload = !cloud && downloadMode;
+    // 下载模式对云源同样开放（对齐 iOS `EpisodeExpandPopup`：下载开关
+    // 无条件显示，云源入队 `sourceType: "cloud"` 执行时取链）。
+    final bool allowDownload = downloadMode;
     await showDialog<void>(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.38),
