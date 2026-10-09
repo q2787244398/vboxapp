@@ -1,4 +1,4 @@
-/// 第 5 批 · UI-F16：播放进度续播（守卫 + 存取）。
+/// 第 5 批 · UI-F16 + 第 4 批 F-P15：播放进度续播（守卫 + 存取 + 按集独立）。
 library;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -25,8 +25,9 @@ void main() {
       expect(PlaybackProgressStore.isNearEnd(100, 0), isFalse);
     });
 
-    test('键名按视频独立', () {
-      expect(PlaybackProgressStore.keyOf('v123'), 'progress_v123');
+    test('键名逐字对齐 iOS playbackProgressKey（v2_<vodId>_<episodeIndex>）', () {
+      expect(PlaybackProgressStore.keyOf('v123', 0), 'playback_progress_v2_v123_0');
+      expect(PlaybackProgressStore.keyOf('v123', 5), 'playback_progress_v2_v123_5');
     });
   });
 
@@ -56,6 +57,49 @@ void main() {
       await PlaybackProgressStore.save('v2', 60);
       expect(await PlaybackProgressStore.load('v1'), 30);
       expect(await PlaybackProgressStore.load('v2'), 60);
+    });
+  });
+
+  group('PlaybackProgressStore 按集独立（F-P15，对齐 iOS v2 键）', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+
+    test('同 vodId 不同集互不影响；缺省集索引为 0', () async {
+      await PlaybackProgressStore.save('v1', 30);
+      await PlaybackProgressStore.save('v1', 120, episodeIndex: 2);
+      expect(await PlaybackProgressStore.load('v1'), 30);
+      expect(await PlaybackProgressStore.load('v1', episodeIndex: 2), 120);
+      // 未记录的集 → 0
+      expect(await PlaybackProgressStore.load('v1', episodeIndex: 1), 0);
+    });
+
+    test('clear 只清目标集', () async {
+      await PlaybackProgressStore.save('v1', 30, episodeIndex: 0);
+      await PlaybackProgressStore.save('v1', 60, episodeIndex: 1);
+      await PlaybackProgressStore.clear('v1', episodeIndex: 0);
+      expect(await PlaybackProgressStore.load('v1'), 0);
+      expect(await PlaybackProgressStore.load('v1', episodeIndex: 1), 60);
+    });
+
+    test('切集场景：旧集进度保留、新集独立续播（对齐 iOS switchToEpisode）',
+        () async {
+      // 第 0 集看到 300s；切到第 1 集看到 90s。
+      await PlaybackProgressStore.save('show', 300, episodeIndex: 0);
+      await PlaybackProgressStore.save('show', 90, episodeIndex: 1);
+      // 重进后各集恢复各自进度（>10s 守卫）。
+      expect(
+        PlaybackProgressStore.shouldResume(
+          await PlaybackProgressStore.load('show', episodeIndex: 0),
+        ),
+        isTrue,
+      );
+      expect(
+        PlaybackProgressStore.shouldResume(
+          await PlaybackProgressStore.load('show', episodeIndex: 1),
+        ),
+        isTrue,
+      );
     });
   });
 }

@@ -158,6 +158,10 @@ class _CloudDriveFilesPageState extends State<CloudDriveFilesPage> {
           // 直链特征无法自证 pan 路由，显式传入（对齐 F-08）。
           route: PlaybackRoute.pan,
           title: title,
+          // F-P15：以「provider|sourceKey」缓存键作进度命名空间（分享内多文件
+          // 共键、按集索引区分），文件列表路径的进度续播与切集恢复由此生效
+          // （对齐 iOS 分享选集 `playback_progress_v2_<vodId>_<fileIndex>`）。
+          vodId: item.cacheKey,
           episodes: multi
               ? <PlaybackEpisode>[
                   for (final CloudDriveFileEntry e in playable)

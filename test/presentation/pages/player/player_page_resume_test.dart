@@ -94,7 +94,9 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
   testWidgets('已存进度 > 10s → 首帧就绪后 seek 到该位置', (WidgetTester tester) async {
-    SharedPreferences.setMockInitialValues(<String, Object>{'progress_v1': 60.0});
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{PlaybackProgressStore.keyOf('v1', 0): 60.0},
+    );
     final _FakePlayerController player = _FakePlayerController();
     await _pumpPage(tester, player);
 
@@ -110,7 +112,9 @@ void main() {
   });
 
   testWidgets('已存进度 ≤ 10s → 不续播', (WidgetTester tester) async {
-    SharedPreferences.setMockInitialValues(<String, Object>{'progress_v1': 8.0});
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{PlaybackProgressStore.keyOf('v1', 0): 8.0},
+    );
     final _FakePlayerController player = _FakePlayerController();
     await _pumpPage(tester, player);
 
@@ -138,7 +142,9 @@ void main() {
   });
 
   testWidgets('接近片尾（距结尾 < 15s）→ 清除进度', (WidgetTester tester) async {
-    SharedPreferences.setMockInitialValues(<String, Object>{'progress_v1': 900.0});
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{PlaybackProgressStore.keyOf('v1', 0): 900.0},
+    );
     final _FakePlayerController player = _FakePlayerController();
     await _pumpPage(tester, player);
 

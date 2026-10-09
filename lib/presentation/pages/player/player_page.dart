@@ -840,24 +840,28 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _scheduleHide();
   }
 
-  // ─────────────── 进度续播（UI-F16）───────────────
+  // ─────────────── 进度续播（UI-F16 + F-P15 按集独立）───────────────
 
-  /// 读取该视频上次进度；命中恢复守卫（>10s）则记为待续播位置。
+  /// 读取该视频指定集的上次进度；命中恢复守卫（>10s）则记为待续播位置。
   ///
-  /// 读取失败（存储未初始化等）→ 不续播，不阻断播放。
-  Future<void> _loadResumePosition() async {
+  /// 键按集独立（对齐 iOS `playbackProgressKey` 的 `v2_<vodId>_<episodeIndex>`）；
+  /// 读取失败（存储未初始化等）→ 不续播，不阻断播放。若首帧已就绪（存储读取
+  /// 晚于首个进度事件）→ 立即补应用（[_applyResumeIfNeeded] 幂等）。
+  Future<void> _loadResumePosition({int? episodeIndex}) async {
     if (widget.vodId.isEmpty) return;
+    final int idx = episodeIndex ?? widget.initialEpisodeIndex;
     double saved = 0;
     try {
-      saved = await PlaybackProgressStore.load(widget.vodId);
+      saved = await PlaybackProgressStore.load(widget.vodId, episodeIndex: idx);
     } catch (_) {
       return;
     }
     if (!PlaybackProgressStore.shouldResume(saved)) return;
     _resumePositionMs = saved * 1000;
+    _applyResumeIfNeeded();
   }
 
-  /// 首帧就绪后应用一次续播 seek（幂等；切集不重复）。
+  /// 首帧就绪后应用一次续播 seek（幂等；切集复位后可再次应用）。
   void _applyResumeIfNeeded() {
     final double? target = _resumePositionMs;
     if (_resumeApplied || target == null || target <= 0) return;
@@ -867,8 +871,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 按 iOS 口径落库进度：`> 5s` 才存、距结尾 `< 15s` 视为看完清除。
   ///
-  /// [throttle] 为 true 时套用 5s 节流（播放中进度事件）；为 false 时强制落库
-  /// （退后台等关键切换点，对齐 iOS `handleSceneBackground` 的强制保存）。
+  /// 键按当前集独立（对齐 iOS `savePlaybackProgress` 以 `currentEpisodeIndex`
+  /// 算键）。[throttle] 为 true 时套用 5s 节流（播放中进度事件）；为 false 时
+  /// 强制落库（退后台等关键切换点，对齐 iOS `handleSceneBackground` 的强制保存）。
   void _persistProgress(
     int positionMs,
     int durationMs, {
@@ -878,7 +883,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     final double seconds = positionMs / 1000.0;
     if (!PlaybackProgressStore.shouldSave(seconds)) return;
     if (PlaybackProgressStore.isNearEnd(seconds, durationMs / 1000.0)) {
-      unawaited(PlaybackProgressStore.clear(widget.vodId));
+      unawaited(
+        PlaybackProgressStore.clear(
+          widget.vodId,
+          episodeIndex: _controls.currentEpisodeIndex,
+        ),
+      );
       return;
     }
     final int now = DateTime.now().millisecondsSinceEpoch;
@@ -888,7 +898,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       }
     }
     _lastProgressSaveMs = now;
-    unawaited(PlaybackProgressStore.save(widget.vodId, seconds));
+    unawaited(
+      PlaybackProgressStore.save(
+        widget.vodId,
+        seconds,
+        episodeIndex: _controls.currentEpisodeIndex,
+      ),
+    );
   }
 
   /// 播放中进度事件 → 节流落库。
@@ -1417,6 +1433,11 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _controls.hideLoading();
       return;
     }
+    // F-P15：切集 → 复位续播标记并恢复**该集**进度（对齐 iOS
+    // `switchToEpisode` L5970-5976「重置当前时间 + restorePlaybackProgress」）。
+    _resumePositionMs = null;
+    _resumeApplied = false;
+    unawaited(_loadResumePosition(episodeIndex: index));
     await _openSource(source);
     // 切集 → 重新拉取该集弹幕并重置进度时基。
     _danmakuPosMs = 0;

@@ -1,4 +1,4 @@
-/// 平台层：播放进度续播（第 5 批 · UI-F16）。
+/// 平台层：播放进度续播（第 5 批 · UI-F16 + 第 4 批 F-P15）。
 ///
 /// 对齐 iOS `PlayerViewsV2.restorePlaybackProgress` / `savePlaybackProgress`
 /// （[L2140-L2166](../../../../vbox/Views/PlayerViewsV2.swift#L2140-L2166)）：
@@ -6,9 +6,12 @@
 ///  - **保存守卫**：当前进度 `> 5` 秒才落库，且节流 5 秒；
 ///  - **看完清除**：距结尾 `< 15` 秒视为看完 → 清除该视频进度。
 ///
-/// 进度**按视频独立存储**（键 `progress_<vodId>`，单位秒）。这类**动态键**
-/// 已冻结的契约 `prefs_keys_v1.json` 未登记，[PrefsManager] 对契约外键直接抛错，
-/// 故与 [SkipSettings] 同口径直接走 `SharedPreferences`（等价 iOS `UserDefaults`）。
+/// 进度**按集独立存储**（键 `playback_progress_v2_<vodId>_<episodeIndex>`，
+/// 对齐 iOS `playbackProgressKey(for:)` L2109-2111；切集后恢复该集进度见
+/// `switchToEpisode` L5973-5976）。`v2` 前缀重开命名空间：与旧版单键
+/// `progress_<vodId>` 天然隔离。这类**动态键**已冻结的契约 `prefs_keys_v1.json`
+/// 未登记，[PrefsManager] 对契约外键直接抛错，故与 [SkipSettings] 同口径直接走
+/// `SharedPreferences`（等价 iOS `UserDefaults`）。
 library;
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,28 +32,33 @@ class PlaybackProgressStore {
   /// 落库节流间隔（对齐 iOS `lastProgressSaveAt` 的 5s）。
   static const int saveThrottleMs = 5000;
 
-  /// 键名（对齐 iOS `playbackProgressKey(for:)` 的按视频独立语义）。
-  static String keyOf(String vodId) => 'progress_$vodId';
+  /// 键名（逐字对齐 iOS `playbackProgressKey(for:)` 的按集独立语义）。
+  static String keyOf(String vodId, int episodeIndex) =>
+      'playback_progress_v2_${vodId}_$episodeIndex';
 
-  /// 读取指定视频的已存进度（秒；无记录 → 0）。
-  static Future<double> load(String vodId) async {
+  /// 读取指定视频指定集的已存进度（秒；无记录 → 0）。
+  static Future<double> load(String vodId, {int episodeIndex = 0}) async {
     if (vodId.isEmpty) return 0;
     final SharedPreferences p = await SharedPreferences.getInstance();
-    return p.getDouble(keyOf(vodId)) ?? 0;
+    return p.getDouble(keyOf(vodId, episodeIndex)) ?? 0;
   }
 
-  /// 写入指定视频的进度（秒）。
-  static Future<void> save(String vodId, double seconds) async {
+  /// 写入指定视频指定集的进度（秒）。
+  static Future<void> save(
+    String vodId,
+    double seconds, {
+    int episodeIndex = 0,
+  }) async {
     if (vodId.isEmpty) return;
     final SharedPreferences p = await SharedPreferences.getInstance();
-    await p.setDouble(keyOf(vodId), seconds);
+    await p.setDouble(keyOf(vodId, episodeIndex), seconds);
   }
 
-  /// 清除指定视频的进度（看完 / 从头重播时调用）。
-  static Future<void> clear(String vodId) async {
+  /// 清除指定视频指定集的进度（看完 / 从头重播时调用）。
+  static Future<void> clear(String vodId, {int episodeIndex = 0}) async {
     if (vodId.isEmpty) return;
     final SharedPreferences p = await SharedPreferences.getInstance();
-    await p.remove(keyOf(vodId));
+    await p.remove(keyOf(vodId, episodeIndex));
   }
 
   /// 是否应续播（已存进度 `> 10` 秒）。
