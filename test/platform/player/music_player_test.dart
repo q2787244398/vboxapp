@@ -369,7 +369,7 @@ void main() {
       await flushMediaSync();
       expect(c.currentSong?.id, '1');
 
-      dispatch(MusicMediaSeekCommand(const Duration(seconds: 7)));
+      dispatch(const MusicMediaSeekCommand(Duration(seconds: 7)));
       await flushMediaSync();
       expect(c.position, const Duration(seconds: 7));
     });

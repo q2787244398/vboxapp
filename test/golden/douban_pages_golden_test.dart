@@ -103,7 +103,7 @@ void main() {
   //   flutter test --update-goldens test/golden/douban_pages_golden_test.dart
   // 生成并提交新基线后移除本 skip（其余两页不受影响，保持像素锁）。
   testWidgets('douban_home（轮播 + 区块）',
-      skip: 'UI-A1 胶囊行新增，待 CI 同环境重生成基线', (WidgetTester tester) async {
+      skip: true, (WidgetTester tester) async {
     await _shot(
       tester,
       'douban_home',

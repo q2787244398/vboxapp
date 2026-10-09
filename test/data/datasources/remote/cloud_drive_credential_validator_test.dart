@@ -292,7 +292,7 @@ void main() {
           CloudDriveCredentialValidator(client: client);
       final CredentialValidationResult result = await validator.validate(
         CloudDriveType.pan123,
-        _cred(CloudDriveType.pan123, token: 'tok'),
+        _cred(CloudDriveType.pan123, accessToken: 'tok'),
       );
       expect(result.valid, isTrue);
       expect(client.requests.map((http.BaseRequest r) => r.method).toList(),

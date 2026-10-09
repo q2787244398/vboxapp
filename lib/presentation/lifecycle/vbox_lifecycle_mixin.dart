@@ -32,7 +32,6 @@ mixin VboxLifecycleMixin<T extends StatefulWidget> on State<T> {
     super.dispose();
   }
 
-  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:

@@ -13,8 +13,6 @@
 /// 后替换缺省 [NoopMusicMediaSession] 即可，编排层零改动。
 library;
 
-import 'package:flutter/foundation.dart';
-
 import '../../domain/entities/music/music_queue.dart';
 
 /// 锁屏 / 控制中心展示的曲目元数据（对齐 iOS `nowPlayingInfo` 各键）。

@@ -13,7 +13,7 @@ import 'package:vbox/presentation/pages/home/home_banner_carousel.dart';
 
 /// 记录生命周期钩子触发顺序的宿主。
 class _LifecycleProbe extends StatefulWidget {
-  const _LifecycleProbe();
+  const _LifecycleProbe({super.key});
 
   @override
   State<_LifecycleProbe> createState() => _LifecycleProbeState();
