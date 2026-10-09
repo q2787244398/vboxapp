@@ -654,12 +654,19 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       throw const CloudDriveLoginException('该网盘不支持验证码登录');
 
   @override
-  Future<void> submitAccountLogin({
+  Future<CloudDriveAccountResult> submitAccountLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String account,
     required String password,
     String captchaCode = '',
+  }) async =>
+      throw const CloudDriveLoginException('该网盘不支持账号密码登录');
+
+  @override
+  Future<void> submitAccountSmsCode({
+    required CloudDriveType type,
+    required String code,
   }) async =>
       throw const CloudDriveLoginException('该网盘不支持账号密码登录');
 

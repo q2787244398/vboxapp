@@ -6,7 +6,9 @@
 /// - **通用扫码**（115 / 夸克Node / 百度Node / UCNode）走 `/website/api/login/*`
 ///   （[NodeLoginClient]）；
 /// - **短信验证码**（光鸭 / 139 / 迅雷）走各盘 `/website/api/<pan>/sms/*`；
-/// - **账号密码**（123 / 189）走各盘 `/website/api/<pan>/account`；
+/// - **账号密码**（123 / 189）走各盘 `/website/api/<pan>/account`
+///   （189 若 Node 返回 `sms:true` 则转入短信二次校验，
+///   对齐 iOS `NodePan189AccountLoginView`，端点 `/website/api/pan189/sms/login`）；
 /// 登录成功后统一由 [NodeCredentialSyncService.saveProfile] 把 Node 侧凭据
 /// 拉回本机安全存储（对齐 iOS `NodeCredentialSyncService.performPull`）。
 ///
@@ -247,7 +249,7 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   // ─────────────── 账号密码 ───────────────
 
   @override
-  Future<void> submitAccountLogin({
+  Future<CloudDriveAccountResult> submitAccountLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String account,
@@ -258,11 +260,14 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       case CloudDriveType.pan123:
         await _node.pan123Account(account: account, password: password);
       case CloudDriveType.pan189:
+        // 对齐 iOS `NodePan189AccountLoginView.submit`：账号密码提交后若 Node
+        // 返回 `sms:true`，转入「待短信二次校验」态（不回收凭据，登录未完成）。
         final ({String msg, bool sms}) r =
             await _node.pan189Account(account: account, password: password);
         if (r.sms) {
-          throw CloudDriveLoginException(
-            r.msg.isEmpty ? '该账号需短信二次校验（189），请改用验证码登录' : r.msg,
+          return (
+            needSms: true,
+            message: r.msg.isEmpty ? '请输入短信验证码' : r.msg,
           );
         }
       case CloudDriveType.woniu4k:
@@ -276,6 +281,20 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       default:
         throw CloudDriveLoginException(_unavailableMessage(mode));
     }
+    await _recover();
+    return (needSms: false, message: '');
+  }
+
+  @override
+  Future<void> submitAccountSmsCode({
+    required CloudDriveType type,
+    required String code,
+  }) async {
+    // 对齐 iOS 天翼 189 `POST /website/api/pan189/sms/login {code}`。
+    if (type != CloudDriveType.pan189) {
+      throw const CloudDriveLoginException('该网盘无需短信二次校验');
+    }
+    await _node.pan189SmsLogin(code);
     await _recover();
   }
 

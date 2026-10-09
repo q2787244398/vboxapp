@@ -57,12 +57,19 @@ class _SheetGateway implements CloudDriveLoginGateway {
       throw const CloudDriveLoginException('Node 常驻系统未就绪');
 
   @override
-  Future<void> submitAccountLogin({
+  Future<CloudDriveAccountResult> submitAccountLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String account,
     required String password,
     String captchaCode = '',
+  }) async =>
+      throw const CloudDriveLoginException('Node 常驻系统未就绪');
+
+  @override
+  Future<void> submitAccountSmsCode({
+    required CloudDriveType type,
+    required String code,
   }) async =>
       throw const CloudDriveLoginException('Node 常驻系统未就绪');
 

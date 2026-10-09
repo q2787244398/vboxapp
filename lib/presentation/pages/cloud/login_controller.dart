@@ -52,6 +52,7 @@ class CloudDriveLoginController extends ChangeNotifier {
   String? _qrDataUrl;
   String? _taskId;
   int _countdown = 0;
+  bool _accountNeedsSms = false;
   Timer? _pollTimer;
   Timer? _cooldownTimer;
   bool _disposed = false;
@@ -73,6 +74,11 @@ class CloudDriveLoginController extends ChangeNotifier {
 
   /// 短信冷却是否进行中（按钮置灰）。
   bool get smsCooldownActive => _countdown > 0;
+
+  /// 账号登录是否处于「待短信二次校验」态（天翼 189，对齐 iOS `needSms`）。
+  ///
+  /// 为 true 时 UI 应展示短信验证码输入并改调 [loginWithAccountSms]。
+  bool get accountNeedsSms => _accountNeedsSms;
 
   /// 主按钮文案（扫码：生成 / 重新生成；短信：验证码登录 / 登录中…）。
   String get primaryLabel {
@@ -236,6 +242,10 @@ class CloudDriveLoginController extends ChangeNotifier {
   /// 账号密码登录（对齐 iOS `NodePan123LoginView` / `NodeWoniu4kLoginView`）。
   ///
   /// [captchaCode] 为图形验证码（蜗牛 `woniu4k` 需要；其余留空）。
+  ///
+  /// 对齐 iOS `NodePan189AccountLoginView.submit`：若网关返回 `needSms == true`
+  /// （天翼 189 二次校验），进入 [accountNeedsSms] 态（未登录成功），
+  /// 由 UI 追加验证码后调用 [loginWithAccountSms]。
   Future<void> loginWithAccount(
     String account,
     String password, {
@@ -255,7 +265,7 @@ class CloudDriveLoginController extends ChangeNotifier {
     _error = null;
     _setPhase(CloudDriveLoginPhase.loading, message: '正在登录…');
     try {
-      await _gateway.submitAccountLogin(
+      final CloudDriveAccountResult result = await _gateway.submitAccountLogin(
         type: driveType,
         mode: mode,
         account: user,
@@ -263,6 +273,36 @@ class CloudDriveLoginController extends ChangeNotifier {
         captchaCode: captchaCode,
       );
       if (_disposed) return;
+      _accountNeedsSms = result.needSms;
+      if (result.needSms) {
+        _setPhase(
+          CloudDriveLoginPhase.idle,
+          message: result.message.isEmpty ? '请输入短信验证码' : result.message,
+        );
+      } else {
+        _setPhase(CloudDriveLoginPhase.success, message: '登录成功');
+      }
+    } on CloudDriveLoginException catch (e) {
+      _fail(e.message);
+    } catch (e) {
+      _fail('$e');
+    }
+  }
+
+  /// 账号登录的短信二次校验（对齐 iOS 天翼 189 的 `needSms` 分支）。
+  Future<void> loginWithAccountSms(String code) async {
+    final String trimmed = code.trim();
+    if (trimmed.isEmpty) {
+      _error = '请输入短信验证码';
+      _safeNotify();
+      return;
+    }
+    _error = null;
+    _setPhase(CloudDriveLoginPhase.loading, message: '正在验证短信…');
+    try {
+      await _gateway.submitAccountSmsCode(type: driveType, code: trimmed);
+      if (_disposed) return;
+      _accountNeedsSms = false;
       _setPhase(CloudDriveLoginPhase.success, message: '登录成功');
     } on CloudDriveLoginException catch (e) {
       _fail(e.message);

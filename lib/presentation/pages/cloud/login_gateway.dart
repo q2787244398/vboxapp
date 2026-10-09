@@ -31,6 +31,13 @@ String? qrContentOf(String? qrDataUrl) {
   return content.isEmpty ? null : content;
 }
 
+/// 账号登录提交结果（对齐 iOS `NodePan189AccountLoginView.submit` 的 `sms` 分支）。
+///
+/// [needSms] 为 true 表示 Node 已接受账号密码但需**短信二次校验**
+/// （天翼 189 开启二次校验时）；此时**尚未登录成功**，须由 UI 追加验证码后
+/// 调用 [CloudDriveLoginGateway.submitAccountSmsCode] 完成。否则登录成功。
+typedef CloudDriveAccountResult = ({bool needSms, String message});
+
 /// 登录网关错误（文案对齐 iOS `NodeLoginError`）。
 class CloudDriveLoginException implements Exception {
   /// 构造。
@@ -94,12 +101,24 @@ abstract interface class CloudDriveLoginGateway {
   /// 成功后由实现侧回收凭据并同步到本机安全存储。
   ///
   /// [captchaCode] 为图形验证码（蜗牛 `woniu4k` 需要；其余传空）。
-  Future<void> submitAccountLogin({
+  ///
+  /// 返回 [CloudDriveAccountResult]：`needSms == true` 表示 Node 要求短信二次校验
+  /// （天翼 189，对齐 iOS `NodePan189AccountLoginView.submit` 的 `needSms` 分支），
+  /// 此时未登录成功、不回收凭据；否则登录成功并由实现侧回收凭据。
+  Future<CloudDriveAccountResult> submitAccountLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String account,
     required String password,
     String captchaCode = '',
+  });
+
+  /// 账号登录的**短信二次校验**（对齐 iOS 天翼 189 `POST /website/api/pan189/sms/login`）。
+  ///
+  /// 仅当 [submitAccountLogin] 返回 `needSms == true` 时调用；成功后回收凭据。
+  Future<void> submitAccountSmsCode({
+    required CloudDriveType type,
+    required String code,
   });
 
   /// 获取账号登录所需的**图形验证码**图片（data URL；无则 null）。
@@ -156,12 +175,19 @@ class UnavailableCloudDriveLoginGateway implements CloudDriveLoginGateway {
       throw const CloudDriveLoginException('Node 常驻系统未就绪');
 
   @override
-  Future<void> submitAccountLogin({
+  Future<CloudDriveAccountResult> submitAccountLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String account,
     required String password,
     String captchaCode = '',
+  }) async =>
+      throw const CloudDriveLoginException('Node 常驻系统未就绪');
+
+  @override
+  Future<void> submitAccountSmsCode({
+    required CloudDriveType type,
+    required String code,
   }) async =>
       throw const CloudDriveLoginException('Node 常驻系统未就绪');
 

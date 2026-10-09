@@ -20,6 +20,8 @@ class _FakeGateway implements CloudDriveLoginGateway {
     this.smsSendError,
     this.smsSubmitError,
     this.accountError,
+    this.accountNeedSms = false,
+    this.accountSmsMessage = '',
   }) : _pollScript = List<CloudDriveLoginPhase>.of(pollScript);
 
   static const String _qrDataUrl = 'data:image/png;base64,AAAA';
@@ -30,6 +32,8 @@ class _FakeGateway implements CloudDriveLoginGateway {
   final String? smsSendError;
   final String? smsSubmitError;
   final String? accountError;
+  final bool accountNeedSms;
+  final String accountSmsMessage;
 
   int startCalls = 0;
   int cancelCalls = 0;
@@ -39,6 +43,7 @@ class _FakeGateway implements CloudDriveLoginGateway {
   String? lastCode;
   String? lastAccount;
   String? lastPassword;
+  String? lastAccountSmsCode;
   String? lastProviderOverride;
 
   @override
@@ -96,7 +101,7 @@ class _FakeGateway implements CloudDriveLoginGateway {
   }
 
   @override
-  Future<void> submitAccountLogin({
+  Future<CloudDriveAccountResult> submitAccountLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String account,
@@ -106,6 +111,17 @@ class _FakeGateway implements CloudDriveLoginGateway {
     lastAccount = account;
     lastPassword = password;
     final String? error = accountError;
+    if (error != null) throw CloudDriveLoginException(error);
+    return (needSms: accountNeedSms, message: accountSmsMessage);
+  }
+
+  @override
+  Future<void> submitAccountSmsCode({
+    required CloudDriveType type,
+    required String code,
+  }) async {
+    lastAccountSmsCode = code;
+    final String? error = smsSubmitError;
     if (error != null) throw CloudDriveLoginException(error);
   }
 
@@ -353,6 +369,66 @@ void main() {
       addTearDown(controller.dispose);
       expect(controller.tipText, contains('账号 + 密码'));
       expect(controller.tipText, contains('授权中心'));
+    });
+
+    test('189 账号需二次校验 → idle + accountNeedsSms + 携带 Node msg', () async {
+      final _FakeGateway gateway = _FakeGateway(
+        accountNeedSms: true,
+        accountSmsMessage: '请输入短信验证码',
+      );
+      final CloudDriveLoginController controller =
+          accountController(gateway);
+      addTearDown(controller.dispose);
+
+      await controller.loginWithAccount('tianyi', 'pwd');
+
+      expect(controller.accountNeedsSms, isTrue);
+      expect(controller.phase, CloudDriveLoginPhase.idle);
+      expect(controller.message, '请输入短信验证码');
+      expect(controller.error, isNull);
+    });
+
+    test('二次校验态提交验证码 → success 并清除 accountNeedsSms', () async {
+      final _FakeGateway gateway = _FakeGateway(accountNeedSms: true);
+      final CloudDriveLoginController controller =
+          accountController(gateway);
+      addTearDown(controller.dispose);
+
+      await controller.loginWithAccount('tianyi', 'pwd');
+      await controller.loginWithAccountSms(' 8888 ');
+
+      expect(gateway.lastAccountSmsCode, '8888');
+      expect(controller.accountNeedsSms, isFalse);
+      expect(controller.phase, CloudDriveLoginPhase.success);
+    });
+
+    test('二次校验态验证码为空 → 报「请输入短信验证码」且不调用网关', () async {
+      final _FakeGateway gateway = _FakeGateway(accountNeedSms: true);
+      final CloudDriveLoginController controller =
+          accountController(gateway);
+      addTearDown(controller.dispose);
+
+      await controller.loginWithAccount('tianyi', 'pwd');
+      await controller.loginWithAccountSms('   ');
+
+      expect(controller.error, '请输入短信验证码');
+      expect(gateway.lastAccountSmsCode, isNull);
+    });
+
+    test('二次校验提交失败 → failed + 错误文案', () async {
+      final _FakeGateway gateway = _FakeGateway(
+        accountNeedSms: true,
+        smsSubmitError: '验证码错误',
+      );
+      final CloudDriveLoginController controller =
+          accountController(gateway);
+      addTearDown(controller.dispose);
+
+      await controller.loginWithAccount('tianyi', 'pwd');
+      await controller.loginWithAccountSms('0000');
+
+      expect(controller.phase, CloudDriveLoginPhase.failed);
+      expect(controller.error, '验证码错误');
     });
   });
 

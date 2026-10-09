@@ -158,12 +158,19 @@ class AliyunPgLoginGateway implements CloudDriveLoginGateway {
       throw const CloudDriveLoginException('PG 扫码登录仅支持扫码档');
 
   @override
-  Future<void> submitAccountLogin({
+  Future<CloudDriveAccountResult> submitAccountLogin({
     required CloudDriveType type,
     required CloudDriveLoginMode mode,
     required String account,
     required String password,
     String captchaCode = '',
+  }) async =>
+      throw const CloudDriveLoginException('PG 扫码登录仅支持扫码档');
+
+  @override
+  Future<void> submitAccountSmsCode({
+    required CloudDriveType type,
+    required String code,
   }) async =>
       throw const CloudDriveLoginException('PG 扫码登录仅支持扫码档');
 

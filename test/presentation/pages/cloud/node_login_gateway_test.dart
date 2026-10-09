@@ -565,24 +565,54 @@ void main() {
       expect(cred.calls, <String>['GET /website/api/credentials']);
     });
 
-    test('189 账号需二次校验 → 抛错携带 Node msg', () async {
+    test('189 账号需二次校验 → 返回 needSms，登录未完成且不回收凭据', () async {
       final _FakeNodeLoginTransport node = _FakeNodeLoginTransport(
         (_, __, ___) =>
             <String, dynamic>{'code': 0, 'sms': true, 'msg': '需短信'},
       );
+      final _RecordingCredentialClient cred = _RecordingCredentialClient();
+      final NodeCloudDriveLoginGateway gateway = gatewayWith(
+        (_, __) => <String, dynamic>{},
+        nodeTransport: node,
+        credentialClient: cred,
+      );
+      final CloudDriveAccountResult result = await gateway.submitAccountLogin(
+        type: CloudDriveType.pan189,
+        mode: CloudDriveLoginMode.nodeAccount,
+        account: 'a',
+        password: 'p',
+      );
+      expect(result.needSms, isTrue);
+      expect(result.message, '需短信');
+      expect(node.calls, contains('PUT ${NodeLoginPaths.pan189Account}'));
+      // 二次校验阶段尚未登录成功，不回写凭据。
+      expect(cred.calls, isEmpty);
+    });
+
+    test('189 短信二次校验 → 走 pan189/sms/login 并回收凭据', () async {
+      final _FakeNodeLoginTransport node = _FakeNodeLoginTransport(
+        (_, __, ___) => <String, dynamic>{'code': 0},
+      );
+      final _RecordingCredentialClient cred = _RecordingCredentialClient();
+      final NodeCloudDriveLoginGateway gateway = gatewayWith(
+        (_, __) => <String, dynamic>{},
+        nodeTransport: node,
+        credentialClient: cred,
+      );
+      await gateway.submitAccountSmsCode(
+        type: CloudDriveType.pan189,
+        code: '8888',
+      );
+      expect(node.calls, contains('POST ${NodeLoginPaths.pan189SmsLogin}'));
+      expect(cred.calls, <String>['GET /website/api/credentials']);
+    });
+
+    test('非 189 盘不支持短信二次校验', () async {
       final NodeCloudDriveLoginGateway gateway =
-          gatewayWith((_, __) => <String, dynamic>{}, nodeTransport: node);
+          gatewayWith((_, __) => <String, dynamic>{});
       await expectLater(
-        gateway.submitAccountLogin(
-          type: CloudDriveType.pan189,
-          mode: CloudDriveLoginMode.nodeAccount,
-          account: 'a',
-          password: 'p',
-        ),
-        throwsA(
-          isA<CloudDriveLoginException>()
-              .having((CloudDriveLoginException e) => e.message, 'message', '需短信'),
-        ),
+        gateway.submitAccountSmsCode(type: CloudDriveType.pan123, code: '1'),
+        throwsA(isA<CloudDriveLoginException>()),
       );
     });
   });

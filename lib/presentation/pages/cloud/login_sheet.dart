@@ -827,6 +827,7 @@ class _CloudDriveAccountLoginSheetState
   final TextEditingController _account = TextEditingController();
   final TextEditingController _password = TextEditingController();
   final TextEditingController _verify = TextEditingController();
+  final TextEditingController _smsCode = TextEditingController();
   String? _captchaImage;
   bool _captchaLoading = false;
 
@@ -843,6 +844,7 @@ class _CloudDriveAccountLoginSheetState
     _account.addListener(_onChanged);
     _password.addListener(_onChanged);
     _verify.addListener(_onChanged);
+    _smsCode.addListener(_onChanged);
     // 对齐 iOS `NodeWoniu4kLoginView.onAppear { fetchVerify() }`（首帧后拉取）。
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadCaptcha());
   }
@@ -867,7 +869,14 @@ class _CloudDriveAccountLoginSheetState
   bool get _needsCaptcha => _captchaImage != null;
 
   /// 提交账号登录；失败时刷新图形验证码（对齐 iOS 提交失败自动换图）。
+  ///
+  /// 天翼 189 二次校验态（[accountNeedsSms]）改走短信验证码分支
+  /// （对齐 iOS `NodePan189AccountLoginView.submit` 的 `needSms` 分支）。
   Future<void> _submit() async {
+    if (_controller.accountNeedsSms) {
+      await _controller.loginWithAccountSms(_smsCode.text);
+      return;
+    }
     await _controller.loginWithAccount(
       _account.text,
       _password.text,
@@ -889,18 +898,26 @@ class _CloudDriveAccountLoginSheetState
     _account.dispose();
     _password.dispose();
     _verify.dispose();
+    _smsCode.dispose();
     super.dispose();
   }
 
-  bool get _canLogin =>
-      _account.text.trim().isNotEmpty &&
-      _password.text.isNotEmpty &&
-      (!_needsCaptcha || _verify.text.trim().isNotEmpty) &&
-      _controller.phase != CloudDriveLoginPhase.loading;
+  bool get _canLogin {
+    // 二次校验态仅需短信验证码（对齐 iOS `canSubmit` 的 `needSms` 分支）。
+    if (_controller.accountNeedsSms) {
+      return _smsCode.text.trim().isNotEmpty &&
+          _controller.phase != CloudDriveLoginPhase.loading;
+    }
+    return _account.text.trim().isNotEmpty &&
+        _password.text.isNotEmpty &&
+        (!_needsCaptcha || _verify.text.trim().isNotEmpty) &&
+        _controller.phase != CloudDriveLoginPhase.loading;
+  }
 
   /// 账号档状态主行（按账号语义替换扫码档的 `phase.displayText`）。
   String get _statusTitle => switch (_controller.phase) {
-        CloudDriveLoginPhase.idle => '输入账号密码登录',
+        CloudDriveLoginPhase.idle =>
+          _controller.accountNeedsSms ? '请输入短信验证码' : '输入账号密码登录',
         CloudDriveLoginPhase.success => '登录成功',
         CloudDriveLoginPhase.failed => '登录失败',
         CloudDriveLoginPhase.loading ||
@@ -946,7 +963,13 @@ class _CloudDriveAccountLoginSheetState
               ),
               const SizedBox(height: VboxSpacing.lg),
               LoginPrimaryButton(
-                label: phase == CloudDriveLoginPhase.loading ? '登录中…' : '登录并保存',
+                label: _controller.accountNeedsSms
+                    ? (_controller.phase == CloudDriveLoginPhase.loading
+                        ? '验证中…'
+                        : '验证短信并登录')
+                    : (phase == CloudDriveLoginPhase.loading
+                        ? '登录中…'
+                        : '登录并保存'),
                 enabled: _canLogin,
                 onTap: _submit,
               ),
@@ -984,6 +1007,14 @@ class _CloudDriveAccountLoginSheetState
             hintText: '${widget.driveType.displayName}密码',
             obscureText: true,
           ),
+          // 短信二次校验（天翼 189，对齐 iOS `NodePan189AccountLoginView` 的
+          // `needSms` 态：账号密码提交后由 Node 下发短信，此处补录验证码）。
+          if (_controller.accountNeedsSms)
+            LoginTextField(
+              key: const ValueKey<String>('cloud_login_sms_code'),
+              controller: _smsCode,
+              hintText: '短信验证码',
+            ),
           // 图形验证码（对齐 iOS `NodeWoniu4kLoginView`：验证码输入 + 图 120×40）。
           if (_needsCaptcha)
             Row(
