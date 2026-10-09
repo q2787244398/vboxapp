@@ -98,4 +98,145 @@ class CloudDriveCredentialStore {
   /// 是否已持有可用密钥（授权中心「已获取」判定）。
   Future<bool> hasCredentials(CloudDriveType type) async =>
       (await credential(type))?.hasSecret ?? false;
+
+  // ─────────────────────────────────────────────────────────
+  // 手动 Token 向量（对齐 iOS `CloudDriveManager.savedTokens`）
+  // ─────────────────────────────────────────────────────────
+
+  /// 读取手动 Token 向量（对齐 iOS `CloudDriveManager.loadTokens`）。
+  ///
+  /// 优先 Keychain 账号 `saved_drive_tokens_v1`；为空时回退遗留键
+  /// `saved_drive_tokens`（对齐 iOS 从 UserDefaults 的一次性迁移读取，不回写）。
+  Future<List<DriveToken>> loadTokens() async {
+    final List<DriveToken>? v1 = _decodeTokens(await _prefs.get(savedTokensV1Key));
+    if (v1 != null) return v1;
+    return _decodeTokens(await _prefs.get(savedTokensKey)) ??
+        const <DriveToken>[];
+  }
+
+  /// 写入手动 Token 向量（对齐 iOS `CloudDriveManager.saveTokens`）。
+  Future<void> saveTokens(List<DriveToken> tokens) => _prefs.set(
+        savedTokensV1Key,
+        jsonEncode(<dynamic>[
+          for (final DriveToken token in tokens) token.toJson(),
+        ]),
+      );
+
+  /// 新增 / 覆盖手动 Token（对齐 iOS `CloudDriveManager.addToken`：
+  /// 先移除同盘同名项，再追加）。
+  Future<void> addToken(DriveToken token) async {
+    final List<DriveToken> tokens = List<DriveToken>.of(await loadTokens())
+      ..removeWhere((DriveToken t) =>
+          t.type == token.type && t.name == token.name)
+      ..add(token);
+    await saveTokens(tokens);
+  }
+
+  /// 取指定网盘的 Token 向量（对齐 iOS `CloudDriveManager.tokens(for:)`）。
+  ///
+  /// = 手动 Token 向量（百度仅保留 PCS / 账号 Web 形态）
+  ///   + 授权中心主密钥（对齐 `bestTokenValue`；非百度插入队首，百度追加队尾）。
+  Future<List<DriveToken>> tokensFor(CloudDriveType type) async {
+    List<DriveToken> tokens = (await loadTokens())
+        .where((DriveToken t) => t.type == type.id)
+        .toList();
+    if (type == CloudDriveType.baidu) {
+      tokens = tokens
+          .where((DriveToken t) =>
+              isBaiduPcsToken(t) || isBaiduAccountWebToken(t))
+          .toList();
+    }
+    final CloudDriveCredential? credential = await credential(type);
+    final String? value = _bestTokenValue(type, credential);
+    if (value != null && !tokens.any((DriveToken t) => t.value == value)) {
+      final bool named = credential?.userName?.isNotEmpty ?? false;
+      final DriveToken authToken = DriveToken(
+        type: type.id,
+        name: named ? credential!.userName! : '授权中心',
+        value: value,
+      );
+      // 百度 Worker 链路优先保持旧手动 Token 顺序，授权中心仅作兜底（队尾）。
+      if (type == CloudDriveType.baidu) {
+        tokens.add(authToken);
+      } else {
+        tokens.insert(0, authToken);
+      }
+    }
+    return tokens;
+  }
+
+  /// 百度双 Token 配对（对齐 iOS `CloudDriveManager.baiduTokenPair()`）。
+  ///
+  /// Web Cookie 必须为账号形态（BDUSS + STOKEN），否则返回 null；
+  /// PCS Cookie 仅取授权中心 `extra["pcs_cookie"]` 的最新值（不回退手动向量）。
+  Future<BaiduTokenPair?> baiduTokenPair() async {
+    final List<DriveToken> list = await tokensFor(CloudDriveType.baidu);
+    if (list.isEmpty) return null;
+
+    final CloudDriveCredential? credential =
+        await credential(CloudDriveType.baidu);
+    final String? cookie = credential?.cookie;
+    DriveToken? web;
+    if (isBaiduAccountWebCookie(cookie)) {
+      final bool named = credential?.userName?.isNotEmpty ?? false;
+      web = DriveToken(
+        type: CloudDriveType.baidu.id,
+        name: named ? credential!.userName! : '授权中心',
+        value: cookie!,
+      );
+    } else {
+      for (final DriveToken token in list) {
+        if (isBaiduAccountWebToken(token)) {
+          web = token;
+          break;
+        }
+      }
+    }
+    if (web == null) return null;
+
+    final String? pcsValue = credential?.extra['pcs_cookie'];
+    final DriveToken? pcs =
+        (pcsValue != null && isBaiduPcsCookie(pcsValue))
+            ? DriveToken(
+                type: CloudDriveType.baidu.id,
+                name: '授权中心-PCS',
+                value: pcsValue,
+              )
+            : null;
+    return BaiduTokenPair(web: web, pcs: pcs);
+  }
+
+  /// 授权中心主密钥（对齐 iOS `CloudDriveAuthManager.bestTokenValue(for:)`：
+  /// 百度必须为账号 Web 形态，否则视为无值）。
+  static String? _bestTokenValue(
+    CloudDriveType type,
+    CloudDriveCredential? credential,
+  ) {
+    final String? value = credential?.primarySecret;
+    if (value == null) return null;
+    if (type == CloudDriveType.baidu && !isBaiduAccountWebCookie(value)) {
+      return null;
+    }
+    return value;
+  }
+
+  /// JSON 数组字符串 → Token 向量（非法 / 非数组返回 null）。
+  static List<DriveToken>? _decodeTokens(Object? raw) {
+    if (raw is! String || raw.isEmpty) return null;
+    Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! List) return null;
+    return <DriveToken>[
+      for (final Object? item in decoded)
+        if (item is Map)
+          DriveToken.fromJson(<String, dynamic>{
+            for (final MapEntry<Object?, Object?> e in item.entries)
+              e.key.toString(): e.value,
+          }),
+    ];
+  }
 }

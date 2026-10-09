@@ -124,14 +124,6 @@ class PanPlayer {
     }
   }
 
-  /// 百度 PCS 设备 Cookie（对齐 iOS `credential.extra["pcs_cookie"]`）。
-  ///
-  /// 注入 [cookieFor] 替身时无 extra，返回空串（行为等价 iOS `pair.pcs == nil`）。
-  Future<String> _baiduPcsCookie() async {
-    if (_cookieFor != null) return '';
-    return (await _credential(CloudDriveType.baidu))?.extra['pcs_cookie'] ?? '';
-  }
-
   /// 阿里云盘 PG 播放所需 Refresh Token（对齐 iOS `credential.refreshToken`）。
   Future<String> _aliyunRefreshToken() async =>
       (await _credential(CloudDriveType.ali))?.refreshToken ?? '';
@@ -157,6 +149,66 @@ class PanPlayer {
     return (await _credential(CloudDriveType.uc))?.extra['uc_tv_token'] ?? '';
   }
 
+  /// 取指定网盘的 Token 向量（对齐 iOS `CloudDriveManager.tokens(for:)`）。
+  ///
+  /// 注入 [cookieFor] 替身时以后者构造单元素向量（测试替身等价 iOS 手动 Token）。
+  Future<List<DriveToken>> _tokensFor(CloudDriveType type) async {
+    final Future<String> Function(CloudDriveType)? provider = _cookieFor;
+    if (provider != null) {
+      final String value = await provider(type);
+      return value.isEmpty
+          ? const <DriveToken>[]
+          : <DriveToken>[DriveToken(type: type.id, name: '注入凭据', value: value)];
+    }
+    try {
+      return await CloudDriveCredentialStore(PrefsManager.instance)
+          .tokensFor(type);
+    } catch (_) {
+      return const <DriveToken>[];
+    }
+  }
+
+  /// 百度双 Token 配对（对齐 iOS `CloudDriveManager.baiduTokenPair()`）。
+  ///
+  /// 注入 [cookieFor] 替身时以其构造 Web Token（无 PCS）。
+  Future<BaiduTokenPair?> _baiduTokenPair() async {
+    final Future<String> Function(CloudDriveType)? provider = _cookieFor;
+    if (provider != null) {
+      final String value = await provider(CloudDriveType.baidu);
+      return value.isEmpty
+          ? null
+          : BaiduTokenPair(
+              web: DriveToken(
+                type: CloudDriveType.baidu.id,
+                name: '注入凭据',
+                value: value,
+              ),
+            );
+    }
+    try {
+      return await CloudDriveCredentialStore(PrefsManager.instance)
+          .baiduTokenPair();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 播放前「凭据非空」统一前置校验（对齐 iOS `handleDriveUrl` 的
+  /// `guard !tokens.isEmpty` → 「未配置<盘名> Token」）。
+  ///
+  /// 仅对需要本地 Token 的通道生效：Node 托管盘（走 Node 常驻系统，不依赖
+  /// 本地凭据）与未支持盘跳过；缺失时统一文案（此前各盘分支自报、口径不一）。
+  Future<void> _ensureTokens(CloudDriveType type) async {
+    final PanPlayChannel channel = channelFor(type);
+    if (channel != PanPlayChannel.native && channel != PanPlayChannel.pgAli) {
+      return;
+    }
+    final List<DriveToken> tokens = await _tokensFor(type);
+    if (tokens.isEmpty) {
+      throw PanPlayException('未配置${type.displayName} Token');
+    }
+  }
+
   /// 播放控制器（缺省取全局单例）。
   PlayerController get controller => _controller ??= PlayerController.instance;
 
@@ -174,6 +226,7 @@ class PanPlayer {
 
   /// 解析分享链接 → 条目列表（Node 托管盘 / 夸克原生）。
   Future<NodePanShare> resolveShare(CloudDriveType type, String shareUrl) async {
+    await _ensureTokens(type);
     switch (channelFor(type)) {
       case PanPlayChannel.nodePan:
         return _client.resolveShare(shareUrl);
@@ -198,12 +251,16 @@ class PanPlayer {
           );
         }
         if (type == CloudDriveType.baidu) {
-          final String cookie = await _cookie(type);
+          // F-P17：经 baiduTokenPair 取 Web Cookie（账号态 BDUSS+STOKEN）。
+          final BaiduTokenPair? pair = await _baiduTokenPair();
+          if (pair == null) {
+            throw const PanPlayException('未配置百度网盘 Token');
+          }
           final List<BaiduFileItem> files;
           try {
             files = await _baiduIBox.getFileList(
               shareUrl: shareUrl,
-              cookie: cookie,
+              cookie: pair.web.value,
             );
           } on BaiduIBoxException catch (e) {
             throw PanPlayException(e.message);
@@ -274,6 +331,7 @@ class PanPlayer {
     String? sourceKey,
     DateTime? now,
   }) async {
+    await _ensureTokens(type);
     final DateTime stamp = now ?? DateTime.now();
     final String playURL;
     final String fileName;
@@ -318,15 +376,18 @@ class PanPlayer {
           }
           source = 'quark-native';
         } else if (type == CloudDriveType.baidu) {
-          final String cookie = await _cookie(type);
-          final String pcsCookie = await _baiduPcsCookie();
+          // F-P17：Web Cookie（bduss）与 PCS Cookie 分离取用（对齐 iOS baiduTokenPair）。
+          final BaiduTokenPair? pair = await _baiduTokenPair();
+          if (pair == null) {
+            throw const PanPlayException('未配置百度网盘 Token');
+          }
           final BaiduPlayResult r;
           try {
             r = await _baiduIBox.resolvePlayURL(
               shareUrl: shareUrl,
-              bduss: cookie,
+              bduss: pair.web.value,
               fsId: entry.playID,
-              pcsCookie: pcsCookie,
+              pcsCookie: pair.pcs?.value ?? '',
             );
           } on BaiduIBoxException catch (e) {
             throw PanPlayException(e.message);

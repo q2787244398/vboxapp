@@ -344,7 +344,8 @@ class CloudDriveAuthController extends ChangeNotifier {
   /// 手动粘贴保存 Token / Cookie（对齐 iOS `addDriveTokenFromFallback`）。
   ///
   /// 写入契约安全存储 `cloud_drive_credentials_v1`：`userName` 存备注名，
-  /// 主密钥按网盘类型落到合适字段（百度 → cookie，其余 → accessToken）。
+  /// 主密钥按网盘类型落到合适字段（百度 → cookie，其余 → accessToken）；
+  /// 同时追加到手动 Token 向量 `saved_drive_tokens_v1`（对齐 iOS `addToken`）。
   Future<void> saveManualToken(
     CloudDriveType type,
     String name,
@@ -362,6 +363,7 @@ class CloudDriveAuthController extends ChangeNotifier {
       state: CloudDriveAuthState.valid,
     );
     await _store.save(credential);
+    await _store.addToken(DriveToken(type: type.id, name: name, value: value));
     await load();
   }
 

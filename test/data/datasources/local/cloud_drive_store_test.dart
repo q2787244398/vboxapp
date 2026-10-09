@@ -219,4 +219,129 @@ void main() {
       );
     });
   });
+
+  group('CloudDriveCredentialStore · Token 向量（F-P17）', () {
+    test('空存储 loadTokens = []', () async {
+      expect(await credStore.loadTokens(), isEmpty);
+      expect(await credStore.tokensFor(CloudDriveType.quark), isEmpty);
+    });
+
+    test('saveTokens → loadTokens 往返（三字段保持）', () async {
+      await credStore.saveTokens(<DriveToken>[
+        const DriveToken(type: 'quark', name: 'A', value: 'ck=1'),
+        const DriveToken(type: 'baidu', name: 'B', value: 'BDUSS=x; STOKEN=y'),
+      ]);
+      final List<DriveToken> back = await credStore.loadTokens();
+      expect(back.length, 2);
+      expect(back.first.type, 'quark');
+      expect(back.first.name, 'A');
+      expect(back.first.value, 'ck=1');
+      expect(back.last.value, 'BDUSS=x; STOKEN=y');
+    });
+
+    test('addToken 同盘同名覆盖、异名并存（对齐 iOS addToken）', () async {
+      await credStore.addToken(
+        const DriveToken(type: 'quark', name: 'A', value: 'v1'),
+      );
+      await credStore.addToken(
+        const DriveToken(type: 'quark', name: 'B', value: 'v2'),
+      );
+      await credStore.addToken(
+        const DriveToken(type: 'quark', name: 'A', value: 'v3'),
+      );
+      final List<DriveToken> tokens = await credStore.loadTokens();
+      expect(tokens.length, 2);
+      expect(
+        tokens.firstWhere((DriveToken t) => t.name == 'A').value,
+        'v3',
+      );
+    });
+
+    test('遗留键 saved_drive_tokens 兜底读取（v1 为空时）', () async {
+      await pm.set(
+        CloudDriveCredentialStore.savedTokensKey,
+        jsonEncode(<dynamic>[
+          <String, dynamic>{'type': 'uc', 'name': '旧', 'value': 'k=v'},
+        ]),
+      );
+      final List<DriveToken> tokens = await credStore.loadTokens();
+      expect(tokens.single.type, 'uc');
+      expect(tokens.single.value, 'k=v');
+    });
+
+    test('tokensFor 合并手动向量 + 授权中心主密钥（非百度插队首）', () async {
+      await credStore.addToken(
+        const DriveToken(type: 'quark', name: '手动', value: 'manual'),
+      );
+      await credStore.save(
+        _cred(CloudDriveType.quark, cookie: 'auth-cookie', userName: '账号'),
+      );
+      final List<DriveToken> tokens =
+          await credStore.tokensFor(CloudDriveType.quark);
+      expect(tokens.length, 2);
+      expect(tokens.first.value, 'auth-cookie');
+      expect(tokens.first.name, '账号');
+      expect(tokens.last.value, 'manual');
+    });
+
+    test('tokensFor 百度过滤非 PCS / Web 形态 token', () async {
+      await credStore.saveTokens(<DriveToken>[
+        const DriveToken(type: 'baidu', name: 'pcs', value: 'PANPSC=a'),
+        const DriveToken(type: 'baidu', name: 'web', value: 'BDUSS=a; STOKEN=b'),
+        const DriveToken(type: 'baidu', name: '垃圾', value: 'hello'),
+        const DriveToken(type: 'quark', name: 'x', value: 'z'),
+      ]);
+      final List<DriveToken> tokens =
+          await credStore.tokensFor(CloudDriveType.baidu);
+      expect(tokens.length, 2);
+      expect(tokens.any((DriveToken t) => t.value == 'hello'), isFalse);
+      expect(tokens.any((DriveToken t) => t.value == 'PANPSC=a'), isTrue);
+    });
+
+    test('baiduTokenPair：Web 取账号 Cookie，PCS 取 extra（对齐 iOS）', () async {
+      await credStore.save(
+        CloudDriveCredential(
+          driveType: CloudDriveType.baidu.id,
+          cookie: 'BDUSS=web; STOKEN=tok',
+          userName: '百度账号',
+          updatedAt: DateTime(2026, 1, 1),
+          extra: <String, String>{'pcs_cookie': 'PANPSC=pcs'},
+        ),
+      );
+      final BaiduTokenPair? pair = await credStore.baiduTokenPair();
+      expect(pair, isNotNull);
+      expect(pair!.web.value, 'BDUSS=web; STOKEN=tok');
+      expect(pair.web.name, '百度账号');
+      expect(pair.pcs?.value, 'PANPSC=pcs');
+      expect(pair.pcs?.name, '授权中心-PCS');
+    });
+
+    test('baiduTokenPair：非 PCS 形态 extra 值不入选，缺 Web Cookie 返回 null', () async {
+      await credStore.save(
+        CloudDriveCredential(
+          driveType: CloudDriveType.baidu.id,
+          cookie: 'PANPSC=only',
+          updatedAt: DateTime(2026, 1, 1),
+          extra: <String, String>{'pcs_cookie': 'invalid'},
+        ),
+      );
+      expect(await credStore.baiduTokenPair(), isNull);
+    });
+
+    test('Token 向量落安全存储（SharedPreferences 无明文）', () async {
+      await credStore.addToken(
+        const DriveToken(type: 'baidu', name: 'A', value: 'BDUSS=secret'),
+      );
+      final SharedPreferences raw = await SharedPreferences.getInstance();
+      expect(
+        raw.getString(CloudDriveCredentialStore.savedTokensV1Key),
+        isNull,
+      );
+      const FlutterSecureStorage secure = FlutterSecureStorage();
+      expect(
+        await secure.read(key: CloudDriveCredentialStore.savedTokensV1Key),
+        contains('BDUSS=secret'),
+      );
+    });
+  });
 }

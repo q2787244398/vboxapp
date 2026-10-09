@@ -234,6 +234,31 @@ class _FakeBaiduIBoxClient extends BaiduIBoxClient {
       );
 }
 
+/// 记录取链入参的假百度 iBox 客户端（F-P17 断言 Web / PCS Cookie 分离）。
+class _RecordingBaiduClient extends BaiduIBoxClient {
+  /// 最近一次 `resolvePlayURL` 的 bduss 入参。
+  String? lastBduss;
+
+  /// 最近一次 `resolvePlayURL` 的 pcsCookie 入参。
+  String? lastPcsCookie;
+
+  @override
+  Future<BaiduPlayResult> resolvePlayURL({
+    required String shareUrl,
+    required String bduss,
+    required String fsId,
+    String pcsCookie = '',
+  }) async {
+    lastBduss = bduss;
+    lastPcsCookie = pcsCookie;
+    return const BaiduPlayResult(
+      url: 'https://ibox/play.m3u8',
+      headers: <String, String>{'Referer': 'https://pan.baidu.com/'},
+      source: 'main-transfer-locatedownload',
+    );
+  }
+}
+
 /// 假百度 iBox 客户端（取链失败，用于错误映射断言）。
 class _FailingBaiduIBoxClient extends BaiduIBoxClient {
   @override
@@ -332,14 +357,27 @@ void main() {
   });
 
   group('通道守卫', () {
-    test('阿里云盘未授权 → 明确报错（缺 Refresh Token）', () async {
+    test('阿里云盘未配置凭据 → 统一前置校验报错（对齐 iOS guard !tokens.isEmpty）', () async {
       await expectLater(
         player.resolveShare(CloudDriveType.ali, 'https://www.alipan.com/s/x'),
         throwsA(
           isA<PanPlayException>().having(
             (PanPlayException e) => e.message,
             'msg',
-            contains('未授权'),
+            '未配置阿里云盘 Token',
+          ),
+        ),
+      );
+    });
+
+    test('原生盘缺失凭据 → 统一前置校验报错（未配置<盘名> Token）', () async {
+      await expectLater(
+        player.resolveShare(CloudDriveType.quark, 'https://pan.quark.cn/s/x'),
+        throwsA(
+          isA<PanPlayException>().having(
+            (PanPlayException e) => e.message,
+            'msg',
+            '未配置夸克网盘 Token',
           ),
         ),
       );
@@ -588,6 +626,53 @@ void main() {
             (PanPlayException e) => e.message,
             'msg',
             contains('未取得用户态 bdstoken'),
+          ),
+        ),
+      );
+    });
+
+    test('F-P17 经 baiduTokenPair 分离注入 Web（BDUSS+STOKEN）与 PCS Cookie', () async {
+      await CloudDriveCredentialStore(pm).save(
+        CloudDriveCredential(
+          driveType: CloudDriveType.baidu.id,
+          cookie: 'BDUSS=web; STOKEN=tok',
+          userName: '百度账号',
+          updatedAt: DateTime.now(),
+          extra: <String, String>{'pcs_cookie': 'PANPSC=pcs'},
+        ),
+      );
+      final _RecordingBaiduClient recorder = _RecordingBaiduClient();
+      final PanPlayer p = PanPlayer(
+        client: NodePanClient(transport: _happyTransport()),
+        cacheStore: cache,
+        controller: controller,
+        baiduIBoxClient: recorder,
+      );
+      await p.prepare(
+        type: CloudDriveType.baidu,
+        shareUrl: 'https://pan.baidu.com/s/1abc',
+        entry: const NodePanEntry(playID: '111', name: 'EP01.mp4'),
+        now: t0,
+      );
+      expect(recorder.lastBduss, 'BDUSS=web; STOKEN=tok');
+      expect(recorder.lastPcsCookie, 'PANPSC=pcs');
+    });
+
+    test('F-P17 百度仅 PCS 形态凭据（缺 Web Cookie）→ 前置校验报未配置', () async {
+      await CloudDriveCredentialStore(pm).save(
+        CloudDriveCredential(
+          driveType: CloudDriveType.baidu.id,
+          cookie: 'PANPSC=only',
+          updatedAt: DateTime.now(),
+        ),
+      );
+      await expectLater(
+        player.resolveShare(CloudDriveType.baidu, 'https://pan.baidu.com/s/1abc'),
+        throwsA(
+          isA<PanPlayException>().having(
+            (PanPlayException e) => e.message,
+            'msg',
+            '未配置百度网盘 Token',
           ),
         ),
       );

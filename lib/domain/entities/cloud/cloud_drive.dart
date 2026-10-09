@@ -395,6 +395,93 @@ class CloudDriveCredential {
   }
 }
 
+/// 手动保存的网盘 Token / Cookie（对齐 iOS `DriveToken`）。
+///
+/// 落盘位置：Keychain 账号 `saved_drive_tokens_v1`（契约 `storage: keychain`），
+/// 序列化形态为 `[DriveToken]` JSON 数组；[type] 为 [CloudDriveType.id]。
+///
+/// 与 [CloudDriveCredential] 的关系对齐 iOS：凭据对象存「授权中心扫码 / OAuth」
+/// 的账号态，本向量存「设置页手动粘贴」的原始 Token（百度 Web / PCS 双份）。
+class DriveToken {
+  /// 构造。
+  const DriveToken({
+    required this.type,
+    required this.name,
+    required this.value,
+  });
+
+  /// 网盘类型契约值（对应 [CloudDriveType.id]）。
+  final String type;
+
+  /// 备注名（对齐 iOS `name`；同盘同名视为同一槽位）。
+  final String name;
+
+  /// 密钥值（对齐 iOS `value`）。
+  final String value;
+
+  /// 反序列化（字段缺失回退空串，对齐 iOS `Codable` 缺省）。
+  factory DriveToken.fromJson(Map<String, dynamic> json) => DriveToken(
+        type: (json['type'] as String?) ?? '',
+        name: (json['name'] as String?) ?? '',
+        value: (json['value'] as String?) ?? '',
+      );
+
+  /// 序列化（对齐 iOS `DriveToken` 三字段）。
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'type': type,
+        'name': name,
+        'value': value,
+      };
+}
+
+/// 百度双 Token 配对（对齐 iOS `CloudDriveManager.baiduTokenPair()`）。
+class BaiduTokenPair {
+  /// 构造。
+  const BaiduTokenPair({required this.web, this.pcs});
+
+  /// Web Cookie（BDUSS + STOKEN，主路链必需）。
+  final DriveToken web;
+
+  /// PCS 高速 Cookie（可选，取自授权中心 `extra["pcs_cookie"]`）。
+  final DriveToken? pcs;
+}
+
+/// 百度账号 Web Cookie 判定（同时含 `BDUSS=` 与 `STOKEN=`）。
+///
+/// 对齐 iOS `CloudDriveManager.isBaiduAccountWebCookie`。
+bool isBaiduAccountWebCookie(String? value) {
+  final String lower = (value ?? '').toLowerCase();
+  return lower.contains('bduss=') && lower.contains('stoken=');
+}
+
+/// 百度 PCS 高速 Cookie 判定。
+///
+/// 对齐 iOS `CloudDriveManager.isBaiduPCSCookie`。
+bool isBaiduPcsCookie(String? value) {
+  final String lower = (value ?? '').toLowerCase();
+  return lower.contains('panpsc=') ||
+      lower.contains('ptoken=') ||
+      lower.contains('ptoken_bfess=') ||
+      lower.contains('ndut_fmt=') ||
+      lower.contains('nd_ftid=');
+}
+
+/// 百度 PCS 高速 Token 判定（名称特征或值形态，对齐 iOS `isBaiduPCSToken`）。
+bool isBaiduPcsToken(DriveToken token) {
+  final String name = token.name.toLowerCase();
+  if (name.contains('pcs') ||
+      name.contains('下载') ||
+      name.contains('直链') ||
+      name.contains('locatedownload')) {
+    return true;
+  }
+  return isBaiduPcsCookie(token.value);
+}
+
+/// 百度账号 Web Token 判定（对齐 iOS `isBaiduAccountWebToken`）。
+bool isBaiduAccountWebToken(DriveToken token) =>
+    isBaiduAccountWebCookie(token.value);
+
 /// Node 常驻系统运行状态（对齐 iOS `NodeRuntimeManager` 状态面）。
 enum NodeRuntimeState {
   /// 未知。
