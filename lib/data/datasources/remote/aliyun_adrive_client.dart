@@ -901,7 +901,8 @@ class AliyunAdriveClient {
     // 步骤6/7：交付地址 + 请求头组装。
     final String url = transcodeUrl ?? download!.url;
     final bool isTranscode = transcodeUrl != null || isTranscodeM3u8(url);
-    // 原画直链请求头（下载信息自带头 + 缺省 UA / Referer）。
+    // 原画直链请求头（下载信息自带头 + 缺省 UA / Referer；同时作转码主线的
+    // 兜底线路头，对齐 iOS L925-929 fallbackHeaders=directHeaders）。
     final Map<String, String> directHeaders =
         Map<String, String>.of(download?.headers ?? const <String, String>{});
     directHeaders.putIfAbsent(
@@ -909,12 +910,12 @@ class AliyunAdriveClient {
       () => PlaybackHeaders.aliyunDesktopUA,
     );
     directHeaders.putIfAbsent('Referer', () => PlaybackHeaders.aliyunReferer);
-    // 转码 m3u8 不注入 UA/Referer（集中层固化，避免 CDN 防盗链 -1102）。
-    final Map<String, String> headers = PlaybackHeaders.guardTranscode(
-      url: url,
-      headers: directHeaders,
-      forcedTranscode: isTranscode,
-    );
+    // 主线路请求头来自**命中线路**的响应（对齐 iOS AliyunPgPlayManager 步骤7
+    // `playHeaders = downloadInfo.headers`，L306）：分享转码线路不拼 download
+    // 响应的头，也不注入 UA/Referer——转码 m3u8 是带签名自鉴权 CDN 直链，注入
+    // 会被视频 CDN 防盗链拒绝（-1102）；仅原画直链保留服务端头 + 缺省注入。
+    final Map<String, String> headers =
+        isTranscode ? const <String, String>{} : directHeaders;
 
     // 兜底线路派生（对齐 iOS `resolveAliyunSharePlayURL` 拓扑）：
     //   转码为主 → 兜底原画直链（`download_url`）；

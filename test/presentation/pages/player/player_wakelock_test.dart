@@ -126,7 +126,11 @@ void main() {
     wake.calls.clear();
 
     tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    // 路由退场（MaterialPageRoute ~300ms）完成后 State 才 dispose；
+    // 零时长 pump 不够，分步推进至退场完成（探针实测 200ms 未退、600ms 已退）。
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();
 
     expect(wake.calls, <String>['disable'],

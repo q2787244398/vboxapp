@@ -250,14 +250,27 @@ void main() {
           isNull,
           reason: '仅含 4k 的 MP4 不得误判（iOS 刻意不含 4k 规则）',
         );
+        // iOS 规则表 `.mkv` 位次先于 hevc（PlayerViewsV2.swift L1316-1331），
+        // first-match 语义：同文件名命中多规则时取表序首个 → 'MKV 封装'。
         expect(
           PlayerBackendSelector.nodeCompatibilityReason('Movie 2024 hevc.mkv'),
-          'HEVC/H.265',
+          'MKV 封装',
+          reason: '.mkv 规则先于 hevc（iOS 表序）',
         );
         expect(PlayerBackendSelector.nodeCompatibilityReason('a.hdr.mp4'),
             'HDR 视频');
-        expect(PlayerBackendSelector.nodeCompatibilityReason('b.dts.mkv'),
-            'DTS 音轨');
+        expect(
+          PlayerBackendSelector.nodeCompatibilityReason('b.dts.mkv'),
+          'MKV 封装',
+          reason: '.mkv 规则先于 dts（iOS 表序）',
+        );
+        expect(
+          PlayerBackendSelector.nodeCompatibilityReason('Movie 2024 hevc.mp4'),
+          'HEVC/H.265',
+          reason: '无容器规则命中时 hevc 生效',
+        );
+        expect(PlayerBackendSelector.nodeCompatibilityReason('c.dts.mkv 混流'),
+            'MKV 封装');
       });
 
       test('hardContainerReason：139 硬容器清单（iOS L1337-1345）', () {

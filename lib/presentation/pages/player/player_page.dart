@@ -871,7 +871,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     }
     if (!PlaybackProgressStore.shouldResume(saved)) return;
     _resumePositionMs = saved * 1000;
-    _applyResumeIfNeeded();
+    // 仅当首帧已就绪（存储读取晚于首个进度事件）才补应用；否则等 onVideoSize
+    // / 首个进度事件触发（UI-F16 口径：未出画不 seek，防测试时序竞态）。
+    if (_firstFrameReady) _applyResumeIfNeeded();
   }
 
   /// 首帧就绪后应用一次续播 seek（幂等；切集复位后可再次应用）。

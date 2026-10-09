@@ -64,6 +64,10 @@ Widget _hostHome(_CountingDoubanUseCases uc) => MultiProvider(
     );
 
 void main() {
+  // DoubanHomeView._cachedFeed 是进程级 static 缓存：跨用例残留会让
+  // 「重组后不重新拉取」等断言失真（上个用例写入缓存后 homeFeed 不再被调用）。
+  setUp(DoubanHomeView.resetHomeFeedCacheForTest);
+
   group('UI-A1 双态常驻保活（对齐 iOS ZStack 结构）', () {
     testWidgets('豆瓣态与站点态同时挂载于 IndexedStack（不销毁重建）',
         (WidgetTester tester) async {
@@ -101,6 +105,7 @@ void main() {
 
       // 触发一次重组（尺寸变化 → build 重跑），常驻态不应重新初始化数据。
       tester.view.physicalSize = const Size(500, 900);
+      tester.view.devicePixelRatio = 1.0; // 500 逻辑宽（默认 dpr=3 → 166px 会溢出顶栏）
       addTearDown(tester.view.reset);
       await tester.pumpAndSettle();
 
@@ -160,16 +165,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('找剧集'), findsOneWidget);
 
-      // sheet 打开期间胶囊白字高亮（选中态）。
-      final Text title = tester.widget<Text>(find.text('剧集'));
-      expect(title.style?.color, Colors.white);
+      // sheet 打开期间胶囊白字高亮（选中态）。sheet 内部亦有「剧集」字样，
+      // 故以「存在白色前景的『剧集』Text」谓词断言，不依赖 finder 唯一性。
+      bool hasWhiteHighlighted() => tester
+          .widgetList<Text>(find.text('剧集'))
+          .any((Text t) => t.style?.color == Colors.white);
+      expect(hasWhiteHighlighted(), isTrue);
 
       await tester.tapAt(const Offset(10, 10));
       await tester.pumpAndSettle();
 
       // 关闭后恢复未选中前景色（不再是白色）。
-      final Text after = tester.widget<Text>(find.text('剧集'));
-      expect(after.style?.color, isNot(Colors.white));
+      expect(hasWhiteHighlighted(), isFalse);
     });
   });
 }

@@ -121,8 +121,15 @@ void main() {
 
     test('state == false → 取 error / message 文案', () async {
       final _FakeClient client = _FakeClient(
-        (_) async =>
-            http.Response('{"state":false,"error":"请重新登录"}', 200),
+        // 中文 body 必须显式 utf8（http.Response 默认 latin1 编码非 ASCII
+        // 会抛 Invalid argument → 走「网络错误」兜底文案，断言失真）。
+        (_) async => http.Response(
+          '{"state":false,"error":"请重新登录"}',
+          200,
+          headers: const <String, String>{
+            'content-type': 'application/json; charset=utf-8',
+          },
+        ),
       );
       final CloudDriveCredentialValidator validator =
           CloudDriveCredentialValidator(client: client);

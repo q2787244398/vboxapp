@@ -60,6 +60,14 @@ class DoubanHomeView extends StatefulWidget {
   /// 空则仅浏览）。
   final void Function(DoubanSubject subject)? onSubjectTap;
 
+  /// 测试隔离钩子：清空进程级首页缓存（`_DoubanHomeViewState._cachedFeed`）。
+  ///
+  /// @visibleForTesting，仅供 widget 测试 setUp 复位——static 缓存跨用例残留
+  /// 会让「重组后不重新拉取」等断言失真（同 library 访问 private State 静态成员）。
+  @visibleForTesting
+  static void resetHomeFeedCacheForTest() =>
+      _DoubanHomeViewState._cachedFeed = null;
+
   @override
   State<DoubanHomeView> createState() => _DoubanHomeViewState();
 }
