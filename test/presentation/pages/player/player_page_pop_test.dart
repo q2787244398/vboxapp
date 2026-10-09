@@ -12,7 +12,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/platform/player/danmaku/danmaku_service.dart';
 import 'package:vbox/platform/player/playback_route.dart';
