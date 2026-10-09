@@ -29,6 +29,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../../../domain/entities/cloud/pg_auto.dart';
+import '../../../platform/player/playback_headers.dart';
 import '../../../platform/spider/spider_http_bridge.dart';
 
 /// 阿里分享文件条目（对齐 iOS `PgShareFile`）。
@@ -161,9 +162,8 @@ class AliyunAdriveClient {
   static const String officialClientSecret =
       '8c7e2a1f3d5b4c6e9a8f2d3c1b4e5a6f';
 
-  /// 桌面 UA（对齐 iOS 直链默认头）。
-  static const String desktopUA =
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
+  /// 桌面 UA（对齐 iOS 直链默认头；集中层单一常量 [PlaybackHeaders.aliyunDesktopUA]）。
+  static const String desktopUA = PlaybackHeaders.aliyunDesktopUA;
 
   /// 可播放扩展名（对齐 iOS `pgIsPlayable`）。
   static const List<String> playableExts = <String>[
@@ -231,15 +231,10 @@ class AliyunAdriveClient {
 
   /// 是否阿里转码 m3u8（对齐 iOS 步骤7 判定：host 含 aliyun+video 且
   /// path 含 `/lt/` 或 `/qv/`）。
-  static bool isTranscodeM3u8(String url) {
-    final Uri? u = Uri.tryParse(url);
-    if (u == null) return false;
-    final String host = u.host.toLowerCase();
-    final String path = u.path.toLowerCase();
-    return host.contains('aliyun') &&
-        host.contains('video') &&
-        (path.contains('/lt/') || path.contains('/qv/'));
-  }
+  ///
+  /// 判据单一来源在集中层 [PlaybackHeaders.isAliTranscodeM3u8]（F-P12）。
+  static bool isTranscodeM3u8(String url) =>
+      PlaybackHeaders.isAliTranscodeM3u8(url);
 
   /// code 判定（对齐 iOS：String 需 `OK/ok/0`；Int 需 `0/200`；缺省通过）。
   static bool _codeOk(Object? code) {
@@ -909,15 +904,17 @@ class AliyunAdriveClient {
     // 原画直链请求头（下载信息自带头 + 缺省 UA / Referer）。
     final Map<String, String> directHeaders =
         Map<String, String>.of(download?.headers ?? const <String, String>{});
-    if (!directHeaders.containsKey('User-Agent')) {
-      directHeaders['User-Agent'] = desktopUA;
-    }
-    if (!directHeaders.containsKey('Referer')) {
-      directHeaders['Referer'] = 'https://api.alipan.com';
-    }
-    // 转码 m3u8 不注入 UA/Referer（避免 CDN 防盗链 -1102）。
-    final Map<String, String> headers =
-        isTranscode ? const <String, String>{} : directHeaders;
+    directHeaders.putIfAbsent(
+      'User-Agent',
+      () => PlaybackHeaders.aliyunDesktopUA,
+    );
+    directHeaders.putIfAbsent('Referer', () => PlaybackHeaders.aliyunReferer);
+    // 转码 m3u8 不注入 UA/Referer（集中层固化，避免 CDN 防盗链 -1102）。
+    final Map<String, String> headers = PlaybackHeaders.guardTranscode(
+      url: url,
+      headers: directHeaders,
+      forcedTranscode: isTranscode,
+    );
 
     // 兜底线路派生（对齐 iOS `resolveAliyunSharePlayURL` 拓扑）：
     //   转码为主 → 兜底原画直链（`download_url`）；

@@ -22,6 +22,7 @@ library;
 
 import '../../domain/entities/player/player.dart';
 import 'go_proxy_client.dart';
+import 'playback_headers.dart';
 
 /// 网盘播放线路（主线路与兜底线路共用同一描述）。
 ///
@@ -165,7 +166,10 @@ Future<PlayerSource> resolvePanPlaybackLine(
   String? title,
 }) async {
   final String url = line.url;
-  final Map<String, String> headers = line.headers;
+  // 集中层固化「转码 m3u8 不注入 UA/Referer」（对齐 iOS 步骤7 特例，F-P12）：
+  // 各盘取链与兜底线路落地共用同一判据，防特例在消费点遗漏。
+  final Map<String, String> headers =
+      PlaybackHeaders.guardTranscode(url: url, headers: line.headers);
   PlayerSource direct() =>
       PlayerSource(url: url, headers: headers, title: title);
 
@@ -234,7 +238,11 @@ Future<PlayerSource> resolvePanSource({
     mimeType: main.mimeType,
     source: primary.effectiveSource,
     fallbackUrl: fb?.url,
-    fallbackHeaders: fb?.headers ?? const <String, String>{},
+    // 兜底线路同样过集中层特例守卫（承载到 [PlayerSource] 的兜底头）。
+    fallbackHeaders: PlaybackHeaders.guardTranscode(
+      url: fb?.url ?? '',
+      headers: fb?.headers ?? const <String, String>{},
+    ),
     fallbackSource: fb?.effectiveSource ?? '',
     fallbackUseQuarkProxy: fb?.useQuarkProxy ?? false,
   );
