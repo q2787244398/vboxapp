@@ -254,6 +254,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 视频纵横比（宽 / 高；null = 未上报 → 铺满）。
   double? _aspectRatio;
 
+  /// 画面拉伸模式（UI-E2，对齐 iOS `PlayerState.videoGravity`；缺省填充）。
+  VideoGravityMode _videoGravity = VideoGravityMode.aspectFill;
+
   bool _controlsVisible = true;
 
   /// 锁定态锁按钮是否可见（对齐 iOS `lockButtonVisible`）。
@@ -1305,6 +1308,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _panFallbackTimeout = null;
   }
 
+  /// 屏幕拉伸循环切换（UI-E2，对齐 iOS `cycleVideoGravity()`）：
+  /// 填充 → 适应 → 拉伸 → 填充（声明序取模）。
+  void _cycleVideoGravity() {
+    setState(() => _videoGravity = _videoGravity.cycle());
+  }
+
   /// 按错误文案归类并尝试切换网盘兜底线路（UI-F21）。
   Future<bool> _tryPanFallbackForText(String text) async {
     final PanFallbackTrigger? trigger = PanFallbackChain.classifyFailure(text);
@@ -1657,9 +1666,18 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                 danmakuLoadEpisodes: _loadDanmakuEpisodes,
                 onSelectDanmakuEpisode: (DanmakuEpisodeInfo e) =>
                     unawaited(_selectDanmakuEpisode(e)),
+                // UI-E2：屏幕拉伸（对齐 iOS 顶栏「屏幕拉伸」按钮循环切换）。
+                videoGravity: _videoGravity,
+                onCycleVideoGravity: _cycleVideoGravity,
                 videoBuilder: (BuildContext context) => VideoSurface(
                   textureId: _textureId,
                   aspectRatio: _aspectRatio,
+                  // UI-E2：画面拉伸模式（填充 / 适应 / 拉伸）。
+                  fit: switch (_videoGravity) {
+                    VideoGravityMode.aspectFill => BoxFit.cover,
+                    VideoGravityMode.aspectFit => BoxFit.contain,
+                    VideoGravityMode.resize => BoxFit.fill,
+                  },
                 ),
                 // 弹幕层（叠于画面之上、控制层之下；关开关或无弹幕则不渲染）。
                 danmakuBuilder: (BuildContext context) {

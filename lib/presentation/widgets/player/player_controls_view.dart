@@ -15,6 +15,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../../domain/entities/player/player.dart';
 import '../../../platform/player/danmaku/danmaku_service.dart';
 import '../../../platform/player/danmaku/danmaku_settings.dart';
 import '../../theme/tokens/colors.dart';
@@ -45,6 +46,8 @@ class PlayerControlsView extends StatelessWidget {
     this.onLoadSubtitleFile,
     this.lockButtonVisible = true,
     this.controlsVisible = true,
+    this.videoGravity = VideoGravityMode.aspectFill,
+    this.onCycleVideoGravity,
   });
 
   /// 控制层视图状态。
@@ -81,6 +84,12 @@ class PlayerControlsView extends StatelessWidget {
   ///
   /// 任一面板打开时强制可见（面板不得被自动隐藏吞掉）。
   final bool controlsVisible;
+
+  /// 画面拉伸模式（UI-E2，传给顶栏按钮切图标）。
+  final VideoGravityMode videoGravity;
+
+  /// 循环切换画面拉伸模式回调（UI-E2；null 隐藏顶栏按钮）。
+  final VoidCallback? onCycleVideoGravity;
 
   @override
   Widget build(BuildContext context) {
@@ -126,6 +135,9 @@ class PlayerControlsView extends StatelessWidget {
                     onTogglePip: controller.onTogglePip,
                     showPip: controller.pipAvailable,
                     pipActive: controller.inPip,
+                    // UI-E2：屏幕拉伸（对齐 iOS 顶栏右上集群）。
+                    videoGravity: videoGravity,
+                    onCycleVideoGravity: onCycleVideoGravity,
                     onToolsMenu: controller.onToggleToolsMenu,
                   ),
                 ),

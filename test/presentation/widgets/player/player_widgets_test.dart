@@ -112,6 +112,39 @@ void main() {
       expect(find.byIcon(Icons.picture_in_picture_alt_rounded), findsOneWidget);
       expect(find.byIcon(Icons.picture_in_picture_alt_outlined), findsNothing);
     });
+
+    testWidgets('UI-E2 屏幕拉伸入口：回调非空才显示 / 图标随模式切换 / 点击循环',
+        (WidgetTester tester) async {
+      // 默认不显示（无回调）。
+      await tester.pumpWidget(_host(const PlayerTopBar(form: UiForm.landscape)));
+      expect(find.byIcon(Icons.open_in_full_rounded), findsNothing);
+
+      // 有回调 → 显示，缺省 aspectFill 图标。
+      int taps = 0;
+      await tester.pumpWidget(_host(PlayerTopBar(
+        form: UiForm.landscape,
+        onCycleVideoGravity: () => taps++,
+      )));
+      expect(find.byIcon(Icons.open_in_full_rounded), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.open_in_full_rounded));
+      expect(taps, 1);
+
+      // 切到 aspectFit → 宽高比框图标。
+      await tester.pumpWidget(_host(PlayerTopBar(
+        form: UiForm.landscape,
+        videoGravity: VideoGravityMode.aspectFit,
+        onCycleVideoGravity: () {},
+      )));
+      expect(find.byIcon(Icons.aspect_ratio_rounded), findsOneWidget);
+
+      // 切到 resize → 横向拉伸图标。
+      await tester.pumpWidget(_host(PlayerTopBar(
+        form: UiForm.landscape,
+        videoGravity: VideoGravityMode.resize,
+        onCycleVideoGravity: () {},
+      )));
+      expect(find.byIcon(Icons.swap_horiz_rounded), findsOneWidget);
+    });
   });
 
   group('PlayerProgressBar', () {

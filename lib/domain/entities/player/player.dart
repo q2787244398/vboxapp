@@ -77,6 +77,33 @@ enum PlayMode {
       };
 }
 
+/// 画面拉伸模式（UI-E2，对齐 iOS `PlayerState.VideoGravityMode`，
+/// [PlayerViewsV2.swift:864-884](../../../../vbox/Views/PlayerViewsV2.swift#L864-L884)）。
+///
+/// 三档顺序与 iOS `CaseIterable` 声明序一致，[cycle] 循环切换（对齐 iOS
+/// `cycleVideoGravity()` L1379-1385）；缺省 `aspectFill`（对齐 iOS `@Published
+/// var videoGravity = .aspectFill` L948）。
+enum VideoGravityMode {
+  /// 填充（保持宽高比铺满裁切；iOS `.resizeAspectFill`）。
+  aspectFill,
+
+  /// 适应（保持宽高比留黑边；iOS `.resizeAspect`）。
+  aspectFit,
+
+  /// 拉伸（不保持宽高比强制适配；iOS `.resize`）。
+  resize;
+
+  /// 循环切到下一档（对齐 iOS `cycleVideoGravity()` 的声明序取模）。
+  VideoGravityMode cycle() => values[(index + 1) % values.length];
+
+  /// 展示名（对齐 iOS `rawValue`：填充 / 适应 / 拉伸）。
+  String get displayName => switch (this) {
+        VideoGravityMode.aspectFill => '填充',
+        VideoGravityMode.aspectFit => '适应',
+        VideoGravityMode.resize => '拉伸',
+      };
+}
+
 /// 播放源（一次可播放的媒体）。
 class PlayerSource {
   const PlayerSource({

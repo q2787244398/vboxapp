@@ -1,11 +1,15 @@
-/// 表现层：播放器顶栏（批次 C · C-02；UI-D3 补画中画入口）。
+/// 表现层：播放器顶栏（批次 C · C-02；UI-D3 补画中画入口；UI-E2 补屏幕拉伸）。
 ///
 /// 对齐 iOS `PlayerTopBarView`（[PlayerViewsV2.swift](../../../../vbox/Views/PlayerViewsV2.swift#L7665)）：
 /// 左上「返回 + 标题 + 副标题（第 N 集 · 源）」；右上「旋转（切换横竖屏）+
-/// 画中画 + 投屏 + 更多」。横竖共用同一结构，仅内边距 / 字号差异（表单态由 [form] 驱动）。
+/// 画中画 + 投屏 + 屏幕拉伸 + 更多」。横竖共用同一结构，仅内边距 / 字号差异（表单态由 [form] 驱动）。
 ///
 /// 画中画入口（UI-D3，对齐 iOS L7802-L7812）：`pipEnabled` 为真才显示，
 /// **不支持时置灰**（30% 白，按钮仍占位）；处于画中画时切换为「退出」图标。
+///
+/// 屏幕拉伸入口（UI-E2，对齐 iOS L7785 右上集群「小窗口/投屏/屏幕拉伸/三点菜单」
+/// 与 L7820 `videoGravity.icon`）：`onCycleVideoGravity` 非空才显示；
+/// 图标随当前模式切换（对齐 iOS 三档 SF Symbols 语义）。
 ///
 /// 注：iOS 的方向锁定按钮固定在**屏幕左缘垂直居中**，不在顶栏内，
 /// 由 [PlayerControlsView] 的锁屏覆盖层承载。
@@ -13,6 +17,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../../domain/entities/player/player.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
@@ -33,6 +38,8 @@ class PlayerTopBar extends StatelessWidget {
     this.onTogglePip,
     this.showPip = false,
     this.pipActive = false,
+    this.videoGravity = VideoGravityMode.aspectFill,
+    this.onCycleVideoGravity,
     this.onToolsMenu,
   });
 
@@ -66,8 +73,24 @@ class PlayerTopBar extends StatelessWidget {
   /// 是否处于画中画中（决定图标为「退出」；对齐 iOS `isPiPActive`）。
   final bool pipActive;
 
+  /// 画面拉伸模式（UI-E2；决定屏幕拉伸按钮图标）。
+  final VideoGravityMode videoGravity;
+
+  /// 循环切换画面拉伸模式回调（null 隐藏按钮；对齐 iOS 顶栏恒显）。
+  final VoidCallback? onCycleVideoGravity;
+
   /// 更多菜单回调。
   final VoidCallback? onToolsMenu;
+
+  /// 屏幕拉伸按钮图标（对齐 iOS `videoGravity.icon` 的 SF Symbols 语义）。
+  static IconData gravityIcon(VideoGravityMode mode) => switch (mode) {
+        // iOS `arrow.up.left.and.arrow.down.right`（四向对角展开）。
+        VideoGravityMode.aspectFill => Icons.open_in_full_rounded,
+        // iOS `aspectratio`（宽高比框）。
+        VideoGravityMode.aspectFit => Icons.aspect_ratio_rounded,
+        // iOS `arrow.left.and.right`（横向拉伸）。
+        VideoGravityMode.resize => Icons.swap_horiz_rounded,
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -152,6 +175,14 @@ class PlayerTopBar extends StatelessWidget {
                 icon: Icons.cast_rounded,
                 color: foreground,
                 onTap: onCast,
+              ),
+            if (onCycleVideoGravity != null)
+              _IconButton(
+                // UI-D4 辅助功能：屏幕拉伸（UI-E2，循环 填充→适应→拉伸）。
+                tooltip: '屏幕拉伸模式：${videoGravity.displayName}',
+                icon: PlayerTopBar.gravityIcon(videoGravity),
+                color: foreground,
+                onTap: onCycleVideoGravity,
               ),
             _IconButton(
               // UI-D4 辅助功能：更多。
