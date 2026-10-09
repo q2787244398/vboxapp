@@ -21,6 +21,8 @@ import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
 import '../search/search_page.dart';
+import 'douban_category_page.dart';
+import 'douban_quick_categories.dart';
 import 'douban_widgets.dart';
 
 /// 豆瓣独立页（AppBar「豆瓣」+ [DoubanHomeView]）。
@@ -64,8 +66,9 @@ class DoubanHomeView extends StatefulWidget {
 
 class _DoubanHomeViewState extends State<DoubanHomeView> {
   /// 首页豆瓣数据进程级缓存（对齐 iOS `MainViews.swift` 的静态 `cachedBannerItems`
-  /// / `cachedHotMovies` 等 + `hasHomeCache`）：
-  /// tab 切换会重建本视图，命中缓存时直接复用、不再发起网络请求。
+  /// / `cachedHotMovies` 等 + `hasHomeCache`）：UI-A1 后豆瓣态在首页经
+  /// `IndexedStack` 常驻，本视图通常只创建一次；命中缓存时直接复用、不再发起
+  /// 网络请求（独立页 `DoubanHomePage` 等重建场景仍走缓存恢复）。
   static DoubanHomeFeed? _cachedFeed;
 
   late final DoubanUseCases _uc;
@@ -73,6 +76,10 @@ class _DoubanHomeViewState extends State<DoubanHomeView> {
   DoubanHomeFeed? _feed;
   Failure? _error;
   bool _loading = true;
+
+  /// 快捷分类弹层打开期间的高亮 type（对齐 iOS `CategoryTilesView.activeType`；
+  /// 弹层关闭后清空）。
+  String? _activeQuickType;
 
   @override
   void initState() {
@@ -157,9 +164,37 @@ class _DoubanHomeViewState extends State<DoubanHomeView> {
       padding: const EdgeInsets.symmetric(vertical: VboxSpacing.md),
       children: <Widget>[
         if (feed.banner.isNotEmpty) _buildBanner(feed.banner),
+        // UI-A1：快捷分类胶囊（对齐 iOS `CategoryTilesView`：banner 后、区块前）。
+        DoubanQuickCategories(
+          activeType: _activeQuickType,
+          onTileTap: _openQuickCategory,
+        ),
         for (final DoubanHomeSection section in feed.sections) _buildSection(section),
       ],
     );
+  }
+
+  /// 快捷分类 → 详情弹层（对齐 iOS `CategoryTilesView` 点击弹
+  /// `CategoryDetailView` sheet + 关闭清 `activeType`）。
+  Future<void> _openQuickCategory(DoubanQuickTile tile) async {
+    setState(() => _activeQuickType = tile.category.type);
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (BuildContext sheetContext) => SizedBox(
+        height: MediaQuery.of(sheetContext).size.height * 0.92,
+        child: DoubanCategoryPage(
+          initialCategory: tile.category,
+          embedded: true,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    // 对齐 iOS `sheet(onDismiss:)`：关闭弹层后清除胶囊高亮。
+    setState(() => _activeQuickType = null);
   }
 
   Widget _buildBanner(List<DoubanSubject> items) {

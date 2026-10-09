@@ -361,6 +361,73 @@ class DoubanCategory {
       regions: <String>['全部', '华语', '欧美', '日本', '韩国', '其他'],
     ),
   ];
+
+  /// 榜单（TOP250；对齐 iOS `CategoryDetailView` `top250` 分支：
+  /// `fetchTop250` → `movie_top250`）。
+  ///
+  /// 仅供首页快捷分类胶囊使用，不加入 [all]（保持分类浏览页现有 5 分类）。
+  static const DoubanCategory top250 = DoubanCategory(
+    type: 'top250',
+    name: '榜单',
+    collectionId: 'movie_top250',
+    genres: <String>[
+      '全部', '剧情', '喜剧', '爱情', '动作', '科幻', '动画', '悬疑', '惊悚',
+      '恐怖', '犯罪', '冒险', '奇幻', '战争', '历史', '传记', '音乐', '家庭',
+    ],
+    years: _commonYears,
+    platforms: <String>[
+      '全部', 'Netflix', 'HBO', 'BBC', 'Hulu', 'Apple TV+', 'Disney+',
+      'Amazon', 'YouTube', '院线',
+    ],
+    regions: <String>['全部', '华语', '欧美', '日本', '韩国', '印度', '泰国', '其他'],
+  );
+
+  /// 热门（对齐 iOS `CategoryDetailView` `hot` 分支：`fetchRecommendFeed`
+  /// 实为 `movie_showing` 合集，见 DoubanService.swift L298-L300）。
+  ///
+  /// 仅供首页快捷分类胶囊使用，不加入 [all]。
+  static const DoubanCategory hot = DoubanCategory(
+    type: 'hot',
+    name: '热门',
+    collectionId: 'movie_showing',
+    genres: <String>[
+      '全部', '剧情', '喜剧', '爱情', '动作', '科幻', '动画', '悬疑', '惊悚',
+      '恐怖', '犯罪', '冒险', '奇幻', '战争', '历史', '传记', '音乐', '家庭',
+    ],
+    years: _commonYears,
+    platforms: <String>[
+      '全部', 'Netflix', 'HBO', 'BBC', 'Hulu', 'Apple TV+', 'Disney+',
+      'Amazon', 'YouTube', '院线',
+    ],
+    regions: <String>['全部', '华语', '欧美', '日本', '韩国', '印度', '泰国', '其他'],
+  );
+
+  /// 首页快捷分类胶囊（对齐 iOS `CategoryTilesView` 6 固定项，
+  /// DoubanHomeView.swift L380-L382：电影 / 剧集 / 综艺 / 榜单 / 动漫 / 热门，
+  /// 顺序即展示顺序）。
+  static const List<DoubanQuickTile> quickTiles = <DoubanQuickTile>[
+    DoubanQuickTile('🎬', '电影', movie),
+    DoubanQuickTile('📺', '剧集', tv),
+    DoubanQuickTile('🎭', '综艺', variety),
+    DoubanQuickTile('🏆', '榜单', top250),
+    DoubanQuickTile('🎨', '动漫', animation),
+    DoubanQuickTile('🔥', '热门', hot),
+  ];
+}
+
+/// 首页快捷分类胶囊条目（对齐 iOS `CategoryTilesView.categories`）。
+class DoubanQuickTile {
+  /// 构造。
+  const DoubanQuickTile(this.emoji, this.name, this.category);
+
+  /// emoji 图标（对齐 iOS 胶囊内 emoji）。
+  final String emoji;
+
+  /// 分类名。
+  final String name;
+
+  /// 对应的分类配置（决定详情弹层数据源与筛选组）。
+  final DoubanCategory category;
 }
 
 /// 豆瓣排序方式。

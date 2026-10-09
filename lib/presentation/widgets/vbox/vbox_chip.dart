@@ -20,6 +20,7 @@ class VboxChip extends StatelessWidget {
     this.selected = false,
     this.onTap,
     this.icon,
+    this.emoji,
     this.selectedColor = VboxColors.chipSelected,
     this.dense = false,
   });
@@ -35,6 +36,9 @@ class VboxChip extends StatelessWidget {
 
   /// 前置图标。
   final IconData? icon;
+
+  /// 前置 emoji（对齐 iOS `CategoryTile` 的 emoji + 标题结构；与 [icon] 互斥，emoji 优先）。
+  final String? emoji;
 
   /// 选中填充色（默认对齐 UI 基准的 `#34C759`）。
   final Color selectedColor;
@@ -69,7 +73,17 @@ class VboxChip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              if (icon != null) ...<Widget>[
+              if (emoji != null) ...<Widget>[
+                // emoji 走文本渲染（14pt，对齐 iOS CategoryTile 14pt emoji）。
+                Text(
+                  emoji!,
+                  style: TextStyle(
+                    fontSize: VboxTypography.s14,
+                    color: foreground,
+                  ),
+                ),
+                const SizedBox(width: VboxSpacing.compact),
+              ] else if (icon != null) ...<Widget>[
                 Icon(icon, size: VboxTypography.s14, color: foreground),
                 const SizedBox(width: VboxSpacing.xs),
               ],

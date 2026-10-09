@@ -1,4 +1,4 @@
-/// 豆瓣分类浏览（批次 D · D-03）。
+/// 豆瓣分类浏览（批次 D · D-03；UI-A1 扩展：快捷分类详情弹层）。
 ///
 /// 分类胶囊（电影 / 剧集 / 综艺 / 动漫 / 纪录片）+ 筛选胶囊（排序 / 类型 / 年代 /
 /// 平台 / 地区）+ 响应式海报网格（滚动到底分页）。数据通路：
@@ -21,7 +21,23 @@ import 'douban_widgets.dart';
 /// 豆瓣分类浏览页。
 class DoubanCategoryPage extends StatefulWidget {
   /// 构造。
-  const DoubanCategoryPage({super.key});
+  ///
+  /// [initialCategory]：初始分类（首页快捷分类胶囊入口用；null 取
+  /// [DoubanCategory.all] 首项）。
+  /// [embedded]：嵌入模式（对齐 iOS `CategoryDetailView` 以 pageSheet 弹出的
+  /// 形态，DoubanHomeView.swift L32-L93）：无 Scaffold / AppBar，顶部为
+  /// 「找xx」大标题。
+  const DoubanCategoryPage({
+    super.key,
+    this.initialCategory,
+    this.embedded = false,
+  });
+
+  /// 初始分类。
+  final DoubanCategory? initialCategory;
+
+  /// 是否嵌入模式（sheet 弹层内容）。
+  final bool embedded;
 
   @override
   State<DoubanCategoryPage> createState() => _DoubanCategoryPageState();
@@ -31,7 +47,8 @@ class _DoubanCategoryPageState extends State<DoubanCategoryPage> {
   late final DoubanUseCases _uc;
   final ScrollController _scroll = ScrollController();
 
-  DoubanCategory _category = DoubanCategory.all.first;
+  late DoubanCategory _category =
+      widget.initialCategory ?? DoubanCategory.all.first;
   DoubanFilterParams _filters = const DoubanFilterParams();
 
   final List<DoubanSubject> _items = <DoubanSubject>[];
@@ -134,6 +151,35 @@ class _DoubanCategoryPageState extends State<DoubanCategoryPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) {
+      // 对齐 iOS `CategoryDetailView` pageSheet 形态（L32-L93）：
+      // 顶部「找xx」大标题 + 筛选区 + 内容区，无 AppBar。
+      return Column(
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              VboxSpacing.lg,
+              VboxSpacing.sm,
+              VboxSpacing.lg,
+              VboxSpacing.sm,
+            ),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '找${_category.name}',
+                style: const TextStyle(
+                  // iOS 20pt bold；令牌档位就近取 18（R-3 集合无 20）。
+                  fontSize: VboxTypography.s18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          _buildFilterPanel(),
+          Expanded(child: _buildBody()),
+        ],
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('豆瓣分类')),
       body: Column(

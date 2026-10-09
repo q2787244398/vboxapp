@@ -169,18 +169,26 @@ class _VboxHomePageState extends State<VboxHomePage> with VboxLifecycleMixin {
           children: <Widget>[
             _buildTopBar(context, sourceSelected: !doubanMode),
             Expanded(
-              // 对齐 iOS `DoubanHomeView`：首页豆瓣条目点击即 `triggerSearch(title)`
-              // 进入搜索页按标题搜索。
-              child: doubanMode
-                  ? DoubanHomeView(
-                      onSubjectTap: (DoubanSubject subject) =>
-                          _openSearchForKey(subject.title),
-                    )
-                  : RefreshIndicator(
-                      // UI-B2：下拉刷新当前源首页。
-                      onRefresh: _refreshHome,
-                      child: _buildSiteBody(),
-                    ),
+              // UI-A1 双态常驻：对齐 iOS ZStack 结构（MainViews.swift
+              // L301-L336）——豆瓣首页始终存活（zIndex 0），站点态覆盖其上，
+              // 切换不销毁重建（iOS 用 opacity + allowsHitTesting 控制；
+              // Flutter IndexedStack 等价：非活跃态保状态、不绘制、不命中）。
+              child: IndexedStack(
+                index: doubanMode ? 0 : 1,
+                children: <Widget>[
+                  // 对齐 iOS `DoubanHomeView`：首页豆瓣条目点击即
+                  // `triggerSearch(title)` 进入搜索页按标题搜索。
+                  DoubanHomeView(
+                    onSubjectTap: (DoubanSubject subject) =>
+                        _openSearchForKey(subject.title),
+                  ),
+                  RefreshIndicator(
+                    // UI-B2：下拉刷新当前源首页。
+                    onRefresh: _refreshHome,
+                    child: _buildSiteBody(),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
