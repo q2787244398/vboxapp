@@ -12,12 +12,10 @@
 /// 登录成功后统一由 [NodeCredentialSyncService.saveProfile] 把 Node 侧凭据
 /// 拉回本机安全存储（对齐 iOS `NodeCredentialSyncService.performPull`）。
 ///
-/// 未覆盖（登记待补）：
-/// - 蜗牛（`woniu4k`）需图形验证码（`/woniou4k/verify` 图片 + verify 输入），
-///   现有网关接口无 verify 传参位，待 UI 扩展后接入；
-/// - UCNode 第 2 步 TV Token（`provider:"ucToken"`）需多步 UI 编排，本段先接
-///   第 1 步 Cookie（`ucCookie`，核心登录态）；
-/// - 139 滑块验证码（`captchaUrl`）需内嵌 WebView（Web-R3）。
+/// 编排说明：UCNode 两步扫码（`ucCookie` → `ucToken`）由
+/// [CloudDriveUcTwoStepQrSheet]（login_sheet.dart）多步编排，本网关按步提供
+/// `createTask / pollTask`；139 滑块（Web-R3）与蜗牛图形验证码由各登录 Sheet
+/// 内嵌卡片承载（`captchaUrl` / `loadAccountCaptcha`）。
 library;
 
 import '../../../data/datasources/remote/bili_auth_client.dart';
