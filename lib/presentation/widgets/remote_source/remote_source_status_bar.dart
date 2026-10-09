@@ -323,7 +323,12 @@ class _MarqueeTextState extends State<MarqueeText>
           },
           child: Align(
             alignment: Alignment.centerLeft,
+            // widthFactor / heightFactor 必须同时为 1：只设 widthFactor 时
+            // Align 在有界高度约束下会**撑满全部可用高度**（Align 缺省
+            // expand 行为），把整颗胶囊拉成近全屏色块；heightFactor: 1
+            // 使 Align 收缩为单行文本固有高度，对齐 iOS `Text` 的固有尺寸。
             widthFactor: 1,
+            heightFactor: 1,
             child: Text(
               widget.text,
               style: style,

@@ -581,8 +581,14 @@ class RemoteSourceConfigManager {
   static void install(RemoteSourceConfigManager manager) => _shared = manager;
 
   /// 默认依赖装配（远程源通道放宽 TLS 校验，理由见 `HttpClient.allowBadCertificate`）。
+  ///
+  /// 超时 / 重试对齐 iOS `fetchData`：单请求 15s、不做单点重试（候选链即重试）。
   static RemoteSourceConfigManager _createDefault() {
-    final HttpClient client = HttpClient(allowBadCertificate: true);
+    final HttpClient client = HttpClient(
+      allowBadCertificate: true,
+      maxRetries: 0,
+      receiveTimeout: const Duration(seconds: 15),
+    );
     final RemoteManifestDatasource manifestDatasource =
         RemoteManifestDatasource(client: client);
     return RemoteSourceConfigManager(

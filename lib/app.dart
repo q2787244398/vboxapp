@@ -321,8 +321,15 @@ class _VBoxAppState extends State<VBoxApp> {
       // 中间证书，而 iOS `NSURLSession` 走系统信任库会自动补链 —— 同一地址在
       // iOS 可达、桌面端却报 `unable to get local issuer certificate`（用户实测）。
       // 该开关对齐的是 iOS 的**可达性**而非其实现，不作为全局缺省。
-      final HttpClient remoteSourceClient =
-          HttpClient(networkInfo: networkInfo, allowBadCertificate: true);
+      // 超时 / 重试对齐 iOS `fetchData`（RemoteSourceConfigManager.swift L755）：
+      // 单请求 15s、**不做单点重试**（代理降级链本身就是重试），否则坏网络下
+      // 「同步中」胶囊会因 30s×3 次重试×多候选而挂起 10 分钟以上才到终态。
+      final HttpClient remoteSourceClient = HttpClient(
+        networkInfo: networkInfo,
+        allowBadCertificate: true,
+        maxRetries: 0,
+        receiveTimeout: const Duration(seconds: 15),
+      );
       final RemoteManifestDatasource remoteManifestDatasource =
           RemoteManifestDatasource(client: remoteSourceClient);
       _remoteSourceUseCases = RemoteSourceUseCases(
