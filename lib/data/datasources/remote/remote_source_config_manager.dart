@@ -34,6 +34,7 @@ import '../../../domain/repositories/remote_source_repository.dart';
 import '../../repositories/remote_source_repository_impl.dart';
 import '../local/prefs_manager.dart';
 import 'all_sources_datasource.dart';
+import 'lx_plugin_syncer.dart';
 import 'remote_manifest_datasource.dart';
 
 /// 同步动作（状态机出口，对齐 iOS `syncIfNeeded` 各分支）。
@@ -123,6 +124,7 @@ class RemoteSourceConfigManager {
     String Function()? appVersion,
     int Function()? nowSeconds,
     List<ProxyHost> proxies = RemoteSourceStrategy.proxyHosts,
+    LxPluginSyncer? lxPluginSyncer,
   })  : _manifestDatasource = manifestDatasource,
         _allSourcesDatasource = allSourcesDatasource,
         _repository = repository,
@@ -130,7 +132,8 @@ class RemoteSourceConfigManager {
         _prefs = prefs,
         _appVersion = appVersion,
         _nowSeconds = nowSeconds,
-        _proxies = proxies;
+        _proxies = proxies,
+        _lxPluginSyncer = lxPluginSyncer ?? LxPluginSyncer();
 
   final RemoteManifestDatasource _manifestDatasource;
   final AllSourcesDatasource _allSourcesDatasource;
@@ -140,6 +143,7 @@ class RemoteSourceConfigManager {
   final String Function()? _appVersion;
   final int Function()? _nowSeconds;
   final List<ProxyHost> _proxies;
+  final LxPluginSyncer _lxPluginSyncer;
 
   // ────────────── 加载状态源（对齐 iOS `@Published loadState`）──────────────
   // iOS `RemoteSourceConfigManager` 自身是 `ObservableObject`，`loadState`
@@ -325,6 +329,17 @@ class RemoteSourceConfigManager {
     final List<Map<String, Object?>> sites =
         aggregateSites(container, disabledKeys: manifest.disabledKeys);
 
+    // ④b lx 插件远程缓存（对齐 iOS `syncNow` 步骤 4b：downloadAndCacheLXPlugins，
+    //     P1-A6）：命中 engineType == "lxMusic" 的站点按 pluginPath 下载插件 JS
+    //     到 Node lx 插件目录（md5 校验 + version 标记，见 [LxPluginSyncer]）；
+    //     失败仅日志、不抛错 —— lx 不可用由 lx-bridge 温和降级，绝不阻塞主链路。
+    try {
+      await _lxPluginSyncer.syncSites(
+        sites: container.sites,
+        baseURL: _dirName(allSourcesUrl),
+      );
+    } catch (_) {}
+
     // ⑤ 缓存落盘（文件缓存 + version/time 契约镜像键）
     await _repository.saveManifest(manifest);
     await _p.set(_keyLastAppVersion, _appVer());
@@ -361,6 +376,13 @@ class RemoteSourceConfigManager {
     final String? v = manifest.files[key];
     if (v == null || v.isEmpty) return null;
     return v;
+  }
+
+  /// URL 所在目录（对齐 iOS `URL.deletingLastPathComponent`，不含尾斜杠；
+  /// 供 lx 插件相对路径拼接，见 [LxPluginSyncer.syncSites]）。
+  static String _dirName(String url) {
+    final int slash = url.lastIndexOf('/');
+    return slash <= 0 ? '' : url.substring(0, slash);
   }
 
   /// 同步失败：错误落盘 + 缓存兜底（对齐 iOS `updateFailure` + `loadCachedManifestState`）。

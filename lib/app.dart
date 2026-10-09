@@ -338,6 +338,13 @@ class _VBoxAppState extends State<VBoxApp> {
         repository:
             RemoteSourceRepositoryImpl(datasource: remoteManifestDatasource),
         probeClient: remoteSourceClient,
+        // ND-03：lx 插件远程缓存（对齐 iOS P1-A6）——复用远程源专用通道
+        // （放宽 TLS，与 all_sources 同源可达），落盘 Node lx 插件目录。
+        lxPluginSyncer: LxPluginSyncer(
+          fetch: (Uri url) async =>
+              (await remoteSourceClient.get(url)).rawBytes,
+          pluginsDirPath: () => NodeRuntimeManager.instance.lxPluginsDirPath,
+        ),
       );
       // 注册全局单例（对齐 iOS `RemoteSourceConfigManager.shared`）：首页胶囊
       // 与设置页经 `shared` 订阅 `loadState` / 触发手动刷新，无需 Provider 传递。
