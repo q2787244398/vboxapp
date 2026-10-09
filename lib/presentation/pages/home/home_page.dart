@@ -11,6 +11,8 @@
 /// 点击海报 push 详情页。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -20,18 +22,19 @@ import '../../../core/utils/result.dart';
 import '../../../domain/entities/douban/douban_models.dart';
 import '../../../domain/entities/spider/spider.dart';
 import '../../../domain/usecases/usecases.dart';
+import '../../lifecycle/vbox_lifecycle_mixin.dart';
 import '../../shell/splash_gate_monitor.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/detail_page.dart';
 import '../../widgets/library_views.dart';
-import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../category/category_page.dart';
 import '../douban/douban_home_page.dart';
 import '../douban/douban_ranking_page.dart';
 import '../search/search_page.dart';
+import 'home_banner_carousel.dart';
 import 'source_sheet.dart';
 
 /// 首页（内容浏览）。默认展示豆瓣推荐；切换源后展示对应站点内容。
@@ -43,7 +46,7 @@ class VboxHomePage extends StatefulWidget {
   State<VboxHomePage> createState() => _VboxHomePageState();
 }
 
-class _VboxHomePageState extends State<VboxHomePage> {
+class _VboxHomePageState extends State<VboxHomePage> with VboxLifecycleMixin {
   /// 站点清单进程级缓存（对齐 iOS `MainViews.swift` 的静态缓存口径）：
   /// tab 切换重建本页时直接复用，不再重复请求站点列表。
   static List<SiteConfig>? _cachedSites;
@@ -80,6 +83,15 @@ class _VboxHomePageState extends State<VboxHomePage> {
     final List<SiteConfig> sites = result.valueOrNull ?? const <SiteConfig>[];
     _cachedSites = sites;
     setState(() => _sites = sites);
+  }
+
+  /// 回前台补拉站点清单（UI-E4，对齐 iOS `HomeView.onAppear` 预载 /
+  /// `onChange(sourceListReady)` 刷新）：有缓存则静默复用，不重复请求。
+  @override
+  void onAppResumed() {
+    if (_sites.isEmpty && !_loading) {
+      unawaited(_loadSites());
+    }
   }
 
   Future<void> _loadHome(String siteKey) async {
@@ -357,8 +369,8 @@ class _VboxHomePageState extends State<VboxHomePage> {
   }
 
   Widget _buildCarousel(List<VodItem> items) {
-    final List<VodItem> top = items.take(_Carousel.maxCount).toList();
-    return _Carousel(items: top);
+    final List<VodItem> top = items.take(HomeBannerCarousel.maxCount).toList();
+    return HomeBannerCarousel(items: top);
   }
 
   Widget _buildCategories(List<VodCategory> classes) {
@@ -471,108 +483,6 @@ class _TopBarIcon extends StatelessWidget {
         constraints: const BoxConstraints(),
       ),
     );
-  }
-}
-
-/// 轮播。
-class _Carousel extends StatefulWidget {
-  const _Carousel({required this.items});
-
-  static const int maxCount = 5;
-
-  final List<VodItem> items;
-
-  @override
-  State<_Carousel> createState() => _CarouselState();
-}
-
-class _CarouselState extends State<_Carousel> {
-  int _page = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    return Column(
-      children: <Widget>[
-        SizedBox(
-          height: 200,
-          child: PageView.builder(
-            itemCount: widget.items.length,
-            onPageChanged: (int i) => setState(() => _page = i),
-            itemBuilder: (BuildContext context, int i) {
-              final VodItem vod = widget.items[i];
-              return Padding(
-                padding: VboxSpacing.symmetric(horizontal: VboxSpacing.lg),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: <Widget>[
-                      _CarouselImage(url: vod.vodPic),
-                      Align(
-                        alignment: Alignment.bottomLeft,
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(VboxSpacing.md),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: <Color>[
-                                Colors.transparent,
-                                Colors.black.withValues(alpha: 0.72),
-                              ],
-                            ),
-                          ),
-                          child: Text(
-                            vod.vodName,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: VboxTypography.s16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: VboxSpacing.sm),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            for (int i = 0; i < widget.items.length; i++)
-              Container(
-                width: 8,
-                height: 8,
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: i == _page ? scheme.primary : scheme.outlineVariant,
-                ),
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-/// 轮播封面（空地址 → 占位盒）。
-class _CarouselImage extends StatelessWidget {
-  const _CarouselImage({required this.url});
-
-  final String url;
-
-  @override
-  Widget build(BuildContext context) {
-    return PlatformAsyncImage(url: url, fit: BoxFit.cover);
   }
 }
 

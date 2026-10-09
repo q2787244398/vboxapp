@@ -29,6 +29,7 @@ import '../../../core/utils/result.dart';
 import '../../../domain/entities/library/library.dart';
 import '../../../domain/usecases/usecases.dart';
 import '../../../platform/update/update.dart';
+import '../../lifecycle/vbox_lifecycle_mixin.dart';
 import '../../profile/session_controller.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
@@ -667,7 +668,8 @@ class _WatchHistorySection extends StatefulWidget {
   State<_WatchHistorySection> createState() => _WatchHistorySectionState();
 }
 
-class _WatchHistorySectionState extends State<_WatchHistorySection> {
+class _WatchHistorySectionState extends State<_WatchHistorySection>
+    with VboxLifecycleMixin {
   // 用例引用在 initState 缓存，避免跨 async gap 使用 context
   late final HistoryUseCases _useCases;
   List<HistoryItem> _items = const <HistoryItem>[];
@@ -676,6 +678,13 @@ class _WatchHistorySectionState extends State<_WatchHistorySection> {
   void initState() {
     super.initState();
     _useCases = context.read<HistoryUseCases>();
+    _load();
+  }
+
+  /// 回前台重拉观看历史（UI-E4，对齐 iOS `ProfileView.onAppear` 的
+  /// `reloadHistory()`：后台看完的视频回来后列表即刷新）。
+  @override
+  void onAppResumed() {
     _load();
   }
 

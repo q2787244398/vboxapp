@@ -31,6 +31,7 @@ import '../../../domain/services/fuli_base_service.dart';
 import '../../../domain/services/kanliao_service.dart';
 import '../../../domain/services/welfare_js_spider_service.dart';
 import '../../../domain/services/welfare_python_spider_service.dart';
+import '../../lifecycle/vbox_lifecycle_mixin.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../welfare/welfare_platform_controller.dart';
@@ -52,7 +53,8 @@ class WelfareHomePage extends StatefulWidget {
   State<WelfareHomePage> createState() => _WelfareHomePageState();
 }
 
-class _WelfareHomePageState extends State<WelfareHomePage> {
+class _WelfareHomePageState extends State<WelfareHomePage>
+    with VboxLifecycleMixin {
   /// 当前栏目（默认「视频」，对齐 iOS `selectedTab = .video`）。
   VboxWelfareCategory _tab = VboxWelfareCategory.video;
 
@@ -63,6 +65,13 @@ class _WelfareHomePageState extends State<WelfareHomePage> {
   void initState() {
     super.initState();
     // 幂等：仅在首次进入时恢复缓存 + 后台刷新。
+    context.read<WelfarePlatformController>().bootstrap();
+  }
+
+  /// 回前台重引导（UI-E4，对齐 iOS `RemoteWelfareHomeView.onAppear` 的
+  /// `bootstrap()` + `refresh()` + `loadOrder()`；bootstrap 幂等）。
+  @override
+  void onAppResumed() {
     context.read<WelfarePlatformController>().bootstrap();
   }
 
