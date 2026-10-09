@@ -570,27 +570,43 @@ class _DetailPageState extends State<DetailPage> {
     final String? drive = _selectedCloudDrive ?? _firstCloudDriveName;
     if (drive == null) return const <PlaybackEpisode>[];
     final List<_CloudPanLink> links = _linksForDrive(drive);
-    final List<_CloudPanLink> ordered =
-        _episodesReversed ? links.reversed.toList(growable: false) : links;
-    return <PlaybackEpisode>[
-      for (int i = 0; i < ordered.length; i++)
-        _cloudEpisodeOf(ordered[i], i),
+    // 先按**原序**构建（保证各盘 fileIndex 对齐 iOS「文件列表内序号」），
+    // 再按需整体倒序展示，避免倒序后下标与文件列表错位。
+    final List<PlaybackEpisode> built = <PlaybackEpisode>[
+      for (int i = 0; i < links.length; i++) _cloudEpisodeOf(links[i], i),
     ];
+    return _episodesReversed ? built.reversed.toList(growable: false) : built;
   }
 
-  /// 云源剧集项（F-P06：携带 `sourceType` / `nodePlayID` / `nodeDriveType`，
+  /// 云源剧集项（F-P06：携带 `sourceType` / 各盘定位字段 / Node 字段，
   /// 对齐 iOS `expandedEpisodeItems` 的云分支 `EpisodeItem`）。
+  ///
+  /// [index] 为该条目在**当前网盘链接列表中的原序下标**，对齐 iOS
+  /// `EpisodeItem.baiduFileIndex = idx` / `quarkFileIndex = idx` 的语义。
   PlaybackEpisode _cloudEpisodeOf(_CloudPanLink link, int index) {
     final CloudDriveType? type = link.driveType;
     final bool nodeManaged = type != null && NodePanRouting.isNodeManaged(type);
+    final VboxFragment fragment = VboxFragmentCodec.split(link.url).params;
     return PlaybackEpisode(
       name: _cloudEpisodeTitle(link, index),
       url: link.url,
       sourceType: EpisodeSourceType.fromDriveType(type),
       // Node 托管盘：fragment 的 vbox_node 即条目 playID。
-      nodePlayID:
-          nodeManaged ? VboxFragmentCodec.split(link.url).params.node : null,
+      nodePlayID: nodeManaged ? fragment.node : null,
       nodeDriveType: nodeManaged ? type : null,
+      // 原生盘定位字段（与 [_locateParams] 生成的 fragment 一一对应）：
+      // 夸克 / 百度 → 文件列表序号；UC / 阿里 → `vbox_fid`；
+      // 迅雷 / 123 / 189 → `vbox_fileId`；115 → `vbox_pickcode`；139 → `vbox_contentId`。
+      baiduFileIndex: type == CloudDriveType.baidu ? index : null,
+      quarkFileIndex: type == CloudDriveType.quark ? index : null,
+      ucFileFid: type == CloudDriveType.uc ? fragment.fid : null,
+      aliFileId: type == CloudDriveType.ali ? fragment.fid : null,
+      xunleiFileId: type == CloudDriveType.xunlei ? fragment.fileId : null,
+      one15PickCode: type == CloudDriveType.one15 ? fragment.pickcode : null,
+      pan123FileId: type == CloudDriveType.pan123 ? fragment.fileId : null,
+      pan189FileId: type == CloudDriveType.pan189 ? fragment.fileId : null,
+      pan139ContentId:
+          type == CloudDriveType.pan139 ? fragment.contentId : null,
     );
   }
 

@@ -2,11 +2,104 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/domain/entities/playback/playback.dart';
 import 'package:vbox/domain/entities/spider/site_config.dart';
 import 'package:vbox/domain/entities/spider/spider_models.dart';
 
 void main() {
+  group('PlaybackEpisode 网盘字段（对齐 iOS `EpisodeItem`）', () {
+    test('缺省：网盘字段为空 / headers 空表 / useCompatibility false', () {
+      const PlaybackEpisode e = PlaybackEpisode(name: '第1集', url: 'u');
+      expect(e.sourceType, EpisodeSourceType.normal);
+      expect(e.fileId, '');
+      expect(e.engineKey, isNull);
+      expect(e.baiduFileIndex, isNull);
+      expect(e.quarkFileIndex, isNull);
+      expect(e.ucFileFid, isNull);
+      expect(e.ucShareFidToken, isNull);
+      expect(e.xunleiFileId, isNull);
+      expect(e.aliFileId, isNull);
+      expect(e.one15PickCode, isNull);
+      expect(e.pan123FileId, isNull);
+      expect(e.pan123ETag, isNull);
+      expect(e.pan139ContentId, isNull);
+      expect(e.pan139CatalogId, isNull);
+      expect(e.pan189FileId, isNull);
+      expect(e.nodePlayID, isNull);
+      expect(e.nodeDriveType, isNull);
+      expect(e.headers, isEmpty);
+      expect(e.useCompatibility, isFalse);
+    });
+
+    test('构造携带各盘定位字段 / headers / engineKey', () {
+      const PlaybackEpisode e = PlaybackEpisode(
+        name: '第2集',
+        url: 'https://pan.quark.cn/s/x',
+        fileId: 'fid-1',
+        engineKey: 'y_csp1',
+        sourceType: EpisodeSourceType.quark,
+        quarkFileIndex: 3,
+        ucFileFid: 'uc-fid',
+        ucShareFidToken: 'uc-token',
+        xunleiFileId: 'xl-file',
+        aliFileId: 'ali-file',
+        one15PickCode: 'pc',
+        pan123FileId: '123-file',
+        pan123ETag: 'etag',
+        pan139ContentId: 'c-139',
+        pan139CatalogId: 'cat-139',
+        pan189FileId: '189-file',
+        headers: <String, String>{'Referer': 'https://pan.quark.cn'},
+        useCompatibility: true,
+      );
+      expect(e.engineKey, 'y_csp1');
+      expect(e.quarkFileIndex, 3);
+      expect(e.ucFileFid, 'uc-fid');
+      expect(e.ucShareFidToken, 'uc-token');
+      expect(e.pan139CatalogId, 'cat-139');
+      expect(e.headers['Referer'], 'https://pan.quark.cn');
+      expect(e.useCompatibility, isTrue);
+    });
+
+    test('EpisodeSourceType.fromDriveType：Node 托管盘归 node，原生盘按盘别映射', () {
+      expect(EpisodeSourceType.fromDriveType(null), EpisodeSourceType.normal);
+      expect(
+        EpisodeSourceType.fromDriveType(CloudDriveType.ali),
+        EpisodeSourceType.ali,
+      );
+      expect(
+        EpisodeSourceType.fromDriveType(CloudDriveType.quark),
+        EpisodeSourceType.quark,
+      );
+      expect(
+        EpisodeSourceType.fromDriveType(CloudDriveType.baidu),
+        EpisodeSourceType.baidu,
+      );
+      // UC 原生在 iOS 归 `.drive`（无独立档）。
+      expect(
+        EpisodeSourceType.fromDriveType(CloudDriveType.uc),
+        EpisodeSourceType.drive,
+      );
+      for (final CloudDriveType t in <CloudDriveType>[
+        CloudDriveType.one15,
+        CloudDriveType.pan123,
+        CloudDriveType.pan139,
+        CloudDriveType.pan189,
+        CloudDriveType.xunlei,
+        CloudDriveType.quarkNode,
+        CloudDriveType.ucNode,
+        CloudDriveType.baiduNode,
+      ]) {
+        expect(
+          EpisodeSourceType.fromDriveType(t),
+          EpisodeSourceType.node,
+          reason: t.name,
+        );
+      }
+    });
+  });
+
   group('PlaybackUrlParser.parse', () {
     test('契约 §3.4：双线路多剧集拆分', () {
       final ParsedPlayUrl p = PlaybackUrlParser.parse(

@@ -69,7 +69,7 @@ enum EpisodeSourceType {
   }
 }
 
-/// 单集可播放项。
+/// 单集可播放项（对齐 iOS `EpisodeItem`，`PlayerViewsV2.swift:722-774`）。
 class PlaybackEpisode {
   /// 构造。
   const PlaybackEpisode({
@@ -77,9 +77,24 @@ class PlaybackEpisode {
     required this.url,
     this.from,
     this.fileId = '',
+    this.engineKey,
     this.sourceType = EpisodeSourceType.normal,
+    this.baiduFileIndex,
+    this.quarkFileIndex,
+    this.ucFileFid,
+    this.ucShareFidToken,
+    this.xunleiFileId,
+    this.aliFileId,
+    this.one15PickCode,
+    this.pan123FileId,
+    this.pan123ETag,
+    this.pan139ContentId,
+    this.pan139CatalogId,
+    this.pan189FileId,
     this.nodePlayID,
     this.nodeDriveType,
+    this.headers = const <String, String>{},
+    this.useCompatibility = false,
   });
 
   /// 剧集名（如「第 1 集」，解析失败时可能为空串）。
@@ -93,12 +108,54 @@ class PlaybackEpisode {
 
   /// 网盘文件 ID（分享 / 文件列表选集定位用；非网盘源为空串）。
   ///
-  /// F-P06 网盘字段扩展的首批落地字段 —— 仅供「分享内多文件选集」定位使用；
-  /// 其余网盘字段（各盘 fileIndex / headers 等）随第 4 批网盘链路补入。
+  /// F-P06 网盘字段扩展的首批落地字段 —— 仅供「分享内多文件选集」定位使用。
   final String fileId;
+
+  /// 来源蜘蛛 key（对齐 iOS `EpisodeItem.engineKey`）—— 普通选集切换时用于
+  /// 继续命中远程源播放策略；非普通源为 null。
+  final String? engineKey;
 
   /// 资源类型（对齐 iOS `EpisodeItem.sourceType`）：切集时选择对应播放逻辑。
   final EpisodeSourceType sourceType;
+
+  /// 百度文件在文件列表中的序号（对齐 iOS `EpisodeItem.baiduFileIndex`）。
+  final int? baiduFileIndex;
+
+  /// 夸克文件在文件列表中的序号（对齐 iOS `EpisodeItem.quarkFileIndex`）。
+  final int? quarkFileIndex;
+
+  /// UC 文件 fid（对齐 iOS `EpisodeItem.ucFileFid`；UC 切集定位用）。
+  final String? ucFileFid;
+
+  /// UC 文件 shareFidToken（对齐 iOS `EpisodeItem.ucShareFidToken`）。
+  ///
+  /// Flutter V2 消费端（对齐 iOS `PlayerViewsV2.swift:3244-3262`）在重取文件
+  /// 列表时从条目本身取该 token，故详情页 fragment 不携带、通常为 null。
+  final String? ucShareFidToken;
+
+  /// 迅雷文件 ID（对齐 iOS `EpisodeItem.xunleiFileId`）。
+  final String? xunleiFileId;
+
+  /// 阿里文件 ID（对齐 iOS `EpisodeItem.aliFileId`）。
+  final String? aliFileId;
+
+  /// 115 文件 pickCode（对齐 iOS `EpisodeItem.one15PickCode`）。
+  final String? one15PickCode;
+
+  /// 123 文件 ID（对齐 iOS `EpisodeItem.pan123FileId`）。
+  final String? pan123FileId;
+
+  /// 123 文件 ETag（对齐 iOS `EpisodeItem.pan123ETag`）。
+  final String? pan123ETag;
+
+  /// 139 文件 contentId（对齐 iOS `EpisodeItem.pan139ContentId`）。
+  final String? pan139ContentId;
+
+  /// 139 文件 catalogId（对齐 iOS `EpisodeItem.pan139CatalogId`）。
+  final String? pan139CatalogId;
+
+  /// 189 文件 ID（对齐 iOS `EpisodeItem.pan189FileId`）。
+  final String? pan189FileId;
 
   /// Node 托管盘 playID（对齐 iOS `EpisodeItem.nodePlayID`）—— 切集取链时
   /// 交给 `/spider/push/4/play`；非 Node 源为 null。
@@ -107,6 +164,17 @@ class PlaybackEpisode {
   /// Node 托管盘类型（对齐 iOS `EpisodeItem.nodeDriveType`）—— 切集取链时
   /// 用于映射盘别；非 Node 源为 null。
   final CloudDriveType? nodeDriveType;
+
+  /// 播放请求头（对齐 iOS `EpisodeItem.headers`）。
+  ///
+  /// iOS 声明该字段但仅以缺省空表流转（实际播放头由取链结果 `PlayResult.headers`
+  /// 承载），Flutter 同口径：由 `PlayerSource.headers` 承载真实请求头。
+  final Map<String, String> headers;
+
+  /// 是否需要兼容内核（对齐 iOS `EpisodeItem.useCompatibility`）。
+  ///
+  /// iOS 仅声明该字段、未在播放/切集路径读取（当前恒为 false），Flutter 同口径保留。
+  final bool useCompatibility;
 
   /// 是否直链媒体（无需 playerContent 二次解析）。
   bool get isDirectMedia => PlaybackUrlParser.looksDirectMedia(url);
