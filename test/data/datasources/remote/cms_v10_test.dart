@@ -117,13 +117,78 @@ void main() {
       expect(r.valueOrNull?.length, 2);
       expect(r.valueOrNull?.first.typeName, '电影');
       expect(r.valueOrNull?.last.typeId, '2');
+      // 裸参直连命中（对齐 iOS tryFetchJSON：ac 参数不带 at=json）。
       expect(requested?.queryParameters['ac'], 'list');
-      expect(requested?.queryParameters['at'], 'json');
+      expect(requested?.queryParameters['at'], isNull);
     });
 
     test('分类为空 → ParseFailure', () async {
       final CmsV10Datasource ds = datasourceWith(
         MockClient((http.Request r) async => http.Response('{"class":[]}', 200)),
+      );
+      final Result<List<CmsV10Category>> r = await ds.fetchCategories(kBase);
+      expect(r.failureOrNull, isA<ParseFailure>());
+    });
+  });
+
+  group('参数降级链（对齐 iOS 裸参语义）', () {
+    test('裸参直连返回 JSON → 成功且不再重试', () async {
+      int hits = 0;
+      final CmsV10Datasource ds = datasourceWith(
+        MockClient((http.Request r) async {
+          hits += 1;
+          expect(r.url.queryParameters['at'], isNull,
+              reason: '首击应不带 at=json');
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'class': <Object?>[
+                <String, Object?>{'type_id': 1, 'type_name': '电影'},
+              ],
+            }),
+            200,
+            headers: <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
+          );
+        }),
+      );
+      final Result<List<CmsV10Category>> r = await ds.fetchCategories(kBase);
+      expect(r.isSuccess, isTrue);
+      expect(hits, 1, reason: '裸参命中后不应重试');
+    });
+
+    test('裸参非 JSON（默认 XML 老站）→ 自动重试 at=json', () async {
+      final List<Uri> requested = <Uri>[];
+      final CmsV10Datasource ds = datasourceWith(
+        MockClient((http.Request r) async {
+          requested.add(r.url);
+          if (r.url.queryParameters['at'] != 'json') {
+            return http.Response('<?xml version="1.0"?><rss/>', 200);
+          }
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'class': <Object?>[
+                <String, Object?>{'type_id': 1, 'type_name': '电影'},
+              ],
+            }),
+            200,
+            headers: <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
+          );
+        }),
+      );
+      final Result<List<CmsV10Category>> r = await ds.fetchCategories(kBase);
+      expect(r.isSuccess, isTrue, reason: '老 XML 站经 at=json 重试后应成功');
+      expect(requested.length, 2);
+      expect(requested.first.queryParameters['at'], isNull);
+      expect(requested.last.queryParameters['at'], 'json');
+    });
+
+    test('两种参数均非 JSON → ParseFailure（收敛裸参错误）', () async {
+      final CmsV10Datasource ds = datasourceWith(
+        MockClient((http.Request r) async =>
+            http.Response('<html>not json</html>', 200)),
       );
       final Result<List<CmsV10Category>> r = await ds.fetchCategories(kBase);
       expect(r.failureOrNull, isA<ParseFailure>());

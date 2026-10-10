@@ -104,17 +104,18 @@ class CmsV10Datasource {
 
   // ── 内部 ──
 
-  /// 组装接口地址（强制 `at=json`，保留站点自定义查询参数）。
+  /// 组装接口地址（[jsonParam] 控制是否附加 `at=json`，保留站点自定义查询参数）。
   ///
   /// 返回 null 表示地址非法（非 http/https 或缺少 host）。
-  Uri? buildUri(String baseUrl, Map<String, String> params) {
+  Uri? buildUri(String baseUrl, Map<String, String> params,
+      {bool jsonParam = true}) {
     final Uri? base = Uri.tryParse(baseUrl.trim());
     if (base == null) return null;
     if (base.scheme != 'http' && base.scheme != 'https') return null;
     if (base.host.isEmpty) return null;
     final Map<String, String> query = <String, String>{
       ...base.queryParameters,
-      'at': 'json',
+      if (jsonParam) 'at': 'json',
       ...params,
     };
     return base.replace(queryParameters: query);
@@ -124,12 +125,31 @@ class CmsV10Datasource {
     String baseUrl,
     Map<String, String> params,
   ) async {
-    final Uri? uri = buildUri(baseUrl, params);
-    if (uri == null) {
+    // 参数降级链（对齐 iOS `tryFetchJSON` 裸参语义）：
+    // ① 裸参直连（iOS ac=home / ac=list / ac=videolist 均不带 at=json；
+    //    部分网盘 CMS 的 provide/vod 不认 at=json，强拼会得 XML/错误页）；
+    // ② 裸参响应非 JSON（老 CMS 默认 XML）→ 重试带 at=json。
+    final Uri? plain = buildUri(baseUrl, params, jsonParam: false);
+    if (plain == null) {
       return const Err<Map<String, Object?>>(
         ValidationFailure('站点地址非法（需 http/https 绝对地址）'),
       );
     }
+    final Result<Map<String, Object?>> first = await _attempt(plain);
+    final Failure? firstFailure = first.failureOrNull;
+    if (firstFailure == null) return first;
+
+    final Uri? forced = buildUri(baseUrl, params);
+    if (forced == null || forced == plain) return first;
+    final Result<Map<String, Object?>> retry = await _attempt(forced);
+    final Failure? retryFailure = retry.failureOrNull;
+    if (retryFailure == null) return retry;
+
+    // 两次都失败：按原始错误收敛（裸参错误更贴近站点真实形态）。
+    return first;
+  }
+
+  Future<Result<Map<String, Object?>>> _attempt(Uri uri) async {
     try {
       final HttpClientResponse res = await _client.get(
         uri,
@@ -145,8 +165,8 @@ class CmsV10Datasource {
       }
       final Map<String, Object?>? json = JsonUtils.tryDecodeMap(res.text);
       if (json == null) {
-        return const Err<Map<String, Object?>>(
-          ParseFailure('响应不是 JSON 对象（该站可能不支持 at=json）'),
+        return Err<Map<String, Object?>>(
+          ParseFailure('响应不是 JSON 对象：$uri'),
         );
       }
       return Success<Map<String, Object?>>(json);
