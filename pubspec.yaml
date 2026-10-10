@@ -57,6 +57,7 @@ dependencies:
   # ── 分享与选图（Wave E：M-账2 分享 vbox / M-账3 头像更换）──
   share_plus: ^12.0.2                # 系统分享面板（Android/TV/Windows/macOS）
   image_picker: ^1.2.3               # 头像选图（各端相册 / 文件选择）
+  file_picker: ^8.1.7                # 备份还原选 .vboxbak（iOS = UIDocumentPicker，对齐 iOS）
 
   # ── 工具 ──
   crypto: ^3.0.5                     # SHA-256 等

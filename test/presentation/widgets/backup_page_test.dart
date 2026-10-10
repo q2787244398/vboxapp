@@ -33,11 +33,21 @@ void main() {
   /// 导出 Tab 的「9 个类目 + 口令输入 + 按钮」总高超出默认 800×600 视口，
   /// 而 `ListView` 只构建可见（含 cacheExtent）子项，末尾类目会缺席树，
   /// 导致 `find.text` 找不到 —— 故这里放大视口让全部类目一次性构建。
-  Future<void> pumpPage(WidgetTester tester, BackupService svc) async {
+  ///
+  /// [picked] 非空时注入「选择备份文件」替身（模拟系统文件选择器选中结果）。
+  Future<void> pumpPage(WidgetTester tester, BackupService svc,
+      {String? picked}) async {
     tester.view.physicalSize = const Size(1200, 1600);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(home: BackupPage(service: svc)));
+    await tester.pumpWidget(MaterialApp(
+      home: BackupPage(
+        service: svc,
+        pickBackupFile: picked == null
+            ? null
+            : () async => picked,
+      ),
+    ));
     await tester.pumpAndSettle();
   }
 
@@ -58,6 +68,26 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('暂无备份文件'), findsOneWidget);
+    // 对齐 iOS：空态仍提供「选择备份文件」入口（弹系统文件选择器）。
+    expect(find.text('选择备份文件'), findsOneWidget);
+  });
+
+  testWidgets('导入 Tab：选择备份文件 → 打开还原对话框（对齐 iOS 弹选择器）',
+      (WidgetTester tester) async {
+    await pumpPage(
+      tester,
+      _FakeBackupService(const <BackupFileInfo>[]),
+      picked: '/tmp/外部备份.vboxbak',
+    );
+
+    await tester.tap(find.text('导入还原'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('选择备份文件'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('还原备份'), findsOneWidget, reason: '选中后直接进入还原流程');
+    expect(find.textContaining('外部备份.vboxbak'), findsOneWidget);
   });
 
   testWidgets('导入 Tab：列出 .vboxbak 文件并可打开还原对话框', (WidgetTester tester) async {

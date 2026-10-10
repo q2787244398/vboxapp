@@ -2,12 +2,16 @@
 ///
 /// 功能对齐 `contract/docs/backup_v1.md`：
 /// - 导出：勾选 9 个类目（网盘凭据默认不勾选）+ 可选口令 → `.vboxbak` 文件
-/// - 还原：从备份目录选择 `.vboxbak` → 口令 → 类目 → 冲突策略（合并 / 覆盖）
+/// - 还原：备份目录列表 **或点击选择任意位置** 的 `.vboxbak` → 口令 → 类目 →
+///   冲突策略（合并 / 覆盖）（选择文件对齐 iOS：直接弹系统文件选择器）
 ///
 /// 加解密与格式由 [BackupManager] 负责，采集 / 写回由 [BackupService] 负责，
 /// 本文件只做交互编排。
 library;
 
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/datasources/local/backup_manager.dart';
@@ -16,10 +20,14 @@ import '../../data/datasources/local/backup_service.dart';
 
 /// 备份 / 还原页。
 class BackupPage extends StatefulWidget {
-  /// 构造（[service] 便于测试注入）。
-  const BackupPage({super.key, this.service});
+  /// 构造（[service] / [pickBackupFile] 便于测试注入）。
+  const BackupPage({super.key, this.service, this.pickBackupFile});
 
   final BackupService? service;
+
+  /// 「选择备份文件」回调（返回绝对路径；取消返回 null）。
+  /// null → 默认系统文件选择器（对齐 iOS：直接弹文件选择面板）。
+  final Future<String?> Function()? pickBackupFile;
 
   @override
   State<BackupPage> createState() => _BackupPageState();
@@ -109,6 +117,48 @@ class _BackupPageState extends State<BackupPage> {
   }
 
   // ── 还原 ────────────────────────────────────────────────
+
+  /// 「选择备份文件」：弹系统文件选择器（对齐 iOS：任意位置的 .vboxbak 均可还原）。
+  Future<void> _pickAndRestoreFile() async {
+    final String? path;
+    try {
+      path = await (widget.pickBackupFile ?? _defaultPickBackupFile)();
+    } catch (e) {
+      if (!mounted) return;
+      _toast('选择文件失败：$e');
+      return;
+    }
+    if (path == null || !mounted) return; // 用户取消
+
+    // 选中文件的展示信息（stat 失败不影响还原，读取时以真实文件为准）。
+    int sizeBytes = 0;
+    DateTime modifiedAt = DateTime.now();
+    try {
+      final FileStat stat = File(path).statSync();
+      sizeBytes = stat.size;
+      modifiedAt = stat.modified;
+    } on FileSystemException {
+      // 文件暂不可 stat（如云盘占位文件）→ 用默认展示值。
+    }
+    await _restoreFlow(BackupFileInfo(
+      path: path,
+      name: path.split(Platform.pathSeparator).last,
+      sizeBytes: sizeBytes,
+      modifiedAt: modifiedAt,
+    ));
+  }
+
+  /// 默认系统文件选择器（iOS = UIDocumentPicker，对齐 iOS 还原入口）。
+  ///
+  /// iOS 对未注册 UTI 的自定义扩展存在选择受限问题 → 任意文件 + 还原时内容
+  /// 校验兜底；其他平台限定 `.vboxbak` 扩展名。
+  static Future<String?> _defaultPickBackupFile() async {
+    final FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: Platform.isIOS ? FileType.any : FileType.custom,
+      allowedExtensions: Platform.isIOS ? null : const <String>['vboxbak'],
+    );
+    return result?.files.single.path;
+  }
 
   Future<void> _restoreFlow(BackupFileInfo file) async {
     final _RestoreOptions? options = await showDialog<_RestoreOptions>(
@@ -239,18 +289,42 @@ class _BackupPageState extends State<BackupPage> {
       );
     }
     if (_files.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Text('暂无备份文件\n先在「导出备份」生成 .vboxbak 文件', textAlign: TextAlign.center),
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Text(
+                '暂无备份文件\n先在「导出备份」生成 .vboxbak 文件',
+                textAlign: TextAlign.center,
+              ),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: _busy ? null : _pickAndRestoreFile,
+              icon: const Icon(Icons.folder_open),
+              label: const Text('选择备份文件'),
+            ),
+          ],
         ),
       );
     }
     return ListView.separated(
-      itemCount: _files.length,
+      itemCount: _files.length + 1,
       separatorBuilder: (BuildContext context, int index) => const Divider(height: 1),
       itemBuilder: (BuildContext context, int index) {
-        final BackupFileInfo f = _files[index];
+        // 首项：选择备份文件（对齐 iOS：弹系统文件选择器，任意位置均可选）。
+        if (index == 0) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: OutlinedButton.icon(
+              onPressed: _busy ? null : _pickAndRestoreFile,
+              icon: const Icon(Icons.folder_open),
+              label: const Text('选择备份文件'),
+            ),
+          );
+        }
+        final BackupFileInfo f = _files[index - 1];
         return ListTile(
           leading: const Icon(Icons.archive_outlined),
           title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis),
