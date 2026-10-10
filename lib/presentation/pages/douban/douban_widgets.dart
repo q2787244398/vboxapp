@@ -3,7 +3,6 @@
 /// 跨三页（首页 / 榜单 / 分类）复用的海报卡与空态 / 错误态，避免三处重复实现。
 library;
 
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +10,7 @@ import 'package:flutter/services.dart';
 import '../../../domain/entities/douban/douban_models.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../../widgets/fall_in_card.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/skeleton_shimmer.dart';
 import '../../widgets/vbox/vbox.dart';
@@ -239,7 +239,7 @@ class _DoubanSubjectRowState extends State<DoubanSubjectRow> {
                   ((center - viewportCenter).abs() / _maxDist).clamp(0.0, 1.0);
               final double scale = 1.0 - normalized * 0.15;
               final DoubanSubject subject = widget.items[index];
-              return _FallingCard(
+              return FallInCard(
                 delay: index * 0.08,
                 child: AnimatedScale(
                   scale: scale,
@@ -357,55 +357,6 @@ class _SubjectRowCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// 掉落回弹入场容器（对齐 iOS `SubjectCard.hasAppeared` 动效）。
-class _FallingCard extends StatefulWidget {
-  const _FallingCard({required this.delay, required this.child});
-
-  /// 入场延迟（秒）。
-  final double delay;
-
-  final Widget child;
-
-  @override
-  State<_FallingCard> createState() => _FallingCardState();
-}
-
-class _FallingCardState extends State<_FallingCard> {
-  bool _appeared = false;
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer(
-      Duration(milliseconds: (widget.delay * 1000).round()),
-      () {
-        if (mounted) setState(() => _appeared = true);
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedSlide(
-      offset: _appeared ? Offset.zero : const Offset(0, -0.2),
-      duration: const Duration(milliseconds: 600),
-      curve: Curves.easeOutBack,
-      child: AnimatedOpacity(
-        opacity: _appeared ? 1 : 0,
-        duration: const Duration(milliseconds: 300),
-        child: widget.child,
       ),
     );
   }

@@ -177,4 +177,36 @@ void main() {
     expect(find.text('站点2'), findsOneWidget);
     expect(find.text('电影片'), findsOneWidget);
   });
+
+  testWidgets('网格卡片掉落回弹入场（对齐 iOS hasAppeared）：同排错峰 → 回弹可见',
+      (WidgetTester tester) async {
+    final _FakeContentBrowseUseCases uc = _FakeContentBrowseUseCases(
+      sites: <SiteConfig>[site('s1', '站点1')],
+      categoryList: <VodCategory>[cat('1', '电影')],
+      videos: (_, __) => <VodItem>[
+        vod('1', '首卡片'),
+        vod('2', '次卡片'),
+      ],
+    );
+    await tester.pumpWidget(_app(uc));
+    // 数据已加载（假用例同步返回），错峰延迟（次卡 80ms）尚未触发。
+    await tester.pump(const Duration(milliseconds: 30));
+
+    final Finder secondary = find.ancestor(
+      of: find.text('次卡片'),
+      matching: find.byType(AnimatedOpacity),
+    );
+    expect(secondary, findsOneWidget, reason: '网格卡片应包入场动效容器');
+    expect(
+      tester.widget<AnimatedOpacity>(secondary).opacity,
+      0.0,
+      reason: '错峰未到时次卡应仍隐藏（对齐 iOS fallDelay）',
+    );
+
+    // 推进错峰 + 回弹动画：全部卡片完全可见。
+    await tester.pumpAndSettle();
+    expect(tester.widget<AnimatedOpacity>(secondary).opacity, 1.0,
+        reason: '回弹完成后卡片完全可见');
+    expect(find.text('首卡片'), findsOneWidget);
+  });
 }

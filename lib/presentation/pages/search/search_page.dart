@@ -543,7 +543,8 @@ class _SearchPageState extends State<SearchPage> {
               return Text(
                 log,
                 style: TextStyle(
-                  fontSize: 9,
+                  // iOS 9pt；R-3 字号档位无 9，取最近档 10。
+                  fontSize: VboxTypography.s10,
                   fontFamily: 'monospace',
                   color: _debugLogColor(log, scheme),
                 ),

@@ -55,13 +55,15 @@ class VboxPosterCard extends StatelessWidget {
 
     return SizedBox(
       width: width,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          GestureDetector(
-            onTap: onTap,
-            child: AspectRatio(
+      // 整卡可点（对齐 iOS 海报卡整卡点击，含标题/副标题区）。
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            AspectRatio(
               aspectRatio: aspect,
               child: Stack(
                 fit: StackFit.expand,
@@ -105,29 +107,29 @@ class VboxPosterCard extends StatelessWidget {
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: VboxSpacing.sm),
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: VboxTypography.s13,
-              fontWeight: FontWeight.w500,
-              color: scheme.onSurface,
-            ),
-          ),
-          if (subtitle != null)
+            const SizedBox(height: VboxSpacing.sm),
             Text(
-              subtitle!,
+              title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: VboxTypography.s11,
-                color: scheme.onSurfaceVariant,
+                fontSize: VboxTypography.s13,
+                fontWeight: FontWeight.w500,
+                color: scheme.onSurface,
               ),
             ),
-        ],
+            if (subtitle != null)
+              Text(
+                subtitle!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: VboxTypography.s11,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

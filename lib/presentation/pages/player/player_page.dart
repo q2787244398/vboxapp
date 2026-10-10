@@ -49,6 +49,7 @@ import '../../../platform/player/subtitle_parser.dart';
 import '../../../platform/player/subtitle_style.dart';
 import '../../../platform/player/wake_lock.dart';
 import '../../theme/tokens/colors.dart';
+import '../../theme/tokens/typography.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/player/cast/cast_controller.dart';
 import '../../widgets/player/cast/cast_device_sheet.dart';
@@ -1925,7 +1926,8 @@ class _PlayerDebugOverlay extends StatelessWidget {
                     child: Text(
                       logs[index],
                       style: TextStyle(
-                        fontSize: 9,
+                        // iOS 9pt；R-3 字号档位无 9，取最近档 10。
+                        fontSize: VboxTypography.s10,
                         fontFamily: 'monospace',
                         color: Colors.green.withValues(alpha: 0.9),
                       ),

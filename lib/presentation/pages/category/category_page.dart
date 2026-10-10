@@ -7,6 +7,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/errors/failures.dart';
@@ -20,6 +21,7 @@ import '../../theme/tokens/typography.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/adaptive/responsive_grid.dart';
 import '../../widgets/detail_page.dart';
+import '../../widgets/fall_in_card.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/skeleton_shimmer.dart';
 import '../../widgets/vbox/vbox.dart';
@@ -439,7 +441,12 @@ class _CategoryPageState extends State<CategoryPage> {
             if (index >= _items.length) {
               return const Center(child: CircularProgressIndicator());
             }
-            return _posterFromVod(_items[index]);
+            // 掉落回弹入场（对齐 iOS `SubjectCard.hasAppeared`）：同排卡片
+            // 自左向右逐卡错峰，滚动加载的新排即时入场。
+            return FallInCard(
+              delay: (index % columns) * 0.08,
+              child: _posterFromVod(_items[index]),
+            );
           },
         );
       },
@@ -488,7 +495,11 @@ class _PosterCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        // 触感反馈（对齐 iOS `SubjectCard.hapticGenerator.selectionChanged()`）。
+        HapticFeedback.selectionClick();
+        onTap?.call();
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[

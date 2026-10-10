@@ -17,6 +17,7 @@ import '../../theme/tokens/typography.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/adaptive/responsive_grid.dart';
 import '../../widgets/vbox/vbox.dart';
+import '../search/search_page.dart';
 import 'douban_widgets.dart';
 
 /// 豆瓣分类浏览页。
@@ -143,6 +144,20 @@ class _DoubanCategoryPageState extends State<DoubanCategoryPage> {
   Future<void> _loadMore() async {
     if (!_hasMore || _loading || _loadingMore) return;
     await _load(reset: false);
+  }
+
+  /// 条目点击 → 进搜索页自动搜索（对齐 iOS `settings.triggerSearch(subject.title)`；
+  /// `SearchView` 的 `initialKeyword` 链路）。弹层嵌入模式下先关闭弹层再跳转。
+  void _openSubject(DoubanSubject subject) {
+    final String kw = subject.title.trim();
+    if (kw.isEmpty) return;
+    final NavigatorState navigator = Navigator.of(context);
+    if (widget.embedded && navigator.canPop()) navigator.pop();
+    navigator.push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => SearchPage(initialKeyword: kw),
+      ),
+    );
   }
 
   void _toast(String message) {
@@ -296,7 +311,10 @@ class _DoubanCategoryPageState extends State<DoubanCategoryPage> {
             if (index >= _items.length) {
               return const Center(child: CircularProgressIndicator());
             }
-            return DoubanSubjectCard(subject: _items[index]);
+            return DoubanSubjectCard(
+              subject: _items[index],
+              onTap: () => _openSubject(_items[index]),
+            );
           },
         );
       },

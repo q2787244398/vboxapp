@@ -20,6 +20,7 @@ class _FakeContentBrowseUseCases extends ContentBrowseUseCases {
   _FakeContentBrowseUseCases({
     this.sites = const <SiteConfig>[],
     this.categoriesBySite = const <String, List<VodCategory>>{},
+    this.categoriesDelay = const <String, Duration>{},
     this.videos,
     this.searchResults = const <VodItem>[],
   }) : super(
@@ -29,6 +30,9 @@ class _FakeContentBrowseUseCases extends ContentBrowseUseCases {
 
   final List<SiteConfig> sites;
   final Map<String, List<VodCategory>> categoriesBySite;
+
+  /// 按站点的分类扫描延迟（模拟慢源，验证流式渐进显示）。
+  final Map<String, Duration> categoriesDelay;
   final List<VodItem> Function(String siteKey, String? tid, int page)? videos;
   final List<VodItem> searchResults;
 
@@ -37,10 +41,13 @@ class _FakeContentBrowseUseCases extends ContentBrowseUseCases {
       Success<List<SiteConfig>>(sites);
 
   @override
-  Future<Result<List<VodCategory>>> categories(String siteKey) async =>
-      Success<List<VodCategory>>(
-        categoriesBySite[siteKey] ?? const <VodCategory>[],
-      );
+  Future<Result<List<VodCategory>>> categories(String siteKey) async {
+    final Duration? delay = categoriesDelay[siteKey];
+    if (delay != null) await Future<void>.delayed(delay);
+    return Success<List<VodCategory>>(
+      categoriesBySite[siteKey] ?? const <VodCategory>[],
+    );
+  }
 
   @override
   Future<Result<CategoryContentResult>> categoryContent(
@@ -116,6 +123,40 @@ void main() {
 
     expect(find.text('站点1(短剧)'), findsOneWidget);
     expect(find.text('短剧片'), findsOneWidget);
+  });
+
+  testWidgets('流式渐进：先扫到的源先显示并加载内容，不等慢源（对齐 iOS）',
+      (WidgetTester tester) async {
+    final _FakeContentBrowseUseCases uc = _FakeContentBrowseUseCases(
+      sites: <SiteConfig>[site('s1', '站点1'), site('s2', '站点2')],
+      categoriesBySite: <String, List<VodCategory>>{
+        's1': <VodCategory>[cat('1', '短剧')],
+        's2': <VodCategory>[cat('2', '剧场')],
+      },
+      // s2 扫描慢：中间态 s1 已上屏、s2 未出现。
+      categoriesDelay: <String, Duration>{
+        's2': const Duration(seconds: 2),
+      },
+      videos: (String siteKey, _, __) =>
+          siteKey == 's1' ? <VodItem>[vod('1', '短剧片')] : <VodItem>[vod('2', '剧场片')],
+    );
+    await tester.pumpWidget(_app(uc));
+    // 推进少量时间：s1 已完成扫描并加载内容，s2 仍在延迟中。
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('站点1(短剧)'), findsOneWidget,
+        reason: '先扫到的源先显示（不等全站扫描完成）');
+    expect(find.text('站点2(剧场)'), findsNothing,
+        reason: '慢源未完成时不应出现');
+    expect(find.text('短剧片'), findsOneWidget,
+        reason: '首源内容不等慢源，谁先有数据先显示');
+
+    // 慢源完成后上屏（不重排已完成顺序）。
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('站点2(剧场)'), findsOneWidget);
+    expect(find.text('短剧片'), findsOneWidget,
+        reason: '慢源上屏不改变当前内容');
   });
 
   testWidgets('切换源标签：重载该源内容', (WidgetTester tester) async {

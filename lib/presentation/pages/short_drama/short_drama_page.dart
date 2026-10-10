@@ -121,6 +121,13 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
     setState(() {
       _scanning = true;
       _error = null;
+      // 重新扫描：清空旧源与内容（下拉刷新重建，语义同原一次性赋值）。
+      _sources = const <ShortDramaSource>[];
+      _selectedSourceId = null;
+      _page = 0;
+      _pagecount = null;
+      _lastBatchFull = true;
+      _items.clear();
     });
     final Result<List<SiteConfig>> result = await _uc.listSites();
     if (!mounted) return;
@@ -141,31 +148,22 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
       return;
     }
 
-    // 并发扫描各站点分类（单站失败不影响整体）。
-    final List<ShortDramaSource> found = <ShortDramaSource>[];
+    // 并发扫描各站点分类（单站失败不影响整体）；对齐 iOS `ShortDramaView`
+    // 流式渐进：单站命中即上屏并触发首源内容加载，谁先有数据先显示，
+    // 不等全部站点扫描完成。
     final List<Future<void>> tasks = <Future<void>>[];
     final Set<String> seenIds = <String>{};
     for (final SiteConfig site in sites) {
-      tasks.add(_scanSite(site, found, seenIds));
+      tasks.add(_scanSite(site, seenIds));
     }
     await Future.wait(tasks);
 
     if (!mounted) return;
-    found.sort((ShortDramaSource a, ShortDramaSource b) =>
-        a.name.compareTo(b.name));
-    setState(() {
-      _scanning = false;
-      _sources = List<ShortDramaSource>.unmodifiable(found);
-      _selectedSourceId = found.isEmpty ? null : found.first.id;
-    });
-    if (found.isNotEmpty) {
-      await _load(reset: true);
-    }
+    setState(() => _scanning = false);
   }
 
   Future<void> _scanSite(
     SiteConfig site,
-    List<ShortDramaSource> out,
     Set<String> seenIds,
   ) async {
     try {
@@ -180,13 +178,26 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
         if (!looksLikeShortDramaCategory(cat.typeName)) continue;
         final String id = '${site.key}_${cat.typeId}';
         if (!seenIds.add(id)) continue;
-        out.add(ShortDramaSource(
+        final ShortDramaSource source = ShortDramaSource(
           id: id,
           name: site.name.isEmpty ? site.key : site.name,
           siteKey: site.key,
           categoryId: cat.typeId,
           categoryName: cat.typeName,
-        ));
+        );
+        if (!mounted) return;
+        // 命中即上屏：立即追加源标签；首个命中的源不等其它站点，
+        // 直接开始加载内容（对齐 iOS「谁先有数据先显示」）。
+        final bool isFirst = _selectedSourceId == null;
+        setState(() {
+          _sources = List<ShortDramaSource>.unmodifiable(
+            <ShortDramaSource>[..._sources, source],
+          );
+          if (isFirst) _selectedSourceId = source.id;
+        });
+        if (isFirst) {
+          await _load(reset: true);
+        }
       }
     } catch (_) {
       // 单站扫描失败 / 超时静默跳过（对齐 iOS 容错）。
@@ -466,19 +477,24 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
 
   Widget _buildBody() {
     if (_searching) return _buildSearchResults();
-    if (_scanning) return const Center(child: CircularProgressIndicator());
     final Failure? error = _error;
     if (error != null) {
       return _ErrorRetry(message: '$error', onRetry: _refresh);
     }
     if (_sources.isEmpty) {
-      return const _EmptyHint(text: '未检测到短剧源\n请在设置中添加包含短剧的订阅源');
+      // 尚未扫到任何短剧源：扫描中显示加载圈；扫描完仍无源 → 空态提示。
+      return _scanning
+          ? const Center(child: CircularProgressIndicator())
+          : const _EmptyHint(text: '未检测到短剧源\n请在设置中添加包含短剧的订阅源');
     }
     if (_loading && _items.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_items.isEmpty) {
-      return const _EmptyHint(text: '该短剧源暂无内容');
+      // 当前源暂无内容且其它站点还在扫描 → 保持加载圈（等待首个有数据的源）。
+      return _scanning
+          ? const Center(child: CircularProgressIndicator())
+          : const _EmptyHint(text: '该短剧源暂无内容');
     }
     return _buildGrid();
   }
