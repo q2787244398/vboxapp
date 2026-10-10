@@ -188,6 +188,13 @@ jobs:
         shell: pwsh
         run: .\scripts\bundle-jsc-windows.ps1 -Config Release
 
+      # ND-02-desktop：Node 引擎随 release 目录分发（<exeDir>/noderuntime/node.exe，
+      # ProcessNodeHost 探测链 ② 命中）——对齐 iOS「引擎随包内置、零外部依赖」，
+      # 用户免装 Node.js，Node 常驻系统开箱即用。
+      - name: Bundle Node engine into release dir (ND-02)
+        shell: pwsh
+        run: .\scripts\bundle-node-windows.ps1 -Config Release
+
       - name: Resolve version from pubspec
         id: version
         shell: bash
@@ -266,6 +273,11 @@ jobs:
           # 整组拷入 Frameworks，由 App 主二进制的 @executable_path/../Frameworks rpath 解析。
           cp .mpv-cache/*.dylib "$APP/Contents/Frameworks/"
           ls -lh "$APP/Contents/Frameworks/"
+
+      # ND-02-desktop：Node 引擎随 App 分发（Contents/MacOS/noderuntime/node，
+      # 探测链 ② 落点）——须在统一 re-sign 之前（re-sign 覆盖嵌套二进制签名）。
+      - name: Bundle Node engine into app (ND-02)
+        run: bash scripts/bundle-node-macos.sh --config Release
 
       - name: Ad-hoc re-sign app (S.6 侧载，未公证)
         run: |
