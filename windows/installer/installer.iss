@@ -30,6 +30,14 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 
+; 升级时用 Windows Restart Manager 关闭占用安装目录内文件的进程
+; （vbox.exe / 常驻 node.exe）。force=yes 静默强关不弹询问；
+; 配合下方 [Code] PrepareToInstall 的显式查杀双保险（RM 对无窗口的
+; node.exe 常驻进程 Graceful 关闭会失败）。
+CloseApplications=yes
+CloseApplicationsForce=yes
+RestartApplications=no
+
 ; 安装界面简体中文（语言文件随仓库分发：languages/ChineseSimplified.isl，
 ; 来源 jrsoftware/issrc Files/Languages/ChineseSimplified.isl，UTF-8 BOM；
 ; 不依赖 Inno Setup 安装目录——choco 安装的 innosetup 缺 Languages 中文文件）
@@ -49,3 +57,40 @@ Name: "{autodesktop}\vbox"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{a
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 vbox"; Flags: nowait postinstall skipifsilent
+
+; ── 升级 / 卸载前结束旧版进程 ──────────────────────────────────────
+; 常驻 node.exe（ND-02 Node 引擎内置 + Node 常驻系统）在 vbox.exe 退出后
+; 仍按设计驻留后台。Inno 覆盖 {app}\noderuntime\node.exe 时，Windows 拒绝
+; 删除正在运行的 exe → 「DeleteFile 失败；错误代码 5。拒绝访问」。
+; 此处在复制文件前显式查杀：
+;   - vbox.exe 按映像名连进程树强杀（/t 连带其子进程）；
+;   - node.exe 只按完整路径杀安装目录内的实例，不误伤系统其他 Node 应用；
+;   - 杀完等 800ms 让句柄释放，再由 ignoreversion 覆盖文件。
+[Code]
+procedure KillVboxProcesses();
+var
+  AppDir: String;
+  ResultCode: Integer;
+begin
+  AppDir := ExpandConstant('{app}');
+  Exec(ExpandConstant('{cmd}'), '/C taskkill /f /t /im vbox.exe',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('powershell.exe',
+       '-NoProfile -ExecutionPolicy Bypass -Command ' +
+       'Get-Process node -ErrorAction SilentlyContinue | ' +
+       'Where-Object { $_.Path -like "' + AppDir + '\*" } | ' +
+       'Stop-Process -Force; Start-Sleep -Milliseconds 800',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  KillVboxProcesses();
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    KillVboxProcesses();
+end;
