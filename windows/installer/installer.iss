@@ -30,12 +30,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 
-; 升级时用 Windows Restart Manager 关闭占用安装目录内文件的进程
-; （vbox.exe / 常驻 node.exe）。force=yes 静默强关不弹询问；
-; 配合下方 [Code] PrepareToInstall 的显式查杀双保险（RM 对无窗口的
-; node.exe 常驻进程 Graceful 关闭会失败）。
+; 升级时用 Windows Restart Manager 协助关闭占用安装目录内文件的进程
+; （vbox.exe / 常驻 node.exe）。注意 Inno 6 没有 CloseApplicationsForce
+; 指令；RM 对无窗口的 node.exe 常驻进程 Graceful 关闭会失败，真正的
+; 兜底是下方 [Code] PrepareToInstall 的显式查杀。
 CloseApplications=yes
-CloseApplicationsForce=yes
 RestartApplications=no
 
 ; 安装界面简体中文（语言文件随仓库分发：languages/ChineseSimplified.isl，
