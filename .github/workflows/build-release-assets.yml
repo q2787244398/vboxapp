@@ -77,6 +77,19 @@ jobs:
 
       - run: flutter pub get
 
+      # file_picker 10.3.3 硬编码 kotlinOptions jvmTarget=1.8，而 Flutter 工具链为
+      # 插件子项目统一设置 Java 11 → KGP jvm-target 校验失败。Gradle 侧注入会被
+      # KGP 在子项目求值期注册的配置覆盖（时序不可靠），故直接修正插件源码声明，
+      # 使其与宿主 Java 11 自洽。升级 file_picker（12+/13+ 已迁移内置 Kotlin）后移除。
+      - name: Align file_picker kotlin jvmTarget with host Java 11
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="$(find "$HOME/.pub-cache/hosted" -path "file_picker-10.3.3/android/build.gradle" | head -n 1)"
+          test -n "$FILE" || { echo "❌ 未找到 file_picker 10.3.3 android/build.gradle"; exit 1; }
+          sed -i "s/jvmTarget = '1.8'/jvmTarget = '11'/" "$FILE"
+          grep -n "jvmTarget" "$FILE"
+
       # 批次 Q · Q-02：就位四 ABI libjsc.so（JSC 主引擎，AGP externalNativeBuild 前置）
       - name: Fetch Android JSC prebuilt libs (Q-02)
         run: bash scripts/fetch-jsc-android.sh
