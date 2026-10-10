@@ -85,8 +85,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FILE="$(find "$HOME/.pub-cache/hosted" -path "file_picker-10.3.3/android/build.gradle" | head -n 1)"
+          PUB_CACHE_DIR="${PUB_CACHE:-$HOME/.pub-cache}"
+          FILE="$(find "$PUB_CACHE_DIR/hosted" -type f -path "*file_picker-10.3.3/android/build.gradle" | head -n 1)"
           test -n "$FILE" || { echo "❌ 未找到 file_picker 10.3.3 android/build.gradle"; exit 1; }
+          echo "Patching: $FILE"
           sed -i "s/jvmTarget = '1.8'/jvmTarget = '11'/" "$FILE"
           grep -n "jvmTarget" "$FILE"
 
