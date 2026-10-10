@@ -82,6 +82,32 @@ bool MpvApi::Load() {
   }
   HMODULE mod = ::LoadLibraryW(L"mpv-2.dll");
   if (mod == nullptr) {
+    // 按 GetLastError 分类（LoadLibraryW 失败 ≠ 一定是「文件缺失」：
+    // 该 dll 导入 vulkan-1.dll 等非保证预装的系统组件，依赖解析失败
+    // 同样返回 null）。
+    const DWORD err = ::GetLastError();
+    switch (err) {
+      case ERROR_FILE_NOT_FOUND:
+      case ERROR_PATH_NOT_FOUND:
+        load_error =
+            "mpv-2.dll 未随包分发（安装包不完整或被安全软件清理）";
+        break;
+      case ERROR_MOD_NOT_FOUND:
+        load_error =
+            "mpv-2.dll 依赖的运行库缺失（常见：系统缺 vulkan-1.dll，"
+            "请安装显卡驱动或 Vulkan Runtime 后重试）";
+        break;
+      case ERROR_BAD_EXE_FORMAT:
+        load_error = "mpv-2.dll 架构不匹配（需 64 位）";
+        break;
+      case ERROR_ACCESS_DENIED:
+        load_error = "mpv-2.dll 访问被拒绝（可能被安全软件拦截）";
+        break;
+      default:
+        load_error = "mpv-2.dll 加载失败（Win32 错误码 " +
+                     std::to_string(err) + "）";
+        break;
+    }
     return false;
   }
   bool ok = true;
@@ -242,10 +268,10 @@ void PlayerPlugin::Open(
     return;
   }
 
-  // D28：mpv-2.dll 随包分发，缺失时上报 E_BACKEND_UNAVAILABLE 由 Dart 侧处理。
+  // D28：mpv-2.dll 随包分发；加载失败（文件缺失 / 依赖缺失 / 拦截）按
+  // Load() 分类原因上报 E_BACKEND_UNAVAILABLE 由 Dart 侧处理。
   if (!api_.Load()) {
-    result->Error("E_BACKEND_UNAVAILABLE",
-                  "mpv-2.dll 加载失败（D28 分发缺失），libmpv 不可用");
+    result->Error("E_BACKEND_UNAVAILABLE", api_.load_error + "，libmpv 不可用");
     return;
   }
 

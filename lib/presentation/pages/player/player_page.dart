@@ -1452,6 +1452,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 首开失败诊断（C-12）：探测直链可达性，返回更精确的失败文案。
   Future<String> _diagnose(PlayerOpenException e, PlayerSource source) async {
+    // 后端不可用（如 Windows libmpv 依赖缺失 / mdk 未接线）是首要事实，
+    // URL 可达性探测结果无意义且会误导（把内核问题归成网络问题），
+    // 直接透传原生原因（对齐 iOS 后端失败原样上报）。
+    if (e.code == 'E_BACKEND_UNAVAILABLE') return e.message;
     final MediaUrlChecker checker = _urlChecker ??= MediaUrlChecker();
     try {
       final MediaUrlCheckResult r =

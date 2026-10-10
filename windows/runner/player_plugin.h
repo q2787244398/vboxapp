@@ -96,6 +96,9 @@ struct MpvApi {
   // 加载状态（首次 open 前尝试 LoadLibraryW）。
   bool loaded = false;
 
+  // 最近一次 Load 失败原因（GetLastError 分类，供 open 报错给 Dart）。
+  std::string load_error;
+
   // 句柄与生命周期。
   mpv_handle* (*create)(void) = nullptr;
   int (*initialize)(mpv_handle* ctx) = nullptr;
