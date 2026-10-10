@@ -4,16 +4,22 @@
 /// 结果态：左源列表（横屏竖排 / 竖屏横滑）+ 结果卡（缩略图 + 标题 + 备注）。
 /// 数据通路：`ContentBrowseUseCases.listSites` / `searchContent` / `homeContent`
 /// + `SearchHistoryUseCases.recent` / `add` / `clear`，点击结果卡 push 详情页。
+/// 搜索调试面板（Search-A6）：设置开启 `show_search_debug` 且日志非空时，
+/// 搜索框下方显示逐源日志流（对齐 iOS `SearchView` 的 `searchDebugLogs`）。
 library;
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/utils/result.dart';
+import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/douban/douban_models.dart';
 import '../../../domain/entities/spider/spider.dart';
 import '../../../domain/usecases/usecases.dart';
@@ -59,6 +65,15 @@ class _SearchPageState extends State<SearchPage> {
   /// 网盘源搜索用例（S-设4；对齐 iOS `SpiderManager.searchStream` 的
   /// `cloudSearch` 通道）。缺省注入时为空（测试环境）。
   CloudSearchUseCases? _cloudSearch;
+
+  /// 搜索调试面板开关（对齐 iOS `UserDefaults "show_search_debug"`）。
+  bool _debugEnabled = false;
+
+  /// 搜索调试日志（对齐 iOS `searchDebugLogs`：每次搜索清空、500 条上限）。
+  final List<String> _debugLogs = <String>[];
+
+  /// 日志上限（对齐 iOS `addSearchLog` 500 条裁剪）。
+  static const int _maxDebugLogs = 500;
 
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focus = FocusNode();
@@ -121,6 +136,7 @@ class _SearchPageState extends State<SearchPage> {
   Future<void> _init() async {
     await _loadHistory();
     unawaited(_loadDouban());
+    unawaited(_loadDebugFlag());
     await _resolveSites();
     // 对齐 iOS `triggerSearch`：带初始关键词进入即自动搜索（首页/榜单/分类点击条目）。
     final String kw = (widget.initialKeyword ?? '').trim();
@@ -158,6 +174,31 @@ class _SearchPageState extends State<SearchPage> {
     if (!mounted) return;
     final List<String> words = result.valueOrNull ?? const <String>[];
     setState(() => _historyWords = words);
+  }
+
+  /// 读取「搜索调试面板」开关（对齐 iOS 每次 body 渲染读
+  /// `UserDefaults.standard.bool(forKey: "show_search_debug")`：进入页面与
+  /// 每次发起搜索时刷新）。偏好未就绪时按缺省关闭（iOS 默认 false）。
+  Future<void> _loadDebugFlag() async {
+    try {
+      final bool enabled =
+          await PrefsManager.instance.getBool('show_search_debug');
+      if (!mounted) return;
+      setState(() => _debugEnabled = enabled);
+    } catch (_) {
+      // 偏好未初始化（如测试环境）：保持关闭，不阻断搜索页。
+    }
+  }
+
+  /// 追加搜索调试日志（对齐 iOS `addSearchLog`：超出 500 条裁剪最早）。
+  void _addSearchLog(String msg) {
+    if (!mounted) return;
+    setState(() {
+      _debugLogs.add(msg);
+      if (_debugLogs.length > _maxDebugLogs) {
+        _debugLogs.removeRange(0, _debugLogs.length - _maxDebugLogs);
+      }
+    });
   }
 
   /// 加载当前栏目的豆瓣榜单（对齐 iOS `SearchView.loadDoubanData`，L1812-L1829）：
@@ -214,16 +255,21 @@ class _SearchPageState extends State<SearchPage> {
     final String kw = keyword.trim();
     if (kw.isEmpty) return;
     if (!mounted) return;
+    unawaited(_loadDebugFlag());
     setState(() {
       _searched = true;
       _loading = true;
       _error = null;
       _results.clear();
       _selectedSource = null;
+      _debugLogs.clear();
     });
+    // 搜索调试日志（对齐 iOS performSearch L1729 / searchStream L2219）。
+    _addSearchLog('🔍 开始搜索: $kw');
 
     final List<SiteConfig> sites = await _resolveSites();
     if (!mounted) return;
+    _addSearchLog('====== 开始流式搜索: $kw (${sites.length} 源) ======');
     // 网盘源（group == 'cloud'）走 [CloudSearchUseCases] 独立通道（对齐 iOS
     // `searchStream` 的网盘通道与 apiSites 分立），不进入逐源 `searchContent`。
     final List<Future<void>> tasks = <Future<void>>[
@@ -233,8 +279,18 @@ class _SearchPageState extends State<SearchPage> {
     _collectExtraSources(kw, tasks);
     await Future.wait(tasks);
     if (!mounted) return;
+    // 收尾日志（对齐 iOS searchStream L2451 + performSearch L1745-L1747）。
+    _addSearchLog('====== Stream全部完成 ======');
+    _addSearchLog('✅ 搜索结束: 共${_results.length}条/$_distinctSourceCount个源');
     setState(() => _loading = false);
   }
+
+  /// 结果的去重来源数（对齐 iOS `Set(searchResults.compactMap { $0.vodRemarks })`）。
+  int get _distinctSourceCount => _results
+      .map((VodItem v) => (v.vodRemarks ?? '').trim())
+      .where((String s) => s.isNotEmpty)
+      .toSet()
+      .length;
 
   /// 单站点搜索（返回即并入；单源失败静默，不阻断其余源，对齐 iOS 逐源容错）。
   ///
@@ -246,6 +302,7 @@ class _SearchPageState extends State<SearchPage> {
           await _uc.searchContent(site.key, keyword);
       final List<VodItem> items = result.valueOrNull?.list ?? const <VodItem>[];
       if (!mounted || items.isEmpty) return;
+      _addSearchLog(_siteLogLine(site, count: items.length));
       final String label = _siteLabel(site);
       setState(() {
         _mergeResults(
@@ -255,9 +312,25 @@ class _SearchPageState extends State<SearchPage> {
               .toList(growable: false),
         );
       });
-    } catch (_) {
-      // 单源失败静默（对齐 iOS searchStream 的逐源 try/catch）。
+    } catch (e) {
+      // 单源失败静默（对齐 iOS searchStream 的逐源 try/catch）；仅蜘蛛源记
+      // ❌/🐍（对齐 iOS 引擎通道，API 通道错误静默）。
+      if (site.type == 3) _addSearchLog(_siteLogLine(site, error: e));
     }
+  }
+
+  /// 逐源搜索日志行（对齐 iOS `searchStream` 通道 2/3/4：API 源
+  /// `✅ name +N条`；JS 蜘蛛 `✅ QuickJS[key] +N条`；Python 蜘蛛
+  /// `🐍 Python[key] +N条`；失败仅蜘蛛源记 `❌ QuickJS[key] err` / `🐍`）。
+  String _siteLogLine(SiteConfig site, {int count = 0, Object? error}) {
+    final bool ok = error == null;
+    if (site.type == 3) {
+      if (site.resolveEngineType() == SpiderEngineType.python) {
+        return '🐍 Python[${site.key}] ${ok ? '+$count条' : error}';
+      }
+      return '${ok ? '✅' : '❌'} QuickJS[${site.key}] ${ok ? '+$count条' : error}';
+    }
+    return '✅ ${_siteLabel(site)} +$count条';
   }
 
   /// 站点显示名（网盘源加 `☁️` 前缀，对齐 iOS `SpiderManager.searchStream`）。
@@ -282,6 +355,8 @@ class _SearchPageState extends State<SearchPage> {
             keyword,
             onBatch: (List<VodItem> items) {
               if (!mounted || items.isEmpty) return;
+              // 网盘通道日志（对齐 iOS searchStream L2255）。
+              _addSearchLog('☁️ 网盘 +${items.length}条');
               setState(() => _mergeResults(items));
             },
           );
@@ -312,6 +387,10 @@ class _SearchPageState extends State<SearchPage> {
           // 把备注置为源名），使结果可按来源分组而非按分集备注散开。
           final String name =
               TencentVideoNativeSpider.siteKey.replaceFirst('drpy_js_', '');
+          // 引擎通道日志（对齐 iOS `✅ QuickJS[key] +N条`）。
+          _addSearchLog(
+            '✅ QuickJS[${TencentVideoNativeSpider.siteKey}] +${items.length}条',
+          );
           setState(() {
             _mergeResults(
               items
@@ -333,6 +412,17 @@ class _SearchPageState extends State<SearchPage> {
               onBatch: (List<VodItem> items) {
                 if (!mounted || items.isEmpty) return;
                 setState(() => _mergeResults(items));
+                // 兜底切片源逐源 ✅ 行（对齐 iOS：兜底源并入 API 通道
+                // `✅ name +N条`，L2245-L2247）。
+                final Map<String, int> bySource = <String, int>{};
+                for (final VodItem v in items) {
+                  final String label = (v.vodRemarks ?? '').trim();
+                  if (label.isEmpty) continue;
+                  bySource[label] = (bySource[label] ?? 0) + 1;
+                }
+                for (final MapEntry<String, int> e in bySource.entries) {
+                  _addSearchLog('✅ ${e.key} +${e.value}条');
+                }
               },
             )
             .catchError((Object _) {}),
@@ -396,8 +486,134 @@ class _SearchPageState extends State<SearchPage> {
           _buildSubmitButton(),
         ],
       ),
-      body: _searched ? _buildResultState() : _buildEmptyState(),
+      // 搜索调试面板固定在搜索框下方（对齐 iOS L1425-L1480：
+      // `show_search_debug` 开启且日志非空时显示）。
+      body: Column(
+        children: <Widget>[
+          if (_debugEnabled && _debugLogs.isNotEmpty) _buildDebugPanel(),
+          Expanded(child: _searched ? _buildResultState() : _buildEmptyState()),
+        ],
+      ),
     );
+  }
+
+  // ─────────────── 搜索调试面板（对齐 iOS SearchView L1425-L1480） ───────────────
+
+  /// 搜索调试面板：计数头 + 120pt 等宽日志区（按前缀着色、新日志置底）+
+  /// 右下角导出按钮。
+  Widget _buildDebugPanel() {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        // 计数头（对齐 iOS L1428-L1438）。
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+          child: Row(
+            children: <Widget>[
+              Text(
+                '搜索调试',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: scheme.onSurface,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${_results.length}条/$_distinctSourceCount源',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // 日志区（对齐 iOS L1440-L1463：9pt 等宽、前缀着色、滚动到底部）。
+        SizedBox(
+          height: 120,
+          child: ListView.builder(
+            // reverse 让最新日志恒定贴底（等价 iOS onChange scrollTo(last)）。
+            reverse: true,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            itemCount: _debugLogs.length,
+            itemBuilder: (BuildContext context, int index) {
+              final String log = _debugLogs[_debugLogs.length - 1 - index];
+              return Text(
+                log,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontFamily: 'monospace',
+                  color: _debugLogColor(log, scheme),
+                ),
+              );
+            },
+          ),
+        ),
+        // 右下角导出（对齐 iOS L1466-L1479）。
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 0, 10, 5),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: InkWell(
+              onTap: _exportDebugLogs,
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child: Icon(
+                  Icons.ios_share,
+                  size: 12,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 日志行着色（对齐 iOS L1446-L1450：✅ 绿 / ❌ 红 / 📦 黄 / ☁️ 青）；
+  /// 缺省色取主题次要前景（iOS 白 0.7，主题化以保证浅色主题可读）。
+  Color _debugLogColor(String log, ColorScheme scheme) {
+    if (log.startsWith('✅')) return Colors.green.withValues(alpha: 0.9);
+    if (log.startsWith('❌')) return Colors.red.withValues(alpha: 0.9);
+    if (log.startsWith('📦')) return Colors.yellow.withValues(alpha: 0.9);
+    if (log.startsWith('☁️')) return Colors.cyan.withValues(alpha: 0.9);
+    return scheme.onSurfaceVariant;
+  }
+
+  /// 导出搜索调试日志（对齐 iOS `exportSearchLogs` L1759-L1781）：汇总搜索
+  /// 信息 + 全部日志写入临时文件走系统分享面板；写文件失败退化为剪贴板。
+  Future<void> _exportDebugLogs() async {
+    final DateTime now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final String text = <String>[
+      'vbox 搜索调试日志',
+      '导出时间: ${now.year}-${two(now.month)}-${two(now.day)} '
+          '${two(now.hour)}:${two(now.minute)}:${two(now.second)}',
+      '搜索关键词: ${_controller.text.trim()}',
+      '结果: ${_results.length} 条 / $_distinctSourceCount 源',
+      '───── 日志（最近 ${_debugLogs.length} 条）─────',
+      ..._debugLogs,
+    ].join('\n');
+    try {
+      final File file = File(
+        '${Directory.systemTemp.path}'
+        '/vbox_search_debug_${now.millisecondsSinceEpoch ~/ 1000}.txt',
+      );
+      await file.writeAsString(text, flush: true);
+      await SharePlus.instance.share(
+        ShareParams(
+          files: <XFile>[XFile(file.path)],
+          text: 'vbox 搜索调试日志',
+        ),
+      );
+    } catch (_) {
+      // 写临时文件失败时退化为复制到剪贴板，保证日志可导出（对齐 iOS）。
+      await Clipboard.setData(ClipboardData(text: text));
+    }
   }
 
   /// 顶栏搜索框（放大镜 + 输入 + 清除；对齐 iOS `SearchView` 搜索栏）。

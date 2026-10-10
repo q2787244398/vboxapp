@@ -9,6 +9,8 @@
 /// - jsSpider 由 QuickJS 顶替（G-03-B 决策：JSC 为 iOS 原生保留）。
 library;
 
+import 'dart:convert';
+
 import '../../core/errors/exceptions.dart';
 import '../../core/errors/failures.dart';
 import '../../core/network/http_client.dart';
@@ -74,6 +76,12 @@ class DetailPlaybackUseCases {
 
   /// 网盘详情页解析用 HTTP 客户端（对齐 iOS `resolveCloudPlay` 的 URLSession）。
   final HttpClient? _cloudHttpClient;
+
+  /// 网盘解析结果缓存（对齐 iOS `SpiderManager.cloudPlayCache`：30min TTL，
+  /// 超 100 条时清理过期项）。
+  final Map<String, _CloudPlayResult> _cloudPlayCache =
+      <String, _CloudPlayResult>{};
+
   final QuickJsNativeBridge? _quickJsBridge;
   final NodeHttpClient? _nodeClient;
   final TencentVideoNativeSpider? _tencentSpider;
@@ -263,7 +271,7 @@ class DetailPlaybackUseCases {
       }
     }
     // ② 否则按网盘详情页解析（对齐 iOS `resolveCloudPlay`）。
-    return _loadViaCloudPage(url, initialIndex);
+    return _loadViaCloudPage(url, initialIndex, container);
   }
 
   /// 按 URL host 匹配站源（type=2）站点（对齐 iOS `findZhanyuanSiteForURL`）。
@@ -281,11 +289,17 @@ class DetailPlaybackUseCases {
     return null;
   }
 
-  /// 网盘详情页解析（对齐 iOS `resolveCloudPlay` + `parseCloudHTML`）：
-  /// 抓取页面 HTML → 提取网盘分享链接 → 合成「☁️网盘」详情条目（剧集 = 各网盘链接）。
+  /// 网盘详情页解析（对齐 iOS `SpiderManager.resolveCloudPlay` L3761-L3816 +
+  /// `parseCloudHTML` L4089-L4170）：
+  ///   ① 30min 解析缓存（`cloudPlayCache`）；
+  ///   ② 匹配网盘站（`detailBase` 前缀）取追加域名白名单；
+  ///   ③ 直通：URL 本身即网盘分享链接（**抓页之前**判定，对齐 L3775）；
+  ///   ④ binhd 专线（L3783 → `resolveBinhdCloudPlay`）；
+  ///   ⑤ 抓页 → 提取网盘分享链接 → 合成「☁️网盘」详情条目。
   Future<Result<PlaybackDetail>> _loadViaCloudPage(
     String url,
     int initialIndex,
+    AllSourcesContainer? container,
   ) async {
     final HttpClient? client = _cloudHttpClient;
     if (client == null) {
@@ -298,6 +312,62 @@ class DetailPlaybackUseCases {
       return Err<PlaybackDetail>(ValidationFailure('详情页地址非法：$url'));
     }
 
+    // ① 命中缓存直接返回（对齐 iOS L3763-3766）。
+    final _CloudPlayResult? cached = _cachedCloudPlay(url);
+    if (cached != null) {
+      return _buildCloudDetail(
+        url: url,
+        host: uri.host,
+        name: cached.siteName,
+        links: cached.links,
+        initialIndex: initialIndex,
+      );
+    }
+
+    // ② 匹配网盘站（对齐 iOS L3769-3772：`detailURL.hasPrefix(detailBase)`）。
+    CloudSiteConfig? cloudSite;
+    for (final CloudSiteConfig s
+        in container?.cloudSites ?? const <CloudSiteConfig>[]) {
+      if (url.startsWith(s.detailBase)) {
+        cloudSite = s;
+        break;
+      }
+    }
+
+    // ③ 直通：URL 本身就是网盘分享链接（论坛搜索结果；对齐 iOS L3775-3780，
+    //    在抓页**之前**判定，免去对分享页的无效抓取）。
+    if (_isCloudDriveLink(url, cloudSite?.extraPanHosts)) {
+      final List<(String, String)> links = <(String, String)>[
+        (url, _cloudDriveName(url, cloudSite?.extraPanNames)),
+      ];
+      _cacheCloudPlay(url, links, '云盘直链');
+      return _buildCloudDetail(
+        url: url,
+        host: uri.host,
+        name: '云盘直链',
+        links: links,
+        initialIndex: initialIndex,
+      );
+    }
+
+    // ④ binhd 专线（对齐 iOS L3783-3787 → `resolveBinhdCloudPlay`）。
+    if (url.contains('binhd.com')) {
+      final ({List<(String, String)> links, String siteName})? binhd =
+          await _resolveBinhdCloudPage(url, client);
+      if (binhd != null) {
+        _cacheCloudPlay(url, binhd.links, binhd.siteName);
+        return _buildCloudDetail(
+          url: url,
+          host: uri.host,
+          name: binhd.siteName,
+          links: binhd.links,
+          initialIndex: initialIndex,
+        );
+      }
+      return Err<PlaybackDetail>(ParseFailure('网盘详情页解析失败：$url'));
+    }
+
+    // ⑤ 抓页（对齐 iOS L3789-L3811：10s 超时、PC UA，失败即终止）。
     final String html;
     try {
       final HttpClientResponse res = await client.get(
@@ -324,30 +394,165 @@ class DetailPlaybackUseCases {
       return Err<PlaybackDetail>(ParseFailure('详情页内容为空：$url'));
     }
 
-    final List<(String url, String name)> links = _extractCloudLinks(html);
+    final List<(String, String)> links = _extractCloudLinks(html, cloudSite);
     if (links.isEmpty) {
-      // 直通：URL 本身就是网盘分享链接（论坛搜索结果，对齐 iOS 直链分支）。
-      final String? driveName = _directDriveName(url);
-      if (driveName != null) {
-        return _buildCloudDetail(
-          url: url,
-          host: uri.host,
-          name: driveName,
-          links: <(String, String)>[(url, driveName)],
-          initialIndex: initialIndex,
-        );
-      }
       return Err<PlaybackDetail>(ParseFailure('未在该页面找到网盘链接：$url'));
     }
 
     final String name = _extractCloudPageName(html);
+    final String siteName = name.isEmpty ? '网盘资源' : name;
+    _cacheCloudPlay(url, links, siteName);
     return _buildCloudDetail(
       url: url,
       host: uri.host,
-      name: name.isEmpty ? '网盘资源' : name,
+      name: siteName,
       links: links,
       initialIndex: initialIndex,
     );
+  }
+
+  /// 读取网盘解析缓存（对齐 iOS L3763：未过期且非空才命中）。
+  _CloudPlayResult? _cachedCloudPlay(String url) {
+    final _CloudPlayResult? v = _cloudPlayCache[url];
+    if (v == null || !v.expiresAt.isAfter(DateTime.now()) || v.links.isEmpty) {
+      return null;
+    }
+    return v;
+  }
+
+  /// 写入网盘解析缓存（对齐 iOS `cacheCloudPlay` L4004-L4010：30min TTL，
+  /// 超 100 条时仅清理过期项）。
+  void _cacheCloudPlay(String url, List<(String, String)> links, String siteName) {
+    _cloudPlayCache[url] = _CloudPlayResult(
+      links: links,
+      siteName: siteName,
+      expiresAt: DateTime.now().add(_cloudPlayCacheTtl),
+    );
+    if (_cloudPlayCache.length > 100) {
+      final DateTime now = DateTime.now();
+      _cloudPlayCache.removeWhere(
+        (_, _CloudPlayResult v) => !v.expiresAt.isAfter(now),
+      );
+    }
+  }
+
+  /// binhd 详情页解析（对齐 iOS `resolveBinhdCloudPlay` L3820-L3968）：
+  /// 详情 HTML（取 csrftoken + 站名）→ 非隐藏下载卡片 → POST copy API →
+  /// 从 `copy_text` 提取网盘分享链接。失败（需登录 / 无链接）返回 null。
+  Future<({List<(String, String)> links, String siteName})?>
+      _resolveBinhdCloudPage(String url, HttpClient client) async {
+    final Uri? uri = Uri.tryParse(url);
+    if (uri == null) return null;
+
+    // 1. 抓详情页 HTML（对齐 L3825-L3849：10s 超时 / PC UA / Accept html）。
+    final HttpClientResponse res;
+    try {
+      res = await client.get(
+        uri,
+        headers: <String, String>{
+          'User-Agent': _cloudPcUserAgent,
+          'Accept': 'text/html',
+        },
+      );
+    } catch (e) {
+      AppLog.warn(logTag, 'binhd 详情页抓取失败', error: e);
+      return null;
+    }
+    if (!res.isOk) return null;
+    final String html = res.text;
+    if (html.trim().isEmpty) return null;
+
+    // csrftoken：Set-Cookie 优先（L3839-L3847），表单兜底（L3863-L3869）。
+    String csrfToken =
+        _firstMatch(r'csrftoken=([^;,\s]+)', res.headers['set-cookie'] ?? '') ??
+            '';
+    if (csrfToken.isEmpty) {
+      csrfToken = _firstMatch(
+            r'csrfmiddlewaretoken[^>]*value="([^"]+)"',
+            html,
+          ) ??
+          '';
+    }
+
+    // 站名：<title> 去 ` - 云集…` 后缀（对齐 L3852-L3860）。
+    String siteName = '云集';
+    final String? title =
+        _firstMatch(r'<title>([^<]+)', html, caseInsensitive: true);
+    if (title != null && title.trim().isNotEmpty) {
+      final String stripped =
+          title.trim().replaceFirst(RegExp(r'- 云集.*$'), '').trim();
+      if (stripped.isNotEmpty) siteName = stripped;
+    }
+
+    // 2. 非隐藏下载卡片（对齐 L3876-L3903；dotAll 对应 dotMatchesLineSeparators）。
+    final RegExp? cardRe = _safeRegex(
+      r'<article class="resource-download-card[^"]*">(.*?)</article>',
+      caseInsensitive: true,
+      dotAll: true,
+    );
+    if (cardRe == null) return null;
+    final RegExp? copyRe = _safeRegex(r'data-resource-copy-url="([^"]+)"');
+    final RegExp? providerRe =
+        _safeRegex(r'resource-download-card__provider">([^<]+)<');
+    if (copyRe == null || providerRe == null) return null;
+
+    final List<(String, String)> links = <(String, String)>[];
+    for (final RegExpMatch cardMatch in cardRe.allMatches(html)) {
+      final String cardHtml = cardMatch.group(0) ?? '';
+      // 跳过隐藏卡片（需登录，L3887）。
+      if (cardHtml.contains('resource-download-card--hidden') ||
+          cardHtml.contains('登录后可见')) {
+        continue;
+      }
+      final String? copyPath = copyRe.firstMatch(cardHtml)?.group(1);
+      if (copyPath == null || copyPath.isEmpty) continue;
+      final String copyURL =
+          copyPath.startsWith('http') ? copyPath : 'https://binhd.com$copyPath';
+      final String providerName =
+          providerRe.firstMatch(cardHtml)?.group(1)?.trim() ?? '网盘链接';
+
+      // 3. POST copy API 取真实链接（对齐 L3906-L3917 的请求头约定）。
+      try {
+        final HttpClientResponse copy = await client.send(
+          'POST',
+          Uri.parse(copyURL),
+          headers: <String, String>{
+            'User-Agent': _cloudPcUserAgent,
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Referer': url,
+            if (csrfToken.isNotEmpty) 'X-CSRFToken': csrfToken,
+            'Cookie': 'csrftoken=$csrfToken',
+          },
+        );
+        if (!copy.isOk) continue;
+        final Object? decoded = jsonDecode(copy.text);
+        if (decoded is! Map<String, Object?>) continue;
+        final Object? copyText = decoded['copy_text'];
+        if (copyText is! String || copyText.isEmpty) continue;
+
+        // 从 copy_text 提取网盘链接（对齐 L3927-L3949：首个命中即止；
+        // iOS 正则无捕获组，取整段匹配）。
+        for (final (String pattern, String driveName) in _binhdPanPatterns) {
+          final RegExp? re = _safeRegex(pattern, caseInsensitive: true);
+          final String? link = re?.firstMatch(copyText)?.group(0);
+          if (link == null || link.isEmpty) continue;
+          links.add((
+            _enrichTianyiAccessCode(link, copyText),
+            providerName.isEmpty ? driveName : providerName,
+          ));
+          break;
+        }
+      } catch (e) {
+        AppLog.warn(logTag, 'binhd copy API 失败，跳过该卡片', error: e);
+      }
+    }
+
+    if (links.isEmpty) {
+      AppLog.warn(logTag, 'binhd 未找到可用的网盘链接（可能需要登录）');
+      return null;
+    }
+    return (links: links, siteName: siteName);
   }
 
   /// 合成网盘详情条目（`vod_play_from` = 网盘；剧集 = 各网盘链接）。
@@ -389,29 +594,72 @@ class DetailPlaybackUseCases {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-  /// 网盘分享链接域名 → 显示名（用于 URL 直通；对齐 iOS `cloudDriveName`）。
-  String? _directDriveName(String url) {
-    for (final MapEntry<String, String> e in _driveNames.entries) {
-      if (url.contains(e.key)) return e.value;
+  /// 判定 URL 是否为网盘分享链接（对齐 iOS `isCloudDriveLink` L3971-L3983：
+  /// 固定标记 + 远程配置追加域名白名单）。
+  bool _isCloudDriveLink(String url, List<String>? extraHosts) {
+    for (final String marker in _cloudLinkMarkers) {
+      if (url.contains(marker)) return true;
     }
-    return null;
+    return extraHosts?.any(url.contains) ?? false;
   }
 
-  /// 网盘域名片段 → 显示名（先特异后通用，顺序即优先级）。
-  static const Map<String, String> _driveNames = <String, String>{
-    '115cdn.com': '115网盘',
-    'aliyundrive.com': '阿里云盘',
-    'alipan.com': '阿里云盘',
-    'pan.quark.cn': '夸克网盘',
-    'pan.baidu.com': '百度网盘',
-    'drive.uc.cn': 'UC网盘',
-    'pan.uc.cn': 'UC网盘',
-    'cloud.189.cn': '天翼云盘',
-    'yun.139.com': '139云盘',
-    'www.123': '123云盘',
-  };
+  /// URL → 网盘显示名（对齐 iOS `cloudDriveName` L3986-L4002）。
+  String _cloudDriveName(String url, Map<String, String>? extraNames) {
+    if (url.contains('pan.quark.cn')) return '夸克网盘';
+    if (url.contains('115cdn.com')) return '115网盘';
+    if (url.contains('aliyundrive.com') || url.contains('alipan.com')) {
+      return '阿里云盘';
+    }
+    if (url.contains('pan.baidu.com')) return '百度网盘';
+    if (url.contains('drive.uc.cn') || url.contains('pan.uc.cn')) {
+      return 'UC网盘';
+    }
+    if (url.contains('cloud.189.cn')) return '天翼云盘';
+    if (url.contains('yun.139.com')) return '139云盘';
+    if (url.contains('www.123') && url.contains('/s/')) return '123云盘';
+    if (extraNames != null) {
+      for (final MapEntry<String, String> e in extraNames.entries) {
+        if (url.contains(e.key)) return e.value;
+      }
+    }
+    return '网盘链接';
+  }
 
-  /// 网盘分享链接正则清单（对齐 iOS `parseCloudHTML` 的 `panPatterns`）。
+  /// 网盘分享链接判定标记（对齐 iOS `isCloudDriveLink` 的 `patterns`）。
+  static const List<String> _cloudLinkMarkers = <String>[
+    'pan.quark.cn/s/',
+    '115cdn.com/s/',
+    'aliyundrive.com/s/',
+    'alipan.com/s/',
+    'pan.baidu.com/s/',
+    'drive.uc.cn/s/',
+    'pan.uc.cn/s/',
+    'cloud.189.cn/',
+    'yun.139.com/',
+    'www.123',
+    '.com/s/',
+  ];
+
+  /// binhd `copy_text` 网盘链接正则（对齐 iOS `resolveBinhdCloudPlay`
+  /// L3927-L3937，含迅雷；首个命中即止）。
+  static const List<(String, String)> _binhdPanPatterns = <(String, String)>[
+    ("https?://pan\\.quark\\.cn/s/[^\\s\"<>\\x27]+", '夸克网盘'),
+    ("https?://pan\\.baidu\\.com/s/[^\\s\"<>\\x27]+", '百度网盘'),
+    ("https?://(?:www\\.)?(?:aliyundrive\\.com|alipan\\.com)/s/[^\\s\"<>\\x27]+",
+        '阿里云盘'),
+    ("https?://pan\\.xunlei\\.com/s/[^\\s\"<>\\x27]+", '迅雷网盘'),
+    ("https?://115cdn\\.com/s/[^\\s\"<>\\x27]+", '115网盘'),
+    ("https?://(?:drive|pan)\\.uc\\.cn/s/[^\\s\"<>\\x27]+", 'UC网盘'),
+    ("https?://cloud\\.189\\.cn/[^\\s\"<>\\x27]+", '天翼云盘'),
+    ("https?://yun\\.139\\.com/[^\\s\"<>\\x27]+", '139云盘'),
+    ("https?://www\\.123[a-z0-9]+\\.com/s/[a-zA-Z0-9\\-]+", '123云盘'),
+  ];
+
+  /// 网盘解析缓存 TTL（对齐 iOS `cacheCloudPlay` 的 30 分钟）。
+  static const Duration _cloudPlayCacheTtl = Duration(minutes: 30);
+
+  /// 网盘分享链接正则清单（对齐 iOS `parseCloudHTML` 的 `panPatterns`，
+  /// 含 139 分享页模式 L4113）。
   static const List<(String, String)> _cloudLinkPatterns = <(String, String)>[
     (r'(https?://115cdn\.com/s/[^\s"<>\x27\\]*)', '115网盘'),
     (r'(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s"<>\x27\\]*)',
@@ -421,6 +669,8 @@ class DetailPlaybackUseCases {
     (r'(https?://(?:drive|pan)\.uc\.cn/s/[^\s"<>\x27\\]*)', 'UC网盘'),
     (r'(https?://cloud\.189\.cn/[^\s"<>\x27\\]*)', '天翼云盘'),
     (r'(https?://yun\.139\.com/[^\s"<>\x27\\]*)', '139云盘'),
+    (r'(https?://yun\.139\.com/share(?:web|wap)/#/[wm]/i[/?][^\s"<>\x27\\]*)',
+        '139云盘分享'),
     (r'(https?://www\.123[a-z0-9]+\.com/s/[a-zA-Z0-9\-]+)', '123云盘'),
   ];
 
@@ -429,11 +679,29 @@ class DetailPlaybackUseCases {
     r'(4K|1080[Pp]|720[Pp]|蓝光|高清|国语|粤语|中字|原盘|REMUX|HDR|60帧|DV)',
   );
 
-  /// 从详情页 HTML 提取网盘分享链接（去重；对齐 iOS `parseCloudHTML`）。
-  List<(String, String)> _extractCloudLinks(String html) {
+  /// 从详情页 HTML 提取网盘分享链接（去重；对齐 iOS `parseCloudHTML`：
+  /// 固定 9 模式 + 网盘站 `extraPanHosts` 追加模式，域名 → 显示名取
+  /// `extraPanNames`，缺省「网盘链接」，对齐 L4116-L4123）。
+  List<(String, String)> _extractCloudLinks(String html, CloudSiteConfig? site) {
+    final List<(String, String)> patterns =
+        List<(String, String)>.of(_cloudLinkPatterns);
+    if (site != null) {
+      for (final String host in site.extraPanHosts) {
+        String name = '网盘链接';
+        for (final MapEntry<String, String> e in site.extraPanNames.entries) {
+          if (host.contains(e.key)) {
+            name = e.value;
+            break;
+          }
+        }
+        patterns.add(
+          ('(https?://${RegExp.escape(host)}[^\\s"<>\\x27\\\\]*)', name),
+        );
+      }
+    }
     final List<(String, String)> out = <(String, String)>[];
     final Set<String> seen = <String>{};
-    for (final (String pattern, String driveName) in _cloudLinkPatterns) {
+    for (final (String pattern, String driveName) in patterns) {
       final RegExp? re = _safeRegex(pattern, caseInsensitive: true);
       if (re == null) continue;
       for (final RegExpMatch m in re.allMatches(html)) {
@@ -506,13 +774,27 @@ class DetailPlaybackUseCases {
     return src.substring(s, e);
   }
 
-  RegExp? _safeRegex(String pattern, {bool caseInsensitive = false}) {
+  RegExp? _safeRegex(String pattern, {bool caseInsensitive = false, bool dotAll = false}) {
     try {
-      return RegExp(pattern, caseSensitive: !caseInsensitive);
+      return RegExp(
+        pattern,
+        caseSensitive: !caseInsensitive,
+        dotAll: dotAll,
+      );
     } catch (_) {
       return null;
     }
   }
+
+  /// 取正则首个匹配的捕获组 1（无匹配返回 null）。
+  String? _firstMatch(
+    String pattern,
+    String input, {
+    bool caseInsensitive = false,
+  }) =>
+      _safeRegex(pattern, caseInsensitive: caseInsensitive)
+          ?.firstMatch(input)
+          ?.group(1);
 
   // ─────────────── 内部：Spider 引擎路径 ───────────────
 
@@ -732,4 +1014,22 @@ class DetailPlaybackUseCases {
     }
     return Failure.from(e);
   }
+}
+
+/// 网盘解析缓存条目（对齐 iOS `cloudPlayCache` 的 `(links, siteName, expiresAt)`）。
+class _CloudPlayResult {
+  _CloudPlayResult({
+    required this.links,
+    required this.siteName,
+    required this.expiresAt,
+  });
+
+  /// 分享链接列表（`url`, 显示名）。
+  final List<(String, String)> links;
+
+  /// 详情条目名（页面标题 / 「云盘直链」等）。
+  final String siteName;
+
+  /// 过期时刻（写入 + 30min）。
+  final DateTime expiresAt;
 }

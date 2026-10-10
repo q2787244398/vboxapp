@@ -186,7 +186,14 @@ void main() {
     expect(
       rect.top,
       greaterThan(300),
-      reason: '胶囊应贴底栏上方（bottom:132），不遮盖上半屏',
+      reason: '胶囊应贴底栏上方（bottom:55，紧贴底栏顶边），不遮盖上半屏',
+    );
+    // 回归：此前 bottom:132 让胶囊悬空（底边 ~468 < 屏高 600 - 77）。
+    // 现应紧贴底栏顶边：600 高屏 → 底边 = 600 - 55 = 545（±8 渲染容差）。
+    expect(
+      rect.bottom,
+      closeTo(545, 8),
+      reason: '胶囊底边应距屏底 ~55（紧贴底栏顶边），而非悬空',
     );
 
     // 排干挂起请求的 15s 超时 Timer → failed → 8s 自动消失，避免

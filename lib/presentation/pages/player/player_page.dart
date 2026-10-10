@@ -14,11 +14,12 @@
 library;
 
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show Directory, File, Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:share_plus/share_plus.dart';
 
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/player/player.dart';
@@ -244,7 +245,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 致命错误文案（非 null 时覆盖显示 [PlayerErrorView]；对齐 iOS `ErrorView`）。
   String? _errorMessage;
 
-  /// 播放器运行日志（错误态调试查看用；对齐 iOS `ErrorViewWithLogs`）。
+  /// 播放器运行日志（错误态调试查看 + UI-F6 调试浮层数据源；对齐 iOS
+  /// `PlayerState.debugLogs` / `ErrorViewWithLogs`）。
   final List<String> _playerLogs = <String>[];
 
   /// 视频区手势控制器（UI-F1：亮度 / 音量 / 快进快退）。
@@ -1245,6 +1247,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     }
     _firstFrameReady = false;
     _openingInFlight = true;
+    _appendLog('打开播放源：${source.url}');
     // UI-F18：解析 / 打开期间显示加载层（首帧就绪后由 onVideoSize 收起）。
     _controls.showLoading();
     try {
@@ -1252,6 +1255,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       await _player.play();
       if (!mounted) return;
       _controls.currentBackend = _player.backend;
+      _appendLog('起播成功（内核 ${_player.backend?.shortName ?? '-'}）');
       // 起播成功 → 退出错误态（重试成功即收起重试视图）。
       if (_errorMessage != null) setState(() => _errorMessage = null);
     } on PlayerOpenException catch (e) {
@@ -1298,6 +1302,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         useQuarkProxy: source.fallbackUseQuarkProxy,
       ),
     );
+    _appendLog('装载网盘兜底线路：${source.fallbackSource}');
   }
 
   /// 原画线路首帧超时任务（对齐 iOS `scheduleQuarkPrimaryFallbackTimeout`）。
@@ -1322,6 +1327,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   void _markFirstFrameReady() {
     if (_firstFrameReady) return;
     _firstFrameReady = true;
+    _appendLog('首帧就绪');
     _panFallbackTimeout?.cancel();
     _panFallbackTimeout = null;
   }
@@ -1363,10 +1369,44 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     return true;
   }
 
-  /// 记录播放器日志（错误态调试查看；仅保留最近 200 条，防无界增长）。
+  /// 记录播放器日志（对齐 iOS `PlayerState.log`：上限 600 条、超限批量裁 100 条，
+  /// 防无界增长；调试浮层开启时实时刷新 UI）。
   void _appendLog(String line) {
     _playerLogs.add('${DateTime.now().toIso8601String()} $line');
-    if (_playerLogs.length > 200) _playerLogs.removeAt(0);
+    if (_playerLogs.length > 600) _playerLogs.removeRange(0, 100);
+    if (mounted && _controls.debugOverlay) setState(() {});
+  }
+
+  /// 导出播放器调试日志（对齐 iOS `exportDebugLogs`）：汇总播放信息 + 全部
+  /// 日志写入临时文件走系统分享面板；写文件失败退化为剪贴板。
+  Future<void> _exportDebugLogs() async {
+    final DateTime now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final String text = <String>[
+      'vbox 播放器调试日志',
+      '导出时间: ${now.year}-${two(now.month)}-${two(now.day)} '
+          '${two(now.hour)}:${two(now.minute)}:${two(now.second)}',
+      '标题: ${widget.title}${widget.subtitle == null ? '' : ' · ${widget.subtitle}'}',
+      '播放源: ${widget.source.url}',
+      '───── 日志（最近 ${_playerLogs.length} 条）─────',
+      ..._playerLogs,
+    ].join('\n');
+    try {
+      final File file = File(
+        '${Directory.systemTemp.path}'
+        '/vbox_player_debug_${now.millisecondsSinceEpoch ~/ 1000}.txt',
+      );
+      await file.writeAsString(text, flush: true);
+      await SharePlus.instance.share(
+        ShareParams(
+          files: <XFile>[XFile(file.path)],
+          text: 'vbox 播放器调试日志',
+        ),
+      );
+    } catch (_) {
+      // 写临时文件失败时退化为复制到剪贴板，保证日志可导出（对齐 iOS）。
+      await Clipboard.setData(ClipboardData(text: text));
+    }
   }
 
   /// 进入错误态（覆盖视图 + 记录日志；对齐 iOS `ErrorViewWithLogs`）。
@@ -1427,6 +1467,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 切换内核（P-芯2）：以当前源在指定后端重开。
   Future<void> _switchBackend(PlayerBackend backend) async {
+    _appendLog('切换内核：${backend.shortName}');
     // UI-F18：切换内核期间显示加载层（对齐 iOS `正在切换 \(engineName)...`）。
     _controls.showLoading(
       PlayerControlsController.loadingSwitchingEngine(backend.shortName),
@@ -1447,6 +1488,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     if (resolver == null) return;
     if (index < 0 || index >= widget.episodes.length) return;
     final PlaybackEpisode episode = widget.episodes[index];
+    _appendLog('切集：${episode.name.isEmpty ? '第${index + 1}集' : episode.name}');
     _controls.applyEpisode(
       index,
       subtitle: episode.name.isEmpty ? null : episode.name,
@@ -1737,6 +1779,44 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                     onBack: () => Navigator.of(context).maybePop(),
                   ),
                 ),
+              // UI-F6 调试浮层（对齐 iOS PlayerViewsV2 L588-L635：开关开启且
+              // 日志非空时显示；返回键下方居中，加载中与播放中都显示）。
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: ListenableBuilder(
+                  listenable: _controls,
+                  builder: (BuildContext context, _) {
+                    if (!_controls.debugOverlay || _playerLogs.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return SafeArea(
+                      top: true,
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 54),
+                        child: Row(
+                          children: <Widget>[
+                            // 左侧返回按钮预留区（对齐 iOS Spacer 96）。
+                            const SizedBox(width: 96),
+                            Expanded(
+                              child: Center(
+                                child: _PlayerDebugOverlay(
+                                  logs: _playerLogs,
+                                  onExport: () => unawaited(_exportDebugLogs()),
+                                ),
+                              ),
+                            ),
+                            // 右侧锁按钮预留区（对齐 iOS Spacer 96）。
+                            const SizedBox(width: 96),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
             ],
           ),
         ),
@@ -1805,6 +1885,73 @@ class _LongPressSpeedOverlay extends StatelessWidget {
               fontWeight: FontWeight.bold,
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 播放器调试日志浮层（UI-F6；对齐 iOS PlayerViewsV2 L588-L635：
+/// 黑底 75% + 绿色等宽 9pt 日志流 + 右上角导出按钮，高 126pt 最大宽 560）。
+class _PlayerDebugOverlay extends StatelessWidget {
+  const _PlayerDebugOverlay({required this.logs, required this.onExport});
+
+  final List<String> logs;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: SizedBox(
+        height: 126,
+        child: Stack(
+          children: <Widget>[
+            // 日志滚动区（对齐 iOS ScrollView + LazyVStack；右侧留出按钮空间）。
+            GestureDetector(
+              // 吸收点击（iOS `contentShape + allowsHitTesting`），避免点按
+              // 浮层触发底层控制层显隐切换；滚动由内层 ListView 消费。
+              onTap: () {},
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(6, 6, 28, 6),
+                  itemCount: logs.length,
+                  itemBuilder: (BuildContext context, int index) => Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      logs[index],
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                        color: Colors.green.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // 右上角导出按钮（对齐 iOS `square.and.arrow.up`）。
+            Positioned(
+              top: 6,
+              right: 6,
+              child: GestureDetector(
+                onTap: onExport,
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.all(2),
+                  child: Icon(
+                    Icons.ios_share,
+                    size: 12,
+                    color: Colors.white.withValues(alpha: 0.85),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

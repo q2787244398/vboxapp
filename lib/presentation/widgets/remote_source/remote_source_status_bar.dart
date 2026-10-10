@@ -15,8 +15,9 @@
 ///   · SF Symbols → Material 图标映射（[_statusIcon]）；
 ///   · iOS 用 `MarqueeText` 的「停留 → 循环滚动 → 回位」三段式，Flutter 侧
 ///     简化为单程匀速循环（不改变「超长即滚动」的用户可感知语义）；
-///   · 浮层底部间距取 132（在下载胶囊 bottom:90 之上），而 iOS 两者同属一个
-///     `VStack` 紧邻排列 —— 并集出现概率低，取不遮挡的近似值。
+///   · 浮层底部间距取 55（对齐 iOS `VStack(spacing: 0)` 紧贴排列：底栏
+///     `bottomGap 8` + 底栏胶囊高 ~47 → 顶边距屏底 ~55，胶囊零间距贴底栏
+///     顶边；下载胶囊通知 bottom:90 在其上方，并集时 3px 缝相邻不重叠）。
 library;
 
 import 'dart:async';
@@ -145,7 +146,10 @@ class _RemoteSourceStatusBarState extends State<RemoteSourceStatusBar> {
       child: Align(
         alignment: Alignment.bottomCenter,
         child: Padding(
-          padding: const EdgeInsets.only(bottom: 132),
+          // 对齐 iOS `VStack(spacing: 0)`：胶囊底边紧贴底栏顶边（底栏
+          // bottomGap 8 + 胶囊高 ~47 ≈ 55）。不可再加大——此前 132 会让
+          // 胶囊悬空 75pt，日常态（下载通知空）下明显脱离底栏。
+          padding: const EdgeInsets.only(bottom: 55),
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
             switchInCurve: Curves.easeOut,

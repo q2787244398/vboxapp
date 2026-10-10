@@ -12,7 +12,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:vbox/core/errors/failures.dart';
 import 'package:vbox/core/utils/result.dart';
+import 'package:vbox/data/datasources/remote/douban_datasource.dart';
 import 'package:vbox/data/models/download.dart';
+import 'package:vbox/domain/entities/douban/douban_models.dart';
 import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/domain/entities/playback/playback.dart';
 import 'package:vbox/domain/entities/remote_source/remote_source.dart';
@@ -24,6 +26,7 @@ import 'package:vbox/platform/player/player_channel_bridge.dart';
 import 'package:vbox/platform/player/player_controller.dart';
 import 'package:vbox/presentation/pages/player/player_page.dart';
 import 'package:vbox/presentation/widgets/detail_page.dart';
+import 'package:vbox/presentation/widgets/platform_async_image.dart';
 
 import '../../support/fakes.dart';
 
@@ -131,6 +134,37 @@ class _InstantDownloadTransport implements DownloadTransport {
 
 // ─────────────── 数据构造 ───────────────
 
+/// 内存豆瓣数据源：只实现演职 / 大封面三个方法（详情页兜底链路，不触网）。
+class _FakeDoubanDatasource extends DoubanDatasource {
+  @override
+  Future<String?> searchSubjectId(String name) async => 'sub-1';
+
+  @override
+  Future<DoubanCredits> fetchCelebrities(String subjectId) async =>
+      const DoubanCredits(
+        actors: <DoubanCelebrity>[
+          DoubanCelebrity(
+            id: 'a1',
+            name: '豆瓣演员',
+            coverUrl: 'https://img.example.com/a.jpg',
+            roles: <String>['演员'],
+          ),
+        ],
+        directors: <DoubanCelebrity>[
+          DoubanCelebrity(
+            id: 'd1',
+            name: '豆瓣导演',
+            coverUrl: 'https://img.example.com/d.jpg',
+            roles: <String>['导演'],
+          ),
+        ],
+        subjectId: 'sub-1',
+      );
+
+  @override
+  Future<String?> fetchWallpaperUrl(String subjectId) async => null;
+}
+
 VodItem vod({String? playUrl}) => VodItem.fromJson(<String, Object?>{
       'vod_id': '123',
       'vod_name': '示例片',
@@ -152,14 +186,37 @@ PlaybackDetail detail({String? playUrl, int initialIndex = 0}) =>
       initialIndex: initialIndex,
     );
 
+/// 带站点演员文本的详情（演职兜底链路测试用）。
+PlaybackDetail detailWithActors() => PlaybackDetail.fromVod(
+      site: SiteConfig.fromJson(<String, Object?>{
+        'key': 's1',
+        'name': '站点1',
+        'type': 0,
+      }),
+      vod: vodWithActors(),
+    );
+
+/// 带站点演员文本的影片（验证演职兜底链路：站点文本不阻断豆瓣头像数据）。
+VodItem vodWithActors() => VodItem.fromJson(<String, Object?>{
+      'vod_id': '123',
+      'vod_name': '示例片',
+      'vod_pic': '',
+      'vod_actor': '站点演员甲,站点演员乙',
+      'vod_director': '站点导演',
+      'vod_play_from': '线路1',
+      'vod_play_url': '第1集\$https://v.com/1.m3u8',
+    });
+
 Widget _app(
   _FakeDetailUseCases uc, {
   int initialIndex = 0,
   DownloadManager? manager,
+  DoubanUseCases? douban,
 }) =>
     MultiProvider(
       providers: [
         Provider<DetailPlaybackUseCases>.value(value: uc),
+        if (douban != null) Provider<DoubanUseCases>.value(value: douban),
         if (manager != null)
           ChangeNotifierProvider<DownloadManager>.value(value: manager),
       ],
@@ -386,5 +443,90 @@ void main() {
 
     // 排空 SnackBar 自动关闭计时器
     await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('剧集宫格：点击集数直接起播该集（对齐 iOS handleEpisodeSelect）',
+      (WidgetTester tester) async {
+    final _FakeDetailUseCases uc = _FakeDetailUseCases(
+      detailResult: () async => Success<PlaybackDetail>(detail()),
+    );
+    await tester.pumpWidget(_app(uc));
+    await tester.pumpAndSettle();
+
+    // 宫格在首屏下方 → 先滚动到可见再点。
+    await tester.ensureVisible(find.text('第2集'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('第2集'));
+    // 播放页进入后常驻加载层（转圈动画），不能用 pumpAndSettle（永不 settle）；
+    // 用有界 pump 完成导航转场与首轮异步（open/play）。
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(player.calls, containsAll(<String>['open', 'play']));
+    expect(player.openedUrl, 'https://v.com/2.m3u8');
+
+    // 排空播放页控制层自动隐藏计时器（避免测试结束仍有 pending timer）。
+    await tester.pump(const Duration(seconds: 4));
+  });
+
+  testWidgets('剧集宫格：集数多时内部可上下滑动（对齐 iOS maxHeight 300 滚动区）',
+      (WidgetTester tester) async {
+    final String playUrl = List<String>.generate(
+      200,
+      (int i) => '第${i + 1}集\$https://v.com/${i + 1}.m3u8',
+    ).join('#');
+    final _FakeDetailUseCases uc = _FakeDetailUseCases(
+      detailResult: () async => Success<PlaybackDetail>(detail(playUrl: playUrl)),
+    );
+    await tester.pumpWidget(_app(uc));
+    await tester.pumpAndSettle();
+
+    // 宫格先滚入视口（外层页面滚动），尾部集数超出 300pt 滚动区不可见。
+    await tester.ensureVisible(find.text('第1集'));
+    await tester.pumpAndSettle();
+    expect(find.text('第1集'), findsOneWidget);
+    expect(find.text('第200集'), findsNothing);
+
+    // 在宫格内上滑 → 尾部集数滑入（宫格独立滚动生效）。
+    await tester.drag(find.text('第1集'), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(GridView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+
+    expect(find.text('第200集'), findsOneWidget);
+  });
+
+  testWidgets('演职人员：豆瓣兜底写入头像卡，站点文本不阻断也不兜底',
+      (WidgetTester tester) async {
+    final _FakeDetailUseCases uc = _FakeDetailUseCases(
+      detailResult: () async => Success<PlaybackDetail>(detailWithActors()),
+    );
+    await tester.pumpWidget(_app(
+      uc,
+      douban: DoubanUseCases(datasource: _FakeDoubanDatasource()),
+    ));
+    await tester.pumpAndSettle();
+
+    // 豆瓣演职显示（带头像）。
+    expect(find.text('豆瓣演员'), findsOneWidget);
+    expect(find.text('豆瓣导演'), findsOneWidget);
+    // 演员头像 + 导演头像两张卡（vod_pic 为空 → 无背景图干扰）。
+    expect(find.byType(PlatformAsyncImage), findsNWidgets(2));
+    // 站点文本不兜底（对齐 iOS：两边皆无才隐藏，有豆瓣则只显示豆瓣）。
+    expect(find.text('站点演员甲'), findsNothing);
+    expect(find.text('站点导演'), findsNothing);
+  });
+
+  testWidgets('演职人员：无 TMDB / 豆瓣数据时整块隐藏（对齐 iOS castSection）',
+      (WidgetTester tester) async {
+    final _FakeDetailUseCases uc = _FakeDetailUseCases(
+      detailResult: () async => Success<PlaybackDetail>(detailWithActors()),
+    );
+    await tester.pumpWidget(_app(uc));
+    await tester.pumpAndSettle();
+
+    expect(find.text('全部'), findsNothing);
+    expect(find.text('站点演员甲'), findsNothing);
+    expect(find.byType(PlatformAsyncImage), findsNothing);
   });
 }

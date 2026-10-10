@@ -378,6 +378,13 @@ class _VBoxAppState extends State<VBoxApp> {
         customParser: _sourceGovernanceUseCases.resolveWithParsers,
         // O-源3：兜底切片源合成 key 的站点回退解析。
         fallbackSiteResolver: _sourceGovernanceUseCases.findFallbackSite,
+        // 网盘详情页解析（对齐 iOS `resolveCloudPlay` 的 `URLSession.shared`：
+        // 系统默认信任链、`timeoutInterval = 10`、单次请求不重试）。
+        cloudHttpClient: HttpClient(
+          networkInfo: networkInfo,
+          maxRetries: 0,
+          receiveTimeout: const Duration(seconds: 10),
+        ),
       );
       _contentBrowseUseCases = ContentBrowseUseCases(
         loadAllSources: _loadAllSources,

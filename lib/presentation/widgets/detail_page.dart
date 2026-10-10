@@ -218,14 +218,11 @@ class _DetailPageState extends State<DetailPage> {
     final DoubanCredits? credits = result.valueOrNull;
     if (credits == null || credits.isEmpty) return;
 
-    // 仅当当前无任何演职人员时才写入（对齐 iOS 覆盖策略）。
-    final (List<_CastMember>, List<_CastMember>, List<_CastMember>) existing =
-        _castData(d);
-    if (existing.$1.isNotEmpty ||
-        existing.$2.isNotEmpty ||
-        existing.$3.isNotEmpty) {
-      return;
-    }
+    // 仅当 TMDB 未拿到演职时才写入（对齐 iOS `loadDoubanData` 的
+    // `actors.isEmpty && directors.isEmpty && writers.isEmpty` 判定 —— iOS 的
+    // actors 只由 TMDB / 豆瓣填充；此前误用 `_castData` 判定，站点演员文本
+    // 恒非空导致豆瓣演职**永不写入** → 头像不显示、只剩无名氏文本卡）。
+    if (_tmdb?.hasCredits ?? false) return;
 
     // 有 subjectId 时补拉竖版大封面（对齐 iOS `fetchWallpaperURL`）。
     String? backdrop;
@@ -1516,26 +1513,14 @@ class _DetailPageState extends State<DetailPage> {
         douban.writers.map(_doubanToCast).toList(growable: false),
       );
     }
-    return (
-      _splitNames(d.vod.vodActor)
-          .map((String s) => _CastMember(name: s))
-          .toList(growable: false),
-      _splitNames(d.vod.vodDirector)
-          .map((String s) => _CastMember(name: s, role: '导演'))
-          .toList(growable: false),
-      const <_CastMember>[],
-    );
+    // 站点 `vodActor` 纯文本不兜底（对齐 iOS：演职区块只渲染带头像的
+    // TMDB / 豆瓣数据，两边皆无 → 整块隐藏，而非显示无名氏文本卡）。
+    return (const <_CastMember>[], const <_CastMember>[], const <_CastMember>[]);
   }
 
   /// 豆瓣演职人员 → 卡片模型（角色文案对齐 iOS `DoubanCelebrity.roleText`）。
   _CastMember _doubanToCast(DoubanCelebrity p) =>
       _CastMember(name: p.name, coverUrl: p.coverUrl, role: p.roleText);
-
-  List<String> _splitNames(String? raw) => (raw ?? '')
-      .split(RegExp(r'[,，、/\s]+'))
-      .map((String s) => s.trim())
-      .where((String s) => s.isNotEmpty)
-      .toList(growable: false);
 
   /// 剧情简介 + 收藏心形（对齐 iOS `synopsisSection`）。
   Widget _buildSynopsis(PlaybackDetail d) {
@@ -1827,11 +1812,12 @@ class _DetailPageState extends State<DetailPage> {
               ],
             ),
             const SizedBox(height: 4),
+            // 独立滚动区域（对齐 iOS `ScrollView(.vertical).frame(maxHeight: 300)`）。
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 300),
               child: GridView.builder(
                 shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
+                physics: const ClampingScrollPhysics(),
                 padding: EdgeInsets.zero,
                 gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                   maxCrossAxisExtent: 76,
@@ -1949,31 +1935,36 @@ class _DetailPageState extends State<DetailPage> {
             ),
           )
         else
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: EdgeInsets.zero,
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 76,
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              childAspectRatio: 1.9,
+          // 独立滚动区域（对齐 iOS `ScrollView(.vertical).frame(maxHeight: 300)`）：
+          // 集数多时宫格内部上下滑动，页面其余部分不跟着拉长。
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 300),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const ClampingScrollPhysics(),
+              padding: EdgeInsets.zero,
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 76,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 1.9,
+              ),
+              itemCount: ordered.length,
+              itemBuilder: (BuildContext context, int index) {
+                final PlaybackEpisode ep = ordered[index];
+                final int visibleIndex = episodes.indexWhere(
+                  (PlaybackEpisode e) => e.url == ep.url && e.name == ep.name,
+                );
+                final bool selected = visibleIndex == _episodeIndex;
+                return _EpisodeCell(
+                  label: ep.name.isEmpty ? '第${index + 1}集' : ep.name,
+                  selected: selected,
+                  // 点击即播（对齐 iOS `Button { handleEpisodeSelect(episode) }`，
+                  // 此前只改选中态不起播）。
+                  onTap: () => unawaited(_playEpisode(ep)),
+                );
+              },
             ),
-            itemCount: ordered.length,
-            itemBuilder: (BuildContext context, int index) {
-              final PlaybackEpisode ep = ordered[index];
-              final int visibleIndex = episodes.indexWhere(
-                (PlaybackEpisode e) => e.url == ep.url && e.name == ep.name,
-              );
-              final bool selected = visibleIndex == _episodeIndex;
-              return _EpisodeCell(
-                label: ep.name.isEmpty ? '第${index + 1}集' : ep.name,
-                selected: selected,
-                onTap: () => setState(() {
-                  if (visibleIndex >= 0) _episodeIndex = visibleIndex;
-                }),
-              );
-            },
           ),
       ],
     );
