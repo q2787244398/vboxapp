@@ -27,23 +27,36 @@ if (-not $OutDir) {
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 # ── 定位 MSYS2 bash + mingw-w64 gcc ──
-# 注意：必须外层再套 @(...) —— Where-Object 仅命中一项时，管道结果会被 PowerShell
-# 解包为**单个字符串**（非数组），此时 `$bashCandidates[0]` 取到的是首字符 'C'
-# 而非路径（报「The term 'C' is not recognized」）。外层 @() 强制数组语义。
-$bashCandidates = @(
+# 关键：必须在**含 mingw gcc 的那个** MSYS2 根下编译。GitHub 镜像可能自带一个
+# C:\msys64（无 gcc），而 msys2/setup-msys2 安装的带 gcc 实例未必同根 —— 若只按
+# 路径存在性挑 bash，会挑到无 gcc 的根，报「x86_64-w64-mingw32-gcc: command not
+# found」。故按「该根下存在 mingw64\bin\x86_64-w64-mingw32-gcc.exe」逐个校验，
+# 命中的根即为编译根。
+# 候选顺序：PATH 上的 bash（setup-msys2 会把其 usr\bin 前置）→ 常见位置 → 环境变量。
+# 外层 @() 强制数组：Where-Object 仅命中一项时管道结果会被解包为字符串。
+$candidates = @(
     @(
+        (Get-Command bash.exe -ErrorAction SilentlyContinue).Source,
         "C:\msys64\usr\bin\bash.exe",
         "C:\tools\msys64\usr\bin\bash.exe",
         $env:MSYS2_BASH
     ) | Where-Object { $_ -and (Test-Path $_) }
 )
-if ($bashCandidates.Count -eq 0) {
-    throw "未找到 MSYS2 bash（期望 C:\msys64\usr\bin\bash.exe）。CI 需先 msys2/setup-msys2 安装 mingw-w64-x86_64-gcc。"
+$bash = $null
+$msysRoot = $null
+foreach ($c in $candidates) {
+    # MSYS2 根由 bash 路径反推（<root>\usr\bin\bash.exe）
+    $r = Split-Path (Split-Path (Split-Path $c -Parent) -Parent) -Parent
+    if (Test-Path (Join-Path $r "mingw64\bin\x86_64-w64-mingw32-gcc.exe")) {
+        $bash = $c
+        $msysRoot = $r
+        break
+    }
 }
-$bash = $bashCandidates[0]
-# MSYS2 根目录由 bash 实际路径反推（<root>\usr\bin\bash.exe），避免硬编码 C:\msys64
-# 与 CI 自定义安装位置（setup-msys2 location）不符。
-$msysRoot = Split-Path (Split-Path (Split-Path $bash -Parent) -Parent) -Parent
+if (-not $bash) {
+    throw "未找到含 mingw-w64 gcc 的 MSYS2 bash（候选：$($candidates -join '; ')）。CI 需 msys2/setup-msys2 安装 mingw-w64-x86_64-gcc。"
+}
+Write-Host "🧰 MSYS2 根：$msysRoot"
 
 # Windows 路径 → MSYS2 POSIX 路径（C:\a\b → /c/a/b）
 function ConvertTo-MsysPath([string]$p) {
@@ -53,13 +66,19 @@ function ConvertTo-MsysPath([string]$p) {
 }
 $rootPosix = ConvertTo-MsysPath $root
 $outPosix = ConvertTo-MsysPath $OutDir
+$msysRootPosix = ConvertTo-MsysPath $msysRoot
 
 Write-Host "🏗️  编译 vbox_quickjs.dll（mingw-w64 gcc）"
-# 注意：PowerShell 双引号串里转义 `$` 用**反引号**（`` `$ ``），反斜杠无效 ——
-# 原 `\$PATH` 会被 PowerShell 当成字面 `\` + 展开空变量 → bash 收到
-# `export PATH=/mingw64/bin:\; cd '...'`（`\;` 吞掉分号）→ 报
-# 「export: '/d/a/...': not a valid identifier」。
-& $bash -lc "set -euo pipefail; export PATH=/mingw64/bin:`$PATH; cd '$rootPosix'; CC=x86_64-w64-mingw32-gcc bash scripts/build_quickjs_wrapper.sh '$outPosix'"
+# 注意（两处转义坑）：
+#   1) PowerShell 双引号串内转义 `$` 须用**反引号**（`` `$ ``），反斜杠无效 ——
+#      原 `\$PATH` 会被解析为字面 `\` + 展开空变量 → bash 收到
+#      `export PATH=/mingw64/bin:\; cd '...'`（`\;` 吞掉分号）→
+#      报「export: '/d/a/...': not a valid identifier」。
+#   2) MSYS2 PATH 项可能含空格（如 `/c/Program Files/...`），故 PATH 赋值整体加
+#      双引号（PowerShell 侧写作 `` `" ``）。
+# MSYSTEM=MINGW64 + 显式前置该根下的 mingw64/bin：避免 login shell 的 profile
+# 在非 MINGW64 会话下不注入工具链路径。
+& $bash -lc "set -euo pipefail; export MSYSTEM=MINGW64; export PATH=`"$msysRootPosix/mingw64/bin:$msysRootPosix/usr/bin:`$PATH`"; cd '$rootPosix'; CC=x86_64-w64-mingw32-gcc bash scripts/build_quickjs_wrapper.sh '$outPosix'"
 if ($LASTEXITCODE -ne 0) { throw "build_quickjs_wrapper.sh 失败（$LASTEXITCODE）" }
 
 # Dart 侧 quickjs_ffi.dart 按 Windows 约定加载 `vbox_quickjs.dll`（无 lib 前缀）
