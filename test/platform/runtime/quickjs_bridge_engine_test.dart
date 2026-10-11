@@ -8,6 +8,7 @@
 /// - loadScriptFromURL（真实本地 HttpServer + B-09 注入 SpiderHttpBridge 离线用例）
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -33,6 +34,30 @@ class _ScriptTransport implements SpiderHttpTransport {
       bodyBytes: 'var spider = {homeContent: function(){return {};}};'
           .codeUnits,
     );
+  }
+}
+
+/// 返回固定分类 JSON 的 fake 传输层（G-03-B-3 脚本 http() 场景）。
+class _CategoryApiTransport implements SpiderHttpTransport {
+  final List<SpiderTransportRequest> requests = <SpiderTransportRequest>[];
+
+  @override
+  Future<SpiderTransportResponse> send(SpiderTransportRequest request) async {
+    requests.add(request);
+    return SpiderTransportResponse(
+      status: 200,
+      headers: const <String, String>{'content-type': 'application/json'},
+      bodyBytes: utf8.encode(
+          '{"class":[{"type_id":"6","type_name":"综艺"}],"list":[]}'),
+    );
+  }
+}
+
+/// 恒抛网络异常的 fake 传输层（http 失败回写用例）。
+class _FailingTransport implements SpiderHttpTransport {
+  @override
+  Future<SpiderTransportResponse> send(SpiderTransportRequest request) async {
+    throw const SocketException('网络不可达');
   }
 }
 
@@ -101,6 +126,97 @@ class _UnavailableBridge implements QuickJsNativeBridge {
 
   @override
   String? eval(int context, String script) => null;
+}
+
+/// 模拟 worker 线程的 fake 异步桥（G-03-B-3 · 快速验证桥接模型）。
+///
+/// 行为复刻 C 侧 worker：evalSubmit 记录脚本并 scheduleMicrotask 执行 ——
+/// homeContent / categoryContent 场景先投递 http 事件（event 2）、
+/// 等引擎回写 httpComplete 后再投递 eval 完成（event 1）。
+class _FakeAsyncBridge implements QuickJsNativeBridge, QuickJsAsyncNativeBridge {
+  _FakeAsyncBridge({
+    this.bySubstring = const <String, String>{},
+    this.httpUrl = 'https://api.example.com/cats',
+  });
+
+  final Map<String, String> bySubstring;
+  final String httpUrl;
+
+  final List<String> evals = <String>[];
+  final List<String> httpWrites = <String>[];
+  bool closedHostBridge = false;
+
+  QuickJsHostEventHandler? _handler;
+  String? _pendingResult;
+  int _handleSeq = 0;
+
+  String _resolve(String script) {
+    for (final MapEntry<String, String> e in bySubstring.entries) {
+      if (script.contains(e.key)) return e.value;
+    }
+    return '';
+  }
+
+  @override
+  bool get isAvailable => true;
+
+  @override
+  int createRuntime() => 0x1000;
+
+  @override
+  int createContext(int runtime) => 0x2000;
+
+  @override
+  void freeContext(int context) {}
+
+  @override
+  void freeRuntime(int runtime) {}
+
+  @override
+  String? eval(int context, String script) {
+    evals.add(script);
+    return _resolve(script);
+  }
+
+  @override
+  int setHostBridge(int runtime, QuickJsHostEventHandler handler) {
+    _handler = handler;
+    return ++_handleSeq;
+  }
+
+  @override
+  void closeHostBridge(int handle) => closedHostBridge = true;
+
+  @override
+  bool evalSubmit(int runtime, String script) {
+    evals.add(script);
+    scheduleMicrotask(() async {
+      if (script.contains('homeContent(') ||
+          script.contains('categoryContent(')) {
+        _handler!(2, 1, httpUrl, '{"method":"GET"}');
+        // 等引擎异步发请求并回写（轮询事件循环，对齐 worker 阻塞等待语义）
+        while (httpWrites.isEmpty) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+      _pendingResult = _resolve(script);
+      _handler!(1, 0, '', '');
+    });
+    return true;
+  }
+
+  @override
+  String? evalTakeResult(int runtime) {
+    final String? r = _pendingResult;
+    _pendingResult = null;
+    return r;
+  }
+
+  @override
+  bool httpComplete(int runtime, int reqId, String responseJson) {
+    httpWrites.add(responseJson);
+    return true;
+  }
 }
 
 /// 示例蜘蛛脚本（符合契约：spider.__jsEvalReturn / default 兜底注册）。
@@ -463,6 +579,109 @@ void main() {
         transport.requests.single.headers['User-Agent'],
         SpiderHttpBridge.defaultUserAgent,
       );
+      await engine.dispose();
+    });
+
+    test('G-03-B-3：worker 桥 — 脚本 http() 经宿主事件异步回写', () async {
+      final _CategoryApiTransport transport = _CategoryApiTransport();
+      final SpiderHttpBridge http = SpiderHttpBridge(transport: transport);
+      final Map<String, Object?> home = <String, Object?>{
+        'class': <Map<String, Object?>>[
+          <String, Object?>{'type_id': '6', 'type_name': '综艺'},
+        ],
+        'list': <Map<String, Object?>>[],
+      };
+      final _FakeAsyncBridge bridge = _FakeAsyncBridge(
+        bySubstring: <String, String>{
+          'typeof globalThis.__JS_SPIDER__': 'object',
+          'homeContent(': _wrapStringJson(home),
+        },
+      );
+      final QuickJSBridgeEngine engine = QuickJSBridgeEngine(
+        bridge: bridge,
+        asyncBridge: bridge,
+        httpBridge: http,
+      );
+      await engine.loadScript(_sampleSpider);
+      await engine.registerSpider();
+
+      final dynamic result = await engine.callHomeContent();
+      expect(result.classes, hasLength(1));
+      expect(result.classes!.first.typeName, '综艺');
+
+      // http 请求经桥发出（iOS 默认 UA + 归一 options）
+      expect(transport.requests, hasLength(1));
+      expect(
+        transport.requests.single.headers['User-Agent'],
+        SpiderHttpBridge.defaultUserAgent,
+      );
+      expect(transport.requests.single.url, Uri.parse('https://api.example.com/cats'));
+
+      // 回写响应形状对齐 iOS JSSpiderEngine 字典：ok/status/content/url/headers/error
+      final Map<String, Object?> resp =
+          jsonDecode(bridge.httpWrites.single) as Map<String, Object?>;
+      expect(resp['ok'], isTrue);
+      expect(resp['status'], 200);
+      expect(resp['content'], contains('综艺'));
+      expect(resp['url'], 'https://api.example.com/cats');
+      expect(resp.keys, containsAll(<String>['headers', 'error']));
+
+      await engine.dispose();
+      expect(bridge.closedHostBridge, isTrue);
+    });
+
+    test('G-03-B-3：worker 桥 — http 失败回写 ok=false（脚本拿失败对象）', () async {
+      final SpiderHttpBridge http =
+          SpiderHttpBridge(transport: _FailingTransport());
+      final Map<String, Object?> home = <String, Object?>{
+        'class': <Map<String, Object?>>[],
+        'list': <Map<String, Object?>>[],
+      };
+      final _FakeAsyncBridge bridge = _FakeAsyncBridge(
+        bySubstring: <String, String>{
+          'typeof globalThis.__JS_SPIDER__': 'object',
+          'homeContent(': _wrapStringJson(home),
+        },
+      );
+      final QuickJSBridgeEngine engine = QuickJSBridgeEngine(
+        bridge: bridge,
+        asyncBridge: bridge,
+        httpBridge: http,
+      );
+      await engine.loadScript(_sampleSpider);
+      await engine.registerSpider();
+
+      // 脚本消费失败对象后仍正常返回（引擎不因 http 失败抛错，对齐 iOS 语义）
+      final dynamic result = await engine.callHomeContent();
+      expect(result.classes, isEmpty);
+
+      final Map<String, Object?> resp =
+          jsonDecode(bridge.httpWrites.single) as Map<String, Object?>;
+      expect(resp['ok'], isFalse);
+      expect(resp['status'], 0);
+      expect(resp['content'], isNotEmpty); // 错误消息
+      await engine.dispose();
+    });
+
+    test('G-03-B-3：无 asyncBridge → 同步 eval 回退（旧语义不回归）', () async {
+      final _FakeQuickJsBridge bridge = _FakeQuickJsBridge(
+        byExact: <String, String>{
+          'typeof globalThis.__JS_SPIDER__': 'object',
+        },
+        bySubstring: <String, String>{
+          'homeContent(': _wrapStringJson(<String, Object?>{
+            'class': <Map<String, Object?>>[
+              <String, Object?>{'type_id': '1', 'type_name': '电影'},
+            ],
+            'list': <Map<String, Object?>>[],
+          }),
+        },
+      );
+      final QuickJSBridgeEngine engine = QuickJSBridgeEngine(bridge: bridge);
+      await engine.loadScript(_sampleSpider);
+      await engine.registerSpider();
+      final dynamic result = await engine.callHomeContent();
+      expect(result.classes!.first.typeName, '电影');
       await engine.dispose();
     });
 

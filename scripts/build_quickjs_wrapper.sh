@@ -18,8 +18,9 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) EXT="dll" ;;
 esac
 
-# 与 quickjs Makefile 一致的必要宏
-DEFS=(-DCONFIG_VERSION="\"$(cat "$QJS/VERSION" 2>/dev/null || echo 2024-01-13)\"")
+# 与 quickjs 官方 Makefile 一致的必要宏（CONFIG_BIGNUM=y：bignum/十进制大数，
+# 缺失会导致 libbf.c bfdec_* undefined reference；_GNU_SOURCE 对齐官方 DEFINES）
+DEFS=(-D_GNU_SOURCE -DCONFIG_BIGNUM -DCONFIG_VERSION="\"$(cat "$QJS/VERSION" 2>/dev/null || echo 2024-01-13)\"")
 LIBS=()
 if [ "$EXT" = "dylib" ] || [ "$EXT" = "so" ]; then
   LIBS=(-lm)

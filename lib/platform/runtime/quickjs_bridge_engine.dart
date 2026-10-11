@@ -11,6 +11,7 @@
 /// 测试：注入 fake [QuickJsNativeBridge]（FFI mock），无需真实动态库。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import '../../domain/entities/spider/engine_type.dart';
@@ -24,17 +25,30 @@ import 'quickjs_ffi.dart';
 /// QuickJS 桥接引擎（实现 [SpiderEngine]）。
 class QuickJSBridgeEngine implements SpiderEngine {
   /// [bridge] 可注入（测试用 fake；缺省为真实 FFI 加载器）。
+  ///
+  /// [asyncBridge] 可选注入（fake 模拟 worker 桥）；缺省按 [bridge] 自身
+  /// 能力探测（`DartFfiQuickJsBridge` 同时实现 [QuickJsAsyncNativeBridge]，
+  /// 符号缺失时运行时自动降级同步 eval）。
   QuickJSBridgeEngine({
     QuickJsNativeBridge? bridge,
+    QuickJsAsyncNativeBridge? asyncBridge,
     SpiderAbiCodec? codec,
     this.siteKey,
     this.baseUrl,
     this.requestId,
     this.httpBridge,
   })  : _bridge = bridge ?? DartFfiQuickJsBridge(),
+        _asyncBridge =
+            asyncBridge ?? _detectAsyncBridge(bridge ?? DartFfiQuickJsBridge()),
         _codec = codec ?? const SpiderAbiCodec();
 
+  static QuickJsAsyncNativeBridge? _detectAsyncBridge(Object bridge) =>
+      bridge is QuickJsAsyncNativeBridge ? bridge : null;
+
   final QuickJsNativeBridge _bridge;
+
+  /// 异步能力桥（worker 线程 eval + JS http() 宿主桥；null = 纯同步模式）。
+  final QuickJsAsyncNativeBridge? _asyncBridge;
   final SpiderAbiCodec _codec;
 
   /// 站点键（init 配置 ctx.siteKey）。
@@ -48,13 +62,23 @@ class QuickJSBridgeEngine implements SpiderEngine {
 
   /// HTTP 桥（B-09：loadScriptFromURL 脚本拉取走 5 级编码链 + iOS 默认 UA + cookie）。
   ///
-  /// 注入实例生命周期归调用方；缺省按需临时创建、用后即关（不泄漏 HttpClient）。
+  /// 注入实例生命周期归调用方；脚本内 `http()` 请求复用同一实例
+  /// （注入实例归调用方，未注入时引擎自建 [_ownHttpBridge]、dispose 时关闭）。
   final SpiderHttpBridge? httpBridge;
 
   int _runtime = 0;
   int _context = 0;
   bool _registered = false;
   bool _inited = false;
+
+  /// 宿主桥回调句柄（0 = 未注册；dispose 时关闭防 NativeCallable 泄漏）。
+  int _hostBridgeHandle = 0;
+
+  /// 待完成 eval 的 Completer（event 1 → complete）。
+  Completer<String?>? _evalCompleter;
+
+  /// 引擎自建 HTTP 桥（脚本 http() 用；注入 [httpBridge] 时不创建）。
+  SpiderHttpBridge? _ownHttpBridge;
 
   @override
   void Function(String)? onLog;
@@ -76,11 +100,12 @@ class QuickJSBridgeEngine implements SpiderEngine {
         'QuickJS 运行时初始化失败（createRuntime/createContext 返回 0）',
       );
     }
+    _registerHostBridge();
     // B-05a：JS 全局桥 prelude（console/print/atob/btoa/req/options 归一），
     // 先于用户脚本注入 —— 内置脚本零改动可跑。
-    final String? preludeResult = _bridge.eval(_context, SpiderJsGlobals.prelude());
+    final String? preludeResult = await _evalAsync(SpiderJsGlobals.prelude());
     _checkScriptResult(preludeResult);
-    final String? result = _bridge.eval(_context, script);
+    final String? result = await _evalAsync(script);
     _checkScriptResult(result);
     // B-05a：console/print 真实输出 —— 顶层脚本日志取回接 onLog
     await _drainAndEmitLogs();
@@ -91,7 +116,7 @@ class QuickJSBridgeEngine implements SpiderEngine {
   Future<void> loadLibrary(String script) async {
     _ensureAvailable();
     _ensureContext();
-    final String? result = _bridge.eval(_context, script);
+    final String? result = await _evalAsync(script);
     _checkScriptResult(result);
   }
 
@@ -146,9 +171,10 @@ class QuickJSBridgeEngine implements SpiderEngine {
         }
       }
     ''';
-    _bridge.eval(_context, script);
+    await _evalAsync(script);
     // 对齐 QJSSpiderEngine.registerSpider：单独检测 typeof（契约 §5）
-    final String? result = _bridge.eval(_context, 'typeof globalThis.__JS_SPIDER__');
+    final String? result =
+        await _evalAsync('typeof globalThis.__JS_SPIDER__');
     if (SpiderErrorDetector.isRegistered(result ?? '')) {
       _registered = true;
       onLog?.call('✅ QuickJS 蜘蛛已注册到 globalThis.__JS_SPIDER__');
@@ -210,6 +236,7 @@ class QuickJSBridgeEngine implements SpiderEngine {
 
   @override
   Future<void> dispose() async {
+    _closeHostBridge();
     if (_context != 0) {
       _bridge.freeContext(_context);
       _context = 0;
@@ -218,8 +245,14 @@ class QuickJSBridgeEngine implements SpiderEngine {
       _bridge.freeRuntime(_runtime);
       _runtime = 0;
     }
+    // pending eval 随 runtime 释放作废（event 1 不再来，completer 直接丢弃）
+    _evalCompleter = null;
     _registered = false;
     _inited = false;
+    // 关闭引擎自建 HTTP 桥（注入实例生命周期归调用方，不动）
+    final SpiderHttpBridge? own = _ownHttpBridge;
+    _ownHttpBridge = null;
+    await own?.close();
   }
 
   // ─────────────── 内部 ───────────────
@@ -243,7 +276,99 @@ class QuickJSBridgeEngine implements SpiderEngine {
           'QuickJS 运行时初始化失败',
         );
       }
+      _registerHostBridge();
     }
+  }
+
+  // ─────────────── G-03-B-3：worker 桥接（eval 异步提交 + JS http() 宿主桥） ──
+
+  /// 注册宿主回调（runtime 创建后调用一次；重复调用先关旧句柄）。
+  void _registerHostBridge() {
+    final QuickJsAsyncNativeBridge? ab = _asyncBridge;
+    if (ab == null || _runtime == 0) return;
+    _closeHostBridge();
+    _hostBridgeHandle = ab.setHostBridge(_runtime, _onHostEvent);
+  }
+
+  void _closeHostBridge() {
+    if (_hostBridgeHandle != 0) {
+      _asyncBridge?.closeHostBridge(_hostBridgeHandle);
+      _hostBridgeHandle = 0;
+    }
+  }
+
+  /// 宿主事件分发（isolate 事件循环执行）。
+  void _onHostEvent(int event, int reqId, String url, String optionsJson) {
+    if (event == 1) {
+      // eval 完成：先同步取走结果，再 complete（避免竞态）
+      final String? result = _asyncBridge?.evalTakeResult(_runtime);
+      final Completer<String?>? completer = _evalCompleter;
+      _evalCompleter = null;
+      if (completer != null && !completer.isCompleted) {
+        completer.complete(result);
+      }
+    } else if (event == 2) {
+      // 脚本 http(url, options)：异步执行后回写（worker 阻塞等待）
+      _performJsHttp(reqId, url, optionsJson);
+    }
+  }
+
+  /// eval 统一入口：异步桥可用则提交 worker 线程（脚本可同步 http()），
+  /// 否则回退同步 eval（旧语义：http() 不可用）。
+  Future<String?> _evalAsync(String script) async {
+    final QuickJsAsyncNativeBridge? ab = _asyncBridge;
+    if (ab != null && _hostBridgeHandle != 0 && ab.evalSubmit(_runtime, script)) {
+      final Completer<String?> completer = Completer<String?>();
+      _evalCompleter = completer;
+      return completer.future.timeout(
+        const Duration(seconds: 60),
+        onTimeout: () {
+          _evalCompleter = null;
+          throw const SpiderException(
+            SpiderErrorCode.runtime,
+            'QuickJS eval 超时（worker 桥等待上限，疑似脚本挂死）',
+          );
+        },
+      );
+    }
+    return _bridge.eval(_context, script);
+  }
+
+  /// 脚本 `http(url, options)` 的 Dart 执行与回写。
+  ///
+  /// 结果形状对齐 iOS JSSpiderEngine 字典返回：
+  /// `{ok,status,content,url,headers,error}`（脚本消费 resp.status/resp.content/resp.ok）。
+  Future<void> _performJsHttp(
+      int reqId, String url, String optionsJson) async {
+    Map<String, Object?>? opts;
+    if (optionsJson.isNotEmpty) {
+      try {
+        final Object? decoded = jsonDecode(optionsJson);
+        if (decoded is Map<String, Object?>) opts = decoded;
+      } on FormatException {
+        opts = null; // options 非 JSON → 默认 GET（对齐 iOS as? 容错）
+      }
+    }
+    // 注入桥优先（归调用方）；未注入用引擎自建桥（懒创建，dispose 关闭）
+    final SpiderHttpBridge bridge =
+        httpBridge ?? (_ownHttpBridge ??= SpiderHttpBridge());
+    SpiderHttpResult res;
+    try {
+      res = await bridge.request(url, options: SpiderHttpOptions.fromMap(opts));
+    } catch (e) {
+      res = SpiderHttpResult.failure(url, '请求失败: $e');
+    }
+    final String responseJson = jsonEncode(<String, Object?>{
+      'ok': res.ok,
+      'status': res.status,
+      'content': res.content,
+      'url': res.url,
+      'headers': res.headers,
+      'error': res.ok
+          ? ''
+          : (res.status == 0 ? res.content : 'HTTP ${res.status}'),
+    });
+    _asyncBridge?.httpComplete(_runtime, reqId, responseJson);
   }
 
   /// 契约 §5 错误检测：Error / TypeError / ReferenceError / SyntaxError 前缀。
@@ -285,7 +410,8 @@ class QuickJSBridgeEngine implements SpiderEngine {
     }
     if (!_inited) {
       // init 只调用一次（对齐 iOS：引擎创建后 callInit 一次）
-      _bridge.eval(_context, 'globalThis.__JS_SPIDER__.init(${_initConfigJson()})');
+      await _evalAsync(
+          'globalThis.__JS_SPIDER__.init(${_initConfigJson()})');
       _inited = true;
     }
     final String escapedArgs = args.map(_quote).join(', ');
@@ -297,7 +423,7 @@ class QuickJSBridgeEngine implements SpiderEngine {
         "if (typeof __r === 'string') { return {__type: 'string', __value: __r}; }"
         "return {__type: 'object', __value: __r};"
         '})())';
-    final String? raw = _bridge.eval(_context, script);
+    final String? raw = await _evalAsync(script);
     // B-05a：本次操作期间脚本 console/print 输出接日志
     await _drainAndEmitLogs();
     if (raw == null || raw.isEmpty) {
@@ -369,7 +495,7 @@ class QuickJSBridgeEngine implements SpiderEngine {
     _ensureAvailable();
     if (_context == 0) return const <String>[];
     final String? raw =
-        _bridge.eval(_context, SpiderJsGlobals.drainLogsScript());
+        await _evalAsync(SpiderJsGlobals.drainLogsScript());
     final List<String> logs = SpiderJsGlobals.parseLogs(raw ?? '');
     for (final String line in logs) {
       onLog?.call('JS $line');

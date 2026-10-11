@@ -77,7 +77,13 @@ add_library(vbox_quickjs SHARED
 target_include_directories(vbox_quickjs PRIVATE "${QJS_DIR}")
 
 # 与 quickjs Makefile 一致的必要宏（build_quickjs_wrapper.sh 同口径）
-target_compile_definitions(vbox_quickjs PRIVATE CONFIG_VERSION="${QJS_VERSION}")
+target_compile_definitions(vbox_quickjs PRIVATE
+    CONFIG_VERSION="${QJS_VERSION}"
+    # 官方 Makefile 口径（CONFIG_BIGNUM=y）：启用 bignum/十进制大数（USE_FFT_MUL
+    # / USE_BF_DEC），缺失会导致 libbf.c 内 bfdec_* undefined reference 与
+    # JS_ToFloat64 大数行为偏差；_GNU_SOURCE 显式声明（NDK 默认开启，显式兜底）。
+    CONFIG_BIGNUM
+    _GNU_SOURCE)
 
 # 16KB 页对齐（Android 15+ 设备强制要求，见上方说明）
 target_link_options(vbox_quickjs PRIVATE "-Wl,-z,max-page-size=16384")
