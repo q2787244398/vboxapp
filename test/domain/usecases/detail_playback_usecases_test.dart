@@ -510,5 +510,80 @@ void main() {
       expect(engine.calls, contains('playerContent:123:线路1'));
       expect(engine.calls.last, 'dispose');
     });
+
+    test('内置网页嗅探兜底：playerContent 仍返回网页地址 → 嗅探命中替换', () async {
+      // playerContent 返回网页播放页（未直链）→ customParser 未注入 →
+      // 内置嗅探（fake）命中直链（A3：修复网页 URL 直喂内核容器不支持）。
+      final _FakeSpiderEngine webEngine = _FakeSpiderEngine(
+        SpiderEngineType.quickJS,
+        playerResult: PlayerContentResult.fromJson(<String, Object?>{
+          'url': 'https://v.com/play/aADmylPe',
+        }),
+      );
+      final DetailPlaybackUseCases uc = DetailPlaybackUseCases(
+        loadAllSources: () async => const Success<AllSourcesContainer>(
+          AllSourcesContainer(),
+        ),
+        engineFactory: _FakeSpiderEngineFactory(webEngine),
+        webPageSniffer: (String pageUrl) async =>
+            'https://real.cdn.com/vod/index.m3u8',
+      );
+      final PlaybackDetail d = buildDetail(
+        playUrl: '第1集\$https://v.com/play/aADmylPe',
+        api: 'https://127.0.0.1:58080/spider/x',
+      );
+      final Result<PlayerContentResult> r = await uc.resolvePlayUrl(
+        detail: d,
+        episode: d.episodes.first,
+      );
+      expect(r.valueOrNull?.url, 'https://real.cdn.com/vod/index.m3u8');
+    });
+
+    test('内置网页嗅探未命中 → 回落原地址（不掩盖失败）', () async {
+      final _FakeSpiderEngine webEngine = _FakeSpiderEngine(
+        SpiderEngineType.quickJS,
+        playerResult: PlayerContentResult.fromJson(<String, Object?>{
+          'url': 'https://v.com/play/noHit',
+        }),
+      );
+      final DetailPlaybackUseCases uc = DetailPlaybackUseCases(
+        loadAllSources: () async => const Success<AllSourcesContainer>(
+          AllSourcesContainer(),
+        ),
+        engineFactory: _FakeSpiderEngineFactory(webEngine),
+        webPageSniffer: (String pageUrl) async => null,
+      );
+      final PlaybackDetail d = buildDetail(
+        playUrl: '第1集\$https://v.com/play/noHit',
+        api: 'https://127.0.0.1:58080/spider/x',
+      );
+      final Result<PlayerContentResult> r = await uc.resolvePlayUrl(
+        detail: d,
+        episode: d.episodes.first,
+      );
+      expect(r.valueOrNull?.url, 'https://v.com/play/noHit');
+    });
+
+    test('直链地址不触达内置嗅探（直链优先，对齐 iOS）', () async {
+      int sniffCalls = 0;
+      final DetailPlaybackUseCases uc = DetailPlaybackUseCases(
+        loadAllSources: () async => const Success<AllSourcesContainer>(
+          AllSourcesContainer(),
+        ),
+        engineFactory: factory,
+        webPageSniffer: (String pageUrl) async {
+          sniffCalls++;
+          return 'https://should-not-use.com/x.m3u8';
+        },
+      );
+      final PlaybackDetail d =
+          buildDetail(playUrl: '第1集\$https://v.com/1.m3u8');
+      final Result<PlayerContentResult> r = await uc.resolvePlayUrl(
+        detail: d,
+        episode: d.episodes.first,
+      );
+      expect(r.valueOrNull?.url, 'https://v.com/1.m3u8');
+      expect(sniffCalls, 0);
+    });
   });
 }

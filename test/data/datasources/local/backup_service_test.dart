@@ -279,6 +279,59 @@ void main() {
       expect(await pm.getString('cloud_drive_credentials_v1'),
           '{"quark":"token-abc"}');
     });
+
+    test('lxPlugins 采集目录 .js 文件（A5：对齐 iOS 全量备份）', () async {
+      final Directory lxDir =
+          await Directory.systemTemp.createTemp('vbox_lx_test');
+      File('${lxDir.path}/my_plugin.js')
+          .writeAsStringSync('// lx plugin body');
+      File('${lxDir.path}/readme.txt').writeAsStringSync('非 js 不采集');
+
+      final BackupService withLx =
+          BackupService(lxPluginsDirPath: () => lxDir.path);
+      final BackupPayload p = await withLx.dump(
+        categories: <BackupCategory>{BackupCategory.remoteSources},
+      );
+      final Map<dynamic, dynamic> snap =
+          p.readCategory(BackupCategory.remoteSources)! as Map<dynamic, dynamic>;
+      final Map<dynamic, dynamic> lx =
+          snap['lxPlugins']! as Map<dynamic, dynamic>;
+      expect(lx.keys, <String>['my_plugin.js']);
+      expect(
+        utf8.decode(base64.decode(lx['my_plugin.js']! as String)),
+        '// lx plugin body',
+      );
+      await lxDir.delete(recursive: true);
+    });
+
+    test('lxPlugins 还原写回目录；路径穿越/非 js 拒绝', () async {
+      final Directory lxDir =
+          await Directory.systemTemp.createTemp('vbox_lx_restore');
+      final BackupPayload p = BackupPayload();
+      p.putCategory(BackupCategory.remoteSources, <String, Object?>{
+        'manifest': null,
+        'lxPlugins': <String, Object?>{
+          'ok.js': base64.encode(utf8.encode('body-ok')),
+          '../evil.js': base64.encode(utf8.encode('bad')),
+          'sub/dir.js': base64.encode(utf8.encode('bad')),
+          'not_js.txt': base64.encode(utf8.encode('bad')),
+        },
+      });
+
+      final BackupService withLx =
+          BackupService(lxPluginsDirPath: () => lxDir.path);
+      final int n = (await withLx.restore(
+        payload: p,
+        categories: <BackupCategory>{BackupCategory.remoteSources},
+        strategy: ConflictStrategy.merge,
+      ))
+          .counts[BackupCategory.remoteSources]!;
+      expect(n, 1);
+      expect(File('${lxDir.path}/ok.js').readAsStringSync(), 'body-ok');
+      expect(File('${lxDir.path}/../evil.js').existsSync(), isFalse);
+      expect(File('${lxDir.path}/not_js.txt').existsSync(), isFalse);
+      await lxDir.delete(recursive: true);
+    });
   });
 
   group('.vboxbak 文件 I/O 与端到端', () {

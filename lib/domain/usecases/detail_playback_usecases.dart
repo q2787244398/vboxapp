@@ -50,6 +50,7 @@ class DetailPlaybackUseCases {
     ZhanyuanSearchService? zhanyuanService,
     Future<String?> Function(String rawUrl)? customParser,
     Future<SiteConfig?> Function(String key)? fallbackSiteResolver,
+    Future<String?> Function(String pageUrl)? webPageSniffer,
   })  : _engineFactory = engineFactory,
         _cmsDatasource = cmsDatasource,
         _cloudHttpClient = cloudHttpClient,
@@ -58,7 +59,8 @@ class DetailPlaybackUseCases {
         _tencentSpider = tencentSpider,
         _zhanyuanService = zhanyuanService ?? ZhanyuanSearchService(),
         _customParser = customParser,
-        _fallbackSiteResolver = fallbackSiteResolver;
+        _fallbackSiteResolver = fallbackSiteResolver,
+        _webPageSniffer = webPageSniffer;
 
   /// 日志标签。
   static const String logTag = 'playback';
@@ -88,6 +90,10 @@ class DetailPlaybackUseCases {
   final ZhanyuanSearchService _zhanyuanService;
   final Future<String?> Function(String rawUrl)? _customParser;
   final Future<SiteConfig?> Function(String key)? _fallbackSiteResolver;
+
+  /// 内置网页嗅探（对齐 iOS「网页播放 URL → WebView 嗅探提取直链」；
+  /// 在 customParser 未命中后兜底，见 [_applyWebPageSniff]）。
+  final Future<String?> Function(String pageUrl)? _webPageSniffer;
 
   /// 腾讯站点合成配置（仅用于承载详情结果；不走 CMS/引擎路由）。
   static const SiteConfig _tencentSite = SiteConfig(
@@ -185,7 +191,48 @@ class DetailPlaybackUseCases {
   }) async {
     final Result<PlayerContentResult> primary =
         await _resolvePlayUrlCore(detail: detail, episode: episode);
-    return _applyCustomParser(primary);
+    // 解析链顺序（对齐 iOS「解析器优先，WebView 嗅探兜底」）：
+    //   ① 用户/远程自定义解析器（O-源2）→ ② 内置网页嗅探（本次接入）。
+    final Result<PlayerContentResult> parsed = await _applyCustomParser(primary);
+    return _applyWebPageSniff(parsed);
+  }
+
+  /// 内置网页嗅探兜底：customParser 未命中且地址仍为网页播放页时，
+  /// 抓取/渲染页面提取真实媒体直链（对齐 iOS WKWebView 嗅探语义，
+  /// 修复「网页 URL 直喂内核报 PARSING_CONTAINER_UNSUPPORTED」）。
+  /// 未命中回落原地址（保留原有错误展示，不掩盖真实失败）。
+  Future<Result<PlayerContentResult>> _applyWebPageSniff(
+    Result<PlayerContentResult> result,
+  ) async {
+    final Future<String?> Function(String pageUrl)? sniff = _webPageSniffer;
+    final PlayerContentResult? value = result.valueOrNull;
+    if (sniff == null || value == null) return result;
+    // 与播放器实际打开口径一致（detail_page._firstUrl：url > urls > playUrl），
+    // 否则会出现「嗅探了 A、播放器打开的是 B」的错位。
+    final String candidate = <String?>[
+      value.url,
+      (value.urls != null && value.urls!.isNotEmpty) ? value.urls!.first : null,
+      value.playUrl,
+    ].firstWhere((String? s) => s != null && s.trim().isNotEmpty,
+        orElse: () => null)?.trim() ??
+        '';
+    if (candidate.isEmpty) return result;
+    // 直链 / 解析器已标记 jx=1 的地址 → 免嗅探（对齐 iOS「直链优先」）。
+    if (PlaybackUrlParser.looksDirectMedia(candidate)) return result;
+    try {
+      final String? direct = await sniff(candidate);
+      if (direct == null || direct.trim().isEmpty) return result;
+      AppLog.debug(logTag, '网页嗅探命中直链：${_short(direct)}');
+      return Success<PlayerContentResult>(PlayerContentResult(
+        parse: 0,
+        playUrl: value.playUrl,
+        url: direct.trim(),
+        header: value.header,
+      ));
+    } catch (e) {
+      AppLog.warn(logTag, '网页嗅探失败，回落原地址', error: e);
+      return result;
+    }
   }
 
   /// 自定义解析器兜底：仅当结果地址非直链媒体时尝试；命中替换，未命中原样返回。

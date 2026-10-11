@@ -43,9 +43,11 @@ import 'domain/usecases/usecases.dart';
 import 'platform/download/download.dart';
 import 'platform/node/node_runtime_manager.dart';
 import 'platform/player/music_player.dart';
+import 'platform/player/web_page_sniffer.dart';
 import 'platform/runtime/runtime.dart';
 import 'platform/spider/spider.dart';
 import 'platform/system/system.dart';
+import 'platform/webview/in_app_webview_bridge.dart';
 import 'presentation/profile/session_controller.dart';
 import 'presentation/shell/home_shell_page.dart';
 import 'presentation/shell/startup_gate.dart';
@@ -386,6 +388,11 @@ class _VBoxAppState extends State<VBoxApp> {
         tencentSpider: _tencentSpider,
         // O-源2：非直链播放地址在返回前尝试解析器（远程默认 + 自定义）。
         customParser: _sourceGovernanceUseCases.resolveWithParsers,
+        // O-源2+：内置网页嗅探兜底（对齐 iOS「网页播放 URL → WebView 嗅探
+        // 提取直链」）：自定义解析器未命中时，静态抓页 / WebView 渲染提取
+        // 真实 m3u8/mp4 直链再起播（修复网页 URL 直喂内核报容器不支持）。
+        webPageSniffer:
+            WebPageSniffer(webview: InAppWebViewBridge()).extractMediaUrl,
         // O-源3：兜底切片源合成 key 的站点回退解析。
         fallbackSiteResolver: _sourceGovernanceUseCases.findFallbackSite,
         // 网盘详情页解析（对齐 iOS `resolveCloudPlay` 的 `URLSession.shared`：
@@ -402,10 +409,20 @@ class _VBoxAppState extends State<VBoxApp> {
         scriptBaseUrl: () => _allSourcesUrl,
         // Node 承载源调用前等常驻宿主就绪（对齐 iOS
         // `waitForNodeReadyIfNeeded`，SpiderManager.swift L2136）：
-        // 轮询 NodeRuntimeManager 就绪位，上限 20s（超时放行由调用侧失败兜底）。
+        // 轮询 NodeRuntimeManager 就绪位，上限 5s；node-failed 立即放行
+        //（超时放行由调用侧失败兜底）。
         waitNodeReady: () async {
-          const Duration step = Duration(milliseconds: 200);
-          for (int i = 0; i < 100 && !NodeRuntimeManager.instance.isSystemReady; i++) {
+          // 对齐 iOS `waitForNodeReadyIfNeeded`（SpiderManager.swift L2136）语义：
+          // Node 承载源调用前等待宿主就绪；**启动失败（node-failed）立即返回**
+          // ——iOS 进程内引擎秒级就绪，宿主已明确失败时继续轮询只会让每次
+          // 切源都白等（原 100×200ms=20s 无差别等待是「切源没反应」主因之一）。
+          // 上限 50×100ms=5s：覆盖本机正常启动耗时；崩溃自愈由
+          // NodeRuntimeManager 崩溃重启 + statusStream 驱动，下次请求自然恢复。
+          const Duration step = Duration(milliseconds: 100);
+          for (int i = 0; i < 50; i++) {
+            final NodeRuntimeStatus phase = NodeRuntimeManager.instance.status;
+            if (phase == NodeRuntimeStatus.failed) return;
+            if (NodeRuntimeManager.instance.isSystemReady) return;
             await Future<void>.delayed(step);
           }
         },

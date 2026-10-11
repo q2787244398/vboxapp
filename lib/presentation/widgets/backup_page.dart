@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import '../../data/datasources/local/backup_manager.dart';
 import '../../data/datasources/local/backup_payload.dart';
 import '../../data/datasources/local/backup_service.dart';
+import '../../platform/node/node_runtime_manager.dart';
 
 /// 备份 / 还原页。
 class BackupPage extends StatefulWidget {
@@ -49,7 +50,12 @@ class _BackupPageState extends State<BackupPage> {
   @override
   void initState() {
     super.initState();
-    _service = widget.service ?? BackupService();
+    _service = widget.service ??
+        BackupService(
+          // lx 插件缓存目录（A5：lxPlugins 全量备份采集/还原落点）。
+          lxPluginsDirPath: () =>
+              NodeRuntimeManager.instance.lxPluginsDirPath,
+        );
     _loadFiles();
   }
 

@@ -284,6 +284,10 @@ class Updater extends ChangeNotifier {
         if (expected.isNotEmpty) {
           final String actual = await _sha256File(dest);
           if (actual != expected) {
+            // 坏包清除（含 .part）：避免下次「续传坏块」循环失败。
+            if (await dest.exists()) await dest.delete();
+            final File part = File('${dest.path}.part');
+            if (await part.exists()) await part.delete();
             throw StateError('安装包 SHA-256 校验失败');
           }
         }
@@ -305,17 +309,31 @@ class Updater extends ChangeNotifier {
   }
 
   /// 流式下载单个候选地址到 [dest]，逐块更新进度。
+  ///
+  /// 断点续传（本轮对齐 iOS `URLSession` 下载语义的补齐）：写入走
+  /// `<dest>.part` 中转，完成后原子重命名；续传时若 `.part` 已存在则携带
+  /// `Range: bytes=<len>-` 请求，响应 `206` 追加剩余字节，`200`（服务端
+  /// 不支持 Range / 资源已变）则全量重写。SHA-256 校验失败清空 `.part`
+  /// （防坏块循环续传）。
   Future<void> _downloadTo(Uri uri, File dest, int token) async {
+    final File part = File('${dest.path}.part');
+    final int resumeFrom = part.existsSync() ? part.lengthSync() : 0;
+
     final http.Request req = http.Request('GET', uri)
       ..headers['user-agent'] = 'Mozilla/5.0';
+    if (resumeFrom > 0) {
+      req.headers['range'] = 'bytes=$resumeFrom-';
+    }
     final http.StreamedResponse res =
         await _client.send(req).timeout(const Duration(seconds: 30));
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw HttpException('HTTP ${res.statusCode}');
     }
-    final int total = res.contentLength ?? 0;
-    final IOSink sink = dest.openWrite();
-    int received = 0;
+    final bool appending =
+        resumeFrom > 0 && res.statusCode == HttpStatus.partialContent;
+    final int total = (res.contentLength ?? 0) + (appending ? resumeFrom : 0);
+    final IOSink sink = part.openWrite(mode: appending ? FileMode.append : FileMode.write);
+    int received = appending ? resumeFrom : 0;
     try {
       await for (final List<int> chunk in res.stream) {
         if (token != _downloadToken) {
@@ -332,6 +350,9 @@ class Updater extends ChangeNotifier {
     } finally {
       await sink.close();
     }
+    // 完成即原子替换（校验失败由调用侧清 .part，不影响下次续传重下）。
+    if (dest.existsSync()) await dest.delete();
+    await part.rename(dest.path);
   }
 
   /// 取消下载（对齐 iOS `cancelDownload`）。

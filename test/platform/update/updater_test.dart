@@ -92,6 +92,7 @@ void main() {
     UpdatePlatform platform = UpdatePlatform.androidArm64,
     bool android = true,
     String local = '3.1621.0',
+    UpdateDirectoryProvider? directoryProvider,
   }) {
     return Updater(
       client: client,
@@ -99,7 +100,7 @@ void main() {
       platformOverride: platform,
       androidOverride: android,
       localVersion: local,
-      directoryProvider: () async => tempDir,
+      directoryProvider: directoryProvider ?? () async => tempDir,
     );
   }
 
@@ -255,6 +256,70 @@ void main() {
       u.cancelDownload();
       expect(u.isDownloading, isFalse);
       expect(u.downloadProgress, 0);
+    });
+
+    test('断点续传：.part 残留 → Range 请求 → 206 追加完成', () async {
+      final List<int> head = utf8.encode('first-half-');
+      final List<int> tail = utf8.encode('second-half');
+      final List<int> all = <int>[...head, ...tail];
+      final List<String?> rangeHeaders = <String?>[];
+      final Directory dir = await Directory.systemTemp.createTemp('vbox_update_resume');
+      addTearDown(() => dir.delete(recursive: true));
+      final File part =
+          File('${dir.path}/vbox_update.apk.part')..createSync(recursive: true);
+      part.writeAsBytesSync(head);
+
+      final http.Client client = MockClient((http.Request req) async {
+        if (req.url.host == 'api.github.com') {
+          return _json(_releaseJson(
+            tag: 'v3.9999.0',
+            digest: sha256.convert(all).toString(),
+          ));
+        }
+        rangeHeaders.add(req.headers['range']);
+        return http.Response.bytes(tail, 206, headers: <String, String>{
+          'content-length': '${tail.length}',
+        });
+      });
+      final Updater u = build(
+        client: client,
+        directoryProvider: () async => dir,
+      );
+      await u.check(force: true);
+      await u.download();
+
+      expect(rangeHeaders, <String?>['bytes=${head.length}-']);
+      expect(File(u.downloadedPath!).readAsBytesSync(), all);
+      expect(File('${u.downloadedPath}.part').existsSync(), isFalse);
+    });
+
+    test('断点续传：服务端不支持 Range（200 全量）→ 重头写', () async {
+      final List<int> all = utf8.encode('full-body-redownload');
+      final Directory dir =
+          await Directory.systemTemp.createTemp('vbox_update_full');
+      addTearDown(() => dir.delete(recursive: true));
+      final File part =
+          File('${dir.path}/vbox_update.apk.part')..createSync(recursive: true);
+      part.writeAsBytesSync(utf8.encode('stale-stale'));
+
+      final http.Client client = MockClient((http.Request req) async {
+        if (req.url.host == 'api.github.com') {
+          return _json(_releaseJson(
+            tag: 'v3.9999.0',
+            digest: sha256.convert(all).toString(),
+          ));
+        }
+        return http.Response.bytes(all, 200);
+      });
+      final Updater u = build(
+        client: client,
+        directoryProvider: () async => dir,
+      );
+      await u.check(force: true);
+      await u.download();
+
+      expect(File(u.downloadedPath!).readAsBytesSync(), all,
+          reason: '200 全量响应必须覆盖旧 .part，而不是追加');
     });
   });
 

@@ -120,12 +120,21 @@ class BackupRestoreReport {
 /// 备份采集 / 还原服务。
 class BackupService {
   /// 构造（[db] / [prefs] 便于单测注入）。
-  BackupService({DatabaseManager? db, PrefsManager? prefs})
-      : _db = db ?? DatabaseManager.instance,
-        _prefs = prefs ?? PrefsManager.instance;
+  ///
+  /// [lxPluginsDirPath] lx-music 插件目录解析器（装配层接
+  /// `NodeRuntimeManager.instance.lxPluginsDirPath`；未注入/运行环境未就绪
+  /// 时 lxPlugins 类目如实采空，不阻断备份）。
+  BackupService({
+    DatabaseManager? db,
+    PrefsManager? prefs,
+    String? Function()? lxPluginsDirPath,
+  })  : _db = db ?? DatabaseManager.instance,
+        _prefs = prefs ?? PrefsManager.instance,
+        _lxPluginsDirPath = lxPluginsDirPath;
 
   final DatabaseManager _db;
   final PrefsManager _prefs;
+  final String? Function()? _lxPluginsDirPath;
 
   /// 远程源清单缓存路径。
   static String get _manifestCachePath =>
@@ -215,10 +224,34 @@ class BackupService {
     return <String, Object?>{
       'version': version,
       'manifest': manifest,
+      // allSources：Flutter 端 all_sources.json 为实时拉取（无磁盘快照），
+      // manifest.files 已含其 URL 且随 manifest 备份，还原后可直接重拉 → 如实 null。
       'allSources': null,
+      // lxPlugins：采集本机 `<runtimeDir>/plugins/lx` 的插件 JS 缓存
+      // （`{文件名: Base64 内容}`，对齐 iOS BackupManager 全量备份语义）。
       'spiderJS': <String, Object?>{},
-      'lxPlugins': <String, Object?>{},
+      'lxPlugins': _dumpLxPluginsSync(),
     };
+  }
+
+  /// lx 插件目录同步采集（文件读失败逐文件跳过，不阻断备份）。
+  Map<String, Object?> _dumpLxPluginsSync() {
+    final String? dirPath = _lxPluginsDirPath?.call();
+    if (dirPath == null || dirPath.isEmpty) return <String, Object?>{};
+    final Directory dir = Directory(dirPath);
+    if (!dir.existsSync()) return <String, Object?>{};
+    final Map<String, Object?> out = <String, Object?>{};
+    for (final FileSystemEntity e in dir.listSync()) {
+      if (e is! File) continue;
+      try {
+        final String name = e.uri.pathSegments.last;
+        if (!name.toLowerCase().endsWith('.js')) continue;
+        out[name] = base64.encode(e.readAsBytesSync());
+      } catch (_) {
+        // 单文件不可读 → 跳过（其余文件照常采集）
+      }
+    }
+    return out;
   }
 
   Future<Map<String, Object?>> _dumpCredentials() async {
@@ -342,24 +375,60 @@ class BackupService {
   }
 
   Future<int> _restoreRemoteSources(Map<String, Object?> snap) async {
+    int n = 0;
     final Object? manifestB64 = snap['manifest'];
-    if (manifestB64 is! String || manifestB64.isEmpty) return 0;
-    try {
-      final Object? manifestJson =
-          jsonDecode(utf8.decode(base64.decode(manifestB64)));
-      await FileStore.writeJson(_manifestCachePath, <String, Object?>{
-        'cachedAtSeconds':
-            DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        'manifest': manifestJson,
-      });
-      final Object? version = snap['version'];
-      if (version is String && version.isNotEmpty) {
-        await _prefs.set('remote_default_last_config_version', version);
+    if (manifestB64 is String && manifestB64.isNotEmpty) {
+      try {
+        final Object? manifestJson =
+            jsonDecode(utf8.decode(base64.decode(manifestB64)));
+        await FileStore.writeJson(_manifestCachePath, <String, Object?>{
+          'cachedAtSeconds':
+              DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          'manifest': manifestJson,
+        });
+        final Object? version = snap['version'];
+        if (version is String && version.isNotEmpty) {
+          await _prefs.set('remote_default_last_config_version', version);
+        }
+        n += 1;
+      } catch (_) {
+        // manifest 还原失败 → 继续尝试 lxPlugins（互不阻断）
       }
-      return 1;
-    } catch (_) {
-      return 0;
     }
+    // lxPlugins 还原（对齐 iOS BackupManager：插件文件写回缓存目录）。
+    n += _restoreLxPluginsSync(snap['lxPlugins']);
+    return n;
+  }
+
+  /// lx 插件文件写回（返回写入文件数；单文件失败跳过）。
+  int _restoreLxPluginsSync(Object? plugins) {
+    if (plugins is! Map || plugins.isEmpty) return 0;
+    final String? dirPath = _lxPluginsDirPath?.call();
+    if (dirPath == null || dirPath.isEmpty) return 0;
+    final Directory dir = Directory(dirPath);
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    int count = 0;
+    for (final MapEntry<Object?, Object?> e in plugins.entries) {
+      final String name = '${e.key}';
+      // 只接受纯文件名（防路径穿越写出到目录之外）。
+      if (name.isEmpty ||
+          name.contains('/') ||
+          name.contains(r'\') ||
+          name.contains('..') ||
+          !name.toLowerCase().endsWith('.js')) {
+        continue;
+      }
+      final Object? raw = e.value;
+      if (raw is! String || raw.isEmpty) continue;
+      try {
+        File(FileStore.join(dirPath, name))
+            .writeAsBytesSync(base64.decode(raw));
+        count++;
+      } catch (_) {
+        // 单文件解码/写入失败 → 跳过（其余照常）
+      }
+    }
+    return count;
   }
 
   Future<int> _restoreCredentials(

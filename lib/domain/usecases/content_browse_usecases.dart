@@ -334,8 +334,13 @@ class ContentBrowseUseCases {
     }
 
     // 分类为尽力而为（失败不阻断首页列表）；列表为必需。
-    final Result<List<CmsV10Category>> catResult = await cms.fetchCategories(base);
-    final Result<CmsV10VideoPage> listResult = await cms.fetchVideosPaged(base);
+    // 二者无数据依赖 → 并发（对齐 iOS fetchAPIHomeData 二级降级同时发出
+    // 分类与列表请求的体感；串行会让失效站点切源时间翻倍）。
+    final (Result<List<CmsV10Category>> catResult, Result<CmsV10VideoPage> listResult) =
+        await (
+          cms.fetchCategories(base),
+          cms.fetchVideosPaged(base),
+        ).wait;
     final Failure? listFailure = listResult.failureOrNull;
     if (listFailure != null) {
       // ③ HTML 首页兜底（iOS 同语义：JSON 全失败 → HTML 解析）。

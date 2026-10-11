@@ -44,6 +44,47 @@ set_target_properties(vbox_jsc PROPERTIES
 target_link_libraries(vbox_jsc PRIVATE jsc)
 
 # ─────────────────────────────────────────────────────────────────────────────
+# G-03-B-Android · QuickJS 引擎兜底（D6 降级链闭环，对齐 iOS QJSSpiderEngine 语义）
+#
+#   libvbox_quickjs.so（quickjs/wrapper.c + quickjs 核心五文件，纯 C99 零外部依赖）
+#
+#   背景：jsc-android r250231 预编译 libjsc.so 为 4KB 页对齐（2018 年 RN 生态
+#   产物，已停更），Android 15+ 16KB 页设备加载失败 → D6 降级 QuickJS 时
+#   此前安卓无构建目标（libvbox_quickjs.so 缺失）→ 报「QuickJS 原生库未打包」。
+#   本 target 用 NDK 现场编译 QuickJS（16KB 对齐），兜底链两端补齐。
+#
+#   加载链：Dart FFI `DynamicLibrary.open("libvbox_quickjs.so")` 直接命中
+#   APK lib/<abi>/（无 JNI 预加载需求）。
+#
+#   16KB 页对齐：显式 `-Wl,-z,max-page-size=16384`（NDK r27 起默认，
+#   显式声明对旧 NDK 兜底，与 AGP `useLegacyPackaging` 无关）。
+#
+#   不编 quickjs-libc.c：stdio/open 等宿主 API 不进 App（wrapper.c 未用，
+#   蜘蛛脚本的 console/print 由 wrapper 注册 no-op，见 wrapper.c）。
+# ─────────────────────────────────────────────────────────────────────────────
+set(QJS_DIR "${VBOX_ROOT}/quickjs/quickjs-2024-01-13")
+file(READ "${QJS_DIR}/VERSION" QJS_VERSION)
+string(STRIP "${QJS_VERSION}" QJS_VERSION)
+
+add_library(vbox_quickjs SHARED
+    "${VBOX_ROOT}/quickjs/wrapper.c"
+    "${QJS_DIR}/quickjs.c"
+    "${QJS_DIR}/cutils.c"
+    "${QJS_DIR}/libbf.c"
+    "${QJS_DIR}/libregexp.c"
+    "${QJS_DIR}/libunicode.c")
+
+target_include_directories(vbox_quickjs PRIVATE "${QJS_DIR}")
+
+# 与 quickjs Makefile 一致的必要宏（build_quickjs_wrapper.sh 同口径）
+target_compile_definitions(vbox_quickjs PRIVATE CONFIG_VERSION="${QJS_VERSION}")
+
+# 16KB 页对齐（Android 15+ 设备强制要求，见上方说明）
+target_link_options(vbox_quickjs PRIVATE "-Wl,-z,max-page-size=16384")
+
+target_link_libraries(vbox_quickjs PRIVATE m)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 批次 I · ND-01-native：Node 引擎 JNI 桥（对齐 iOS NodeRunner.mm + NodeMobile.xcframework）
 #
 #   头文件：src/main/jni/libnode/include/node/node.h（node::Start 入口）
