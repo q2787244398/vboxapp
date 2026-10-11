@@ -37,16 +37,37 @@ class AbiResponse {
   final String? errorMessage;
 
   factory AbiResponse.fromJson(Map<String, Object?> j) {
-    final Map<String, Object?>? err = j['error'] as Map<String, Object?>?;
+    // 软解码（对齐 iOS `NodeSpiderEngine` 的 `JSONSerialization as?` 语义）：
+    // Node 宿主的蜘蛛脚本可能把 data/error 返回为 JSON 字符串而非对象，
+    // 硬 cast 会抛 `type 'String' is not a subtype of type 'Map<String, Object?>?'`，
+    // 这里对字符串做二次解码兜底，非 Map 非 String 时静默置空。
+    final Map<String, Object?>? err = _softDecodeObject(j['error']);
+    final Map<String, Object?>? data = _softDecodeObject(j['data']);
     return AbiResponse(
       ok: j['ok'] == true,
-      data: (j['data'] as Map<String, Object?>?)?.cast<String, Object?>(),
+      data: data,
       logs: (j['logs'] as List?)?.map((e) => e.toString()).toList() ??
           const <String>[],
       elapsedMs: (j['elapsedMs'] as num?)?.toInt(),
       errorCode: err?['code']?.toString(),
       errorMessage: err?['message']?.toString(),
     );
+  }
+
+  /// 信封字段软解码：Map → cast；String（JSON）→ 解码；其它 → null。
+  static Map<String, Object?>? _softDecodeObject(Object? raw) {
+    if (raw is Map) return raw.cast<String, Object?>();
+    if (raw is String) {
+      final String trimmed = raw.trim();
+      if (trimmed.isEmpty || !trimmed.startsWith('{')) return null;
+      try {
+        final Object? decoded = jsonDecode(trimmed);
+        if (decoded is Map) return decoded.cast<String, Object?>();
+      } on FormatException {
+        return null;
+      }
+    }
+    return null;
   }
 }
 

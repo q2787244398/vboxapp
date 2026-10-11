@@ -196,13 +196,17 @@ void main() {
   });
 
   group('fetchVideos', () {
-    test('解析列表并归一封面地址', () async {
+    test('解析列表并归一封面地址（ac=list，对齐 iOS）', () async {
       Uri? requested;
       final CmsV10Datasource ds = datasourceWith(
         MockClient((http.Request r) async {
           requested = r.url;
           return http.Response(
             jsonEncode(<String, Object?>{
+              'page': 3,
+              'pagecount': 9,
+              'limit': 20,
+              'total': 175,
               'list': <Object?>[
                 <String, Object?>{
                   'vod_id': 100,
@@ -220,21 +224,59 @@ void main() {
         }),
       );
 
-      final Result<List<CmsV10Video>> r = await ds.fetchVideos(
+      final Result<CmsV10VideoPage> r = await ds.fetchVideosPaged(
         kBase,
         typeId: '2',
         page: 3,
-        keyword: ' 示例 ',
+        filters: <String, String>{'area': '大陆', 'year': '全部'},
       );
       expect(r.isSuccess, isTrue);
-      final CmsV10Video v = r.valueOrNull!.single;
+      final CmsV10VideoPage p = r.valueOrNull!;
+      final CmsV10Video v = p.items.single;
       expect(v.vodId, '100');
       expect(v.name, '示例');
       expect(v.pic, 'https://cms.example.com/upload/1.jpg');
       expect(v.remarks, '更新至 12 集');
+      // 分页元信息（对齐 iOS _hasMore）。
+      expect(p.pagecount, 9);
+      expect(p.limit, 20);
+      expect(p.total, 175);
+      expect(p.hasMore(3), isTrue);
+      expect(p.hasMore(9), isFalse);
+      // 请求形态（对齐 iOS fetchSingleSourceCategoryContent：ac=list + 筛选
+      // 参数拼接，跳过「全部」）。
+      expect(requested?.queryParameters['ac'], 'list');
       expect(requested?.queryParameters['pg'], '3');
       expect(requested?.queryParameters['t'], '2');
-      expect(requested?.queryParameters['wd'], '示例');
+      expect(requested?.queryParameters['area'], '大陆');
+      expect(requested?.queryParameters.containsKey('year'), isFalse);
+      expect(requested?.queryParameters.containsKey('at'), isFalse);
+    });
+
+    test('搜索走 ac=detail&wd（对齐 iOS fetchSearchVideos）', () async {
+      Uri? requested;
+      final CmsV10Datasource ds = datasourceWith(
+        MockClient((http.Request r) async {
+          requested = r.url;
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'list': <Object?>[
+                <String, Object?>{'vod_id': 5, 'vod_name': '搜索片', 'vod_pic': ''},
+              ],
+            }), 200,
+            headers: <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
+          );
+        }),
+      );
+      final Result<List<CmsV10Video>> r =
+          await ds.fetchSearchVideos(kBase, keyword: ' 搜索片 ', page: 2);
+      expect(r.isSuccess, isTrue);
+      expect(r.valueOrNull!.single.name, '搜索片');
+      expect(requested?.queryParameters['ac'], 'detail');
+      expect(requested?.queryParameters['wd'], '搜索片');
+      expect(requested?.queryParameters['pg'], '2');
     });
 
     test('页码非法 → ValidationFailure（不发请求）', () async {

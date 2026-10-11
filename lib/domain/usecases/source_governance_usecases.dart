@@ -214,7 +214,7 @@ class SourceGovernanceUseCases {
           await Future.wait(
         batch.map((FallbackSearchSource s) async {
           final Result<List<CmsV10Video>> r =
-              await cms.fetchVideos(s.api, keyword: keyword);
+              await cms.fetchSearchVideos(s.api, keyword: keyword);
           return (s, r.valueOrNull ?? const <CmsV10Video>[]);
         }),
       );

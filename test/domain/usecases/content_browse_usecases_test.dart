@@ -129,23 +129,28 @@ Map<String, Object?> siteJson({
   required String key,
   int type = 3,
   String? api,
+  String? group,
 }) =>
     <String, Object?>{
       'key': key,
       'name': key,
       'type': type,
       if (api != null) 'api': api,
+      if (group != null) 'group': group,
     };
 
-/// 组装 CMS MockClient：按 `ac` 分流返回分类/列表。
+/// 组装 CMS MockClient：按 `ac` 分流返回分类/列表（对齐新请求形态：
+/// 分类/列表 `ac=list`、搜索 `ac=detail&wd`；`ac=home` 返回空触发降级链）。
 HttpClient cmsClient({List<Map<String, Object?>> classes = const [], List<Map<String, Object?>> list = const []}) {
   return HttpClient(
     inner: MockClient((http.Request req) async {
       final String ac = req.url.queryParameters['ac'] ?? '';
       Map<String, Object?> body;
-      if (ac == 'list') {
-        body = <String, Object?>{'class': classes};
-      } else if (ac == 'videolist') {
+      if (ac == 'home') {
+        body = <String, Object?>{};
+      } else if (ac == 'list') {
+        body = <String, Object?>{'class': classes, 'list': list};
+      } else if (ac == 'detail') {
         body = <String, Object?>{'list': list};
       } else {
         body = <String, Object?>{};
@@ -281,7 +286,7 @@ void main() {
       );
     });
 
-    test('蜘蛛路径：register + callHomeContent + dispose', () async {
+    test('蜘蛛路径：引擎缓存复用（ready 直接调用，不 dispose）', () async {
       final _FakeSpiderEngine engine = _FakeSpiderEngine(
         SpiderEngineType.node,
         homeResult: HomeContentResult(
@@ -304,14 +309,17 @@ void main() {
       expect(r.isSuccess, isTrue, reason: '${r.failureOrNull}');
       expect(r.valueOrNull!.list!.single.vodName, '片');
       expect(factory.createdTypes.single, SpiderEngineType.node);
-      expect(engine.calls, contains('registerSpider'));
-      expect(engine.calls, contains('homeContent'));
-      expect(engine.calls.last, 'dispose');
+      // ready 引擎跳过重载（isSpiderReady → 幂等），且不 dispose（缓存复用）。
+      expect(engine.calls, isNot(contains('dispose')));
+      // 第二次调用复用同一引擎实例（对齐 iOS SpiderManager 引擎缓存）。
+      await uc.homeContent('nodejs_x');
+      expect(factory.createdTypes.length, 1);
+      expect(engine.calls.where((String c) => c == 'homeContent').length, 2);
     });
   });
 
   group('categoryContent', () {
-    test('CMS 路径：带 tid 的 videolist', () async {
+    test('CMS 路径：带 tid 的列表（ac=list，对齐 iOS）', () async {
       final ContentBrowseUseCases uc = ContentBrowseUseCases(
         loadAllSources: () async => Success<AllSourcesContainer>(
           buildContainer(<Map<String, Object?>>[
@@ -363,7 +371,7 @@ void main() {
           await uc.categoryContent('nodejs_x', tid: '9', page: 2);
       expect(r.isSuccess, isTrue, reason: '${r.failureOrNull}');
       expect(engine.calls, contains('categoryContent:9:2'));
-      expect(engine.calls.last, 'dispose');
+      expect(engine.calls, isNot(contains('dispose')));
     });
   });
 
@@ -413,7 +421,7 @@ void main() {
       expect(r.isSuccess, isTrue, reason: '${r.failureOrNull}');
       expect(r.valueOrNull!.single.typeName, '动漫');
       expect(engine.calls, contains('homeContent'));
-      expect(engine.calls.last, 'dispose');
+      expect(engine.calls, isNot(contains('dispose')));
     });
 
     test('空 siteKey → ValidationFailure', () async {
@@ -442,7 +450,7 @@ void main() {
       );
     });
 
-    test('CMS 路径：带 wd 的 videolist', () async {
+    test('CMS 路径：带 wd 的搜索（ac=detail，对齐 iOS）', () async {
       final ContentBrowseUseCases uc = ContentBrowseUseCases(
         loadAllSources: () async => Success<AllSourcesContainer>(
           buildContainer(<Map<String, Object?>>[
@@ -491,7 +499,239 @@ void main() {
           await uc.searchContent('nodejs_x', '关键词', page: 2);
       expect(r.isSuccess, isTrue, reason: '${r.failureOrNull}');
       expect(engine.calls, contains('searchContent:关键词:2'));
-      expect(engine.calls.last, 'dispose');
+      expect(engine.calls, isNot(contains('dispose')));
+    });
+  });
+
+  group('CMS 对齐 iOS 新语义', () {
+    final List<Map<String, Object?>> classes = <Map<String, Object?>>[
+      <String, Object?>{'type_id': '1', 'type_name': '电影'},
+    ];
+    final List<Map<String, Object?>> list = <Map<String, Object?>>[
+      <String, Object?>{'vod_id': '9', 'vod_name': '首页片', 'vod_pic': ''},
+    ];
+
+    test('ac=home 一次拿分类 + 列表（对齐 iOS fetchAPIHomeData）', () async {
+      final List<String> acs = <String>[];
+      final ContentBrowseUseCases uc = ContentBrowseUseCases(
+        loadAllSources: () async => Success<AllSourcesContainer>(
+          buildContainer(<Map<String, Object?>>[
+            siteJson(key: 'cms', type: 0, api: 'https://cms.example.com'),
+          ]),
+        ),
+        cmsDatasource: CmsV10Datasource(
+          client: HttpClient(
+            inner: MockClient((http.Request r) async {
+              acs.add(r.url.queryParameters['ac'] ?? '');
+              if ((r.url.queryParameters['ac'] ?? '') == 'home') {
+                return http.Response(
+                  jsonEncode(<String, Object?>{'class': classes, 'list': list}),
+                  200,
+                  headers: <String, String>{
+                    'content-type': 'application/json; charset=utf-8',
+                  },
+                );
+              }
+              return http.Response('{"code":404}', 404);
+            }),
+            retryBaseDelay: Duration.zero,
+            maxRetries: 0,
+          ),
+        ),
+      );
+      final Result<HomeContentResult> r = await uc.homeContent('cms');
+      expect(r.isSuccess, isTrue, reason: '${r.failureOrNull}');
+      expect(r.valueOrNull!.classes!.single.typeName, '电影');
+      expect(r.valueOrNull!.list!.single.vodName, '首页片');
+      // 首跳即命中 ac=home，不再降级 ac=list。
+      expect(acs, <String>['home']);
+    });
+
+    test('JSON 全失败 → HTML 首页兜底（对齐 iOS fetchHTMLHomeFallback）',
+        () async {
+      final ContentBrowseUseCases uc = ContentBrowseUseCases(
+        loadAllSources: () async => Success<AllSourcesContainer>(
+          buildContainer(<Map<String, Object?>>[
+            siteJson(key: 'cms', type: 0, api: 'https://cms.example.com'),
+          ]),
+        ),
+        cmsDatasource: CmsV10Datasource(
+          client: HttpClient(
+            inner: MockClient((http.Request r) async {
+              if (r.url.path == '/' || r.url.path.isEmpty) {
+                return http.Response(
+                  '<html><body>'
+                  '<a href="/index.php/vod/detail/id/11.html">HTML片A</a>'
+                  '<a href="/voddetail/12.html"><img src="/p/2.jpg" alt="HTML片B"></a>'
+                  '</body></html>',
+                  200,
+                );
+              }
+              return http.Response('oops', 500);
+            }),
+            retryBaseDelay: Duration.zero,
+            maxRetries: 0,
+          ),
+        ),
+      );
+      final Result<HomeContentResult> r = await uc.homeContent('cms');
+      expect(r.isSuccess, isTrue, reason: '${r.failureOrNull}');
+      final List<VodItem> items = r.valueOrNull!.list ?? const <VodItem>[];
+      expect(items.length, 2);
+      expect(items[0].vodId, '11');
+      expect(items[0].vodName, 'HTML片A');
+      expect(items[1].vodId, '12');
+      expect(items[1].vodName, 'HTML片B');
+      expect(items[1].vodPic, contains('https://cms.example.com/p/2.jpg'));
+    });
+
+    test('父分类空 → 子分类聚合（type_pid）', () async {
+      final ContentBrowseUseCases uc = ContentBrowseUseCases(
+        loadAllSources: () async => Success<AllSourcesContainer>(
+          buildContainer(<Map<String, Object?>>[
+            siteJson(key: 'cms', type: 0, api: 'https://cms.example.com'),
+          ]),
+        ),
+        cmsDatasource: CmsV10Datasource(
+          client: HttpClient(
+            inner: MockClient((http.Request r) async {
+              final String t = r.url.queryParameters['t'] ?? '';
+              final Map<String, Object?> body;
+              if (t.isEmpty) {
+                body = <String, Object?>{
+                  'class': <Object?>[
+                    <String, Object?>{
+                      'type_id': '1',
+                      'type_name': '综艺',
+                      'type_pid': 0,
+                    },
+                    <String, Object?>{
+                      'type_id': '11',
+                      'type_name': '综艺A',
+                      'type_pid': 1,
+                    },
+                    <String, Object?>{
+                      'type_id': '12',
+                      'type_name': '综艺B',
+                      'type_pid': 1,
+                    },
+                  ],
+                  'list': <Object?>[],
+                };
+              } else if (t == '11') {
+                body = <String, Object?>{
+                  'list': <Object?>[
+                    <String, Object?>{'vod_id': '21', 'vod_name': '子片A', 'vod_pic': ''},
+                  ],
+                };
+              } else if (t == '12') {
+                body = <String, Object?>{
+                  'list': <Object?>[
+                    <String, Object?>{'vod_id': '22', 'vod_name': '子片B', 'vod_pic': ''},
+                  ],
+                };
+              } else {
+                body = <String, Object?>{'list': <Object?>[]};
+              }
+              return http.Response(
+                jsonEncode(body),
+                200,
+                headers: <String, String>{
+                  'content-type': 'application/json; charset=utf-8',
+                },
+              );
+            }),
+            retryBaseDelay: Duration.zero,
+            maxRetries: 0,
+          ),
+        ),
+      );
+      final Result<CategoryContentResult> r =
+          await uc.categoryContent('cms', tid: '1');
+      expect(r.isSuccess, isTrue, reason: '${r.failureOrNull}');
+      expect(r.valueOrNull!.list!.map((VodItem v) => v.vodName).toList(),
+          <String>['子片A', '子片B']);
+    });
+
+    test('筛选参数拼 URL（area/year，跳过「全部」）', () async {
+      final List<Uri> urls = <Uri>[];
+      final ContentBrowseUseCases uc = ContentBrowseUseCases(
+        loadAllSources: () async => Success<AllSourcesContainer>(
+          buildContainer(<Map<String, Object?>>[
+            siteJson(key: 'cms', type: 0, api: 'https://cms.example.com'),
+          ]),
+        ),
+        cmsDatasource: CmsV10Datasource(
+          client: HttpClient(
+            inner: MockClient((http.Request r) async {
+              urls.add(r.url);
+              return http.Response(
+                jsonEncode(<String, Object?>{'list': list}),
+                200,
+                headers: <String, String>{
+                  'content-type': 'application/json; charset=utf-8',
+                },
+              );
+            }),
+            retryBaseDelay: Duration.zero,
+            maxRetries: 0,
+          ),
+        ),
+      );
+      final Result<CategoryContentResult> r = await uc.categoryContent(
+        'cms',
+        tid: '1',
+        filters: <String, String>{'area': '港台', 'year': '全部'},
+      );
+      expect(r.isSuccess, isTrue, reason: '${r.failureOrNull}');
+      expect(urls.single.queryParameters['area'], '港台');
+      expect(urls.single.queryParameters.containsKey('year'), isFalse);
+    });
+
+    test('网盘组源分类条目强制 ☁️ 标记（对齐 iOS cloudCMS 组）', () async {
+      final ContentBrowseUseCases uc = ContentBrowseUseCases(
+        loadAllSources: () async => Success<AllSourcesContainer>(
+          buildContainer(<Map<String, Object?>>[
+            siteJson(
+              key: 'cloud_测试盘',
+              type: 0,
+              api: 'https://pan.example.com/api.php/provide/vod',
+              group: 'cloud',
+            ),
+          ]),
+        ),
+        cmsDatasource: CmsV10Datasource(
+          client: HttpClient(
+            inner: MockClient((http.Request r) async {
+              if ((r.url.queryParameters['ac'] ?? '') == 'home') {
+                return http.Response('{"code":404}', 404);
+              }
+              return http.Response(
+                jsonEncode(<String, Object?>{
+                  'list': <Object?>[
+                    <String, Object?>{
+                      'vod_id': '3',
+                      'vod_name': '网盘片',
+                      'vod_pic': '',
+                      'vod_remarks': '原备注',
+                    },
+                  ],
+                }),
+                200,
+                headers: <String, String>{
+                  'content-type': 'application/json; charset=utf-8',
+                },
+              );
+            }),
+            retryBaseDelay: Duration.zero,
+            maxRetries: 0,
+          ),
+        ),
+      );
+      final Result<CategoryContentResult> r =
+          await uc.categoryContent('cloud_测试盘', tid: '1');
+      expect(r.isSuccess, isTrue, reason: '${r.failureOrNull}');
+      expect(r.valueOrNull!.list!.single.vodRemarks, '☁️cloud_测试盘');
     });
   });
 }

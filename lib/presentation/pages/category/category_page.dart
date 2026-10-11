@@ -66,6 +66,12 @@ class _CategoryPageState extends State<CategoryPage> {
   int? _pagecount;
   bool _lastBatchFull = true;
 
+  /// 筛选状态（对齐 iOS `SourceDiscoveryView` 自适应筛选：
+  /// `CategoryFilterParams` area/year，null = 「全部」）。
+  String? _areaFilter;
+  String? _yearFilter;
+  static const int _filterOptionLimit = 12;
+
   bool _loading = false;
   bool _loadingMore = false;
   Failure? _error;
@@ -165,6 +171,37 @@ class _CategoryPageState extends State<CategoryPage> {
     if (tid == _tid) return;
     setState(() {
       _tid = tid;
+      _areaFilter = null;
+      _yearFilter = null;
+      _items.clear();
+      _page = 0;
+      _pagecount = null;
+      _lastBatchFull = true;
+    });
+    await _loadCategory();
+  }
+
+  /// 自适应筛选选项（对齐 iOS `extractAdaptiveFilters`：从当前列表条目
+  /// 提取地区/年份去重，上限 [_filterOptionLimit]；不足 2 个不显示筛选行）。
+  List<String> _filterOptions(String Function(VodItem) pick) {
+    final Set<String> out = <String>{};
+    for (final VodItem v in _items) {
+      final String s = pick(v).trim();
+      if (s.isNotEmpty) out.add(s);
+      if (out.length >= _filterOptionLimit) break;
+    }
+    return out.toList(growable: false);
+  }
+
+  Future<void> _selectFilter(String kind, String? value) async {
+    final String? current = kind == 'area' ? _areaFilter : _yearFilter;
+    if (current == value) return;
+    setState(() {
+      if (kind == 'area') {
+        _areaFilter = value;
+      } else {
+        _yearFilter = value;
+      }
       _items.clear();
       _page = 0;
       _pagecount = null;
@@ -189,10 +226,17 @@ class _CategoryPageState extends State<CategoryPage> {
     });
 
     final int nextPage = _page + 1;
+    // CMS 源筛选参数（对齐 iOS `buildFilterQuery`：class=分类胶囊已有，
+    // area/year 由筛选行传入；蜘蛛源不传——iOS extend 同为 '{}'）。
+    final Map<String, String>? filters = <String, String>{
+      if (_areaFilter != null) 'area': _areaFilter!,
+      if (_yearFilter != null) 'year': _yearFilter!,
+    };
     final Result<CategoryContentResult> result = await _uc.categoryContent(
       siteKey,
       tid: _tid,
       page: nextPage,
+      filters: filters.isEmpty ? null : filters,
     );
     if (!mounted) return;
     final Failure? failure = result.failureOrNull;
@@ -254,10 +298,80 @@ class _CategoryPageState extends State<CategoryPage> {
           children: <Widget>[
             _buildTopBar(context),
             _buildCategoryPills(),
+            _buildFilterRow(),
             const SizedBox(height: VboxSpacing.xs),
             Expanded(child: _buildBody()),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 自适应筛选行（对齐 iOS `SourceDiscoveryView` 筛选栏：从当前列表
+  /// 提取地区/年份选项，各选项 ≥2 才显示；选择后回第一页重新加载）。
+  Widget _buildFilterRow() {
+    final List<String> areas = _filterOptions((VodItem v) => v.vodArea ?? '');
+    final List<String> years = _filterOptions((VodItem v) => v.vodYear ?? '');
+    if (areas.length < 2 && years.length < 2) {
+      return const SizedBox.shrink();
+    }
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    Widget group(String label, List<String> options, String? selected,
+        ValueChanged<String?> onPick) {
+      return Row(
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.only(right: VboxSpacing.sm),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: VboxTypography.s12,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: <Widget>[
+                  VboxChip(
+                    label: '全部',
+                    selected: selected == null,
+                    onTap: () => onPick(null),
+                  ),
+                  for (final String o in options) ...<Widget>[
+                    const SizedBox(width: VboxSpacing.xs),
+                    VboxChip(
+                      label: o,
+                      selected: selected == o,
+                      onTap: () => onPick(o),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+          horizontal: VboxSpacing.lg, vertical: VboxSpacing.xs),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          if (areas.length >= 2)
+            Padding(
+              padding: const EdgeInsets.only(bottom: VboxSpacing.xs),
+              child: group('地区', areas, _areaFilter,
+                  (String? v) => _selectFilter('area', v)),
+            ),
+          if (years.length >= 2)
+            group('年份', years, _yearFilter,
+                (String? v) => _selectFilter('year', v)),
+        ],
       ),
     );
   }
@@ -404,7 +518,17 @@ class _CategoryPageState extends State<CategoryPage> {
     if (_items.isEmpty) {
       return const _EmptyHint(text: '该分类暂无内容\n切换分类或源试试');
     }
-    return _buildGrid();
+    return RefreshIndicator(
+      // 下拉刷新（对齐 iOS `SourceDiscoveryView.refreshable`）：回到第一页。
+      onRefresh: () async {
+        _items.clear();
+        _page = 0;
+        _pagecount = null;
+        _lastBatchFull = true;
+        await _loadCategory();
+      },
+      child: _buildGrid(),
+    );
   }
 
   Widget _buildGrid() {
@@ -428,6 +552,7 @@ class _CategoryPageState extends State<CategoryPage> {
 
         return GridView.builder(
           controller: _scroll,
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
               paddingH, VboxSpacing.sm, paddingH, VboxSpacing.lg),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(

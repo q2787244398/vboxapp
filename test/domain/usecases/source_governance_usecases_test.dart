@@ -34,11 +34,10 @@ class _FakeCms extends CmsV10Datasource {
   final List<String> requested = <String>[];
 
   @override
-  Future<Result<List<CmsV10Video>>> fetchVideos(
+  Future<Result<List<CmsV10Video>>> fetchSearchVideos(
     String baseUrl, {
-    String? typeId,
+    required String keyword,
     int page = 1,
-    String? keyword,
   }) async {
     requested.add(baseUrl);
     return Success<List<CmsV10Video>>(

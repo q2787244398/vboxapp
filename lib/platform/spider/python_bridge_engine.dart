@@ -17,26 +17,32 @@ import '../../domain/entities/spider/spider_engine.dart';
 import '../../domain/entities/spider/spider_models.dart';
 import 'python_runtime.dart';
 import 'spider_abi.dart';
+import 'spider_http_bridge.dart';
 
 /// Python 桥接引擎（实现 [SpiderEngine]）。
 class PythonBridgeEngine implements SpiderEngine {
   /// [pythonExecutable] 仅对子进程运行时生效（Android 走 Chaquopy，忽略该值）。
   /// [runtime] 可注入（测试用 fake / 指定宿主）。
+  /// [httpBridge] 脚本拉取桥（[loadScriptFromURL] 用）；注入实例生命周期归
+  /// 调用方，缺省按需临时创建、用后即关。
   PythonBridgeEngine({
     String pythonExecutable = 'python3',
     SpiderAbiCodec? codec,
     this.timeout = const Duration(seconds: 15),
     PythonRuntime? runtime,
+    SpiderHttpBridge? httpBridge,
   })  : _codec = codec ?? const SpiderAbiCodec(),
         _runtime = runtime ??
             PythonRuntime.forCurrentPlatform(
               pythonExecutable: pythonExecutable,
               timeout: timeout,
-            );
+            ),
+        _httpBridge = httpBridge;
 
   final Duration timeout;
   final SpiderAbiCodec _codec;
   final PythonRuntime _runtime;
+  final SpiderHttpBridge? _httpBridge;
 
   bool _ready = false;
 
@@ -64,10 +70,38 @@ class PythonBridgeEngine implements SpiderEngine {
 
   @override
   Future<void> loadScriptFromURL(String urlString) async {
-    throw const SpiderException(
-      SpiderErrorCode.scriptLoad,
-      'Python 桥不支持从 URL 加载脚本（需本地 .py 文件内容）',
-    );
+    // 对齐 iOS `PythonSpiderEngine.loadScriptFromURL`
+    // （PythonSpiderEngine.swift L127-L132）：URLSession 下载脚本 → 交给
+    // 宿主加载。此处经 SpiderHttpBridge（契约 §4.2 编码链 + iOS 默认 UA）
+    // 拉取内容后走 [loadScript]，避免「仅支持本地脚本」的端差异。
+    final SpiderHttpBridge bridge = _httpBridge ?? SpiderHttpBridge();
+    final bool owned = _httpBridge == null;
+    try {
+      final SpiderHttpResult res = await bridge.request(urlString);
+      if (res.status == 0) {
+        throw SpiderException(
+          SpiderErrorCode.scriptLoad,
+          '从 URL 加载脚本失败（${res.content}）: $urlString',
+        );
+      }
+      if (res.status != 200) {
+        throw SpiderException(
+          SpiderErrorCode.scriptLoad,
+          '无法从 URL 加载脚本（HTTP ${res.status}）: $urlString',
+        );
+      }
+      if (res.content.trim().isEmpty) {
+        throw SpiderException(
+          SpiderErrorCode.scriptLoad,
+          '从 URL 加载脚本失败（响应为空）: $urlString',
+        );
+      }
+      await loadScript(res.content);
+    } finally {
+      if (owned) {
+        await bridge.close();
+      }
+    }
   }
 
   @override

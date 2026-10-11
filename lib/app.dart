@@ -356,8 +356,18 @@ class _VBoxAppState extends State<VBoxApp> {
       // 注册全局单例（对齐 iOS `RemoteSourceConfigManager.shared`）：首页胶囊
       // 与设置页经 `shared` 订阅 `loadState` / 触发手动刷新，无需 Provider 传递。
       RemoteSourceConfigManager.install(_remoteSourceConfigManager);
-      _cmsDatasource =
-          CmsV10Datasource(client: HttpClient(networkInfo: networkInfo));
+      // CMS 链路专用 client（对齐 iOS `tryFetchJSON`/`fetchSingleSourceCategoryContent`
+      // 的请求形态，SpiderManager.swift L2105-L2107）：UA 极简 `Mozilla/5.0`
+      // （网盘类 CMS 按 UA 差别响应，Chrome 移动 UA 会得错误页）、超时 10s、
+      // 单次请求不重试（iOS URLSession 同语义）。
+      _cmsDatasource = CmsV10Datasource(
+        client: HttpClient(
+          networkInfo: networkInfo,
+          userAgent: 'Mozilla/5.0',
+          receiveTimeout: const Duration(seconds: 10),
+          maxRetries: 0,
+        ),
+      );
       // Wave D：源治理（兜底开关 / 自定义切片源 / 自定义解析器 / 站源启停）；
       // 复用契约键 `fallback_enabled` / `custom_fallback_sites` / `user_parsers`，
       // 不新增契约；存储为 `ChangeNotifier` 单例（设置页即时刷新）。
@@ -390,6 +400,15 @@ class _VBoxAppState extends State<VBoxApp> {
         loadAllSources: _loadAllSources,
         cmsDatasource: _cmsDatasource,
         scriptBaseUrl: () => _allSourcesUrl,
+        // Node 承载源调用前等常驻宿主就绪（对齐 iOS
+        // `waitForNodeReadyIfNeeded`，SpiderManager.swift L2136）：
+        // 轮询 NodeRuntimeManager 就绪位，上限 20s（超时放行由调用侧失败兜底）。
+        waitNodeReady: () async {
+          const Duration step = Duration(milliseconds: 200);
+          for (int i = 0; i < 100 && !NodeRuntimeManager.instance.isSystemReady; i++) {
+            await Future<void>.delayed(step);
+          }
+        },
       );
       // S-设4：网盘源搜索（对齐 iOS `SpiderManager.cloudSearch`，搜索页并发并入）。
       _cloudSearchUseCases = CloudSearchUseCases(

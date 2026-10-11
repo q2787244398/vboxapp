@@ -33,6 +33,9 @@ class ContentBrowseUseCases {
   ///
   /// [loadAllSources] 注入站点聚合加载（清单 → allSources URL → 拉取解析），
   /// 便于表现层组装缓存/TTL 逻辑；引擎相关依赖均可注入（测试用 fake）。
+  /// [waitNodeReady] Node 常驻就绪等待（对齐 iOS
+  /// `fetchSingleSourceCategoryContent` 的 `waitForNodeReadyIfNeeded`，
+  /// SpiderManager.swift L2136）：node 承载的蜘蛛源调用前等待宿主就绪。
   ContentBrowseUseCases({
     required this.loadAllSources,
     SpiderEngineFactory engineFactory = const SpiderEngineFactory(),
@@ -40,10 +43,12 @@ class ContentBrowseUseCases {
     QuickJsNativeBridge? quickJsBridge,
     NodeHttpClient? nodeClient,
     this.scriptBaseUrl,
+    Future<void> Function()? waitNodeReady,
   })  : _engineFactory = engineFactory,
         _cmsDatasource = cmsDatasource,
         _quickJsBridge = quickJsBridge,
-        _nodeClient = nodeClient;
+        _nodeClient = nodeClient,
+        _waitNodeReady = waitNodeReady;
 
   /// 站点聚合加载器。
   final Future<Result<AllSourcesContainer>> Function() loadAllSources;
@@ -54,10 +59,17 @@ class ContentBrowseUseCases {
   /// 表现层注入（清单刷新后更新），缺省退回绝对 URL 场景（仅 http(s) 可用）。
   final String? Function()? scriptBaseUrl;
 
+  /// Node 常驻就绪等待（可空：测试/无 Node 场景直接跳过）。
+  final Future<void> Function()? _waitNodeReady;
+
   final SpiderEngineFactory _engineFactory;
   final CmsV10Datasource? _cmsDatasource;
   final QuickJsNativeBridge? _quickJsBridge;
   final NodeHttpClient? _nodeClient;
+
+  /// 蜘蛛引擎缓存（对齐 iOS `SpiderManager` 引擎/脚本复用：同一站点首次
+  /// 下载解析脚本后复用，翻页/切分类不再重复拉脚本）。key = 站点 key。
+  final Map<String, SpiderEngine> _engineCache = <String, SpiderEngine>{};
 
   /// 列出全部可浏览站点（源切换 UI）。
   Future<Result<List<SiteConfig>>> listSites() async {
@@ -130,10 +142,14 @@ class ContentBrowseUseCases {
   }
 
   /// 分类内容（单源，分页）。
+  ///
+  /// [filters] 筛选参数（key：`class`/`area`/`year`，对齐 iOS
+  /// `buildFilterQuery`——CMS 源拼 URL 参数；蜘蛛源不传，对齐 iOS extend='{}'）。
   Future<Result<CategoryContentResult>> categoryContent(
     String siteKey, {
     String? tid,
     int page = 1,
+    Map<String, String>? filters,
   }) async {
     final _ResolvedSite? resolved = await _resolve(siteKey);
     if (resolved == null) {
@@ -147,7 +163,7 @@ class ContentBrowseUseCases {
     switch (site.resolveSiteMode()) {
       case SiteMode.apiEndpoint:
       case SiteMode.zhanyuan:
-        return _cmsCategory(site, tid, page);
+        return _cmsCategory(site, tid, page, filters);
       case SiteMode.node:
       case SiteMode.jsSpider:
       case SiteMode.pythonSpider:
@@ -250,6 +266,51 @@ class ContentBrowseUseCases {
 
   // ─────────────── 内部：CMS V10 路径 ───────────────
 
+  /// 首页合并结果 → [HomeContentResult]。
+  HomeContentResult _homeFromBundle(CmsV10HomeBundle bundle) {
+    final List<VodCategory> classes = bundle.classes
+        .map((CmsV10Category c) =>
+            VodCategory(typeId: c.typeId, typeName: c.typeName))
+        .toList(growable: false);
+    final List<VodItem> list =
+        bundle.videos.map(_toVodItem).toList(growable: false);
+    return HomeContentResult(
+      classes: classes.isEmpty ? null : classes,
+      list: list,
+    );
+  }
+
+  /// 网盘组源条目标记（对齐 iOS `fetchSingleSourceCategoryContent`
+  /// L2142-L2146：cloudCMS 组源强制 `vodRemarks = "☁️" + 源名`，详情页据此
+  /// 走网盘版式）。
+  List<VodItem> _applyCloudRemarks(List<VodItem> list, SiteConfig site) {
+    if (site.group != cloudSiteGroup) return list;
+    final String remark = '☁️${site.name}';
+    return list
+        .map((VodItem v) => VodItem(
+              vodId: v.vodId,
+              vodName: v.vodName,
+              vodPic: v.vodPic,
+              vodRemarks: remark,
+              vodYear: v.vodYear,
+              vodArea: v.vodArea,
+              vodDirector: v.vodDirector,
+              vodActor: v.vodActor,
+              vodContent: v.vodContent,
+              vodPlayFrom: v.vodPlayFrom,
+              vodPlayUrl: v.vodPlayUrl,
+              customHeaders: v.customHeaders,
+              engineKey: v.engineKey,
+              metaDuration: v.metaDuration,
+              albumName: v.albumName,
+              availQualities: v.availQualities,
+              musicPlatform: v.musicPlatform,
+              lxMusicInfo: v.lxMusicInfo,
+              musicEntryType: v.musicEntryType,
+            ))
+        .toList(growable: false);
+  }
+
   Future<Result<HomeContentResult>> _cmsHome(SiteConfig site) async {
     final CmsV10Datasource? cms = _cmsDatasource;
     if (cms == null) {
@@ -262,19 +323,49 @@ class ContentBrowseUseCases {
       return Err<HomeContentResult>(ValidationFailure('站点「${site.name}」缺少 API 地址'));
     }
 
+    // 三级降级（对齐 iOS `fetchAPIHomeData`，SpiderManager.swift L5234-L5249）：
+    // ① `ac=home` 一次拿分类 + 推荐；
+    // ② `ac=list` 分类 + `ac=list&pg=1` 列表（分两次请求）；
+    // ③ HTML 首页兜底（通用详情正则提取）。
+    final Result<CmsV10HomeBundle> bundle = await cms.fetchHomeBundle(base);
+    final CmsV10HomeBundle? b = bundle.valueOrNull;
+    if (b != null && b.videos.isNotEmpty) {
+      return Success<HomeContentResult>(_homeFromBundle(b));
+    }
+
     // 分类为尽力而为（失败不阻断首页列表）；列表为必需。
     final Result<List<CmsV10Category>> catResult = await cms.fetchCategories(base);
-    final Result<List<CmsV10Video>> listResult = await cms.fetchVideos(base);
+    final Result<CmsV10VideoPage> listResult = await cms.fetchVideosPaged(base);
     final Failure? listFailure = listResult.failureOrNull;
-    if (listFailure != null) return Err<HomeContentResult>(listFailure);
+    if (listFailure != null) {
+      // ③ HTML 首页兜底（iOS 同语义：JSON 全失败 → HTML 解析）。
+      final Result<List<CmsV10Video>> html = await cms.fetchHomeFromHtml(base);
+      final List<CmsV10Video>? items = html.valueOrNull;
+      if (items != null && items.isNotEmpty) {
+        final HomeContentResult h = HomeContentResult(
+          classes: (catResult.valueOrNull ?? const <CmsV10Category>[])
+              .map((CmsV10Category c) =>
+                  VodCategory(typeId: c.typeId, typeName: c.typeName))
+              .toList(growable: false),
+          list: items.map(_toVodItem).toList(growable: false),
+        );
+        return Success<HomeContentResult>(h);
+      }
+      return Err<HomeContentResult>(listFailure);
+    }
 
-    final List<VodCategory> classes =
-        (catResult.valueOrNull ?? const <CmsV10Category>[])
-            .map((CmsV10Category c) => VodCategory(
-                typeId: c.typeId, typeName: c.typeName))
-            .toList(growable: false);
+    // 可增长列表（下方可能追加 ac=home 的分类）。
+    final List<VodCategory> classes = (catResult.valueOrNull ?? const <CmsV10Category>[])
+        .map((CmsV10Category c) =>
+            VodCategory(typeId: c.typeId, typeName: c.typeName))
+        .toList();
     final List<VodItem> list =
-        listResult.valueOrNull!.map(_toVodItem).toList(growable: false);
+        listResult.valueOrNull!.items.map(_toVodItem).toList(growable: false);
+    // ac=home 只有分类没列表时沿用其分类（免重复请求）。
+    if (classes.isEmpty && b != null && b.classes.isNotEmpty) {
+      classes.addAll(b.classes.map((CmsV10Category c) =>
+          VodCategory(typeId: c.typeId, typeName: c.typeName)));
+    }
     return Success<HomeContentResult>(
       HomeContentResult(classes: classes.isEmpty ? null : classes, list: list),
     );
@@ -306,6 +397,7 @@ class ContentBrowseUseCases {
     SiteConfig site,
     String? tid,
     int page,
+    Map<String, String>? filters,
   ) async {
     final CmsV10Datasource? cms = _cmsDatasource;
     if (cms == null) {
@@ -317,19 +409,68 @@ class ContentBrowseUseCases {
     if (base == null || base.trim().isEmpty) {
       return Err<CategoryContentResult>(ValidationFailure('站点「${site.name}」缺少 API 地址'));
     }
-    final Result<List<CmsV10Video>> r = await cms.fetchVideos(
+    final String? typeParam = (tid == null || tid.trim().isEmpty) ? null : tid.trim();
+    final Result<CmsV10VideoPage> r = await cms.fetchVideosPaged(
       base,
-      typeId: (tid == null || tid.trim().isEmpty) ? null : tid.trim(),
+      typeId: typeParam,
       page: page,
+      filters: filters,
     );
     final Failure? failure = r.failureOrNull;
     if (failure != null) return Err<CategoryContentResult>(failure);
+
+    final CmsV10VideoPage paged = r.valueOrNull!;
+    List<CmsV10Video> items = paged.items;
+    // 子分类聚合（对齐 iOS `RemoteCMSV10Service` 父分类空 → 聚合子分类）：
+    // 父分类（type_pid 关系）无数据时，取其子分类各首页合并（上限 8 个防爆炸）。
+    if (items.isEmpty && typeParam != null && page == 1 && filters == null) {
+      final List<CmsV10Video> merged = await _mergeChildCategories(cms, base, typeParam);
+      if (merged.isNotEmpty) items = merged;
+    }
     return Success<CategoryContentResult>(
       CategoryContentResult(
         page: page,
-        list: r.valueOrNull!.map(_toVodItem).toList(growable: false),
+        pagecount: paged.pagecount,
+        limit: paged.limit,
+        total: paged.total,
+        list: _applyCloudRemarks(
+          items.map(_toVodItem).toList(growable: false),
+          site,
+        ),
       ),
     );
+  }
+
+  /// 子分类聚合：`type_pid == 父分类 id` 的子分类逐个取首页合并。
+  Future<List<CmsV10Video>> _mergeChildCategories(
+    CmsV10Datasource cms,
+    String base,
+    String parentId,
+  ) async {
+    final int? pid = int.tryParse(parentId);
+    if (pid == null) return const <CmsV10Video>[];
+    final Result<List<CmsV10Category>> cats = await cms.fetchCategories(base);
+    final List<CmsV10Category>? all = cats.valueOrNull;
+    if (all == null) return const <CmsV10Video>[];
+    final List<CmsV10Category> children = all
+        .where((CmsV10Category c) => c.typePid == pid)
+        .take(8)
+        .toList(growable: false);
+    if (children.isEmpty) return const <CmsV10Video>[];
+    final List<CmsV10Video> merged = <CmsV10Video>[];
+    final Set<String> seen = <String>{};
+    for (final CmsV10Category child in children) {
+      final Result<CmsV10VideoPage> p = await cms.fetchVideosPaged(
+        base,
+        typeId: child.typeId,
+      );
+      final CmsV10VideoPage? page = p.valueOrNull;
+      if (page == null) continue;
+      for (final CmsV10Video v in page.items) {
+        if (seen.add(v.vodId)) merged.add(v);
+      }
+    }
+    return merged;
   }
 
   Future<Result<SearchContentResult>> _cmsSearch(
@@ -347,8 +488,9 @@ class ContentBrowseUseCases {
     if (base == null || base.trim().isEmpty) {
       return Err<SearchContentResult>(ValidationFailure('站点「${site.name}」缺少 API 地址'));
     }
+    // 对齐 iOS：搜索走 ac=detail&wd（RemoteCMSV10Service.fetchSearchVideos）。
     final Result<List<CmsV10Video>> r =
-        await cms.fetchVideos(base, keyword: keyword.trim(), page: page);
+        await cms.fetchSearchVideos(base, keyword: keyword.trim(), page: page);
     final Failure? failure = r.failureOrNull;
     if (failure != null) return Err<SearchContentResult>(failure);
     return Success<SearchContentResult>(
@@ -371,79 +513,85 @@ class ContentBrowseUseCases {
 
   // ─────────────── 内部：Spider 引擎路径 ───────────────
 
-  Future<Result<HomeContentResult>> _spiderHome(SiteConfig site) async {
-    final SpiderEngine engine = _ensureEngine(site);
-    try {
-      await _prepareEngine(engine, site);
-      return Success<HomeContentResult>(await engine.callHomeContent());
-    } catch (e) {
-      return Err<HomeContentResult>(_asFailure(e));
-    } finally {
+  /// 蜘蛛调用通用骨架（引擎缓存复用：缓存命中直接用，未命中创建并缓存；
+  /// 调用失败时剔除缓存重建，下次请求自愈）。
+  Future<Result<T>> _runSpider<T>(
+    SiteConfig site,
+    Future<T> Function(SpiderEngine engine) call,
+  ) async {
+    final SpiderEngineType engineType = _effectiveEngineType(site);
+    SpiderEngine? engine = _engineCache[site.key];
+    if (engine != null && engine.engineType != engineType) {
+      // 站点引擎类型变更（远端清单刷新）：剔除旧实例。
       await engine.dispose();
+      engine = null;
+    }
+    try {
+      if (engine == null) {
+        engine = _engineFactory.create(
+          engineType,
+          siteKey: site.key,
+          baseUrl: site.api,
+          nodeClient: _nodeClient,
+          quickJsBridge: _quickJsBridge,
+        );
+        _engineCache[site.key] = engine;
+      }
+      await _prepareEngine(engine, site);
+      return Success<T>(await call(engine));
+    } catch (e) {
+      // 失败即弃（引擎状态不可信）：剔除缓存，下次请求重建。
+      final SpiderEngine? broken = _engineCache.remove(site.key);
+      if (broken != null) {
+        await broken.dispose();
+      }
+      return Err<T>(_asFailure(e));
     }
   }
 
-  Future<Result<List<VodCategory>>> _spiderCategories(SiteConfig site) async {
-    final SpiderEngine engine = _ensureEngine(site);
-    try {
-      await _prepareEngine(engine, site);
-      final HomeContentResult home = await engine.callHomeContent();
-      return Success<List<VodCategory>>(home.classes ?? const <VodCategory>[]);
-    } catch (e) {
-      return Err<List<VodCategory>>(_asFailure(e));
-    } finally {
-      await engine.dispose();
-    }
-  }
+  Future<Result<HomeContentResult>> _spiderHome(SiteConfig site) =>
+      _runSpider<HomeContentResult>(
+          site, (SpiderEngine engine) => engine.callHomeContent());
+
+  Future<Result<List<VodCategory>>> _spiderCategories(SiteConfig site) =>
+      _runSpider<List<VodCategory>>(site, (SpiderEngine engine) async {
+        final HomeContentResult home = await engine.callHomeContent();
+        return home.classes ?? const <VodCategory>[];
+      });
 
   Future<Result<CategoryContentResult>> _spiderCategory(
     SiteConfig site,
     String? tid,
     int page,
-  ) async {
-    final SpiderEngine engine = _ensureEngine(site);
-    try {
-      await _prepareEngine(engine, site);
-      return Success<CategoryContentResult>(
-        await engine.callCategoryContent(tid ?? '', page, '{}'),
+  ) =>
+      _runSpider<CategoryContentResult>(
+        site,
+        (SpiderEngine engine) =>
+            engine.callCategoryContent(tid ?? '', page, '{}'),
       );
-    } catch (e) {
-      return Err<CategoryContentResult>(_asFailure(e));
-    } finally {
-      await engine.dispose();
-    }
-  }
 
   Future<Result<SearchContentResult>> _spiderSearch(
     SiteConfig site,
     String keyword,
     int page,
-  ) async {
-    final SpiderEngine engine = _ensureEngine(site);
-    try {
-      await _prepareEngine(engine, site);
-      return Success<SearchContentResult>(
-        await engine.callSearchContent(keyword.trim(), page),
+  ) =>
+      _runSpider<SearchContentResult>(
+        site,
+        (SpiderEngine engine) =>
+            engine.callSearchContent(keyword.trim(), page),
       );
-    } catch (e) {
-      return Err<SearchContentResult>(_asFailure(e));
-    } finally {
-      await engine.dispose();
-    }
-  }
-
-  SpiderEngine _ensureEngine(SiteConfig site) {
-    final SpiderEngineType engineType = _effectiveEngineType(site);
-    return _engineFactory.create(
-      engineType,
-      siteKey: site.key,
-      baseUrl: site.api,
-      nodeClient: _nodeClient,
-      quickJsBridge: _quickJsBridge,
-    );
-  }
 
   Future<void> _prepareEngine(SpiderEngine engine, SiteConfig site) async {
+    // 引擎缓存复用：脚本已加载（isSpiderReady）则跳过重载（对齐 iOS
+    // `SpiderManager` 引擎/脚本缓存——翻页/切分类不再重复下载解析脚本）。
+    if (engine.isSpiderReady) return;
+
+    // Node 承载源：等常驻宿主就绪（对齐 iOS `waitForNodeReadyIfNeeded`，
+    // SpiderManager.swift L2136），未就绪先调会拿到空数据/连接拒绝。
+    if (engine.engineType == SpiderEngineType.node) {
+      await _waitNodeReady?.call();
+    }
+
     final SpiderEngineType engineType = site.resolveEngineType()!;
     if (engineType == SpiderEngineType.quickJS ||
         engineType == SpiderEngineType.python) {
