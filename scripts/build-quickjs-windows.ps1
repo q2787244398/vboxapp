@@ -55,7 +55,11 @@ $rootPosix = ConvertTo-MsysPath $root
 $outPosix = ConvertTo-MsysPath $OutDir
 
 Write-Host "🏗️  编译 vbox_quickjs.dll（mingw-w64 gcc）"
-& $bash -lc "set -euo pipefail; export PATH=/mingw64/bin:\$PATH; cd '$rootPosix'; CC=x86_64-w64-mingw32-gcc bash scripts/build_quickjs_wrapper.sh '$outPosix'"
+# 注意：PowerShell 双引号串里转义 `$` 用**反引号**（`` `$ ``），反斜杠无效 ——
+# 原 `\$PATH` 会被 PowerShell 当成字面 `\` + 展开空变量 → bash 收到
+# `export PATH=/mingw64/bin:\; cd '...'`（`\;` 吞掉分号）→ 报
+# 「export: '/d/a/...': not a valid identifier」。
+& $bash -lc "set -euo pipefail; export PATH=/mingw64/bin:`$PATH; cd '$rootPosix'; CC=x86_64-w64-mingw32-gcc bash scripts/build_quickjs_wrapper.sh '$outPosix'"
 if ($LASTEXITCODE -ne 0) { throw "build_quickjs_wrapper.sh 失败（$LASTEXITCODE）" }
 
 # Dart 侧 quickjs_ffi.dart 按 Windows 约定加载 `vbox_quickjs.dll`（无 lib 前缀）
