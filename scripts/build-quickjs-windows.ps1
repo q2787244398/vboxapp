@@ -97,11 +97,24 @@ $symList = @(
     "vq_eval", "vq_free_string", "vq_free_buffer", "vq_set_host_bridge",
     "vq_eval_submit", "vq_eval_take_result", "vq_http_complete"
 )
-# 经 MSYS2 bash 调 nm：复用与编译**完全相同**的 PATH，避免 Windows 侧按 .exe
-# 路径猜测（前几轮 & 直调 nm.exe 因安装根/路径差异屡屡命中不到，误落到 PATH 上的
-# 裸名而报 not recognized）。
+# 经 MSYS2 bash 调 nm：复用与编译**完全相同**的 PATH。
+# 关键：MSYS2 的 mingw-w64 binutils 里 nm **没有 target 前缀**（就是
+# /mingw64/bin/nm.exe），与 gcc 包提供的驱动程序 x86_64-w64-mingw32-gcc 不同 ——
+# 写死 x86_64-w64-mingw32-nm 会 command not found（前几轮即踩此坑）。故在
+# mingw64/bin 就位后按候选表探测：优先带前缀名（部分环境提供符号链接），
+# 回退裸名 nm，命中即用。
 $dllPosix = ConvertTo-MsysPath $dll
-$exports = (& $bash -lc "export MSYSTEM=MINGW64; export PATH=`"$msysRootPosix/mingw64/bin:$msysRootPosix/usr/bin:`$PATH`"; x86_64-w64-mingw32-nm -g --defined-only '$dllPosix'" | Out-String)
+$symScript = @"
+export MSYSTEM=MINGW64
+export PATH="$msysRootPosix/mingw64/bin:$msysRootPosix/usr/bin:`$PATH"
+for c in x86_64-w64-mingw32-nm nm; do
+  if command -v "`$c" >/dev/null 2>&1; then "`$c" -g --defined-only "$dllPosix"; exit 0; fi
+done
+echo "__NO_NM__" >&2
+exit 127
+"@
+$exports = (& $bash -lc $symScript 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0) { throw "符号校验失败：MSYS2 内未找到可用 nm（mingw-w64 binutils）。原始输出：$exports" }
 $missing = @()
 foreach ($sym in $symList) {
     if ($exports -notmatch ("\b" + [regex]::Escape($sym) + "\b")) { $missing += $sym }
