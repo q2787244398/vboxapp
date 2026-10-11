@@ -97,9 +97,11 @@ $symList = @(
     "vq_eval", "vq_free_string", "vq_free_buffer", "vq_set_host_bridge",
     "vq_eval_submit", "vq_eval_take_result", "vq_http_complete"
 )
-$nm = Join-Path $msysRoot "mingw64\bin\x86_64-w64-mingw32-nm.exe"
-if (-not (Test-Path $nm)) { $nm = "x86_64-w64-mingw32-nm" }
-$exports = (& $nm -g --defined-only $dll | Out-String)
+# 经 MSYS2 bash 调 nm：复用与编译**完全相同**的 PATH，避免 Windows 侧按 .exe
+# 路径猜测（前几轮 & 直调 nm.exe 因安装根/路径差异屡屡命中不到，误落到 PATH 上的
+# 裸名而报 not recognized）。
+$dllPosix = ConvertTo-MsysPath $dll
+$exports = (& $bash -lc "export MSYSTEM=MINGW64; export PATH=`"$msysRootPosix/mingw64/bin:$msysRootPosix/usr/bin:`$PATH`"; x86_64-w64-mingw32-nm -g --defined-only '$dllPosix'" | Out-String)
 $missing = @()
 foreach ($sym in $symList) {
     if ($exports -notmatch ("\b" + [regex]::Escape($sym) + "\b")) { $missing += $sym }
