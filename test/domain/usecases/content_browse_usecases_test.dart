@@ -565,6 +565,12 @@ void main() {
                   '<a href="/voddetail/12.html"><img src="/p/2.jpg" alt="HTML片B"></a>'
                   '</body></html>',
                   200,
+                  // 无 content-type 时 package:http 默认 latin1 编码，
+                  // 中文会抛「Contains invalid characters」（真实站点
+                  // HTML 均带 charset，此处与真机字节流路径保持一致）。
+                  headers: <String, String>{
+                    'content-type': 'text/html; charset=utf-8',
+                  },
                 );
               }
               return http.Response('oops', 500);

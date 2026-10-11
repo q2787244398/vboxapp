@@ -45,6 +45,7 @@ class _FakeContentBrowseUseCases extends ContentBrowseUseCases {
     String siteKey, {
     String? tid,
     int page = 1,
+    Map<String, String>? filters,
   }) async {
     requestedPages.add(page);
     return Success<CategoryContentResult>(

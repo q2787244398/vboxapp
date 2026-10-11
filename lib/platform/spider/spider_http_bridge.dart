@@ -473,6 +473,10 @@ class SpiderHttpBridge {
       return SpiderHttpResult.failure(url, '请求超时');
     } on SocketException catch (e) {
       return SpiderHttpResult.failure(url, e.message);
+    } on HandshakeException catch (e) {
+      // TLS 握手失败（过期/自签名证书、代理拦截）：与 iOS 一致收敛为
+      // ok=false（任何传输层失败都不冒泡给脚本加载方）。
+      return SpiderHttpResult.failure(url, e.message);
     } on HttpException catch (e) {
       return SpiderHttpResult.failure(url, e.message);
     }

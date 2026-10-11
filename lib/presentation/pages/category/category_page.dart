@@ -228,7 +228,7 @@ class _CategoryPageState extends State<CategoryPage> {
     final int nextPage = _page + 1;
     // CMS 源筛选参数（对齐 iOS `buildFilterQuery`：class=分类胶囊已有，
     // area/year 由筛选行传入；蜘蛛源不传——iOS extend 同为 '{}'）。
-    final Map<String, String>? filters = <String, String>{
+    final Map<String, String> filters = <String, String>{
       if (_areaFilter != null) 'area': _areaFilter!,
       if (_yearFilter != null) 'year': _yearFilter!,
     };

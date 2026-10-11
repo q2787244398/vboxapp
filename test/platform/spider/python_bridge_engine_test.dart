@@ -14,6 +14,7 @@ import 'package:vbox/domain/entities/spider/engine_type.dart';
 import 'package:vbox/domain/entities/spider/spider_engine.dart';
 import 'package:vbox/domain/entities/spider/spider_models.dart';
 import 'package:vbox/platform/spider/python_bridge_engine.dart';
+import 'package:vbox/platform/spider/spider_http_bridge.dart';
 
 /// 环境是否可用 python3（同步探测，便于静态 `skip` 判定）。
 bool _pythonAvailable() {
@@ -27,6 +28,14 @@ bool _pythonAvailable() {
 /// 读取回显脚本内容（fixtures 常驻脚本）。
 String _echoScript() =>
     File('conformance/fixtures/python_echo_spider.py').readAsStringSync();
+
+/// 断网传输层 fake：任何请求抛 [SocketException]（模拟离线）。
+class _FailingTransport implements SpiderHttpTransport {
+  @override
+  Future<SpiderTransportResponse> send(SpiderTransportRequest request) async {
+    throw const SocketException('网络不可达（测试注入）');
+  }
+}
 
 void main() {
   final bool hasPython = _pythonAvailable();
@@ -154,8 +163,13 @@ void main() {
       }
     }, skip: skip);
 
-    test('loadScriptFromURL → 不支持（scriptLoad）', () async {
-      final PythonBridgeEngine engine = PythonBridgeEngine();
+    test('loadScriptFromURL → 请求失败收敛为 scriptLoad（离线注入）', () async {
+      // 实现已对齐 iOS（URL 下载脚本）：传输层任何失败（断网 / 握手失败 /
+      // 超时）都由 SpiderHttpBridge 收敛为 status=0 → 引擎抛 scriptLoad。
+      // 注入断网 fake，不依赖真实网络，保证沙箱 / CI 稳定。
+      final PythonBridgeEngine engine = PythonBridgeEngine(
+        httpBridge: SpiderHttpBridge(transport: _FailingTransport()),
+      );
       try {
         expect(
           () => engine.loadScriptFromURL('https://x.com/spider.py'),
