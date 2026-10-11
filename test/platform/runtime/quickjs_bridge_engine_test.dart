@@ -136,11 +136,10 @@ class _UnavailableBridge implements QuickJsNativeBridge {
 class _FakeAsyncBridge implements QuickJsNativeBridge, QuickJsAsyncNativeBridge {
   _FakeAsyncBridge({
     this.bySubstring = const <String, String>{},
-    this.httpUrl = 'https://api.example.com/cats',
   });
 
   final Map<String, String> bySubstring;
-  final String httpUrl;
+  final String httpUrl = 'https://api.example.com/cats';
 
   final List<String> evals = <String>[];
   final List<String> httpWrites = <String>[];

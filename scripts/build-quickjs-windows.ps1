@@ -27,15 +27,23 @@ if (-not $OutDir) {
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 # ── 定位 MSYS2 bash + mingw-w64 gcc ──
+# 注意：必须外层再套 @(...) —— Where-Object 仅命中一项时，管道结果会被 PowerShell
+# 解包为**单个字符串**（非数组），此时 `$bashCandidates[0]` 取到的是首字符 'C'
+# 而非路径（报「The term 'C' is not recognized」）。外层 @() 强制数组语义。
 $bashCandidates = @(
-    "C:\msys64\usr\bin\bash.exe",
-    "C:\tools\msys64\usr\bin\bash.exe",
-    $env:MSYS2_BASH
-) | Where-Object { $_ -and (Test-Path $_) }
+    @(
+        "C:\msys64\usr\bin\bash.exe",
+        "C:\tools\msys64\usr\bin\bash.exe",
+        $env:MSYS2_BASH
+    ) | Where-Object { $_ -and (Test-Path $_) }
+)
 if ($bashCandidates.Count -eq 0) {
     throw "未找到 MSYS2 bash（期望 C:\msys64\usr\bin\bash.exe）。CI 需先 msys2/setup-msys2 安装 mingw-w64-x86_64-gcc。"
 }
 $bash = $bashCandidates[0]
+# MSYS2 根目录由 bash 实际路径反推（<root>\usr\bin\bash.exe），避免硬编码 C:\msys64
+# 与 CI 自定义安装位置（setup-msys2 location）不符。
+$msysRoot = Split-Path (Split-Path (Split-Path $bash -Parent) -Parent) -Parent
 
 # Windows 路径 → MSYS2 POSIX 路径（C:\a\b → /c/a/b）
 function ConvertTo-MsysPath([string]$p) {
@@ -63,7 +71,7 @@ $symList = @(
     "vq_eval", "vq_free_string", "vq_free_buffer", "vq_set_host_bridge",
     "vq_eval_submit", "vq_eval_take_result", "vq_http_complete"
 )
-$nm = "C:\msys64\mingw64\bin\x86_64-w64-mingw32-nm.exe"
+$nm = Join-Path $msysRoot "mingw64\bin\x86_64-w64-mingw32-nm.exe"
 if (-not (Test-Path $nm)) { $nm = "x86_64-w64-mingw32-nm" }
 $exports = (& $nm -g --defined-only $dll | Out-String)
 $missing = @()
