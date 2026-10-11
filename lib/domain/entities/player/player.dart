@@ -294,12 +294,14 @@ class PlayerBackendSelector {
   /// 按平台返回后端降级链。
   ///
   /// - Android：Media3 → MDK → libVLC
-  /// - Windows/macOS：libmpv → MDK
+  /// - Windows/macOS：libmpv（原生插件仅实现 libmpv，桌面端 MDK/libVLC 未接线，
+  ///   故链中不含 MDK —— 否则 `open` 失败回退到 MDK 会直接抛
+  ///   `E_BACKEND_UNAVAILABLE：该插件仅实现 libmpv 后端`）
   /// - iOS：nativeiOS（不迁移）
   ///
   /// 链首为**默认主后端**（默认路径不经过 MDK，保持既有行为）；复杂封装 /
   /// 直播 FLV 等需全格式时由 [PlayerBackendSelector] / `PlayerController` 改投
-  /// **MDK 优先**（统一内核），失败再依次回退。
+  /// **MDK 优先**（统一内核），失败再依次回退（仅 Android 生效）。
   static List<PlayerBackend> chainFor(String platform) {
     switch (platform.toLowerCase()) {
       case 'android':
@@ -310,10 +312,7 @@ class PlayerBackendSelector {
         ];
       case 'windows':
       case 'macos':
-        return const <PlayerBackend>[
-          PlayerBackend.libmpv,
-          PlayerBackend.mdk,
-        ];
+        return const <PlayerBackend>[PlayerBackend.libmpv];
       case 'ios':
         return const <PlayerBackend>[PlayerBackend.nativeiOS];
       default:

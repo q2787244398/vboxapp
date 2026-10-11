@@ -597,7 +597,11 @@ class ContentBrowseUseCases {
       await _waitNodeReady?.call();
     }
 
-    final SpiderEngineType engineType = site.resolveEngineType()!;
+    // 用「有效引擎类型」（jsSpider → QuickJS 顶替 JSC）判定脚本加载分支：
+    // `site.resolveEngineType()` 对 jsSpider 返回 javaScriptCore，直接比对
+    // quickJS/python 会漏掉 JS 站点 → 脚本不下载、__JS_SPIDER__ 未注册而失败
+    // （对齐 detail_playback_usecases 传入 effective 引擎类型的口径）。
+    final SpiderEngineType engineType = _effectiveEngineType(site);
     if (engineType == SpiderEngineType.quickJS ||
         engineType == SpiderEngineType.python) {
       final String? api = site.api;

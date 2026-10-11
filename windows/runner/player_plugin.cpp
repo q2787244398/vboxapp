@@ -94,8 +94,8 @@ bool MpvApi::Load() {
         break;
       case ERROR_MOD_NOT_FOUND:
         load_error =
-            "mpv-2.dll 依赖的运行库缺失（常见：系统缺 vulkan-1.dll，"
-            "请安装显卡驱动或 Vulkan Runtime 后重试）";
+            "mpv-2.dll 依赖的运行库缺失（vulkan-1.dll 随安装包分发，"
+            "请确认安装包完整；或安装显卡驱动 / Vulkan Runtime 后重试）";
         break;
       case ERROR_BAD_EXE_FORMAT:
         load_error = "mpv-2.dll 架构不匹配（需 64 位）";

@@ -12,17 +12,17 @@ import 'package:vbox/platform/player/player_channel_bridge.dart';
 
 void main() {
   group('PlayerBackendSelector.chainFor', () {
-    test('windows → libmpv 主 + MDK 次（M1：默认路径仍走 libmpv）', () {
+    test('windows → 仅 libmpv（原生插件未接线 MDK，避免回退报错）', () {
       expect(
         PlayerBackendSelector.chainFor('windows'),
-        const <PlayerBackend>[PlayerBackend.libmpv, PlayerBackend.mdk],
+        const <PlayerBackend>[PlayerBackend.libmpv],
       );
     });
 
     test('macos → 与 Windows 同链，case 穿透', () {
       expect(
         PlayerBackendSelector.chainFor('macos'),
-        const <PlayerBackend>[PlayerBackend.libmpv, PlayerBackend.mdk],
+        const <PlayerBackend>[PlayerBackend.libmpv],
       );
     });
 
@@ -91,7 +91,6 @@ void main() {
     ];
     const List<PlayerBackend> desktop = <PlayerBackend>[
       PlayerBackend.libmpv,
-      PlayerBackend.mdk,
     ];
 
     test('常规媒体 → 链首主后端（默认路径不经过 MDK）', () {
@@ -111,7 +110,7 @@ void main() {
       );
     });
 
-    test('需全格式 → MDK 优先（统一内核）', () {
+    test('需全格式：Android 链含 MDK → MDK；桌面链无 MDK → libmpv 兜底', () {
       expect(
         PlayerBackendSelector.initialBackend(
           chain: android,
@@ -124,7 +123,7 @@ void main() {
           chain: desktop,
           needsFullFormat: true,
         ),
-        PlayerBackend.mdk,
+        PlayerBackend.libmpv,
       );
     });
 
@@ -462,11 +461,10 @@ void main() {
       ];
       const List<PlayerBackend> desktop = <PlayerBackend>[
         PlayerBackend.libmpv,
-        PlayerBackend.mdk,
       ];
 
       test('按盘链序取首个平台可用后端', () {
-        // mdk 在两端均可用 → 首位。
+        // mdk 在 Android 可用 → 首位。
         expect(
           PlayerBackendSelector.pickDriveBackend(
             driveChain: const <PlayerBackend>[
@@ -477,7 +475,7 @@ void main() {
           ),
           PlayerBackend.mdk,
         );
-        // libVLC 不在桌面链 → 顺延。
+        // mdk / libVLC 不在桌面链 → 顺延到 libmpv。
         expect(
           PlayerBackendSelector.pickDriveBackend(
             driveChain: const <PlayerBackend>[
@@ -487,7 +485,7 @@ void main() {
             ],
             available: desktop,
           ),
-          PlayerBackend.mdk,
+          PlayerBackend.libmpv,
         );
       });
 

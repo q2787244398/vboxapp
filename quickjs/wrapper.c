@@ -26,9 +26,16 @@
  *   - Dart 侧约定 evalAsync 未完成前不调同步 vq_eval（引擎串行 await）；
  *   - 槽字段（script/result/http_*）由 lock 保护；worker 在 http 等待期
  *     不持锁（避免与 Dart 回写路径死锁）；
- *   - Windows（_WIN32）无 POSIX 线程 → 退化为无桥模式（submit 返回 0，
- *     http() 返回失败对象），后续批次以 win32 API 补齐。
+ *   - Windows（_WIN32）以 Win32 原语（CRITICAL_SECTION / CreateSemaphore /
+ *     CreateThread）实现同一模型，语义与 POSIX 分支等价（见下方可移植层）。
  */
+/* Windows：GetTickCount64 需 _WIN32_WINNT ≥ 0x0600 才有声明；mingw 的 _mingw.h 会
+ * 在首个标准头处把 _WIN32_WINNT 锁死为 0x502（无 GetTickCount64 声明 → 隐式声明
+ * 返回 int，64 位刻度被截断）→ 必须在**任何** include 之前显式抬高（对齐 Win7+）。 */
+#if defined(_WIN32) && !defined(_WIN32_WINNT)
+#define _WIN32_WINNT 0x0601
+#endif
+
 /* clock_gettime / CLOCK_MONOTONIC / nanosleep（-std=c99 下需 POSIX 宏显式开启；
  * 必须置于所有系统头之前 —— features.h 首次被 include 时即锁定特性宏） */
 #ifndef _POSIX_C_SOURCE
@@ -43,11 +50,76 @@
 #include "wrapper.h"
 
 #if defined(_WIN32)
-#define VQ_NO_THREADS 1
+#include <windows.h>
 #else
 #include <pthread.h>
 #include <semaphore.h>
 #include <time.h>
+#endif
+
+/* ── 线程 / 同步原语可移植层（POSIX pthread ↔ Win32）────────────────────────
+ * 蜘蛛脚本的同步 http() 依赖「worker 线程 + 信号量等待」：eval 移出 isolate
+ * 事件循环，脚本调 http() 时阻塞 worker，Dart 异步发请求后回写唤醒。
+ * Windows 与 POSIX 语义等价，仅原语不同 —— 此前 Windows 走 VQ_NO_THREADS
+ * 退化（submit 返回 0、http() 恒返回失败对象），导致桌面端切源分类无数据；
+ * 现以 Win32 原语补齐（CRITICAL_SECTION / CreateSemaphore / CreateThread）。 */
+#if defined(_WIN32)
+typedef CRITICAL_SECTION vq_mutex_t;
+typedef HANDLE vq_sem_t;
+typedef HANDLE vq_thread_t;
+
+static void vq_mutex_init(vq_mutex_t *m) { InitializeCriticalSection(m); }
+static void vq_mutex_destroy(vq_mutex_t *m) { DeleteCriticalSection(m); }
+static void vq_mutex_lock(vq_mutex_t *m) { EnterCriticalSection(m); }
+static void vq_mutex_unlock(vq_mutex_t *m) { LeaveCriticalSection(m); }
+
+static void vq_sem_init(vq_sem_t *s) {
+    *s = CreateSemaphoreW(NULL, 0, 0x7fffffff, NULL);
+}
+static void vq_sem_destroy(vq_sem_t *s) {
+    if (*s != NULL) CloseHandle(*s);
+}
+static void vq_sem_post(vq_sem_t *s) { ReleaseSemaphore(*s, 1, NULL); }
+static void vq_sem_wait(vq_sem_t *s) { WaitForSingleObject(*s, INFINITE); }
+static void vq_sem_trywait(vq_sem_t *s) { WaitForSingleObject(*s, 0); }
+
+static void *vq_worker_main(void *arg);
+static DWORD WINAPI vq_worker_trampoline(LPVOID arg) {
+    vq_worker_main(arg);
+    return 0;
+}
+static int vq_thread_create(vq_thread_t *t, void *arg) {
+    *t = CreateThread(NULL, 0, vq_worker_trampoline, arg, 0, NULL);
+    return (*t == NULL) ? -1 : 0;
+}
+static void vq_thread_join(vq_thread_t *t) {
+    if (*t != NULL) {
+        WaitForSingleObject(*t, INFINITE);
+        CloseHandle(*t);
+        *t = NULL;
+    }
+}
+#else
+typedef pthread_t vq_thread_t;
+typedef pthread_mutex_t vq_mutex_t;
+typedef sem_t vq_sem_t;
+
+static void vq_mutex_init(vq_mutex_t *m) { pthread_mutex_init(m, NULL); }
+static void vq_mutex_destroy(vq_mutex_t *m) { pthread_mutex_destroy(m); }
+static void vq_mutex_lock(vq_mutex_t *m) { pthread_mutex_lock(m); }
+static void vq_mutex_unlock(vq_mutex_t *m) { pthread_mutex_unlock(m); }
+
+static void vq_sem_init(vq_sem_t *s) { sem_init(s, 0, 0); }
+static void vq_sem_destroy(vq_sem_t *s) { sem_destroy(s); }
+static void vq_sem_post(vq_sem_t *s) { sem_post(s); }
+static void vq_sem_wait(vq_sem_t *s) { sem_wait(s); }
+static void vq_sem_trywait(vq_sem_t *s) { sem_trywait(s); }
+
+static void *vq_worker_main(void *arg);
+static int vq_thread_create(vq_thread_t *t, void *arg) {
+    return pthread_create(t, NULL, vq_worker_main, arg);
+}
+static void vq_thread_join(vq_thread_t *t) { pthread_join(*t, NULL); }
 #endif
 
 /* ── console / print no-op（对齐 iOS setupBridge）────────────────────────── */
@@ -96,14 +168,10 @@ typedef struct VqRuntime {
     char *http_response; /* Dart 回写的完整响应 JSON */
     int http_resolved;
 
-#ifdef VQ_NO_THREADS
-    /* Windows 退化：无线程，无同步原语 */
-#else
-    pthread_t worker;
-    pthread_mutex_t lock;
-    sem_t job_sem;       /* Dart → worker：有新任务 */
-    sem_t http_sem;      /* Dart → worker：http 已回写 */
-#endif
+    vq_thread_t worker;
+    vq_mutex_t lock;
+    vq_sem_t job_sem;    /* Dart → worker：有新任务 */
+    vq_sem_t http_sem;   /* Dart → worker：http 已回写 */
 } VqRuntime;
 
 static char *vq_strdup(const char *s) {
@@ -120,8 +188,8 @@ static void vq_free_char(char *p) {
 
 /* 毫秒睡眠（等待循环用） */
 static void vq_sleep_ms(int ms) {
-#ifdef VQ_NO_THREADS
-    (void)ms;
+#if defined(_WIN32)
+    Sleep((DWORD)ms);
 #else
     struct timespec ts;
     ts.tv_sec = (time_t)(ms / 1000);
@@ -131,8 +199,8 @@ static void vq_sleep_ms(int ms) {
 }
 
 static int64_t vq_now_ms(void) {
-#ifdef VQ_NO_THREADS
-    return 0;
+#if defined(_WIN32)
+    return (int64_t)GetTickCount64();
 #else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -145,12 +213,6 @@ static int64_t vq_now_ms(void) {
 static char *vq_eval_internal(JSContext *ctx, const char *script);
 static void vq_register_http(JSContext *ctx);
 
-#ifdef VQ_NO_THREADS
-
-/* Windows 退化：无 worker（submit 由上层回退同步 eval） */
-
-#else
-
 static void *vq_worker_main(void *arg) {
     VqRuntime *r = (VqRuntime *)arg;
     /* 关键：重置栈深度检查基址（QuickJS 在 JS_NewRuntime 线程记录栈顶，
@@ -158,16 +220,16 @@ static void *vq_worker_main(void *arg) {
      * 对任何 eval 直接误判 stack overflow，脚本全量抛异常）。 */
     JS_UpdateStackTop(r->rt);
     while (1) {
-        sem_wait(&r->job_sem);
-        pthread_mutex_lock(&r->lock);
+        vq_sem_wait(&r->job_sem);
+        vq_mutex_lock(&r->lock);
         if (r->quit) {
-            pthread_mutex_unlock(&r->lock);
+            vq_mutex_unlock(&r->lock);
             break;
         }
         char *script = r->script;
         r->script = NULL;
         r->busy = 1;
-        pthread_mutex_unlock(&r->lock);
+        vq_mutex_unlock(&r->lock);
 
         char *result = NULL;
         if (script != NULL) {
@@ -176,13 +238,13 @@ static void *vq_worker_main(void *arg) {
             vq_free_char(script);
         }
 
-        pthread_mutex_lock(&r->lock);
+        vq_mutex_lock(&r->lock);
         r->busy = 0;
         if (r->result != NULL) free(r->result); /* 上一结果未被取走（防御） */
         r->result = result;
         r->result_ready = (result != NULL);
         const int quitting = r->quit;
-        pthread_mutex_unlock(&r->lock);
+        vq_mutex_unlock(&r->lock);
 
         /* 通知 Dart：eval 完成（listener 投递，不阻塞） */
         if (!quitting && r->host_cb != NULL) {
@@ -192,8 +254,6 @@ static void *vq_worker_main(void *arg) {
     }
     return NULL;
 }
-
-#endif /* VQ_NO_THREADS */
 
 /* ── 运行时 / 上下文 ────────────────────────────────────────────────────── */
 
@@ -205,11 +265,9 @@ void *vq_create_runtime(void) {
         free(r);
         return NULL;
     }
-#ifndef VQ_NO_THREADS
-    pthread_mutex_init(&r->lock, NULL);
-    sem_init(&r->job_sem, 0, 0);
-    sem_init(&r->http_sem, 0, 0);
-#endif
+    vq_mutex_init(&r->lock);
+    vq_sem_init(&r->job_sem);
+    vq_sem_init(&r->http_sem);
     return r; /* 对外句柄即 VqRuntime*（opaque） */
 }
 
@@ -230,21 +288,19 @@ void vq_free_runtime(void *rt) {
     VqRuntime *r = (VqRuntime *)rt;
     if (r == NULL) return;
 
-#ifndef VQ_NO_THREADS
     /* 停 worker：置 quit → 唤醒（若 worker 在 http 等待中会先中断等待、
      * 完成当前 eval，再取到 quit 信号退出）。Dart 侧约定 free 前无
      * in-flight eval，实际 join 立即返回。 */
-    pthread_mutex_lock(&r->lock);
+    vq_mutex_lock(&r->lock);
     r->quit = 1;
-    pthread_mutex_unlock(&r->lock);
+    vq_mutex_unlock(&r->lock);
     if (r->worker_started) {
-        sem_post(&r->job_sem);
-        pthread_join(r->worker, NULL);
-        sem_destroy(&r->job_sem);
-        sem_destroy(&r->http_sem);
-        pthread_mutex_destroy(&r->lock);
+        vq_sem_post(&r->job_sem);
+        vq_thread_join(&r->worker);
     }
-#endif
+    vq_sem_destroy(&r->job_sem);
+    vq_sem_destroy(&r->http_sem);
+    vq_mutex_destroy(&r->lock);
 
     if (r->rt != NULL) {
         JS_RunGC(r->rt);       /* 先手动 GC，清理所有悬空对象 */
@@ -298,16 +354,14 @@ const char *vq_eval(void *ctx, const char *script) {
     JSContext *js_ctx = (JSContext *)ctx;
     VqRuntime *r =
         (VqRuntime *)JS_GetContextOpaque(js_ctx);
-#ifndef VQ_NO_THREADS
     /* 防御：worker 正在 eval 时拒绝并发同步 eval（Dart 侧约定串行，
      * 此分支仅为异常调用兜底，返回错误消息而非崩溃）。 */
     if (r != NULL) {
-        pthread_mutex_lock(&r->lock);
+        vq_mutex_lock(&r->lock);
         const int busy = r->busy;
-        pthread_mutex_unlock(&r->lock);
+        vq_mutex_unlock(&r->lock);
         if (busy) return vq_strdup("Error: QuickJS runtime busy（eval 与 evalAsync 并发）");
     }
-#endif
     return vq_eval_internal(js_ctx, script);
 }
 
@@ -333,48 +387,39 @@ void vq_set_host_bridge(void *rt, VqHostCallback cb) {
 int vq_eval_submit(void *rt, const char *script) {
     VqRuntime *r = (VqRuntime *)rt;
     if (r == NULL || script == NULL) return 0;
-#ifdef VQ_NO_THREADS
-    (void)script;
-    return 0; /* Windows 退化：上层回退同步 eval */
-#else
-    pthread_mutex_lock(&r->lock);
+    vq_mutex_lock(&r->lock);
     if (r->script != NULL) { /* 上一个任务尚未被 worker 取走 */
-        pthread_mutex_unlock(&r->lock);
+        vq_mutex_unlock(&r->lock);
         return 0;
     }
     r->script = vq_strdup(script);
     if (r->script == NULL) {
-        pthread_mutex_unlock(&r->lock);
+        vq_mutex_unlock(&r->lock);
         return 0;
     }
     if (!r->worker_started) {
-        if (pthread_create(&r->worker, NULL, vq_worker_main, r) != 0) {
+        if (vq_thread_create(&r->worker, r) != 0) {
             vq_free_char(r->script);
             r->script = NULL;
-            pthread_mutex_unlock(&r->lock);
+            vq_mutex_unlock(&r->lock);
             return 0;
         }
         r->worker_started = 1;
     }
-    pthread_mutex_unlock(&r->lock);
-    sem_post(&r->job_sem);
+    vq_mutex_unlock(&r->lock);
+    vq_sem_post(&r->job_sem);
     return 1;
-#endif
 }
 
 const char *vq_eval_take_result(void *rt) {
     VqRuntime *r = (VqRuntime *)rt;
     if (r == NULL) return NULL;
-#ifdef VQ_NO_THREADS
-    return NULL;
-#else
-    pthread_mutex_lock(&r->lock);
+    vq_mutex_lock(&r->lock);
     char *out = r->result;
     r->result = NULL;
     r->result_ready = 0;
-    pthread_mutex_unlock(&r->lock);
+    vq_mutex_unlock(&r->lock);
     return out; /* Dart 复制后调 vq_free_buffer */
-#endif
 }
 
 /* ── HTTP 桥（worker 线程执行的 JS C 函数）────────────────────────────── */
@@ -428,12 +473,6 @@ static JSValue vq_http_func(JSContext *ctx, JSValueConst this_val,
         }
     }
 
-#ifdef VQ_NO_THREADS
-    const char *u0 = url_c;
-    if (opts_heap != NULL) vq_free_char(opts_heap);
-    if (url_c != NULL) JS_FreeCString(js_ctx, url_c);
-    return vq_http_fail(js_ctx, u0, "当前平台未启用 http 桥（Windows 待补）");
-#else
     if (r == NULL || r->host_cb == NULL) {
         if (opts_heap != NULL) vq_free_char(opts_heap);
         if (url_c != NULL) JS_FreeCString(js_ctx, url_c);
@@ -446,7 +485,7 @@ static JSValue vq_http_func(JSContext *ctx, JSValueConst this_val,
     char *opts_owned = opts_heap != NULL ? opts_heap : (opts_c != NULL ? vq_strdup(opts_c) : NULL);
     if (url_c != NULL) JS_FreeCString(js_ctx, url_c);
 
-    pthread_mutex_lock(&r->lock);
+    vq_mutex_lock(&r->lock);
     vq_free_char(r->http_url);
     vq_free_char(r->http_opts);
     r->http_url = url_owned;
@@ -455,7 +494,7 @@ static JSValue vq_http_func(JSContext *ctx, JSValueConst this_val,
     r->http_resolved = 0;
     my_id = r->http_req_id;
     const VqHostCallback cb = r->host_cb;
-    pthread_mutex_unlock(&r->lock);
+    vq_mutex_unlock(&r->lock);
 
     /* 用局部持有的指针通知 Dart（r->http_url 解锁后读是数据竞争；
      * 两指针在等待期间不被释放——worker 阻塞、Dart 回写只写 http_response） */
@@ -466,17 +505,17 @@ static JSValue vq_http_func(JSContext *ctx, JSValueConst this_val,
     char *response = NULL;
     int quitting = 0;
     while (1) {
-        pthread_mutex_lock(&r->lock);
+        vq_mutex_lock(&r->lock);
         const int resolved = (r->http_resolved && r->http_req_id == my_id);
         quitting = r->quit;
         if (resolved) {
             response = r->http_response;
             r->http_response = NULL;
         }
-        pthread_mutex_unlock(&r->lock);
+        vq_mutex_unlock(&r->lock);
         if (resolved || quitting) break;
         if (vq_now_ms() > deadline) break;
-        sem_trywait(&r->http_sem); /* 唤醒信号（resolved 轮询为主，信号消抖） */
+        vq_sem_trywait(&r->http_sem); /* 唤醒信号（resolved 轮询为主，信号消抖） */
         vq_sleep_ms(VQ_HTTP_POLL_MS);
     }
 
@@ -494,7 +533,6 @@ static JSValue vq_http_func(JSContext *ctx, JSValueConst this_val,
         return vq_http_fail(js_ctx, r->http_url, "响应 JSON 解析失败");
     }
     return obj;
-#endif
 }
 
 /* http/req 全局注册（createContext 时随 console 一起装；prelude 的
@@ -510,20 +548,15 @@ static void vq_register_http(JSContext *ctx) {
 int vq_http_complete(void *rt, int req_id, const char *response_json) {
     VqRuntime *r = (VqRuntime *)rt;
     if (r == NULL || response_json == NULL) return 0;
-#ifdef VQ_NO_THREADS
-    (void)req_id;
-    return 0;
-#else
-    pthread_mutex_lock(&r->lock);
+    vq_mutex_lock(&r->lock);
     if (req_id != r->http_req_id || r->http_resolved) {
-        pthread_mutex_unlock(&r->lock);
+        vq_mutex_unlock(&r->lock);
         return 0; /* 过期请求（超时后迟到回写）/ 重复回写 */
     }
     vq_free_char(r->http_response);
     r->http_response = vq_strdup(response_json);
     r->http_resolved = (r->http_response != NULL);
-    pthread_mutex_unlock(&r->lock);
-    sem_post(&r->http_sem);
+    vq_mutex_unlock(&r->lock);
+    vq_sem_post(&r->http_sem);
     return r->http_resolved ? 1 : 0;
-#endif
 }

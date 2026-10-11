@@ -22,11 +22,20 @@ esac
 # 缺失会导致 libbf.c bfdec_* undefined reference；_GNU_SOURCE 对齐官方 DEFINES）
 DEFS=(-D_GNU_SOURCE -DCONFIG_BIGNUM -DCONFIG_VERSION="\"$(cat "$QJS/VERSION" 2>/dev/null || echo 2024-01-13)\"")
 LIBS=()
-if [ "$EXT" = "dylib" ] || [ "$EXT" = "so" ]; then
+LDFLAGS=()
+if [ "$EXT" = "dylib" ]; then
   LIBS=(-lm)
+  # @rpath 安装名 → App Bundle 的 Contents/Frameworks 经 rpath 命中（对齐 bundle-jsc-macos.sh）
+  LDFLAGS=(-Wl,-install_name,@rpath/libvbox_quickjs.dylib)
+elif [ "$EXT" = "so" ]; then
+  LIBS=(-lm)
+elif [ "$EXT" = "dll" ]; then
+  # mingw-w64（QuickJS 依赖 __int128/__attribute__，MSVC 无法编译）：静态链
+  # winpthread / libgcc，避免随包分发 libwinpthread-1.dll / libgcc_s_*.dll。
+  LIBS=(-static-libgcc -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
 fi
 
-"$CC" -shared -fPIC -O2 "${DEFS[@]}" -I "$QJS" -o "$OUT/libvbox_quickjs.$EXT" \
+"$CC" -shared -fPIC -O2 "${DEFS[@]}" -I "$QJS" "${LDFLAGS[@]}" -o "$OUT/libvbox_quickjs.$EXT" \
   "$ROOT/quickjs/wrapper.c" \
   "$QJS/quickjs.c" \
   "$QJS/cutils.c" \

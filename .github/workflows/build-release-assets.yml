@@ -210,6 +210,22 @@ jobs:
         shell: pwsh
         run: .\scripts\bundle-node-windows.ps1 -Config Release
 
+      # G-03-B：QuickJS JS 引擎随 release 目录分发。域层 `_effectiveEngineType`
+      # 将 JS 站点（javaScriptCore）映射为 quickJS（见 content_browse_usecases.dart），
+      # 故桌面端 JS 蜘蛛依赖 libvbox_quickjs；此前从未随包分发 → 切源分类无数据、
+      # 报「QuickJs 原生库未打包」。QuickJS 依赖 GCC 扩展（__int128/__attribute__，
+      # MSVC 不可编译）→ 用 MSYS2 mingw-w64 gcc 编译 vbox_quickjs.dll。
+      - name: Setup MSYS2 (mingw-w64 gcc for QuickJS)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc
+
+      - name: Bundle QuickJS dll into release dir (G-03-B)
+        shell: pwsh
+        run: .\scripts\bundle-quickjs-windows.ps1 -Config Release
+
       - name: Resolve version from pubspec
         id: version
         shell: bash
@@ -293,6 +309,12 @@ jobs:
       # 探测链 ② 落点）——须在统一 re-sign 之前（re-sign 覆盖嵌套二进制签名）。
       - name: Bundle Node engine into app (ND-02)
         run: bash scripts/bundle-node-macos.sh --config Release
+
+      # G-03-B：QuickJS JS 引擎随 App 分发（Contents/Frameworks，rpath 解析）。
+      # 域层将 JS 站点映射为 quickJS，桌面端 JS 蜘蛛依赖 libvbox_quickjs。
+      # 须在统一 re-sign 之前（本步自签 dylib+App，末段 re-sign 再统一覆盖）。
+      - name: Bundle QuickJS dylib into app (G-03-B)
+        run: bash scripts/bundle-quickjs-macos.sh --config Release
 
       - name: Ad-hoc re-sign app (S.6 侧载，未公证)
         run: |

@@ -20,5 +20,14 @@
       "file": "libmpv-windows-x86_64-0.0.1.dll",
       "sha256": "0d5b9dbecb73e179ef39dc94314ff8905fab926a80f8d60a2367d824b7254e2e"
     }
-  ]
+  ],
+  "windows_vulkan_loader": {
+    "description": "Windows 侧 mpv-2.dll 硬导入 vulkan-1.dll（objdump -p 确认），而非保证预装的系统组件（由 GPU 驱动安装）。无独显驱动 / 虚拟机的机器缺失该 loader → LoadLibraryW(\"mpv-2.dll\") 报 ERROR_MOD_NOT_FOUND（158）→ 桌面端大量视频播不出。随包分发 Khronos/LunarG 官方 Vulkan Runtime 内的 x64 vulkan-1.dll（Apache-2.0，可再分发；loader 从注册表枚举 ICD，无驱动时 mpv 优雅退化为 d3d11，不影响播放）。",
+    "version": "1.4.363.0",
+    "url": "https://sdk.lunarg.com/sdk/download/1.4.363.0/windows/vulkan-runtime-components.zip",
+    "file": "vulkan-runtime-components-1.4.363.0.zip",
+    "inner_glob": "*/x64/vulkan-1.dll",
+    "sha256_zip": "a25a927aa8b9f0371048f1861cf88ac3b9bc9b1fb332c42d897c8ab32695769a",
+    "sha256_dll": "e1fcfc9489beefa6a6d9d11d6c7517f6a2b7f16e0d3fb8f4103bee0210f314a3"
+  }
 }

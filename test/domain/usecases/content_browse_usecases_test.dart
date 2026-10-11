@@ -52,7 +52,10 @@ class _FakeSpiderEngine implements SpiderEngine {
   }
 
   @override
-  Future<void> registerSpider() async => calls.add('registerSpider');
+  Future<void> registerSpider() async {
+    calls.add('registerSpider');
+    ready = true; // 注册成功即就绪（对齐真实引擎语义）
+  }
 
   @override
   bool get isSpiderReady => ready;
@@ -372,6 +375,39 @@ void main() {
       expect(r.isSuccess, isTrue, reason: '${r.failureOrNull}');
       expect(engine.calls, contains('categoryContent:9:2'));
       expect(engine.calls, isNot(contains('dispose')));
+    });
+
+    test('jsSpider 站点：按 QuickJS 顶替加载脚本（回归：脚本必须下载）', () async {
+      // 回归：`_prepareEngine` 曾用 `site.resolveEngineType()`（jsSpider →
+      // javaScriptCore）判定脚本加载分支 → 分支被跳过 → 脚本不下载、
+      // __JS_SPIDER__ 未注册 → 切源分类无数据。改用 effective 引擎类型后修复。
+      final _FakeSpiderEngine engine = _FakeSpiderEngine(
+        SpiderEngineType.quickJS,
+        categoryResult: CategoryContentResult(
+          page: 1,
+          list: <VodItem>[
+            VodItem.fromJson(
+                <String, Object?>{'vod_id': '1', 'vod_name': '片', 'vod_pic': ''}),
+          ],
+        ),
+      );
+      engine.ready = false; // 强制走脚本加载分支
+      final _FakeSpiderEngineFactory factory = _FakeSpiderEngineFactory(engine);
+      final ContentBrowseUseCases uc = ContentBrowseUseCases(
+        loadAllSources: () async => Success<AllSourcesContainer>(
+          buildContainer(<Map<String, Object?>>[
+            siteJson(key: 'js_x', type: 3, api: 'https://js.example.com/spider.js'),
+          ]),
+        ),
+        engineFactory: factory,
+      );
+      final Result<CategoryContentResult> r =
+          await uc.categoryContent('js_x', tid: '1');
+      expect(r.isSuccess, isTrue, reason: '${r.failureOrNull}');
+      expect(factory.createdTypes.single, SpiderEngineType.quickJS);
+      expect(engine.calls, contains('loadScriptFromURL'));
+      expect(engine.loadedUrl, 'https://js.example.com/spider.js');
+      expect(engine.calls, contains('registerSpider'));
     });
   });
 
