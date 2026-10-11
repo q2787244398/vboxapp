@@ -26,36 +26,39 @@ if (-not $OutDir) {
 }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-# ── 定位 MSYS2 bash + mingw-w64 gcc ──
-# 关键：必须在**含 mingw gcc 的那个** MSYS2 根下编译。GitHub 镜像可能自带一个
-# C:\msys64（无 gcc），而 msys2/setup-msys2 安装的带 gcc 实例未必同根 —— 若只按
-# 路径存在性挑 bash，会挑到无 gcc 的根，报「x86_64-w64-mingw32-gcc: command not
-# found」。故按「该根下存在 mingw64\bin\x86_64-w64-mingw32-gcc.exe」逐个校验，
-# 命中的根即为编译根。
-# 候选顺序：PATH 上的 bash（setup-msys2 会把其 usr\bin 前置）→ 常见位置 → 环境变量。
-# 外层 @() 强制数组：Where-Object 仅命中一项时管道结果会被解包为字符串。
-$candidates = @(
-    @(
-        (Get-Command bash.exe -ErrorAction SilentlyContinue).Source,
-        "C:\msys64\usr\bin\bash.exe",
-        "C:\tools\msys64\usr\bin\bash.exe",
-        $env:MSYS2_BASH
-    ) | Where-Object { $_ -and (Test-Path $_) }
-)
-$bash = $null
-$msysRoot = $null
-foreach ($c in $candidates) {
-    # MSYS2 根由 bash 路径反推（<root>\usr\bin\bash.exe）
-    $r = Split-Path (Split-Path (Split-Path $c -Parent) -Parent) -Parent
-    if (Test-Path (Join-Path $r "mingw64\bin\x86_64-w64-mingw32-gcc.exe")) {
-        $bash = $c
-        $msysRoot = $r
-        break
+# ── 定位 MSYS2 根（含 mingw-w64 gcc）──
+# 关键：msys2/setup-msys2 把 MSYS2 解压到**动作私有目录**（如
+# D:\a\_temp\setup-msys2\msys64），与镜像自带的 C:\msys64 **不是同一个根**（后者
+# 无 gcc）—— 只按常见路径挑 bash 会挑到无 gcc 的根，报
+# 「x86_64-w64-mingw32-gcc: command not found」。
+# 优先级：① workflow 用 `shell: msys2 {0}` 探测并写入的 MSYS2_ROOT
+# （cygpath -w /）；② PATH 里的 MSYS2 目录（usr\bin / mingw64\bin 的父目录）；
+# ③ 常见位置；④ MSYS2_BASH 反推。
+# 逐个校验「该根下存在 mingw64\bin\x86_64-w64-mingw32-gcc.exe」，命中即编译根。
+function Test-MsysRoot([string]$r) {
+    return [bool]($r) -and (Test-Path (Join-Path $r "mingw64\bin\x86_64-w64-mingw32-gcc.exe"))
+}
+$rootCandidates = New-Object System.Collections.Generic.List[string]
+if ($env:MSYS2_ROOT) { $rootCandidates.Add($env:MSYS2_ROOT) }
+foreach ($p in ($env:PATH -split ';')) {
+    if (-not $p) { continue }
+    if ($p.TrimEnd('\') -match '^(?<root>.+[\\/]msys64)[\\/](usr[\\/]bin|mingw64[\\/]bin)$') {
+        $rootCandidates.Add($matches['root'])
     }
 }
-if (-not $bash) {
-    throw "未找到含 mingw-w64 gcc 的 MSYS2 bash（候选：$($candidates -join '; ')）。CI 需 msys2/setup-msys2 安装 mingw-w64-x86_64-gcc。"
+foreach ($c in @("C:\msys64", "C:\tools\msys64")) { $rootCandidates.Add($c) }
+if ($env:MSYS2_BASH) {
+    $rootCandidates.Add((Split-Path (Split-Path (Split-Path $env:MSYS2_BASH -Parent) -Parent) -Parent))
 }
+$msysRoot = $null
+foreach ($r in $rootCandidates) {
+    if (Test-MsysRoot $r) { $msysRoot = $r; break }
+}
+if (-not $msysRoot) {
+    $uniq = (@($rootCandidates) | Select-Object -Unique) -join '; '
+    throw "未找到含 mingw-w64 gcc 的 MSYS2 根（候选：$uniq）。CI 需 msys2/setup-msys2 安装 mingw-w64-x86_64-gcc，并在其前用 ``shell: msys2 {0}`` 步骤写入 MSYS2_ROOT。"
+}
+$bash = Join-Path $msysRoot "usr\bin\bash.exe"
 Write-Host "🧰 MSYS2 根：$msysRoot"
 
 # Windows 路径 → MSYS2 POSIX 路径（C:\a\b → /c/a/b）

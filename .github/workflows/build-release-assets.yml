@@ -222,6 +222,11 @@ jobs:
           update: false
           install: mingw-w64-x86_64-gcc
 
+      # 见 build-quickjs.yml：探测 setup-msys2 真实安装根，供 PS 脚本定位 gcc。
+      - name: Resolve MSYS2 root
+        shell: msys2 {0}
+        run: echo "MSYS2_ROOT=$(cygpath -w /)" >> "$GITHUB_ENV"
+
       - name: Bundle QuickJS dll into release dir (G-03-B)
         shell: pwsh
         run: .\scripts\bundle-quickjs-windows.ps1 -Config Release

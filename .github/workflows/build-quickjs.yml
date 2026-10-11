@@ -89,6 +89,13 @@ jobs:
           update: false
           install: mingw-w64-x86_64-gcc
 
+      # setup-msys2 把 MSYS2 解压到动作私有目录（未必是镜像自带的 C:\msys64），
+      # 经其自带 msys2 shell 用 cygpath 探测真实安装根并写入 MSYS2_ROOT，
+      # 供 build-quickjs-windows.ps1 定位 mingw-w64 gcc。
+      - name: 🧭 Resolve MSYS2 root
+        shell: msys2 {0}
+        run: echo "MSYS2_ROOT=$(cygpath -w /)" >> "$GITHUB_ENV"
+
       - name: 🏗️ Build + 符号冒烟 vbox_quickjs.dll
         shell: pwsh
         run: .\scripts\build-quickjs-windows.ps1
