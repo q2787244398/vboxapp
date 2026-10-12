@@ -354,7 +354,8 @@ void main() {
   });
 
   testWidgets('I-05：关于分区展示版本号 + 检查更新入口', (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(390, 2400);
+    // G-09 后订阅配置区块新增内联远程源编辑区，页面总高增加，视口需相应放大。
+    tester.view.physicalSize = const Size(390, 3400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
@@ -363,5 +364,57 @@ void main() {
 
     expect(find.text('版本'), findsOneWidget);
     expect(find.text('检查更新'), findsOneWidget);
+  });
+
+  testWidgets('G-09：订阅配置区块内联远程默认源编辑区（无需进入子页）',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_page(UiFormController()));
+    await tester.pumpAndSettle();
+
+    // 内联编辑区齐备（对齐 iOS subscriptionSection：开关 + 地址 + 按钮 + 状态行）。
+    expect(find.text('启用远程默认源'), findsOneWidget);
+    expect(find.text('默认源地址'), findsOneWidget);
+    expect(find.text('manifest.json 地址'), findsOneWidget);
+    expect(find.text('刷新远程源'), findsOneWidget);
+    expect(find.text('清缓存'), findsOneWidget);
+    expect(find.textContaining('配置版本：'), findsOneWidget);
+    // 双模式兼容行（对齐 iOS 同区块独立开关）。
+    expect(find.text('双模式兼容'), findsOneWidget);
+    expect(_switchInRow('双模式兼容'), findsOneWidget);
+
+    // 内联区块的启用开关可直接切换（区块自带 Switch，非导航行）。
+    final Finder inlineSwitch = find.descendant(
+      of: find.ancestor(
+        of: find.text('启用远程默认源'),
+        matching: find.byType(Row),
+      ),
+      matching: find.byType(Switch),
+    );
+    expect(inlineSwitch, findsOneWidget);
+    final bool before =
+        tester.widget<Switch>(inlineSwitch).value;
+    await tester.tap(inlineSwitch);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Switch>(inlineSwitch).value, !before);
+  });
+
+  testWidgets('G-09：双模式兼容开关 → 写入契约键 enable_dual_mode',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_page(UiFormController()));
+    await tester.pumpAndSettle();
+
+    // 契约缺省 true（对齐 iOS `SpiderManager.enableDualMode` 默认开）。
+    await tester.tap(_switchInRow('双模式兼容'));
+    await tester.pumpAndSettle();
+
+    expect(await prefs.getBool('enable_dual_mode'), isFalse);
   });
 }

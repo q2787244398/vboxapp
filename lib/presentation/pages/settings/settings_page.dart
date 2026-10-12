@@ -37,6 +37,7 @@ import '../../ui_mode/ui_mode.dart';
 import '../../widgets/backup_page.dart';
 import '../../widgets/library_views.dart';
 import '../../widgets/log_viewer_page.dart';
+import '../../widgets/settings/remote_default_source_section.dart';
 import '../../widgets/update/update_sheet.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../cloud/auth_center.dart';
@@ -65,6 +66,9 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _searchDebug = false;
   bool _logEnabled = false;
 
+  /// 双模式兼容（契约键 `enable_dual_mode`，默认开；对齐 iOS `SpiderManager.enableDualMode`）。
+  bool _dualMode = true;
+
   /// 站点总数（G-08 站点诊断入口副文本；来自 `ContentBrowseUseCases.listSites()`）。
   int _siteTotal = 0;
 
@@ -92,6 +96,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final String url = await prefs.getString('custom_danmaku_source_url');
     final bool debug = await prefs.getBool('show_search_debug');
     final bool log = await prefs.getBool('app_log_enabled');
+    final bool dualMode = await prefs.getBool('enable_dual_mode');
     final String tgProxy =
         await prefs.getString(TGSearchConfigStore.proxyUrlKey);
     final Result<List<SiteConfig>> sites = await browse.listSites();
@@ -104,6 +109,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _danmakuUrl.text = url;
       _searchDebug = debug;
       _logEnabled = log;
+      _dualMode = dualMode;
       _tgProxy.text = tgProxy;
       _siteTotal = sites.valueOrNull?.length ?? 0;
       _zhanyuanActive = active;
@@ -420,9 +426,15 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  /// 订阅配置（管理订阅源入口；对齐 iOS `subscriptionSection`，批次 G · G-07）。
+  /// 订阅配置（对齐 iOS `subscriptionSection`，批次 G · G-07 / G-09）。
+  ///
+  /// iOS 端该区块 = 「管理订阅源」入口 + **远程默认源内联编辑区**（开关 /
+  /// 默认源地址 / 刷新 / 清缓存 / 版本状态，无需进入子页）+ 「双模式兼容」
+  /// 开关；Flutter 侧原仅落地订阅源入口、远程源设置藏在「工具 → 远程源」
+  /// 子页（G-09 对齐：内联区块补入设置页，远程源页共用同一区块组件）。
   Widget _subscribeSection() {
     final SubscribeConfigStore store = context.watch<SubscribeConfigStore>();
+    final PrefsManager prefs = PrefsManager.instance;
     return VboxSettingsSection(
       title: '订阅配置',
       children: <Widget>[
@@ -433,6 +445,23 @@ class _SettingsPageState extends State<SettingsPage> {
           icon: Icons.list_alt,
           iconColor: VboxColors.skinPrimaryRose,
           onTap: () => _push(const SubscribeConfigPage()),
+        ),
+        // 远程默认源内联编辑区（对齐 iOS 远程源区块，与远程源页共用）。
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: VboxSpacing.md),
+          child: RemoteDefaultSourceSection(),
+        ),
+        // 双模式兼容（对齐 iOS 同区块独立行：type=3 HTTP 接口走原生搜索）。
+        VboxSettingsRow.toggle(
+          title: '双模式兼容',
+          subtitle: 'type=3 HTTP接口走原生搜索（重启生效）',
+          icon: Icons.sync,
+          iconColor: VboxColors.skinPrimaryRose,
+          value: _dualMode,
+          onChanged: (bool value) async {
+            setState(() => _dualMode = value);
+            await prefs.set('enable_dual_mode', value);
+          },
         ),
       ],
     );
