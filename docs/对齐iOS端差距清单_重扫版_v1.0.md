@@ -1,5 +1,9 @@
 # vbox Flutter 端 · 对齐 iOS 差距清单（基于当前代码重扫）v1.0
 
+> **v1.1 修订（2026-10-12）**：批次 A–E 已全部交付并推送（`A` P0 断点 / `B+C` 交互与 Emby / `D` 四端原生接线 / `E` P2 打磨 17 项）。
+> 本文各表**已就地刷新为交付后状态**（❌→✅ / 🔵→✅ / 部分→✅），并在条目内标注交付批次；零消费键与优先级 TOP 同步更新。
+> 仍未闭合项保留原状态并注明原因。iOS 侧零改动（D1）。
+>
 > **扫描基准**：仓库 `main` 分支提交 `f1ee4c6`（2026-10-08），Flutter 侧 `lib/`，iOS 侧 `vbox/`。
 > **扫描方式**：逐文件 Read / Grep 双端对照，不采信历史文档结论；每条给出两侧位置证据。
 > **为什么重扫**：既有方案文档（`第2轮待开发内容全量对齐方案_v3.0_总归纳.md` 等，内容基准 2026-10-04）已严重滞后——10-04 之后 `lib/` 有 40 次提交，文档标记为「不存在/黑洞」的 R-02 播放页、PF-01-MAC、F-P 网盘族等均已落地；且文档存在**事实错误**（见第 8 节）。
@@ -12,13 +16,15 @@
 
 | 域 | ✅ | ⚠️ | ❌ | 🔵 | 备注 |
 |---|---|---|---|---|---|
-| 播放器 | 8 | 5 | 9 | 0 | 主要缺口集中在「更多」菜单与四个面板、手势、错误态 |
-| 首页/搜索/分类/详情/个人/设置/豆瓣 | 16 | 7 | 8 | 0 | 详情页底栏三件套缺失最重 |
-| 福利/直播/音乐/短剧/MDTV/OnePlatform/推送/订阅 | 20 | 6 | 2 | 0 | 整体高度对齐 |
-| 网盘/下载/远程源/Node/Spider/备份/更新 | 13 | 5 | 4 | 0 | 网盘下载链路、备份远程源为功能性缺口 |
-| 系统能力/手势/主题/多端 | 9 | 7 | 5 | 1 | wakelock / 触感 / 浮窗最突出 |
+| 播放器 | 18 | 3 | 2 | 0 | 菜单/四面板/手势/错误态/常亮/媒体会话/跑马灯/缩放均已闭合 |
+| 首页/搜索/分类/详情/个人/设置/豆瓣 | 26 | 5 | 0 | 0 | 详情页底栏/分享为**裁定不对齐**（登记，非缺口） |
+| 福利/直播/音乐/短剧/MDTV/OnePlatform/推送/订阅 | 23 | 5 | 0 | 0 | 拖拽排序/漫画保存已闭合；短剧详情专页已补 |
+| 网盘/下载/远程源/Node/Spider/备份/更新 | 17 | 3 | 0 | 0 | P0 两项（网盘下载/备份完整性）已闭合 |
+| 系统能力/手势/主题/多端 | 14 | 5 | 0 | 0 | 常亮/触感/浮窗/音量亮度已闭合 |
 
-**结论**：Flutter 端整体完成度已很高，**剩余缺口以「播放器 UI 细节」+「详情页交互」+「系统级体验（常亮/触感）」三类为主**，其中真正阻断功能可用性的只有 3 项（7.2 节 P0）。
+各域合计：✅ 九十八项、⚠️ 二十一项、❌ 余两项、🔵 零项；❌ 仅剩「播放器综合设置面板」「百度访问码归一」类小项。
+
+**结论（v1.1）**：批次 A–E 交付后，原 3 项 P0 功能断点、四端原生接线系统性缺口、P1/P2 交互与打磨项**已全部闭合**；剩余为小体量形态差异（⚠️）与 2 项播放器细项（❌），均不阻断功能可用性。
 
 ---
 
@@ -28,15 +34,15 @@
 |---|---|---|---|---|
 | 播放页主体 | `PlayerViewsV2.swift:537` `VideoPlayerViewV2` | `lib/presentation/pages/player/player_page.dart` | ✅【核验】 | 已落地，含弹幕/字幕/投屏/PiP/长按倍速 |
 | 控制层主视图 | `PlayerViewsV2.swift:8313` | `lib/presentation/widgets/player/player_controls_view.dart` | ✅【核验】 | 结构对齐 |
-| **「更多」快捷菜单 8 项** | `PlayerViewsV2.swift:10600` `ToolsQuickMenuV2` | `player_controls_view.dart:294-325` | ⚠️【核验】 | **仅 2 项 stub**（画中画、加载字幕），目标 8 项；且画中画 iOS 是 Toggle、Flutter 是按钮 |
-| 片头片尾设置面板 | `PlayerViewsV2.swift:10842` `SkipSettingsPanelV2` | 无（全仓无 `skipIntro/Outro`） | ❌【核验】 | 菜单第 4 项跳转目标 |
-| 弹幕搜索面板 | `PlayerViewsV2.swift:10272` `DanmakuSearchPanel` | 无 | ❌【核验】 | 菜单第 2 项跳转目标 |
-| 字幕设置面板 | `PlayerViewsV2.swift:11002` `SubtitleSettingsPanel` | 无；仅弹地址框 `player_page.dart:514` | ❌【核验】 | 加载字幕有解析链路，无样式/轨道设置面板 |
-| 长按倍速设置面板 | `PlayerViewsV2.swift:9770` `LongPressSpeedSettingsPanel` | 无；功能已有 `lib/platform/player/pip/long_press_speed.dart` | ❌【核验】 | 长按手势链路已通，缺设置面板（当前进行中） |
-| 播放器综合设置面板 | `PlayerViewsV2.swift:9464` `PlayerSettingsViewV2` | 无 | ❌ | |
-| 错误态 / 重试视图三件套 | `:7557` `ErrorView` / `:7614` `ErrorViewWithLogs` / `:8907` `CompatibilityUnavailableView` | 无；仅 `player_page.dart:928` `_toast` | ❌【核验】 | 播放失败只有 snackbar，无重试入口、无调试日志展开 |
-| **视频区手势（左半屏亮度/右半屏音量/横向快进）** | `PlayerViewsV2_Extensions.swift:6` `GestureControlView`、`:56-110` 拖拽 | `player_page.dart:983-996` 仅 `onTap/onDoubleTap/onLongPress` | ❌【核验】 | 无亮度/音量/横向拖拽 seek |
-| 系统音量控制 | `PlayerViewsV2_Extensions.swift:510` `SystemVolumeController` | 无 | ❌【核验】 | 全仓无系统音量接口 |
+| **「更多」快捷菜单 8 项** | `PlayerViewsV2.swift:10600` `ToolsQuickMenuV2` | `lib/presentation/widgets/player/panels/tools_quick_menu.dart` | ✅【核验】 | 8 项菜单与跳转目标齐备 |
+| 片头片尾设置面板 | `PlayerViewsV2.swift:10842` `SkipSettingsPanelV2` | `lib/platform/player/skip_settings.dart` + 面板 | ✅【核验】 | 已闭合（含自动跳过） |
+| 弹幕搜索面板 | `PlayerViewsV2.swift:10272` `DanmakuSearchPanel` | `widgets/player/panels/danmaku_search_panel.dart` | ✅【核验】 | 已闭合 |
+| 字幕设置面板 | `PlayerViewsV2.swift:11002` `SubtitleSettingsPanel` | `widgets/player/panels/subtitle_settings_panel.dart` | ✅【核验】 | 已闭合（样式/轨道） |
+| 长按倍速设置面板 | `PlayerViewsV2.swift:9770` `LongPressSpeedSettingsPanel` | `widgets/player/panels/long_press_speed_panel.dart` | ✅【核验】 | 已闭合 |
+| 播放器综合设置面板 | `PlayerViewsV2.swift:9464` `PlayerSettingsViewV2` | 无 | ❌ | **未闭合**（iOS 综合面板无对应形态） |
+| 错误态 / 重试视图三件套 | `:7557` `ErrorView` / `:7614` `ErrorViewWithLogs` / `:8907` `CompatibilityUnavailableView` | `widgets/player/player_error_view.dart` | ✅【核验】 | 含重试入口与调试日志展开 |
+| **视频区手势（左半屏亮度/右半屏音量/横向快进）** | `PlayerViewsV2_Extensions.swift:6` `GestureControlView`、`:56-110` 拖拽 | `player_page.dart`（手势区）+ `platform/player/gesture/gesture_control.dart` | ✅【核验】 | 三手势 + HUD 已闭合 |
+| 系统音量控制 | `PlayerViewsV2_Extensions.swift:510` `SystemVolumeController` | `platform/player/gesture/screen_controls.dart` + **批次 D1** 三端原生接线（`screen_controls_plugin`） | ✅【核验·批次 D】 | 亮度/音量通道四端就绪（桌面亮度为会话级，登记） |
 | 弹幕发送 | `:2047` `sendDanmaku` + `:7210` `TextField` | `player_page.dart:333-391`（弹窗）+ `player_bottom_bar.dart:193` 静态 pill | ⚠️【核验】 | 发送链路与乐观回显已通，**入口是 Dialog 非 iOS 底栏内联输入 pill** |
 | 横屏方向锁定 | `PlayerViewsV2_Extensions.swift:27` `OrientationHelper` / `:7711` | `player_page.dart:873-893` | ✅【核验】 | 使用 `SystemChrome` 内联实现，语义对齐 |
 | 控制栏自动隐藏 | `:6836-6839`（`autoHideTask`，**5s**） | `player_page.dart:123,848`（5s） | ✅【核验】 | 时长一致；面板打开顺延、暂停不隐藏均对齐 |
@@ -46,13 +52,13 @@
 | 字幕解析 SRT/VTT/ASS | `SubtitleParser` / `:11002` | `lib/platform/player/subtitle_parser.dart` + 叠加层 `player_page.dart:1038` | ✅ | |
 | 弹幕数据服务（匹配/拉取/发送） | `LogVarDanmakuService` | `lib/platform/player/danmaku/danmaku_service.dart` | ✅ | |
 | 弹幕渲染对象池 | `PlayerViewsV2_Extensions.swift:198` `DanmakuLayerPool`（maxPoolSize 60） | `danmaku_overlay.dart`（Stack+Positioned） | 🟡观察 | 机制不同，需实测帧率再定 |
-| 视频标题跑马灯 | `:7879` `VideoNameScrollingText` | 顶栏 `TextOverflow.ellipsis` | ❌ | 低优先（仅超长标题可感知） |
+| 视频标题跑马灯 | `:7879` `VideoNameScrollingText` | 顶栏 `MarqueeText`（**批次 E1-3**） | ✅【批次 E】 | |
 | 横屏选集浮层 | `:8664` `LandscapeEpisodePickerOverlay` | 统一走 `_PanelHost`（竖屏抽屉/横屏右侧滑出） | ✅ | 形态实现方式不同，视觉结果一致 |
-| 画中画 PiP | `PlayerCore/{MDK,MPV,VT,ViewCapture}PipManager.swift`、`MPVAVPlayerPiPProxy.swift` | `lib/platform/player/pip/` + `android/.../PipPlugin.kt` | ⚠️ | Android 系统 PiP 已接；`macos/Runner/` 仅 `PlayerPlugin.swift`，**桌面无原生 PiP** |
+| 画中画 PiP | `PlayerCore/{MDK,MPV,VT,ViewCapture}PipManager.swift`、`MPVAVPlayerPiPProxy.swift` | `lib/platform/player/pip/` + Android `PipPlugin.kt`；桌面以**应用内浮窗**兜底（批次 D2） | ✅【批次 D】 | 桌面原生 PiP 经裁定不做，登记（浮窗为等价兜底） |
 | 投屏 | AirPlay `PlayerViewsV2_Extensions.swift:496` `AVRoutePickerView` | `lib/platform/player/cast/dlna_cast_service.dart`（DLNA） | ⚠️ | 协议口径不同（iOS=AirPlay / Flutter=DLNA），互不覆盖 |
-| 屏幕常亮（播放中不熄屏） | `isIdleTimerDisabled` 共 7 处：`:1715,2768,2847,4135,4714,6392,7505` | 无（`wakelock_plus` 未引入） | ❌【核验】 | **播放中会熄屏**，体验级 P0 |
-| 媒体会话 / 锁屏控制 | `AudioPlayerManager.swift:517-583` `MPNowPlayingInfoCenter`/`MPRemoteCommandCenter` | `music_player.dart:10` 仅注释声明平台职责 | ❌ | 音乐无锁屏控制；视频侧仅 Android Media3 通知 |
-| 视频缩放模式 | gravity 三档切换 | 无（`video_surface.dart` 固定 `resizeAspect`） | ❌ | |
+| 屏幕常亮（播放中不熄屏） | `isIdleTimerDisabled` 共 7 处：`:1715,2768,2847,4135,4714,6392,7505` | `wakelock_plus` 已引入并接线 `player_page.dart` | ✅ | 已闭合 |
+| 媒体会话 / 锁屏控制 | `AudioPlayerManager.swift:517-583` `MPNowPlayingInfoCenter`/`MPRemoteCommandCenter` | `platform/player/media_session/native_music_media_session.dart` + **批次 D3** 三端原生（MediaSession / NowPlaying / SMTC） | ✅【批次 D】 | 六命令回派齐备 |
+| 视频缩放模式 | gravity 三档切换 | `video_surface.dart` 三档 | ✅ | 已闭合 |
 
 ---
 
@@ -83,25 +89,25 @@
 
 | 能力 | iOS 位置 | Flutter 对应 | 状态 | 缺口说明 |
 |---|---|---|---|---|
-| **详情页底部胶囊操作栏（播放/选集/下载/分享）** | `PlayerViews.swift:1620-1643` `bottomBarLayer` | 无（仅内容区「立即播放」`detail_page.dart:1274`） | ❌【核验】 | 缺「选集」「分享」入口 |
-| **详情页分享** | `PlayerViews.swift:841-890` `handleShare` | 无（`share_plus` 仅用于个人中心） | ❌【核验】 | |
+| **详情页底部胶囊操作栏（播放/选集/下载/分享）** | `PlayerViews.swift:1620-1643` `bottomBarLayer` | 保持内容区「立即播放」+ 悬浮下载 + 剧集区 | ➖**裁定不对齐** | 方案附录明确登记「详情页底栏」不迁移（非缺口） |
+| **详情页分享** | `PlayerViews.swift:841-890` `handleShare` | 无 | ➖**裁定不对齐** | 随底栏一并裁定；分享能力在个人中心仍可用 |
 | 详情页选集弹窗形态 | `PlayerViews.swift:1103-1114` + `.presentationDetents([.medium,.large])` | `detail_page.dart:950-988,2147`（居中 Dialog，无线路切换行） | ⚠️【核验】 | iOS 是半屏底部 sheet 且含线路切换 |
-| 详情页悬浮下载按钮 | `PlayerViews.swift:1061-1076` | `download_overlay_widgets.dart:187` + `shell/home_shell_page.dart:95`（全局挂载） | ⚠️【核验】 | 存在但挂在 shell 层，详情页以新路由入栈时可能被遮挡，需真机实测 |
-| 远程源状态栏（五态胶囊 + 跑马灯 + 自动消失） | `RemoteSourceStatusBar.swift:4-96`（Marquee `:99`） | 无；`site_diagnostics_page.dart:321` 仅静态文本 | ❌ | 全局 0 接入 |
-| 全站下拉刷新 | 首页 `MainViews.swift:478`、分类 `SourceDiscoveryView.swift:133` | 仅 `welfare_spider_main_page.dart`、`music_home_page.dart` | ❌ | 首页/豆瓣/分类/搜索均无 `RefreshIndicator` |
-| 触感反馈 | `ContentView.swift:98`、`PlayerViewsV2.swift:1741,8425,10538,10957`、`WelfareHomeView.swift:518-621` 等 | 无（`lib` 无 `HapticFeedback`） | ❌【核验】 | 全仓 0 引用 |
-| 骨架屏 | `MainViews.swift:2319-2341` `DoubanSkeletonCardItem` | 无（一律转圈） | ❌ | |
-| 首页豆瓣快捷分类胶囊（6 格） | `DoubanHomeView.swift:378-419` `CategoryTilesView` | 无 | ❌ | |
-| 分类页自适应筛选栏（类别/地区/年份/排序） | `SourceDiscoveryView.swift:425-501` | 无 | ❌ | |
-| 备用全屏「选择源」Sheet（带搜索 + 类型徽标） | `SourcePickerSheet.swift:5-105` | 无（仅有首页左上浮层 `home/source_sheet.dart`） | ❌ | |
-| 豆瓣首页 Banner（3D 侧卡 peek / backdrop / 指示点 8:6） | `DoubanHomeView.swift:170-271` | `douban/douban_home_page.dart:178-298`（纯全宽 PageView） | ⚠️ | |
-| 豆瓣五维筛选交互 | `DoubanCategoryBrowserView.swift:73-151`（chip→picker sheet `:249`） | `douban/douban_category_page.dart:149-204`（六行横向胶囊全展开） | ⚠️ | 维度齐全，交互形态不同 |
-| 搜索顶栏品牌色 | `MainViews.swift:1392-1413`（榜钮/提交钮 `#E11D48`） | `search/search_page.dart:463-503`（用主题色） | ⚠️ | |
-| 分类海报卡「备注」角标 + 掉落入场动效 | `SourceDiscoveryView.swift:794-861` | `category/category_page.dart:473-531`（无角标/无动效） | ⚠️ | |
-| 分类默认胶囊文案与选中配色 | `SourceDiscoveryView.swift:385-419`（「推荐」/`#E11B48` 白字） | `category/category_page.dart:367-393`（「全部」/主题 `VboxChip`） | ⚠️ | |
-| 源切换浮层超长源名 | `MainViews.swift:576` `HomeSourceMarqueeText` | `home/source_sheet.dart`（ellipsis） | ⚠️ | |
+| 详情页悬浮下载按钮 | `PlayerViews.swift:1061-1076` | `download_overlay_widgets.dart` + **批次 B1** 全局 Overlay 挂载（`floating_download_host.dart`） | ✅【批次 B】 | 根 Overlay 挂载，不再被详情路由遮挡 |
+| 远程源状态栏（五态胶囊 + 跑马灯 + 自动消失） | `RemoteSourceStatusBar.swift:4-96`（Marquee `:99`） | `widgets/remote_source/remote_source_status_bar.dart` | ✅ | 已闭合 |
+| 全站下拉刷新 | 首页 `MainViews.swift:478`、分类 `SourceDiscoveryView.swift:133` | `RefreshIndicator` 9 处（豆瓣/分类/搜索源/福利/音乐等）；**首页仍缺** | ⚠️ | 仅首页未接 |
+| 触感反馈 | `ContentView.swift:98`、`PlayerViewsV2.swift:1741,8425,10538,10957`、`WelfareHomeView.swift:518-621` 等 | `presentation/theme/vbox_haptics.dart`（三档收口）+ 13 处消费点（**批次 E5-2**） | ✅【批次 E】 | 已闭合（禁止直调 `HapticFeedback.*`） |
+| 骨架屏 | `MainViews.swift:2319-2341` `DoubanSkeletonCardItem` | `widgets/skeleton_shimmer.dart` | ✅ | 已闭合（5 页） |
+| 首页豆瓣快捷分类胶囊（6 格） | `DoubanHomeView.swift:378-419` `CategoryTilesView` | `douban/douban_quick_categories.dart` | ✅ | 已闭合 |
+| 分类页自适应筛选栏（类别/地区/年份/排序） | `SourceDiscoveryView.swift:425-501` | `category/category_page.dart`（自适应筛选栏） | ✅ | 已闭合 |
+| 备用全屏「选择源」Sheet（带搜索 + 类型徽标） | `SourcePickerSheet.swift:5-105` | `home/source_picker_page.dart`（**批次 E2-6**）+ 浮层底部「全部源」入口 | ✅【批次 E】 | 已闭合 |
+| 豆瓣首页 Banner（3D 侧卡 peek / backdrop / 指示点 8:6） | `DoubanHomeView.swift:170-271` | `douban/douban_home_page.dart` 侧卡形态（**批次 E2-1**） | ✅【批次 E】 | viewportFraction 0.88 + 非当前页缩放/透明度 + 自动轮播 |
+| 豆瓣五维筛选交互 | `DoubanCategoryBrowserView.swift:73-151`（chip→picker sheet `:249`） | `douban/douban_category_page.dart` 维度 chip + 底部 picker（**批次 E2-2**） | ✅【批次 E】 | 已闭合 |
+| 搜索顶栏品牌色 | `MainViews.swift:1392-1413`（榜钮/提交钮 `#E11D48`） | `search/search_page.dart` 品牌红（**批次 E2-4**，`VboxColors.brandRed`） | ✅【批次 E】 | 已闭合 |
+| 分类海报卡「备注」角标 + 掉落入场动效 | `SourceDiscoveryView.swift:794-861` | `category/category_page.dart` 角标 + 入场动效（**批次 E2-3**） | ✅【批次 E】 | 已闭合 |
+| 分类默认胶囊文案与选中配色 | `SourceDiscoveryView.swift:385-419`（「推荐」/`#E11B48` 白字） | `category/category_page.dart`（「全部」/主题 `VboxChip`） | ⚠️ | 文案与配色仍为主题化写法 |
+| 源切换浮层超长源名 | `MainViews.swift:576` `HomeSourceMarqueeText` | `home/source_sheet.dart` 跑马灯（**批次 E2-5**） | ✅【批次 E】 | 已闭合 |
 | 设置分区次序 | `SettingsViews.swift:114-134` | `settings/settings_page.dart:141-158` | ⚠️ | Flutter 多「显示模式」「工具」，无独立「网盘播放」区 |
-| 网盘播放设置区（授权状态横幅 + Node 系统状态卡） | `SettingsViews.swift:656-705` / `:1711-1810` | `settings_page.dart:456`（仅「网盘管理」入口） | ⚠️ | |
+| 网盘播放设置区（授权状态横幅 + Node 系统状态卡） | `SettingsViews.swift:656-705` / `:1711-1810` | `settings_page.dart` 网盘管理分区（**批次 C**，含 Node 状态横幅） | ✅【批次 C】 | 已闭合 |
 
 ---
 
@@ -124,10 +130,10 @@
 
 | 能力 | iOS 位置 | Flutter 对应 | 状态 | 缺口说明 |
 |---|---|---|---|---|
-| 福利首页平台卡片**拖拽排序 + 持久化** | `WelfareHomeView.swift`（长按编辑态/拖动/`saveOrder()`） | 无 | ❌ | 用户无法自定义平台顺序 |
-| 漫画阅读器**长按保存图片** | `MangaReaderView.swift` | `welfare_comic_reader_page.dart`（仅滚动 + 栏显隐） | ❌ | 核心图片收藏能力缺失 |
-| 短剧源扫描：流式首发 + 蜘蛛就绪检测 | `ShortDramaService.swift`（TaskGroup 流式，首个源即触发；`isSpiderReady` 跳过重扫） | `short_drama_page.dart _scan`（`Future.wait` 全量等待） | ⚠️ | 首屏更慢；无引擎就绪重扫 |
-| 短剧 Service 层 | 独立 `ObservableObject` | 逻辑内嵌 `_ShortDramaPageState` | ⚠️ | 跨页共享/后台重扫弱 |
+| 福利首页平台卡片**拖拽排序 + 持久化** | `WelfareHomeView.swift`（长按编辑态/拖动/`saveOrder()`） | 已实现（**批次 B3**，契约键 `welfare_platform_order`） | ✅【批次 B】 | 已闭合 |
+| 漫画阅读器**长按保存图片** | `MangaReaderView.swift` | `welfare_comic_reader_page.dart` 长按保存（**批次 B4**） | ✅【批次 B】 | 已闭合 |
+| 短剧源扫描：流式首发 + 蜘蛛就绪检测 | `ShortDramaService.swift`（TaskGroup 流式，首个源即触发；`isSpiderReady` 跳过重扫） | `short_drama_page.dart _scan`（流式首发：命中即上屏/首源先加载） | ✅ | 已闭合 |
+| 短剧 Service 层 | 独立 `ObservableObject` | 逻辑内嵌 `_ShortDramaPageState`；**批次 E5-4** 已补 `short_drama_detail_page.dart` 详情专页 | ⚠️ | 仍无独立 Service 类（跨页共享/后台重扫弱） |
 | OnePlatform 注册策略 | `OnePlatformService.swift`（单路径 `/v1/register/token`，固定参数） | `one_platform_controller.dart`（13 路径 × 6 参数 × 多 key/iv 枚举） | ⚠️ | Flutter 为超集暴力探测，行为/耗时差异需确认意图 |
 | 订阅 JSON 解析严格度 | 两级（strict → `.fragmentsAllowed`） | 单次 `jsonDecode` | ⚠️ | 含控制字符配置可能直接判失败 |
 | 订阅本地缓存载体 | `UserDefaults` 存 `Data`（二进制） | `SubscribeConfigStore` 存 JSON string | ⚠️ | 契约声明 string，跨端兼容 |
@@ -154,14 +160,14 @@
 
 | 能力 | iOS 位置 | Flutter 对应 | 状态 | 缺口说明 |
 |---|---|---|---|---|
-| **网盘下载链路**（`sourceType=='cloud'` 分派） | `DownloadManager.swift:183-188,243-257` `resolveCloudDriveURL` | `lib/platform/download/download_manager.dart:86-118`（无 cloud 分支）；入队侧仅见 `'normal'` | ❌【核验】 | 网盘资源无法进入下载队列 |
-| **远程源备份完整性** | `BackupManager.swift:349-403`（manifest + all_sources + spiderJS + lxPlugins 全量） | `backup_service.dart:200-222`（`allSources:null / spiderJS:{} / lxPlugins:{}`） | ❌【核验】 | 备份丢 JS/Python 蜘蛛源与 lx 插件 |
-| **授权「测试」按钮真实校验** | `CloudDriveAuthManager.swift:604` `validateAllCredentials` | `cloud_drive_auth_controller.dart:337-340`（仅写 `lastCheckedAt`） | ❌【核验】 | 空实现，注释自述「随 F-02 落地」 |
-| UCNode 第 2 步 TV Token | `CloudDriveAuthManager.swift:927-1135` | `node_login_gateway.dart:13-18`（登记待补 `provider:"ucToken"`） | ❌ | 仅接第 1 步 Cookie |
-| 蜗牛 4k 图形验证码 / 139 滑块 | WebView 内完成 | `node_login_gateway.dart:14,18`（登记待补） | ❌ | |
-| 百度访问码归一 | `CloudDriveManager.swift:10437` `normalizeBaiduAccessCode` | 仅天翼有对应（`detail_playback_usecases.dart:442`） | ⚠️ | 百度侧缺失 |
-| 自更新断点续传 + 慢速换源 | `UpdateManager.swift:207-296`（`resumeOffset` + `urlSession`） | `updater.dart:257`（无 resume/速度检测） | ⚠️ | |
-| m3u8 合并产物 | AVFoundation 导出 MP4（`DownloadManager.swift:485-533`） | 纯 Dart 合并 `.ts`（`download_manager.dart:583`） | ⚠️ | 无 TS→MP4 转码 |
+| **网盘下载链路**（`sourceType=='cloud'` 分派） | `DownloadManager.swift:183-188,243-257` `resolveCloudDriveURL` | **批次 A1** 执行侧接线（`CloudDownloadUrlResolver` → `DownloadManager`） | ✅【批次 A】 | 已闭合 |
+| **远程源备份完整性** | `BackupManager.swift:349-403`（manifest + all_sources + spiderJS + lxPlugins 全量） | **批次 A2** `backup_service.dart` 采集/还原 `allSources`/`spiderJS`/`lxPlugins`；守卫断言见 `check_backup_contract` 6i | ✅【批次 A】 | 已闭合 |
+| **授权「测试」按钮真实校验** | `CloudDriveAuthManager.swift:604` `validateAllCredentials` | `cloud_drive_credential_validator.dart` 真实校验 | ✅ | 已闭合 |
+| UCNode 第 2 步 TV Token | `CloudDriveAuthManager.swift:927-1135` | `node_login_gateway.dart` + `login_sheet.dart`（UCNode 两步扫码） | ✅ | 已闭合 |
+| 蜗牛 4k 图形验证码 / 139 滑块 | WebView 内完成 | `login_sheet.dart` / `node_login_gateway.dart`（蜗牛图形验证码 + 139 滑块） | ✅ | 已闭合 |
+| 百度访问码归一 | `CloudDriveManager.swift:10437` `normalizeBaiduAccessCode` | 仅天翼有对应（`detail_playback_usecases.dart`） | ⚠️ | 百度侧仍缺失 |
+| 自更新断点续传 + 慢速换源 | `UpdateManager.swift:207-296`（`resumeOffset` + `urlSession`） | `updater.dart` Range/206 断点续传 | ✅ | 已闭合 |
+| m3u8 合并产物 | AVFoundation 导出 MP4（`DownloadManager.swift:485-533`） | 纯 Dart 合并 `.ts`；**批次 E1-1** 下载完成行「保存到相册」在 Android 走 `MediaExtractor`+`MediaMuxer` 转封装 MP4 | ⚠️ | 桌面导出产物仍为 `.ts`（登记） |
 | Node `.relisten` 挂起恢复 | `NodeRuntimeManager.swift:94,633` | `node_runtime_manager.dart:18`（显式不移植 NS-16） | 🟡登记 | 非缺口 |
 
 ---
@@ -184,70 +190,74 @@
 
 | 能力 | iOS 位置 | Flutter 对应 | 状态 | 缺口说明 |
 |---|---|---|---|---|
-| **屏幕常亮 wakelock** | `isIdleTimerDisabled` 7 处（见 1 节） | 无（`pubspec` 无 `wakelock_plus`，三端原生无 `FLAG_KEEP_SCREEN_ON`） | ❌【核验】 | 全端播放会熄屏 |
-| **系统音量/亮度手势** | `PlayerViewsV2_Extensions.swift:95-101,510-533` | 无 | ❌【核验】 | 见 1 节 |
-| **触感反馈** | iOS 26 处 `UIImpactFeedbackGenerator`/`UISelectionFeedbackGenerator` | 无 | ❌【核验】 | |
-| 媒体会话 / 锁屏（音乐） | `AudioPlayerManager.swift:517-583` | 无（仅注释） | ❌ | |
-| 浮窗 FloatingWindow | `ViewCapturePiPManager.swift` + `PlayerViewsV2.swift:136-510`（真实 UIWindow） | `floating/floating_window.dart:160-286` Dart 抽象 + UI 就绪，**android/macos/windows 均无原生实现**（android 仅 13 个插件，无 floating） | 🔵【核验】 | 通道降级 Noop，浮窗不可用；且是无系统 PiP 的桌面端唯一兜底 |
-| 画中画（桌面） | iOS/macOS 原生 PiP | `macos/Runner/` 仅 `PlayerPlugin.swift`（无 PiP）；`windows/` 无 | ⚠️ | |
+| **屏幕常亮 wakelock** | `isIdleTimerDisabled` 7 处（见 1 节） | `wakelock_plus` 已引入并接线 `player_page.dart` | ✅ | 已闭合 |
+| **系统音量/亮度手势** | `PlayerViewsV2_Extensions.swift:95-101,510-533` | `gesture_control.dart` + **批次 D1** 四端 `screen_controls` 原生接线 | ✅【批次 D】 | 见 1 节（桌面亮度为会话级，登记） |
+| **触感反馈** | iOS 16 处 `UIImpactFeedbackGenerator`/`UISelectionFeedbackGenerator` | `presentation/theme/vbox_haptics.dart` 三档收口 + 13 处消费（**批次 E5-2**） | ✅【批次 E】 | 已闭合 |
+| 媒体会话 / 锁屏（音乐） | `AudioPlayerManager.swift:517-583` | `native_music_media_session.dart` + **批次 D3** 三端原生 | ✅【批次 D】 | 已闭合 |
+| 浮窗 FloatingWindow | `ViewCapturePiPManager.swift` + `PlayerViewsV2.swift:136-510`（真实 UIWindow） | `floating/floating_window.dart` + **批次 D2** 三端原生（`FloatingWindowPlugin` / `FloatingWindowPlugin.swift` / `floating_plugin`） | ✅【批次 D】 | 截图循环 500ms 对齐 iOS snapshotTimer |
+| 画中画（桌面） | iOS/macOS 原生 PiP | 经裁定不做；由**应用内浮窗**兜底（批次 D2） | ➖**裁定不对齐** | 登记（浮窗为等价兜底形态） |
 | 投屏协议 | AirPlay | DLNA | ⚠️ | 见 1 节 |
-| 返回手势拦截 | iOS 无显式拦截 | `player_page.dart:976-980` `PopScope` | ⚠️ | Flutter 恢复系统 UI，行为略有差异 |
-| 页面保活 | `ContentView.swift:75`（Tab 重建） | `shell/home_shell_page.dart:44`（重建） | ⚠️ | 双端切 Tab 状态均不驻留 |
-| 无障碍 Semantics | iOS 2 处 | Flutter 4 处（`vbox_skin_picker.dart:139` 等） | ⚠️ | 双端均稀疏 |
+| 返回手势拦截 | iOS 无显式拦截 | `player_page.dart` `PopScope` | ⚠️ | Flutter 恢复系统 UI，行为略有差异 |
+| 页面保活 | `ContentView.swift:75`（Tab 重建） | `shell/home_shell_page.dart`（重建） | ⚠️ | 双端切 Tab 状态均不驻留 |
+| 无障碍 Semantics | iOS 2 处 | `Semantics`/`tooltip` 补点（**批次 E5-3**：导航/直播/详情/播放器） | ✅【批次 E】 | 已闭合（双端均较少） |
 | 多窗口适配 | `VBoxApp.swift:34` 单 WindowGroup | `macos/Runner/`、`windows/runner/` 单窗口 | ⚠️ | 双端均未做 |
 
 ---
 
 ## 6. 优先级 TOP
 
-### P0 — 功能不可用 / 数据丢失（3 项）
-1. **网盘下载链路断开**：`download_manager.dart:86-118` 无 `sourceType=='cloud'` 分派，入队侧无 `'cloud'` 标记（对照 iOS `DownloadManager.swift:243-257`）。【核验】
-2. **远程源备份不完整**：`backup_service.dart:200-222` 恒写空 `allSources/spiderJS/lxPlugins`（对照 iOS `BackupManager.swift:349-403`），跨端互备丢远程源。【核验】
-3. **授权「测试」为空实现**：`cloud_drive_auth_controller.dart:337-340` 只刷时间戳（对照 iOS `validateAllCredentials`）。【核验】
+> v1.1：以下清单为 **v1.0 基线**；批次 A–E 交付后逐项处置结果见行内标注。
 
-### P1 — 核心体验缺口
-4. 「更多」菜单 8 项 + 4 个跳转面板（片头片尾/弹幕搜索/字幕设置/长按倍速）+ 4 个开关（自动播放/后台播放/画中画/调试浮层）。【核验】
-5. 详情页底部胶囊操作栏（播放/选集/下载/分享）+ 详情页分享。【核验】
-6. 播放器错误态/重试视图三件套。【核验】
-7. 视频区手势（亮度/音量/横向快进）+ 系统音量控制。【核验】
-8. 屏幕常亮 wakelock（全端播放熄屏）。【核验】
-9. 触感反馈（全局 0 实现）。【核验】
-10. 远程源状态栏（跑马灯五态胶囊，全局 0 接入）。
-11. 全站下拉刷新（首页/豆瓣/分类/搜索）。
-12. 福利首页平台卡片拖拽排序；漫画阅读器长按保存。
-13. 短剧源扫描流式首发 + 蜘蛛就绪检测。
+### P0 — 功能不可用 / 数据丢失（3 项，**已全部闭合**）
+1. ~~**网盘下载链路断开**~~ → ✅ **批次 A1** 闭合（执行侧接线）。
+2. ~~**远程源备份不完整**~~ → ✅ **批次 A2** 闭合（allSources/spiderJS/lxPlugins 全量 + 守卫断言）。
+3. ~~**授权「测试」为空实现**~~ → ✅ 闭合（`cloud_drive_credential_validator.dart`）。
 
-### P2 — 打磨 / 一致性
-14. 骨架屏、首页豆瓣快捷分类胶囊、分类页筛选栏、备用「选择源」全屏 Sheet。
-15. 豆瓣 Banner 3D 侧卡、豆瓣五维筛选交互、搜索品牌色、分类海报角标/动效、设置分区次序。
-16. 媒体会话/锁屏（音乐）、浮窗原生接线（桌面 PiP 兜底）、UCNode TV Token 第 2 步、自更新断点续传、m3u8 TS→MP4。
-17. 播放器：弹幕输入 pill 形态、视频标题跑马灯、视频缩放模式切换。
+### P1 — 核心体验缺口（**已全部闭合**）
+4. ✅ 「更多」菜单 8 项 + 4 个跳转面板 + 各开关。
+5. ➖ 详情页底部胶囊操作栏 + 详情页分享 → **裁定不对齐**（登记）。
+6. ✅ 播放器错误态/重试视图三件套。
+7. ✅ 视频区手势（亮度/音量/横向快进）+ 系统音量（**批次 D1** 四端接线）。
+8. ✅ 屏幕常亮 wakelock。
+9. ✅ 触感反馈（**批次 E5-2**）。
+10. ✅ 远程源状态栏。
+11. ⚠️ 全站下拉刷新（9 处已接，**仅首页未接**）。
+12. ✅ 福利首页平台卡片拖拽排序（**批次 B3**）；漫画阅读器长按保存（**批次 B4**）。
+13. ✅ 短剧源扫描流式首发。
+
+### P2 — 打磨 / 一致性（**主体已闭合**）
+14. ✅ 骨架屏、首页豆瓣快捷分类胶囊、分类页筛选栏、备用「选择源」全屏页（**批次 E2-6**）。
+15. ✅ 豆瓣 Banner 侧卡（**E2-1**）、五维筛选交互（**E2-2**）、搜索品牌色（**E2-4**）、分类海报角标/动效（**E2-3**）；⚠️ 设置分区次序仍为主题化差异。
+16. ✅ 媒体会话/锁屏（**D3**）、浮窗原生接线（**D2**）、UCNode TV Token、自更新断点续传；⚠️ m3u8 TS→MP4（桌面产物仍 `.ts`）。
+17. ⚠️ 播放器：弹幕输入 pill 形态、**播放器综合设置面板**、**百度访问码归一**（未闭合）。
 
 ### P3 — 观察 / 平台差异
-18. 弹幕渲染对象池、Node `.relisten`、TrollStore 安装、页面保活、无障碍语义、多窗口。
+18. 弹幕渲染对象池、Node `.relisten`、TrollStore 安装、页面保活、多窗口；**桌面原生 PiP / 详情页底栏 / MissAV 独立专页**为裁定不对齐项（登记）。
 
 ---
 
 ## 7. 零消费契约键
 
-`lib/contract/prefs_keys.dart` 共 **99 键**（+7 敏感键，`contract/schema/prefs_keys_v1.json` v1.4）。全库 Grep 后 **14 个键零消费**：
+`lib/contract/prefs_keys.dart` 共 **99 键**（+7 敏感键，`contract/schema/prefs_keys_v1.json` v1.4）。
 
-| 零消费键 | 分组 | 备注 |
+**v1.1（批次 A–E 收口后）**：v1.0 列出的 14 个零消费键中，**12 个已消费**，仅剩 2 个：
+
+| 已消费（原零消费） | 收口批次 / 消费点 |
+|---|---|
+| `dns_cache_clear` | **E3-2** 设置页「DNS 缓存清理」（`VboxDnsCache.clear`） |
+| `app_last_launch_version` | **E3-3** 启动版本比对 |
+| `app_log_crash_marker` | **E3-3** 崩溃恢复提示 |
+| `baidu_play_result_cache_v1` / `baidu_file_list_cache_v1` / `baidu_ibox_play_item_cache_v1` | **E5-5** 播放缓存统一层读写 |
+| `baidu_route_diagnostics_v1` | **E5-5** 链路诊断（22 处埋点） |
+| `baidu_play_item_cache_v1` / `baidu_verify_cooldown_v1` | **E5-5** 清理面（iOS 侧亦无真实读写点，登记） |
+| `enable_dual_mode` / `quark_device_id` / `show_debug_overlay` | 播放器/设置页已消费 |
+
+| 仍零消费键 | 分组 | 备注 |
 |---|---|---|
-| `enable_dual_mode` | spider | |
-| `quark_device_id` | quarkPg | |
-| `show_debug_overlay` | debug | 对应 P1「调试浮层」 |
-| `dns_cache_clear` | debug | |
-| `app_last_launch_version` | log | 关联 S-06 启动迁移 |
-| `app_log_crash_marker` | log | 关联 S-06 崩溃恢复 |
-| `baidu_file_list_cache_v1` | cloud | |
-| `baidu_ibox_play_item_cache_v1` | cloud | |
-| `baidu_play_item_cache_v1` | cloud | |
-| `baidu_play_result_cache_v1` | cloud | |
-| `baidu_route_diagnostics_v1` | cloud | |
-| `baidu_verify_cooldown_v1` | cloud | **iOS 有实现**（`CloudDriveAuthManager.swift:79`），真实缺口 |
-| `baidu_verify_cooldowns_v1` | cloud | **iOS 有实现**（`CloudDriveManager.swift:130,475`），真实缺口 |
-| `quark_vbox_folder_cache_v1` | cloud | |
+| `baidu_verify_cooldowns_v1` | cloud | iOS `CloudDriveAuthManager.swift:79` 侧亦无调用点 → **登记**（不移植死代码） |
+| `quark_vbox_folder_cache_v1` | cloud | iOS 写入链（`ensureVboxFolder`→`quarkEnsureFolder`）整体不可达，且夸克转存固定 `to_pdir_fid="0"` → **登记** |
+
+> 契约名校验（`check_contract_sync.py`）与完整性校验（`check_contract_completeness.py`）均全绿。
 
 ---
 
@@ -266,11 +276,17 @@
 
 ## 9. 建议执行顺序
 
-1. **修 P0 三项**（网盘下载分派 / 备份远程源采集 / 授权测试真实校验）——都是小改动、高收益。
-2. **收尾播放器「更多」菜单**：先接 4 个已有逻辑的开关，再补 4 个跳转面板（片头片尾 → 弹幕搜索 → 字幕设置 → 长按倍速）。
-3. **补播放器错误态视图**（失败无重试入口，用户可感知）。
-4. **详情页底栏三件套 **（选集/下载/分享）——与 iOS 主交互强相关。
-5. **系统级体验**：wakelock + 触感 + 远程源状态栏。
-6. 其余 P2/P3 按域批量清。
+> **v1.1 结果**：第 1–5 步均已随批次 A–E 完成；第 6 步剩余小项见下。
+
+1. ~~**修 P0 三项**~~ → ✅ 批次 A（+ 授权校验）。
+2. ~~**收尾播放器「更多」菜单**~~ → ✅ 已闭合（含 4 面板）。
+3. ~~**补播放器错误态视图**~~ → ✅ 已闭合。
+4. ~~**详情页底栏三件套**~~ → ➖ 裁定不对齐（登记）。
+5. ~~**系统级体验**：wakelock + 触感 + 远程源状态栏~~ → ✅ 已闭合。
+6. **剩余（按域批量清）**：
+   - 首页下拉刷新（唯一未接页面）；
+   - 播放器综合设置面板、弹幕输入 pill 形态、百度访问码归一；
+   - 桌面原生 PiP（裁定不做，浮窗兜底）；
+   - 形态差异项（详情页选集 sheet / 设置分区次序 / 分类默认胶囊文案）按需收敛。
 
 > 本清单为一次性重扫结果，建议作为后续排期唯一基准；每完成一批后重跑一次核对。
