@@ -319,11 +319,11 @@ class VboxColors {
   /// 键用字符串而非领域枚举，避免主题层反向依赖领域层（分层约束）；
   /// 未登记的键回退 [skinPrimaryRose]。
   static const Map<String, Color> siteCategoryBadgeColors = <String, Color>{
-    '网盘': Color(0xFF2563EB),
-    'API': Color(0xFF16A34A),
-    '站源': Color(0xFFEA580C),
-    'JS': Color(0xFF7C3AED),
-    '论坛': Color(0xFF0891B2),
+    '网盘': Color(0xFF007AFF), // iOS cloudCMS / cloudSPA（系统蓝）
+    '论坛': Color(0xFFFF9500), // iOS cloudForum（系统橙）
+    'API': Color(0xFF34C759), // iOS api（系统绿）
+    'JS': Color(0xFFAF52DE), // iOS jsSpider（系统紫）
+    '站源': Color(0xFFFF3B30), // iOS zhanyuan（系统红）
   };
 
   // ── 网盘品牌角标底色（批次 F · F-01 授权中心 / F-06 排序列表）──────

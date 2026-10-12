@@ -170,12 +170,14 @@ class VboxWelfarePlatform {
 /// 福利平台图标网格（4 列，对齐 iOS `LazyVGrid` + `RemotePlatformIconCard`）。
 ///
 /// 只做布局与点击回调，平台数据由调用方注入（H-06 接入远程源）。
+/// [onLongPress] 供长按进入编辑排序（对齐 iOS `onLongPressGesture` 入口）。
 class VboxWelfarePlatformGrid extends StatelessWidget {
   /// 构造。
   const VboxWelfarePlatformGrid({
     super.key,
     required this.platforms,
     this.onTap,
+    this.onLongPress,
     this.columns = 4,
   });
 
@@ -184,6 +186,9 @@ class VboxWelfarePlatformGrid extends StatelessWidget {
 
   /// 点击回调。
   final ValueChanged<VboxWelfarePlatform>? onTap;
+
+  /// 长按回调（进入编辑排序）。
+  final VoidCallback? onLongPress;
 
   /// 列数（默认 4，对齐 iOS）。
   final int columns;
@@ -233,6 +238,7 @@ class VboxWelfarePlatformGrid extends StatelessWidget {
                   HapticFeedback.mediumImpact();
                   onTap!(platform);
                 },
+          onLongPress: onLongPress,
           borderRadius: BorderRadius.circular(VboxRadii.r16),
           child: SizedBox(
             height: 86,

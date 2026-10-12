@@ -16,7 +16,7 @@
 /// | subscriptions | `subscription` 表 |
 /// | siteConfigs | `zhanyuan` + `apiyuan` + `jiexisetting` 表 |
 /// | personalSettings | 契约 Prefs 白名单（14 键，福利 3 键仅加密时） |
-/// | remoteSources | manifest 缓存（`cache/remote_manifest.json`） |
+/// | remoteSources | manifest 缓存 + `all_sources.json` + `<spiderDir>/*.js` + lx 插件目录 |
 /// | searchHistory | `search_history` 表 |
 /// | cloudCredentials | 契约 Prefs 云盘凭据键（安全存储） |
 ///
@@ -124,21 +124,37 @@ class BackupService {
   /// [lxPluginsDirPath] lx-music 插件目录解析器（装配层接
   /// `NodeRuntimeManager.instance.lxPluginsDirPath`；未注入/运行环境未就绪
   /// 时 lxPlugins 类目如实采空，不阻断备份）。
+  ///
+  /// [allSourcesCachePath] 远程站点聚合缓存文件解析器（缺省
+  /// `StoragePaths.cacheDir/all_sources.json`，与 `AllSourcesDatasource`
+  /// cache-first 读写同一文件）；[spiderDirPath] 蜘蛛脚本缓存目录解析器
+  /// （缺省 [StoragePaths.spiderDir]，与 `SpiderScriptCache` 同目录）。
+  /// 未注入/文件不存在时对应数据如实采空，不阻断备份。
   BackupService({
     DatabaseManager? db,
     PrefsManager? prefs,
     String? Function()? lxPluginsDirPath,
+    String? Function()? allSourcesCachePath,
+    String? Function()? spiderDirPath,
   })  : _db = db ?? DatabaseManager.instance,
         _prefs = prefs ?? PrefsManager.instance,
-        _lxPluginsDirPath = lxPluginsDirPath;
+        _lxPluginsDirPath = lxPluginsDirPath,
+        _allSourcesCachePath = allSourcesCachePath,
+        _spiderDirPath = spiderDirPath;
 
   final DatabaseManager _db;
   final PrefsManager _prefs;
   final String? Function()? _lxPluginsDirPath;
+  final String? Function()? _allSourcesCachePath;
+  final String? Function()? _spiderDirPath;
 
   /// 远程源清单缓存路径。
   static String get _manifestCachePath =>
       FileStore.join(StoragePaths.cacheDir, 'remote_manifest.json');
+
+  /// 远程站点聚合缓存路径（缺省值；与 `AllSourcesDatasource.cacheFilePath` 同一文件）。
+  static String get _allSourcesDefaultPath =>
+      FileStore.join(StoragePaths.cacheDir, 'all_sources.json');
 
   // ─────────────────────────────────────────────────────────
   // 采集（dump）
@@ -209,6 +225,7 @@ class BackupService {
   Future<Map<String, Object?>> _dumpRemoteSources() async {
     String version = '';
     Object? manifest;
+    Object? allSources;
     try {
       version = await _prefs.getString('remote_default_last_config_version');
       final Map<String, Object?>? box =
@@ -221,22 +238,48 @@ class BackupService {
     } catch (_) {
       // 缓存读失败 → 空快照（不阻断备份）
     }
+    // allSources：采集本地聚合缓存 `all_sources.json` 的原始字节
+    // （对齐 iOS `BackupManager.collectRemoteSources` 的 `read("all_sources.json")`：
+    //  Data → Base64；无缓存文件如实 null，不阻断备份）。
+    try {
+      final String path =
+          _allSourcesCachePath?.call() ?? _allSourcesDefaultPath;
+      final File f = File(path);
+      if (f.existsSync()) {
+        allSources = base64.encode(f.readAsBytesSync());
+      }
+    } catch (_) {
+      // 单文件读失败 → 如实 null（不阻断备份）
+    }
     return <String, Object?>{
       'version': version,
       'manifest': manifest,
-      // allSources：Flutter 端 all_sources.json 为实时拉取（无磁盘快照），
-      // manifest.files 已含其 URL 且随 manifest 备份，还原后可直接重拉 → 如实 null。
-      'allSources': null,
+      'allSources': allSources,
+      // spiderJS：采集蜘蛛脚本缓存目录 `<spiderDir>/*.js`
+      // （`{去扩展名 key: Base64 内容}`，对齐 iOS BackupManager 全量备份语义；
+      //  iOS 另补采 `spider_python/*.py`，Flutter 端 py 站主脚本统一落
+      //  `<spiderDir>/<key>.js`，本目录已等价覆盖，无独立 py 目录）。
+      'spiderJS': _dumpSpiderScriptsSync(),
       // lxPlugins：采集本机 `<runtimeDir>/plugins/lx` 的插件 JS 缓存
-      // （`{文件名: Base64 内容}`，对齐 iOS BackupManager 全量备份语义）。
-      'spiderJS': <String, Object?>{},
+      // （`{去扩展名 key: Base64 内容}`，键口径对齐 iOS BackupManager）。
       'lxPlugins': _dumpLxPluginsSync(),
     };
   }
 
-  /// lx 插件目录同步采集（文件读失败逐文件跳过，不阻断备份）。
+  /// 蜘蛛脚本目录同步采集（键 = 文件名去扩展名，对齐 iOS js_cache 采集；
+  /// 文件读失败逐文件跳过，不阻断备份；未注入时取缺省 [StoragePaths.spiderDir]）。
+  Map<String, Object?> _dumpSpiderScriptsSync() {
+    return _dumpScriptsSync(_spiderDirPath?.call() ?? StoragePaths.spiderDir);
+  }
+
+  /// lx 插件目录同步采集（同款规则；未注入/目录不存在 → 空快照）。
   Map<String, Object?> _dumpLxPluginsSync() {
-    final String? dirPath = _lxPluginsDirPath?.call();
+    return _dumpScriptsSync(_lxPluginsDirPath?.call());
+  }
+
+  /// 脚本目录通用采集：遍历 `*.js`，键为文件名去扩展名，值为 Base64 内容
+  /// （对齐 iOS `collectRemoteSources` 的 spiderJS / lxPlugins 键口径）。
+  Map<String, Object?> _dumpScriptsSync(String? dirPath) {
     if (dirPath == null || dirPath.isEmpty) return <String, Object?>{};
     final Directory dir = Directory(dirPath);
     if (!dir.existsSync()) return <String, Object?>{};
@@ -246,7 +289,9 @@ class BackupService {
       try {
         final String name = e.uri.pathSegments.last;
         if (!name.toLowerCase().endsWith('.js')) continue;
-        out[name] = base64.encode(e.readAsBytesSync());
+        final String key = name.substring(0, name.length - 3);
+        if (key.isEmpty) continue;
+        out[key] = base64.encode(e.readAsBytesSync());
       } catch (_) {
         // 单文件不可读 → 跳过（其余文件照常采集）
       }
@@ -392,32 +437,58 @@ class BackupService {
         }
         n += 1;
       } catch (_) {
-        // manifest 还原失败 → 继续尝试 lxPlugins（互不阻断）
+        // manifest 还原失败 → 继续尝试后续字段（互不阻断）
       }
     }
-    // lxPlugins 还原（对齐 iOS BackupManager：插件文件写回缓存目录）。
-    n += _restoreLxPluginsSync(snap['lxPlugins']);
+    // allSources 还原（对齐 iOS `restoreRemoteSources` L753-756：原始字节
+    // 写回聚合缓存文件；还原后下次启动 cache-first 直接生效）。
+    final Object? allSourcesB64 = snap['allSources'];
+    if (allSourcesB64 is String && allSourcesB64.isNotEmpty) {
+      try {
+        final String path =
+            _allSourcesCachePath?.call() ?? _allSourcesDefaultPath;
+        final File f = File(path);
+        await f.parent.create(recursive: true);
+        // 原子写：`.tmp` → rename（对齐 SpiderScriptCache 既有模式与 iOS `.atomic`）。
+        final File tmp = File('$path.tmp');
+        await tmp.writeAsBytes(base64.decode(allSourcesB64), flush: true);
+        await tmp.rename(path);
+        n += 1;
+      } catch (_) {
+        // allSources 还原失败 → 继续尝试脚本写回（互不阻断）
+      }
+    }
+    // spiderJS 还原（对齐 iOS L757-764：键 + `.js` 写回蜘蛛脚本缓存目录，
+    // 下次运行时 cache-first 读取生效；未注入时取缺省 [StoragePaths.spiderDir]）。
+    n += _restoreScriptsSync(
+        snap['spiderJS'], _spiderDirPath?.call() ?? StoragePaths.spiderDir);
+    // lxPlugins 还原（对齐 iOS L768-776：键 + `.js` 写回 lx 插件目录；
+    // 未注入（运行环境未就绪）→ 跳过，语义与采集一致）。
+    n += _restoreScriptsSync(snap['lxPlugins'], _lxPluginsDirPath?.call());
     return n;
   }
 
-  /// lx 插件文件写回（返回写入文件数；单文件失败跳过）。
-  int _restoreLxPluginsSync(Object? plugins) {
-    if (plugins is! Map || plugins.isEmpty) return 0;
-    final String? dirPath = _lxPluginsDirPath?.call();
+  /// 脚本文件写回（spiderJS / lxPlugins 通用；返回写入文件数，单文件失败跳过）。
+  ///
+  /// 键口径对齐 iOS（还原时补 `.js` 后缀），并兼容旧版 Flutter 备份
+  /// （键已带 `.js` 后缀的旧包直接按原文件名写回，避免写成 `x.js.js`）。
+  int _restoreScriptsSync(Object? scripts, String? dirPath) {
+    if (scripts is! Map || scripts.isEmpty) return 0;
     if (dirPath == null || dirPath.isEmpty) return 0;
     final Directory dir = Directory(dirPath);
     if (!dir.existsSync()) dir.createSync(recursive: true);
     int count = 0;
-    for (final MapEntry<Object?, Object?> e in plugins.entries) {
-      final String name = '${e.key}';
+    for (final MapEntry<Object?, Object?> e in scripts.entries) {
+      final String key = '${e.key}';
       // 只接受纯文件名（防路径穿越写出到目录之外）。
-      if (name.isEmpty ||
-          name.contains('/') ||
-          name.contains(r'\') ||
-          name.contains('..') ||
-          !name.toLowerCase().endsWith('.js')) {
+      if (key.isEmpty ||
+          key.contains('/') ||
+          key.contains(r'\') ||
+          key.contains('..')) {
         continue;
       }
+      final String name =
+          key.toLowerCase().endsWith('.js') ? key : '$key.js';
       final Object? raw = e.value;
       if (raw is! String || raw.isEmpty) continue;
       try {

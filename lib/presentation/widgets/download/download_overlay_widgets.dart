@@ -321,8 +321,15 @@ class _FloatingVideoDownloadButtonState
 
   @override
   Widget build(BuildContext context) {
-    final DownloadManager manager = context.watch<DownloadManager>();
-    if (manager.isFloatingButtonManuallyHidden) {
+    // 详情页可被无 DownloadManager 作用域的宿主直接承载（如独立测试环境），
+    // 此时按键退化为不可见，不阻断详情页构建（应用根节点始终注入该 Provider）。
+    DownloadManager? manager;
+    try {
+      manager = context.watch<DownloadManager>();
+    } on ProviderNotFoundException {
+      manager = null;
+    }
+    if (manager == null || manager.isFloatingButtonManuallyHidden) {
       return const SizedBox.shrink();
     }
     if (manager.activeDownloads.isEmpty) {

@@ -423,7 +423,12 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
     await tester.pumpAndSettle();
 
-    // 再次打开：勾选两集 → 确认 → 两集全部入队（累计 3 条）
+    // 再次打开：勾选两集 → 确认 → 两集全部入队（累计 3 条）。
+    // 先隐藏悬浮下载气泡（首次入队后 activeDownloads 含已完成记录，气泡
+    // 常驻右下；ensureVisible 后恰好遮住剧集头部按钮中心，tap 会被气泡
+    // 拦截误开下载管理弹窗。对齐 iOS：气泡可拖动/关闭以避开页面内容）。
+    manager.hideFloatingButton();
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byIcon(Icons.download_outlined).first);
     await tester.tap(find.byIcon(Icons.download_outlined).first);
     await tester.pumpAndSettle();

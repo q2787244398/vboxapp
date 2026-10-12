@@ -280,7 +280,7 @@ void main() {
           '{"quark":"token-abc"}');
     });
 
-    test('lxPlugins 采集目录 .js 文件（A5：对齐 iOS 全量备份）', () async {
+    test('lxPlugins 采集目录 .js 文件（键 = 去扩展名，对齐 iOS）', () async {
       final Directory lxDir =
           await Directory.systemTemp.createTemp('vbox_lx_test');
       File('${lxDir.path}/my_plugin.js')
@@ -296,25 +296,29 @@ void main() {
           p.readCategory(BackupCategory.remoteSources)! as Map<dynamic, dynamic>;
       final Map<dynamic, dynamic> lx =
           snap['lxPlugins']! as Map<dynamic, dynamic>;
-      expect(lx.keys, <String>['my_plugin.js']);
+      // 键口径对齐 iOS BackupManager（文件名去扩展名）。
+      expect(lx.keys, <String>['my_plugin']);
       expect(
-        utf8.decode(base64.decode(lx['my_plugin.js']! as String)),
+        utf8.decode(base64.decode(lx['my_plugin']! as String)),
         '// lx plugin body',
       );
       await lxDir.delete(recursive: true);
     });
 
-    test('lxPlugins 还原写回目录；路径穿越/非 js 拒绝', () async {
+    test('lxPlugins 还原写回目录；iOS 键补 .js / 旧包键兼容 / 路径穿越拒绝',
+        () async {
       final Directory lxDir =
           await Directory.systemTemp.createTemp('vbox_lx_restore');
       final BackupPayload p = BackupPayload();
       p.putCategory(BackupCategory.remoteSources, <String, Object?>{
         'manifest': null,
+        // 混合两代备份口径：iOS 包键去扩展名（`key + ".js"` 写回）；
+        // 旧版 Flutter 包键带 .js 后缀（直接按原文件名写回）。
         'lxPlugins': <String, Object?>{
+          'ios_key': base64.encode(utf8.encode('body-ios')),
           'ok.js': base64.encode(utf8.encode('body-ok')),
           '../evil.js': base64.encode(utf8.encode('bad')),
           'sub/dir.js': base64.encode(utf8.encode('bad')),
-          'not_js.txt': base64.encode(utf8.encode('bad')),
         },
       });
 
@@ -326,10 +330,11 @@ void main() {
         strategy: ConflictStrategy.merge,
       ))
           .counts[BackupCategory.remoteSources]!;
-      expect(n, 1);
+      expect(n, 2);
+      expect(File('${lxDir.path}/ios_key.js').readAsStringSync(), 'body-ios');
       expect(File('${lxDir.path}/ok.js').readAsStringSync(), 'body-ok');
       expect(File('${lxDir.path}/../evil.js').existsSync(), isFalse);
-      expect(File('${lxDir.path}/not_js.txt').existsSync(), isFalse);
+      expect(File('${lxDir.path}/sub').existsSync(), isFalse);
       await lxDir.delete(recursive: true);
     });
   });

@@ -698,15 +698,9 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
     );
   }
 
-  /// 分类徽标色（对齐 iOS `categoryBadgeColor`）。
-  static Color _categoryBadgeColor(String label) => switch (label) {
-        '网盘' => const Color(0xFF007AFF), // cloudCMS / cloudSPA
-        '论坛' => const Color(0xFFFF9500), // cloudForum
-        'API' => const Color(0xFF34C759), // api
-        'JS' => const Color(0xFFAF52DE), // jsSpider
-        '站源' => const Color(0xFFFF3B30), // zhanyuan
-        _ => const Color(0xFF007AFF),
-      };
+  /// 分类徽标色（对齐 iOS `categoryBadgeColor` 的系统色，经令牌取值）。
+  static Color _categoryBadgeColor(String label) =>
+      VboxColors.siteCategoryBadgeColors[label] ?? VboxColors.skinPrimaryRose;
 
   /// 打开左上角选源浮层（对齐 iOS `sourceDropdownOverlay` → `selectedSource`）。
   Future<void> _openSourceSheet() async {

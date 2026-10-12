@@ -46,6 +46,7 @@ import '../pages/player/player_page.dart';
 import '../theme/tokens/colors.dart';
 import '../theme/tokens/radii.dart';
 import '../theme/tokens/typography.dart';
+import 'download/download_overlay_widgets.dart';
 import 'platform_async_image.dart';
 
 /// 详情页。
@@ -85,6 +86,10 @@ class DetailPage extends StatefulWidget {
 class _DetailPageState extends State<DetailPage> {
   late final DetailPlaybackUseCases _uc;
   PlaybackDetail? _detail;
+
+  /// 下载管理弹窗是否打开（对齐 iOS `showDownloadPopup`：弹窗显示时
+  /// 隐藏悬浮下载按键）。
+  bool _downloadPopupOpen = false;
 
   /// TMDB 用例（G-06；宿主未装配时为 null → 跳过增强，回退站点数据）。
   TmdbUseCases? _tmdbUc;
@@ -1065,6 +1070,15 @@ class _DetailPageState extends State<DetailPage> {
 
   // ─────────────── UI ───────────────
 
+  /// 打开下载管理弹窗（对齐 iOS `showDownloadPopup = true`：期间隐藏悬浮
+  /// 按键，关闭后恢复）。
+  Future<void> _openDownloadPopup() async {
+    setState(() => _downloadPopupOpen = true);
+    await showDownloadManagementPopup(context);
+    if (!mounted) return;
+    setState(() => _downloadPopupOpen = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     final String title = widget.title ?? _detail?.vod.vodName ?? '详情';
@@ -1096,6 +1110,13 @@ class _DetailPageState extends State<DetailPage> {
           _buildBody(),
           // 沉浸式下 AppBar 隐藏，保留顶部返回热区（对齐 iOS `edgeSwipeBack`）。
           if (immersive) _buildImmersiveBackZone(),
+          // 悬浮下载按键（详情页专用，对齐 iOS VideoDetailView L1061-L1069）：
+          // shell 全局按键被详情页新路由遮挡，此处兜底挂载；管理弹窗打开时
+          // 隐藏（对齐 iOS `!showDownloadPopup`），手动隐藏状态由按钮内部处理。
+          if (!_downloadPopupOpen)
+            Positioned.fill(
+              child: FloatingVideoDownloadButton(onTap: _openDownloadPopup),
+            ),
         ],
       ),
     );

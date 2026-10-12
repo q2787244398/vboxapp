@@ -292,8 +292,16 @@ class _VBoxAppState extends State<VBoxApp> {
       registerNativeFuliServices();
 
       // ②''''''' 下载管理器（G-02：全局单例；存储走 `download` 表，目录走
-      //        `StoragePaths.downloadDir`，依赖已在 ①/② 就绪）
-      _downloadManager = DownloadManager();
+      //        `StoragePaths.downloadDir`，依赖已在 ①/② 就绪）。
+      //        地址解析链：直链直接命中；网盘记录（sourceType=='cloud'，入队时
+      //        不解析——分享链定位 token 有时效性）委托 [CloudDownloadUrlResolver]
+      //        在执行时取链，对齐 iOS `DownloadManager.resolveCloudDriveURL`
+      //        （DownloadManager.swift L183-L188 / L238-L256）。
+      _downloadManager = DownloadManager(
+        urlResolver: DefaultDownloadUrlResolver(
+          delegate: CloudDownloadUrlResolver(),
+        ),
+      );
 
       // ②'''''''' 推送播放（G-03：启动恢复 `push_play_items_v1` 契约键；
       //        与页面自调 `load()` 幂等，保证数据在进入页面前置就绪）

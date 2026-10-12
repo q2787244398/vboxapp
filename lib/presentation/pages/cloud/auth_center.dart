@@ -12,6 +12,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../../data/datasources/remote/emby_config_client.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../platform/node/node_runtime_manager.dart' as node;
 import '../../../platform/player/pan_player.dart';
@@ -19,6 +20,7 @@ import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import 'cloud_drive_auth_controller.dart';
 import 'cloud_drive_widgets.dart';
+import 'emby_account_card.dart';
 import 'files.dart';
 import 'login_gateway.dart';
 import 'login_sheet.dart';
@@ -26,12 +28,13 @@ import 'sort.dart';
 
 /// 网盘账号授权中心页。
 class CloudDriveAuthCenterPage extends StatefulWidget {
-  /// 构造（[controller] / [loginGateway] 供测试注入；缺省自建并自管生命周期）。
+  /// 构造（[controller] / [loginGateway] / [embyClient] 供测试注入；缺省自建并自管生命周期）。
   const CloudDriveAuthCenterPage({
     super.key,
     this.controller,
     this.onAction,
     this.loginGateway,
+    this.embyClient,
   });
 
   /// 外部注入的控制器（null → 页面自建）。
@@ -42,6 +45,9 @@ class CloudDriveAuthCenterPage extends StatefulWidget {
 
   /// 登录网关（null → 「未接入」网关；F-02 余项替换为真实实现）。
   final CloudDriveLoginGateway? loginGateway;
+
+  /// Emby 配置客户端（null → 卡片自建 Node 客户端；测试注入 fake）。
+  final EmbyConfigClient? embyClient;
 
   @override
   State<CloudDriveAuthCenterPage> createState() =>
@@ -200,6 +206,10 @@ class _CloudDriveAuthCenterPageState extends State<CloudDriveAuthCenterPage> {
                   onAction: (String action) => _handleAction(account, action),
                 ),
               ],
+              const SizedBox(height: VboxSpacing.lg),
+              // Emby 媒体服务器配置卡（批次 C，对齐 iOS `embyAccountCard`：
+              // 位于网盘账号卡之后、手动 Token 兜底卡之前）。
+              EmbyAccountCard(client: widget.embyClient),
               const SizedBox(height: VboxSpacing.lg),
               // 底部「复制粘贴 Token 兜底」卡片（对齐 iOS `manualTokenFallbackCard`）。
               ManualTokenFallbackCard(

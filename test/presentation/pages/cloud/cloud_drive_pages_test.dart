@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vbox/data/datasources/local/cloud_drive_credential_store.dart';
 import 'package:vbox/data/datasources/local/cloud_drive_sort_store.dart';
 import 'package:vbox/data/datasources/local/prefs_manager.dart';
+import 'package:vbox/data/datasources/remote/emby_config_client.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 import 'package:vbox/presentation/pages/cloud/auth_center.dart';
 import 'package:vbox/presentation/pages/cloud/cloud_drive_auth_controller.dart';
@@ -34,6 +35,23 @@ CloudDriveCredential _cred(
       state: state,
     );
 
+/// Emby 配置 fake 传输（空服务器列表，避免测试触碰 Node 运行时）。
+class _FakeEmbyTransport implements EmbyTransport {
+  @override
+  Future<EmbyHttpResponse> request(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+  }) async =>
+      const EmbyHttpResponse(
+        statusCode: 200,
+        json: <String, dynamic>{
+          'code': 0,
+          'data': <String, dynamic>{'data': <dynamic>[]},
+        },
+      );
+}
+
 Future<void> _pumpPage(
   WidgetTester tester, {
   required CloudDriveAuthController controller,
@@ -48,6 +66,7 @@ Future<void> _pumpPage(
       home: CloudDriveAuthCenterPage(
         controller: controller,
         onAction: onAction,
+        embyClient: EmbyConfigClient(transport: _FakeEmbyTransport()),
       ),
     ),
   );
@@ -92,7 +111,8 @@ void main() {
       expect(find.text('就绪'), findsOneWidget);
       expect(find.text('端口 58080 · 网盘解析链路可用'), findsOneWidget);
       expect(find.byType(VboxDriveAccountCard), findsNWidgets(12));
-      expect(find.text('未获取'), findsNWidgets(12));
+      // 12 网盘卡 + Emby 配置卡（批次 C）各一枚「未获取」徽标。
+      expect(find.text('未获取'), findsNWidgets(13));
       expect(find.text('测试'), findsNWidgets(12));
       expect(find.text('基础登录 Web Cookie'), findsOneWidget);
       expect(
@@ -151,7 +171,8 @@ void main() {
       );
 
       expect(find.text('已获取'), findsOneWidget);
-      expect(find.text('未获取'), findsNWidgets(11));
+      // 11 张未授权网盘卡 + Emby 配置卡（批次 C）= 12 枚「未获取」徽标。
+      expect(find.text('未获取'), findsNWidgets(12));
       // 副标题与详情行回退文案都取 displayName（2 处），
       // 另加「已保存 Token」列表内的账号名（1 处）= 3。
       expect(find.text('夸友'), findsNWidgets(3));
