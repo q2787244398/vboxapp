@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/typography.dart';
+import '../../theme/vbox_haptics.dart';
 
 /// 导航项（共享模型，供底栏复用）。
 class VboxNavItem {
@@ -131,7 +132,11 @@ class VboxBottomNav extends StatelessWidget {
       label: item.label,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => onSelected(index),
+        // E5-2 触感补点：Tab 切换 selection（对齐 iOS 底栏 tab 切换）。
+        onTap: () {
+          VboxHaptics.selection();
+          onSelected(index);
+        },
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 3),
           child: Column(

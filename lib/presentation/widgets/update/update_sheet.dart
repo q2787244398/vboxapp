@@ -10,8 +10,8 @@
 /// - 关闭时若在下载则先取消（对齐 iOS `close()`）；
 /// - 缩小为右下角悬浮进度气泡（`FloatingDownloadBubble`），点击恢复弹窗。
 ///
-/// 落地差异（如实登记）：iOS 悬浮气泡支持拖拽与贴边吸附；Flutter 侧简化为固定
-/// 右下角 + 点击恢复（不实现拖拽吸附）。字号按本仓库令牌档位就近取（22→24、26→28、17→18）。
+/// 落地差异（如实登记）：悬浮气泡已实现拖拽 + 贴边吸附（批次 E · E1-2，对齐
+/// iOS `UpdateSheet.swift:289-294`）。字号按本仓库令牌档位就近取（22→24、26→28、17→18）。
 library;
 
 import 'package:flutter/material.dart';
@@ -425,8 +425,12 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-/// 悬浮下载气泡（缩小后显示在右下角；点击恢复弹窗）。
-class FloatingUpdateBubble extends StatelessWidget {
+/// 悬浮下载气泡（缩小后显示，可拖拽并吸附左右边缘；点击恢复弹窗）。
+///
+/// 对齐 iOS `UpdateSheet.swift:289-294`：默认位右下，拖拽手势（`onPanUpdate`
+/// 跟手 / `onPanEnd` 吸附最近左右边缘 + Y 轴范围限制），吸附逻辑复用悬浮下载
+/// 按键（`FloatingVideoDownloadButton`）现成 snapToEdge 口径。
+class FloatingUpdateBubble extends StatefulWidget {
   /// 构造。
   const FloatingUpdateBubble({
     super.key,
@@ -437,77 +441,135 @@ class FloatingUpdateBubble extends StatelessWidget {
   /// 更新器（读取下载进度）。
   final Updater updater;
 
-  /// 点击回调（恢复弹窗）。
+  /// 点击回调（非拖动点击触发；恢复弹窗）。
   final VoidCallback onTap;
+
+  @override
+  State<FloatingUpdateBubble> createState() => _FloatingUpdateBubbleState();
+}
+
+class _FloatingUpdateBubbleState extends State<FloatingUpdateBubble> {
+  static const double _size = 44;
+  static const double _margin = 16;
+
+  /// 相对默认位置（右下）的拖动偏移。
+  Offset _offset = Offset.zero;
+  bool _hasMoved = false;
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    const double size = 44;
-    return Positioned(
-      right: VboxSpacing.lg,
-      bottom: VboxSpacing.xxxl * 4,
-      child: ListenableBuilder(
-        listenable: updater,
-        builder: (BuildContext context, Widget? _) {
-          final bool active = updater.isDownloading;
-          final double value =
-              updater.downloadProgress.clamp(0.05, 1.0).toDouble();
-          return GestureDetector(
-            onTap: onTap,
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: Stack(
-                alignment: Alignment.center,
-                children: <Widget>[
-                  SizedBox(
-                    width: size,
-                    height: size,
-                    child: CircularProgressIndicator(
-                      value: 1,
-                      strokeWidth: 2.5,
-                      color: scheme.onSurface.withValues(alpha: 0.15),
+    // 结构对齐 FloatingVideoDownloadButton：LayoutBuilder 外层取可用尺寸，
+    // Positioned 必须为 Stack 直接子级（嵌在 LayoutBuilder 内会破坏 ParentData）。
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double w = constraints.maxWidth;
+        final double h = constraints.maxHeight;
+        final Offset base = Offset(w - _size - _margin, h - _size - _margin);
+        final Offset pos = base + _offset;
+        return Stack(
+          children: <Widget>[
+            AnimatedPositioned(
+              duration: _hasMoved
+                  ? Duration.zero
+                  : const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+              left: pos.dx,
+              top: pos.dy,
+              width: _size,
+              height: _size,
+              child: ListenableBuilder(
+                listenable: widget.updater,
+                builder: (BuildContext context, Widget? _) {
+                  final bool active = widget.updater.isDownloading;
+                  final double value = widget.updater.downloadProgress
+                      .clamp(0.05, 1.0)
+                      .toDouble();
+                  return GestureDetector(
+                    onTap: () {
+                      if (!_hasMoved) widget.onTap();
+                      _hasMoved = false;
+                    },
+                    onPanUpdate: (DragUpdateDetails details) {
+                      setState(() {
+                        _offset += details.delta;
+                        if (details.delta.distance > 5) _hasMoved = true;
+                      });
+                    },
+                    onPanEnd: (DragEndDetails details) {
+                      // 吸附最近左右边缘 + Y 轴范围限制（对齐 iOS dragGesture
+                      // onEnded / 下载按键 snapToEdge 口径）。
+                      final double newX = base.dx + _offset.dx;
+                      final double snapLeft =
+                          newX > w / 2 ? w - _size - _margin : _margin;
+                      final double newY = base.dy + _offset.dy;
+                      final double clampedY =
+                          newY.clamp(_size / 2 + 60, h - _size - 100);
+                      setState(() {
+                        _offset = Offset(snapLeft - base.dx, clampedY - base.dy);
+                      });
+                    },
+                    child: SizedBox(
+                      width: _size,
+                      height: _size,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: <Widget>[
+                          SizedBox(
+                            width: _size,
+                            height: _size,
+                            child: CircularProgressIndicator(
+                              value: 1,
+                              strokeWidth: 2.5,
+                              color:
+                                  scheme.onSurface.withValues(alpha: 0.15),
+                            ),
+                          ),
+                          SizedBox(
+                            width: _size,
+                            height: _size,
+                            child: CircularProgressIndicator(
+                              value: value,
+                              strokeWidth: 2.5,
+                              strokeCap: StrokeCap.round,
+                              color: VboxColors.downloadActive,
+                            ),
+                          ),
+                          Container(
+                            width: VboxSpacing.xxxl + 2,
+                            height: VboxSpacing.xxxl + 2,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: scheme.surface,
+                              boxShadow: <BoxShadow>[
+                                BoxShadow(
+                                  color:
+                                      Colors.black.withValues(alpha: 0.25),
+                                  blurRadius: VboxSpacing.sm,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              active
+                                  ? Icons.arrow_circle_down
+                                  : Icons.download_done,
+                              size: VboxSpacing.xxl,
+                              color: active
+                                  ? VboxColors.downloadActive
+                                  : VboxColors.downloadCompleted,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  SizedBox(
-                    width: size,
-                    height: size,
-                    child: CircularProgressIndicator(
-                      value: value,
-                      strokeWidth: 2.5,
-                      strokeCap: StrokeCap.round,
-                      color: VboxColors.downloadActive,
-                    ),
-                  ),
-                  Container(
-                    width: VboxSpacing.xxxl + 2,
-                    height: VboxSpacing.xxxl + 2,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: scheme.surface,
-                      boxShadow: <BoxShadow>[
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.25),
-                          blurRadius: VboxSpacing.sm,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      active ? Icons.arrow_circle_down : Icons.download_done,
-                      size: VboxSpacing.xxl,
-                      color: active
-                          ? VboxColors.downloadActive
-                          : VboxColors.downloadCompleted,
-                    ),
-                  ),
-                ],
+                  );
+                },
               ),
             ),
-          );
-        },
-      ),
+          ],
+        );
+      },
     );
   }
 }

@@ -239,6 +239,7 @@ class MarqueeText extends StatefulWidget {
     this.maxWidth = 200,
     this.fontSize = VboxTypography.s12,
     this.color = Colors.white,
+    this.fontWeight = FontWeight.w500,
   });
 
   /// 文本。
@@ -252,6 +253,9 @@ class MarqueeText extends StatefulWidget {
 
   /// 文字色。
   final Color color;
+
+  /// 字重（顶栏标题等复用位可调；缺省 w500 保持既有观感）。
+  final FontWeight fontWeight;
 
   @override
   State<MarqueeText> createState() => _MarqueeTextState();
@@ -296,7 +300,7 @@ class _MarqueeTextState extends State<MarqueeText>
   Widget build(BuildContext context) {
     final TextStyle style = TextStyle(
       fontSize: widget.fontSize,
-      fontWeight: FontWeight.w500,
+      fontWeight: widget.fontWeight,
       color: widget.color,
     );
     final TextPainter painter = TextPainter(

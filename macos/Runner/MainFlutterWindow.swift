@@ -23,6 +23,21 @@ class MainFlutterWindow: NSWindow {
     let registrar = flutterViewController.registrar(forPlugin: "PlayerPlugin")
     PlayerPlugin.register(with: registrar)
 
+    // 批次 D · D1：屏幕亮度 / 系统音量通道（Core Audio 系统音量 + 会话级亮度）。
+    let screenControlsRegistrar = flutterViewController.registrar(
+      forPlugin: "ScreenControlsPlugin")
+    ScreenControlsPlugin.register(with: screenControlsRegistrar)
+
+    // 批次 D · D2：应用内浮窗通道（置顶无边框小窗承载截图快照 + 三手势回传）。
+    let floatingRegistrar = flutterViewController.registrar(
+      forPlugin: "FloatingWindowPlugin")
+    FloatingWindowPlugin.register(with: floatingRegistrar)
+
+    // 批次 D · D3：音乐锁屏媒体会话通道（MPNowPlayingInfoCenter + MPRemoteCommandCenter）。
+    let mediaSessionRegistrar = flutterViewController.registrar(
+      forPlugin: "MusicMediaSessionPlugin")
+    MusicMediaSessionPlugin.register(with: mediaSessionRegistrar)
+
     super.awakeFromNib()
   }
 }

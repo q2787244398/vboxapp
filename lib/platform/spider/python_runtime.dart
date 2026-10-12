@@ -21,20 +21,67 @@ import 'package:flutter/services.dart';
 
 import '../../domain/entities/spider/spider_engine.dart';
 
+/// Windows Python 可执行名探测缓存（批次 E · E5-1；首次调用后进程级缓存，
+/// 避免每次启动重复探测）。
+String? _probedWindowsExecutable;
+List<String> _probedWindowsExtraArgs = const <String>[];
+
+/// Windows 依次探测 `python3` → `python` → `py -3`（`Process.runSync('--version')`
+/// 一次成功即缓存；全失败回退 `python3`——launch 时如实报不可用，登记）。
+List<String> _probeWindowsPythonCommand() {
+  if (_probedWindowsExecutable != null) {
+    return <String>[_probedWindowsExecutable!, ..._probedWindowsExtraArgs];
+  }
+  const List<(String, List<String>)> candidates = <(String, List<String>)>[
+    ('python3', <String>[]),
+    ('python', <String>[]),
+    ('py', <String>['-3']),
+  ];
+  for (final (String, List<String>) candidate in candidates) {
+    try {
+      final ProcessResult result = Process.runSync(candidate.$1,
+          <String>[...candidate.$2, '--version']);
+      if (result.exitCode == 0) {
+        _probedWindowsExecutable = candidate.$1;
+        _probedWindowsExtraArgs = candidate.$2;
+        return <String>[candidate.$1, ...candidate.$2];
+      }
+    } catch (_) {
+      // 可执行名不存在：尝试下一个。
+    }
+  }
+  // 全失败：回退 python3，交由 launch 如实报不可用（E5-1 登记）。
+  _probedWindowsExecutable = 'python3';
+  _probedWindowsExtraArgs = const <String>[];
+  return const <String>['python3'];
+}
+
 /// 蜘蛛脚本运行时（常驻 + 逐行 JSON ABI）。
 abstract class PythonRuntime {
   /// 按平台选择运行时：Android 走 Chaquopy 进程内（[ChannelPythonRuntime]），
-  /// 其余平台走 `python3` 子进程（[StdioPythonRuntime]）。
+  /// 其余平台走 `python3` 子进程（[StdioPythonRuntime]）；Windows 额外按
+  /// E5-1 探测 `python3` → `python` → `py -3`（探测一次缓存）。
   factory PythonRuntime.forCurrentPlatform({
     String pythonExecutable = 'python3',
     Duration timeout = const Duration(seconds: 15),
-  }) =>
-      Platform.isAndroid
-          ? ChannelPythonRuntime(timeout: timeout)
-          : StdioPythonRuntime(
-              pythonExecutable: pythonExecutable,
-              timeout: timeout,
-            );
+  }) {
+    if (Platform.isAndroid) return ChannelPythonRuntime(timeout: timeout);
+    if (Platform.isWindows) {
+      final List<String> command = _probeWindowsPythonCommand();
+      // 探测命中非缺省名 → 覆盖注入（缺省名保持调用方注入，测试可覆盖）。
+      if (command.first != pythonExecutable) {
+        return StdioPythonRuntime(
+          pythonExecutable: command.first,
+          extraArgs: command.sublist(1),
+          timeout: timeout,
+        );
+      }
+    }
+    return StdioPythonRuntime(
+      pythonExecutable: pythonExecutable,
+      timeout: timeout,
+    );
+  }
 
   /// 运行时日志（含降级事件）。
   void Function(String)? onLog;
@@ -55,12 +102,20 @@ abstract class PythonRuntime {
 /// 子进程运行时（`python3 -u <script>` + stdio ABI；桌面 / 测试）。
 class StdioPythonRuntime implements PythonRuntime {
   /// [pythonExecutable] 可注入（测试用 `python3`）。
+  ///
+  /// [extraArgs] 为可执行名之后的附加参数（E5-1：Windows 探测命中 `py` 时
+  /// 传 `['-3']` 指定 Python3）。
   StdioPythonRuntime({
     this.pythonExecutable = 'python3',
+    this.extraArgs = const <String>[],
     this.timeout = const Duration(seconds: 15),
   });
 
   final String pythonExecutable;
+
+  /// 启动参数前缀（插在 `-u` 与脚本路径之前）。
+  final List<String> extraArgs;
+
   final Duration timeout;
 
   Process? _process;
@@ -83,7 +138,7 @@ class StdioPythonRuntime implements PythonRuntime {
     await tmp.writeAsString(script);
     final Process p = await Process.start(
       pythonExecutable,
-      <String>['-u', tmp.path],
+      <String>[...extraArgs, '-u', tmp.path],
     );
     _process = p;
     _sub = p.stdout

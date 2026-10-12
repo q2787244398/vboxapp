@@ -17,12 +17,12 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../../theme/vbox_haptics.dart';
 
 /// 福利栏目（对齐 iOS `RemoteWelfareCategory`）。
 enum VboxWelfareCategory {
@@ -90,7 +90,8 @@ class VboxWelfareTabs extends StatelessWidget {
     );
   }
 
-  Widget _tab(BuildContext context, VboxWelfareCategory category, Color inactive) {
+  Widget _tab(
+      BuildContext context, VboxWelfareCategory category, Color inactive) {
     final bool on = category == selected;
     final Color textColor = on ? Colors.white : inactive;
     return Semantics(
@@ -235,7 +236,7 @@ class VboxWelfarePlatformGrid extends StatelessWidget {
               ? null
               : () {
                   // UI-B1 触感反馈：对齐 iOS 福利平台入口 medium 震动。
-                  HapticFeedback.mediumImpact();
+                  VboxHaptics.medium();
                   onTap!(platform);
                 },
           onLongPress: onLongPress,

@@ -22,6 +22,7 @@ import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../ui_mode/ui_mode.dart';
+import '../remote_source/remote_source_status_bar.dart';
 
 /// 播放器顶栏。
 class PlayerTopBar extends StatelessWidget {
@@ -119,15 +120,39 @@ class PlayerTopBar extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
                   if (title != null)
-                    Text(
-                      title!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: VboxTypography.s16,
-                        fontWeight: FontWeight.w600,
-                        color: foreground,
-                      ),
+                    // E1-3：标题超宽 → 跑马灯（复用 `MarqueeText`，对齐 iOS
+                    // 顶栏 `MarqueeText` 复用位）；未超宽保持静态省略号。
+                    LayoutBuilder(
+                      builder: (BuildContext context, BoxConstraints c) {
+                        const TextStyle style = TextStyle(
+                          fontSize: VboxTypography.s16,
+                          fontWeight: FontWeight.w600,
+                          color: foreground,
+                        );
+                        final TextPainter painter = TextPainter(
+                          text: TextSpan(text: title, style: style),
+                          maxLines: 1,
+                          textDirection: Directionality.of(context),
+                        )..layout();
+                        final bool overflows =
+                            painter.width > c.maxWidth;
+                        painter.dispose();
+                        if (!overflows) {
+                          return Text(
+                            title!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: style,
+                          );
+                        }
+                        return MarqueeText(
+                          text: title!,
+                          maxWidth: c.maxWidth,
+                          fontSize: VboxTypography.s16,
+                          color: foreground,
+                          fontWeight: FontWeight.w600,
+                        );
+                      },
                     ),
                   if (subtitle != null)
                     Text(

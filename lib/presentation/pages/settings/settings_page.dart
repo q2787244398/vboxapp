@@ -32,6 +32,7 @@ import '../../../domain/entities/spider/site_config.dart';
 import '../../../domain/usecases/content_browse_usecases.dart';
 import '../../../domain/usecases/detail_playback_usecases.dart';
 import '../../../domain/usecases/source_governance_usecases.dart';
+import '../../../platform/network/dns_cache.dart';
 import '../../../platform/update/update.dart';
 import '../../phone/remote_source_page.dart';
 import '../../theme/theme.dart';
@@ -171,7 +172,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 皮肤（四选 2×2 + 跟随系统；对齐 iOS `skinSettingsSection`）。
   Widget _skinSection(VboxSkinController skin) {
-    final bool visual = skin.skin == VboxSkin.liquid || skin.skin == VboxSkin.frosted;
+    final bool visual =
+        skin.skin == VboxSkin.liquid || skin.skin == VboxSkin.frosted;
     return VboxSettingsSection(
       title: '皮肤',
       children: <Widget>[
@@ -225,9 +227,7 @@ class _SettingsPageState extends State<SettingsPage> {
       children: <Widget>[
         VboxSettingsRow.toggle(
           title: '自定义弹幕源',
-          subtitle: _danmakuEnabled
-              ? '已开启 — 使用自定义弹幕API地址'
-              : '关闭 — 使用默认弹幕源',
+          subtitle: _danmakuEnabled ? '已开启 — 使用自定义弹幕API地址' : '关闭 — 使用默认弹幕源',
           icon: Icons.chat_bubble,
           value: _danmakuEnabled,
           onChanged: (bool value) async {
@@ -272,7 +272,8 @@ class _SettingsPageState extends State<SettingsPage> {
             subtitle: '主源无结果时并入自定义切片源搜索',
             icon: Icons.dns,
             value: store.fallbackEnabled,
-            onChanged: (bool value) => unawaited(store.setFallbackEnabled(value)),
+            onChanged: (bool value) =>
+                unawaited(store.setFallbackEnabled(value)),
           ),
           VboxSettingsRow.navigation(
             title: '管理自定义切片源',
@@ -360,7 +361,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   textCapitalization: TextCapitalization.none,
                   keyboardType: TextInputType.url,
                   onChanged: tg.setProxyUrl,
-                  style: TextStyle(fontSize: VboxTypography.s15, color: onSurface),
+                  style:
+                      TextStyle(fontSize: VboxTypography.s15, color: onSurface),
                   decoration: InputDecoration(
                     isDense: true,
                     filled: true,
@@ -610,6 +612,19 @@ class _SettingsPageState extends State<SettingsPage> {
           title: '查看日志',
           icon: Icons.list_alt,
           onTap: () => _push(const LogViewerPage()),
+        ),
+        // 批次 E · E3-2：零消费键 `dns_cache_clear` 收口（对齐 iOS
+        // `AppSettings.swift` 「DNS 缓存清理」动作行：触发后清缓存并回弹）。
+        VboxSettingsRow.toggle(
+          title: 'DNS 缓存清理',
+          subtitle: '清空进程级 DNS 解析缓存，下次连接重新解析',
+          icon: Icons.dns_outlined,
+          value: false,
+          onChanged: (bool value) {
+            if (!value) return;
+            VboxDnsCache.clear();
+            VboxToast.show(context, 'DNS 缓存已清理');
+          },
         ),
       ],
     );

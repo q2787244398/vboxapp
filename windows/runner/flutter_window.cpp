@@ -5,7 +5,10 @@
 #include <flutter/plugin_registrar_windows.h>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "floating_plugin.h"
+#include "music_media_plugin.h"
 #include "player_plugin.h"
+#include "screen_controls_plugin.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -38,6 +41,28 @@ bool FlutterWindow::OnCreate() {
           ->GetRegistrar<flutter::PluginRegistrarWindows>(
               flutter_controller_->engine()->GetRegistrarForPlugin(
                   "PlayerPlugin")));
+  // 批次 D：D1 亮度/音量、D2 浮窗、D3 媒体会话手动注册（同 PlayerPlugin 模式）。
+  // 浮窗 owner 与 SMTC GetForWindow 均需主窗口 HWND（OnCreate 时窗口已建）。
+  vbox::ScreenControlsPlugin::RegisterWithRegistrar(
+      flutter::PluginRegistrarManager::GetInstance()
+          ->GetRegistrar<flutter::PluginRegistrarWindows>(
+              flutter_controller_->engine()->GetRegistrarForPlugin(
+                  "ScreenControlsPlugin")));
+  {
+    HWND main_window = GetHandle();
+    vbox::FloatingPlugin::RegisterWithRegistrar(
+        flutter::PluginRegistrarManager::GetInstance()
+            ->GetRegistrar<flutter::PluginRegistrarWindows>(
+                flutter_controller_->engine()->GetRegistrarForPlugin(
+                    "FloatingPlugin")),
+        main_window);
+    vbox::MusicMediaPlugin::RegisterWithRegistrar(
+        flutter::PluginRegistrarManager::GetInstance()
+            ->GetRegistrar<flutter::PluginRegistrarWindows>(
+                flutter_controller_->engine()->GetRegistrarForPlugin(
+                    "MusicMediaPlugin")),
+        main_window);
+  }
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {

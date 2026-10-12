@@ -19,6 +19,7 @@ import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../../theme/vbox_haptics.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
 import 'epg_sheet.dart';
@@ -146,6 +147,8 @@ class _LiveTVPageState extends State<LiveTVPage> {
 
   /// 点击频道卡：弹出播放接入 Sheet（线路自动解析 + 连接首线路）。
   Future<void> _openChannel(LiveChannel channel) {
+    // E5-2 触感补点：直播频道选择 light（对齐 iOS 频道点击）。
+    VboxHaptics.light();
     return showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -251,7 +254,11 @@ class _LiveTVPageState extends State<LiveTVPage> {
           return _CategoryCapsule(
             category: c,
             selected: c.tid == active.tid,
-            onTap: () => setState(() => _selectedTid = c.tid),
+            // E5-2 触感补点：频道分组切换 selection（对齐 iOS 分组 tab）。
+            onTap: () {
+              VboxHaptics.selection();
+              setState(() => _selectedTid = c.tid);
+            },
           );
         },
       ),
@@ -273,8 +280,7 @@ class _LiveTVPageState extends State<LiveTVPage> {
       return const _EmptyHint(text: '暂无频道\n点击右下角按钮切换直播源');
     }
     final LiveCategory active = _activeCategory(categories)!;
-    final List<LiveChannel> channels =
-        _controller.channelsForGroup(active.tid);
+    final List<LiveChannel> channels = _controller.channelsForGroup(active.tid);
     if (channels.isEmpty) {
       return const _EmptyHint(text: '该分类暂无频道');
     }
@@ -312,15 +318,14 @@ class _CategoryCapsule extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  static Color _tint(LiveCategory c) => VboxColors
-      .liveCategoryPalette[c.paletteIndex % VboxColors.liveCategoryPalette.length];
+  static Color _tint(LiveCategory c) => VboxColors.liveCategoryPalette[
+      c.paletteIndex % VboxColors.liveCategoryPalette.length];
 
   @override
   Widget build(BuildContext context) {
     final Color tint = _tint(category);
     final Color foreground = selected ? Colors.white : tint;
-    final Color background =
-        selected ? tint : tint.withValues(alpha: 0.10);
+    final Color background = selected ? tint : tint.withValues(alpha: 0.10);
 
     return Material(
       color: background,
@@ -381,70 +386,75 @@ class _ChannelCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    return VboxCard(
-      padding: EdgeInsets.zero,
-      radius: VboxRadii.r12,
-      onTap: onTap,
-      child: Column(
-        children: <Widget>[
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(VboxRadii.r12 - 1),
-            ),
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Container(
-                color: scheme.surfaceContainerHighest,
-                child: PlatformAsyncImage(
-                  url: channel.logo,
-                  fit: BoxFit.contain,
-                  placeholderColor: scheme.surfaceContainerHighest,
-                  placeholder: Center(
-                    child: Icon(
-                      Icons.live_tv,
-                      size: VboxTypography.s24,
-                      color: Colors.orange.withValues(alpha: 0.60),
+    // E5-3 Semantics 补点：TV 焦点频道卡 label（频道名）。
+    return Semantics(
+      button: true,
+      label: '直播频道 ${channel.name}',
+      child: VboxCard(
+        padding: EdgeInsets.zero,
+        radius: VboxRadii.r12,
+        onTap: onTap,
+        child: Column(
+          children: <Widget>[
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(VboxRadii.r12 - 1),
+              ),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Container(
+                  color: scheme.surfaceContainerHighest,
+                  child: PlatformAsyncImage(
+                    url: channel.logo,
+                    fit: BoxFit.contain,
+                    placeholderColor: scheme.surfaceContainerHighest,
+                    placeholder: Center(
+                      child: Icon(
+                        Icons.live_tv,
+                        size: VboxTypography.s24,
+                        color: Colors.orange.withValues(alpha: 0.60),
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: VboxSpacing.sm, vertical: VboxSpacing.xs + 2),
-            child: Row(
-              children: <Widget>[
-                SizedBox(
-                  width: 56,
-                  child: Text(
-                    '${channel.routeCount}条线路',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: VboxTypography.s11,
-                      color: scheme.onSurfaceVariant,
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: VboxSpacing.sm, vertical: VboxSpacing.xs + 2),
+              child: Row(
+                children: <Widget>[
+                  SizedBox(
+                    width: 56,
+                    child: Text(
+                      '${channel.routeCount}条线路',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: VboxTypography.s11,
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
-                ),
-                Expanded(
-                  child: Text(
-                    channel.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: VboxTypography.s14,
-                      fontWeight: FontWeight.w500,
-                      color: scheme.onSurface,
+                  Expanded(
+                    child: Text(
+                      channel.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: VboxTypography.s14,
+                        fontWeight: FontWeight.w500,
+                        color: scheme.onSurface,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 56),
-              ],
+                  const SizedBox(width: 56),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -512,15 +522,16 @@ class _SourceSheetState extends State<_SourceSheet> {
       String fileName;
       if (url.startsWith('local://')) {
         final String localName = url.substring('local://'.length);
-        final List<SubscribeChannel> channels = _controller
-                .localChannelsMap[localName] ??
-            const <SubscribeChannel>[];
+        final List<SubscribeChannel> channels =
+            _controller.localChannelsMap[localName] ??
+                const <SubscribeChannel>[];
         if (channels.isEmpty) {
           _toast('本地源已失效，请重新导入');
           return;
         }
         content = _controller.exportM3U(channels);
-        fileName = LiveSourceImportExport.exportFileName(localName, isM3U: true);
+        fileName =
+            LiveSourceImportExport.exportFileName(localName, isM3U: true);
       } else {
         final String? raw = await _controller.fetchRawContent(url);
         if (raw == null || raw.trim().isEmpty) {
@@ -575,7 +586,8 @@ class _SourceSheetState extends State<_SourceSheet> {
                     ),
                   ),
                 ),
-                Flexible(child: _sourceList(context, scheme, sources, currentId)),
+                Flexible(
+                    child: _sourceList(context, scheme, sources, currentId)),
                 const Divider(height: 1),
                 ListTile(
                   leading: Icon(Icons.add_circle_outline,
@@ -650,8 +662,7 @@ class _SourceSheetState extends State<_SourceSheet> {
                       onPressed: () => _exportCustom(source),
                     ),
                     IconButton(
-                      icon: Icon(Icons.delete_outline,
-                          color: scheme.error),
+                      icon: Icon(Icons.delete_outline, color: scheme.error),
                       onPressed: () => _removeCustom(source),
                     ),
                   ],

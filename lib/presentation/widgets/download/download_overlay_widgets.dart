@@ -10,10 +10,10 @@
 ///   · SF Symbols 图标名 → Material 图标映射（[_sfIcon]，名字段由平台层透传）；
 ///   · iOS 完成行「播放 / 保存到文件 / 保存到相册」三动作 → Flutter 实现
 ///     播放（对齐 iOS `createLocalVodItem`，DownloadOverlayViews.swift
-///     L1001-L1016）与保存到文件（share 系统面板导出，对齐 iOS
-///     `UIDocumentPicker` 语义）；保存到相册需原生 TS→MP4 转封装 +
-///     MediaStore/PHPhotoLibrary 通道（iOS 亦仅对可转换格式开放，L683-L704），
-///     归真机批次，未开放；
+///     L1001-L1016）、保存到文件（share 系统面板导出，对齐 iOS
+///     `UIDocumentPicker` 语义）与保存到相册（E1-1，仅 Android：
+///     原生 `MediaExtractor`+`MediaMuxer` 转封装 + MediaStore 入库；
+///     桌面保持 share 导出 `.ts`，登记）；
 ///   · iOS 用 Timer 1s 轮询弹窗列表，Flutter 走 [DownloadManager] ChangeNotifier
 ///     自动刷新，无需轮询。
 library;
@@ -28,6 +28,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../../data/models/download.dart';
 import '../../../domain/entities/player/player.dart';
 import '../../../platform/download/download.dart';
+import '../../../platform/gallery/gallery_save.dart';
 import '../../pages/player/player_page.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
@@ -144,7 +145,8 @@ class _DownloadCapsuleNotificationState
               );
             },
             child: _visible && _current != null
-                ? _CapsuleBody(key: ValueKey<Object?>(_current), message: _current)
+                ? _CapsuleBody(
+                    key: ValueKey<Object?>(_current), message: _current)
                 : const SizedBox.shrink(),
           ),
         ),
@@ -231,7 +233,8 @@ class _PlayerCapsuleNotificationState extends State<PlayerCapsuleNotification> {
               );
             },
             child: _visible && _current != null
-                ? _CapsuleBody(key: ValueKey<Object?>(_current), message: _current)
+                ? _CapsuleBody(
+                    key: ValueKey<Object?>(_current), message: _current)
                 : const SizedBox.shrink(),
           ),
         ),
@@ -351,7 +354,8 @@ class _FloatingVideoDownloadButtonState
       builder: (BuildContext context, BoxConstraints constraints) {
         final double w = constraints.maxWidth;
         final double h = constraints.maxHeight;
-        final Offset base = Offset(w - _size - _marginRight, h - _size - _bottomGap);
+        final Offset base =
+            Offset(w - _size - _marginRight, h - _size - _bottomGap);
         final Offset pos = base + _offset;
         return Stack(
           children: <Widget>[
@@ -379,8 +383,8 @@ class _FloatingVideoDownloadButtonState
                   final double snapLeft =
                       newX > w / 2 ? w - _size - _marginRight : _marginRight;
                   final double newY = base.dy + _offset.dy;
-                  final double clampedY = newY
-                      .clamp(_size / 2 + 60, h - _size - 100);
+                  final double clampedY =
+                      newY.clamp(_size / 2 + 60, h - _size - 100);
                   setState(() {
                     _offset = Offset(snapLeft - base.dx, clampedY - base.dy);
                   });
@@ -837,7 +841,8 @@ class _ProgressRow extends StatelessWidget {
               ),
               const SizedBox(height: VboxSpacing.xs),
               ClipRRect(
-                borderRadius: const BorderRadius.all(Radius.circular(VboxRadii.r4)),
+                borderRadius:
+                    const BorderRadius.all(Radius.circular(VboxRadii.r4)),
                 child: LinearProgressIndicator(
                   value: record.progress.clamp(0.0, 1.0),
                   minHeight: 3,
@@ -873,8 +878,8 @@ class _ProgressRow extends StatelessWidget {
         else if (isPaused)
           IconButton(
             onPressed: () => manager.resume(record.id ?? 0),
-            icon:
-                const Icon(Icons.play_circle_filled, size: 22, color: Colors.blue),
+            icon: const Icon(Icons.play_circle_filled,
+                size: 22, color: Colors.blue),
             tooltip: '继续',
           ),
       ],
@@ -978,6 +983,15 @@ class _CompletedRow extends StatelessWidget {
           icon: Icon(Icons.ios_share_rounded, size: 18, color: scheme.outline),
           tooltip: '保存到文件',
         ),
+        // E1-1：保存到相册（仅 Android；对齐 iOS 完成行三动作排布，桌面
+        // 无系统相册概念走 share 导出，登记）。
+        if (GallerySaver.isSupported)
+          IconButton(
+            onPressed: canOpen ? () => _saveToGallery(context) : null,
+            icon: Icon(Icons.photo_library_outlined,
+                size: 20, color: scheme.outline),
+            tooltip: '保存到相册',
+          ),
         IconButton(
           onPressed: () => manager.deleteRecord(record.id ?? 0),
           icon: Icon(Icons.delete, size: 20, color: scheme.outline),
@@ -1014,11 +1028,41 @@ class _CompletedRow extends StatelessWidget {
   Future<void> _exportFile(BuildContext context) async {
     try {
       await SharePlus.instance.share(
-        ShareParams(files: <XFile>[XFile(record.filePath)], subject: record.name),
+        ShareParams(
+            files: <XFile>[XFile(record.filePath)], subject: record.name),
       );
     } catch (_) {
       if (!context.mounted) return;
       VboxToast.show(context, '当前平台不支持导出');
+    }
+  }
+
+  /// 保存到相册（E1-1；对齐 iOS `performSaveToPhotos`：
+  /// mp4/mov/m4v 直接入库，其余原生转封装；失败文案对齐 iOS「视频转换失败」）。
+  Future<void> _saveToGallery(BuildContext context) async {
+    final String ext = record.filePath.contains('.')
+        ? record.filePath.split('.').last.toLowerCase()
+        : '';
+    final bool needsConvert = ext != 'mp4' && ext != 'mov' && ext != 'm4v';
+    try {
+      await GallerySaver.save(
+        filePath: record.filePath,
+        displayName: record.name,
+      );
+      if (!context.mounted) return;
+      VboxToast.show(
+        context,
+        needsConvert ? '已转换并保存到相册' : '已保存到相册',
+      );
+    } on GallerySaveException catch (e) {
+      if (!context.mounted) return;
+      VboxToast.show(
+        context,
+        e.code == 'PERMISSION_DENIED' ? '请在系统设置中授予存储权限' : '视频转换失败',
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      VboxToast.show(context, '视频转换失败');
     }
   }
 }
@@ -1052,7 +1096,8 @@ class _FailedRow extends StatelessWidget {
               const SizedBox(height: VboxSpacing.xs),
               const Text(
                 '下载失败',
-                style: TextStyle(fontSize: VboxTypography.s10, color: Colors.red),
+                style:
+                    TextStyle(fontSize: VboxTypography.s10, color: Colors.red),
               ),
             ],
           ),

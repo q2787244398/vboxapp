@@ -15,8 +15,10 @@ library;
 
 import 'dart:async';
 import 'dart:io' show Directory, File, Platform;
+import 'dart:ui' as ui show Image, ImageByteFormat;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
@@ -50,6 +52,7 @@ import '../../../platform/player/subtitle_style.dart';
 import '../../../platform/player/wake_lock.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/typography.dart';
+import '../../theme/vbox_haptics.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/download/download_overlay_widgets.dart';
 import '../../widgets/player/cast/cast_controller.dart';
@@ -208,6 +211,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 画中画控制（C-05；按渲染内核 / 平台能力多策略分派）。
   PipController? _pip;
+
+  /// 浮窗截图快照源（D2；包住视频画面，`toImage` 采集 → 原生浮窗换图）。
+  final GlobalKey _pipBoundaryKey = GlobalKey();
+
+  /// 浮窗截图快照循环（D2；500ms 周期，对齐 iOS snapshotTimer 兜底节流）。
+  Timer? _pipSnapshotTimer;
 
   /// 外挂字幕轨道（C-08；null 表示未加载）。
   SubtitleTrack? _subtitleTrack;
@@ -628,6 +637,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         systemBridge: MethodChannelPipBridge(),
         floating: MethodChannelFloatingWindow(),
         backgroundPlayEnabled: s.backgroundPlay,
+        // D2 浮窗手势（对齐 iOS PiPHelper 通知语义）：
+        // 单击 → toggle 播放；双击 → 恢复全屏（返回播放页）。
+        onFloatingTogglePlay: () => unawaited(_player.togglePlay()),
+        onFloatingRestoreFullScreen: _restoreFromFloatingPip,
       );
     } catch (_) {
       // 原生桥缺失（桌面 / 单测）→ 不接画中画，不阻断播放。
@@ -641,6 +654,43 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _pip = pip;
       _controls.pipAvailable = pip.strategy.showsVisualPip;
     });
+    // D2：浮窗截图快照循环（对齐 iOS snapshotTimer 0.5s 兜底节流）。
+    _startPipSnapshotLoop();
+  }
+
+  /// 浮窗双击 → 恢复全屏（回播放页；对齐 iOS `vboxPiPRestoreFullScreen`）。
+  Future<void> _restoreFromFloatingPip() async {
+    if (!mounted) return;
+    Navigator.of(context).maybePop();
+  }
+
+  /// 浮窗截图快照循环：500ms 周期，仅浮窗策略激活时采集
+  /// （对齐 iOS `startSnapshotTimer`：DisplayLink 5fps + Timer 0.5s 兜底；
+  /// Flutter 用单 Timer + RepaintBoundary.toImage 等价）。
+  void _startPipSnapshotLoop() {
+    _pipSnapshotTimer ??= Timer.periodic(
+      const Duration(milliseconds: 500),
+      (_) => unawaited(_capturePipSnapshot()),
+    );
+  }
+
+  /// 采集当前播放画面 → PNG bytes → 原生浮窗换图。
+  Future<void> _capturePipSnapshot() async {
+    final PipController? pip = _pip;
+    if (pip == null || !pip.isInPip || pip.strategy.isSystemBased) return;
+    final BuildContext? ctx = _pipBoundaryKey.currentContext;
+    final Object? ro = ctx?.findRenderObject();
+    if (ro is! RenderRepaintBoundary || ro.debugNeedsPaint) return;
+    try {
+      // pixelRatio 0.5：浮窗仅 200×112 逻辑尺寸，半分辨率足够且降主线程负载。
+      final ui.Image image = await ro.toImage(pixelRatio: 0.5);
+      final ByteData? data =
+          await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      await pip.updateSnapshot(data?.buffer.asUint8List());
+    } catch (_) {
+      // 截图失败（画面未就绪 / 已退出）：跳过本帧，循环继续。
+    }
   }
 
   /// 生命周期联动：退后台驱动后台播放承载 + 画中画，回前台收回。
@@ -655,9 +705,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     }
     final PipController? pip = _pip;
     if (pip != null) {
-      unawaited(pip
-          .handleLifecycle(lifecycle, isPlaying: playing)
-          .then<void>((_) {
+      unawaited(
+          pip.handleLifecycle(lifecycle, isPlaying: playing).then<void>((_) {
         if (mounted) _controls.setInPip(pip.isInPip);
       }, onError: (Object _) {}));
     }
@@ -712,7 +761,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         await pip.exit();
       } else {
         // UI-B1 触感反馈：对齐 iOS 启动画中画时的 medium 震动。
-        unawaited(HapticFeedback.mediumImpact());
+        VboxHaptics.medium();
         await pip.enter(title: widget.title, isLive: _controls.isLive);
       }
     } catch (_) {
@@ -815,7 +864,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   Future<void> _beginLongPressSpeed() async {
     if (!_longPressSpeed.enabled) return;
     // UI-B1 触感反馈：对齐 iOS `startLongPressSpeed` 的 medium 震动。
-    unawaited(HapticFeedback.mediumImpact());
+    VboxHaptics.medium();
     _preLongPressSpeed = _controls.speed;
     try {
       await _longPressSpeed.begin();
@@ -1025,7 +1074,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     if (!mounted) return;
     if (adj == null) return;
     // seek 模式：拖动中实时回显进度（对齐 iOS `playerState.currentTime = target`）。
-    if (adj.mode == GestureMode.seek) _controls.previewSeek(_gestures.seekTargetMs);
+    if (adj.mode == GestureMode.seek) {
+      _controls.previewSeek(_gestures.seekTargetMs);
+    }
     setState(() => _gestureHud = adj);
   }
 
@@ -1045,9 +1096,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       // UI-D2：屏幕常亮按播放状态驱动（对齐 iOS `updateIdleTimer()` 收口：
       // 播放中 `isIdleTimerDisabled = true`；暂停 / 停止 / 结束显式恢复，
       // iOS 注释——后台场景系统可能重置 idle timer，故每次状态变化都同步）。
-      unawaited(s == PlayerState.playing
-          ? _wakeLock.enable()
-          : _wakeLock.disable());
+      unawaited(
+          s == PlayerState.playing ? _wakeLock.enable() : _wakeLock.disable());
       // UI-F18：进入播放即收起加载层（首帧已就绪）。
       if (s == PlayerState.playing) {
         // UI-F21：首帧就绪 → 取消首帧超时兜底任务（对齐 iOS readyToPlay）。
@@ -1131,7 +1181,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _danmakuCtrl?.seekTo(ms);
       _danmakuPosMs = ms;
       _danmakuSyncAtMs = DateTime.now().millisecondsSinceEpoch;
-      if (mounted) setState(() => _danmakuStates = const <DanmakuRenderState>[]);
+      if (mounted) {
+        setState(() => _danmakuStates = const <DanmakuRenderState>[]);
+      }
       // UI-F18：跳转期间显示加载层，3s 安全超时兜底（对齐 iOS seekTimeoutTask）。
       _seekLoadingPending = true;
       _controls.showLoading(
@@ -1147,16 +1199,19 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       unawaited(_player.seekTo(ms));
     };
     _controls.onSelectSpeed = (double s) => unawaited(_player.setSpeed(s));
-    _controls.onSelectBackend = (PlayerBackend b) => unawaited(_switchBackend(b));
+    _controls.onSelectBackend =
+        (PlayerBackend b) => unawaited(_switchBackend(b));
     _controls.onBack = () {
       if (mounted) Navigator.of(context).maybePop();
     };
-    _controls.onToggleOrientationLock = () => unawaited(_toggleOrientationLock());
+    _controls.onToggleOrientationLock =
+        () => unawaited(_toggleOrientationLock());
     // 顶栏旋转按钮：切换横竖屏（对齐 iOS `rotate.left` / `rotate.right`）。
     // 桌面端（Windows / macOS）无方向概念且 SystemChrome 方向 API 为空操作，
     // 置 null 隐藏按钮（顶栏对 null 回调隐藏按钮，同投屏 / 拉伸语义）。
-    _controls.onToggleFullscreen =
-        (Platform.isAndroid || Platform.isIOS) ? () => unawaited(_rotate()) : null;
+    _controls.onToggleFullscreen = (Platform.isAndroid || Platform.isIOS)
+        ? () => unawaited(_rotate())
+        : null;
     _controls.onToggleToolsMenu = () {
       _showControls();
       _controls.openToolsMenu();
@@ -1167,7 +1222,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     };
     _controls.onToggleDanmaku = () {
       _controls.setDanmakuEnabled(!_controls.showDanmaku);
-      setState(() => _danmaku = _danmaku.copyWith(enabled: _controls.showDanmaku));
+      setState(
+          () => _danmaku = _danmaku.copyWith(enabled: _controls.showDanmaku));
     };
     final bool canSwitchEpisode = widget.onResolveEpisode != null;
     _controls.onSelectEpisode = canSwitchEpisode ? _playEpisode : null;
@@ -1632,8 +1688,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 退出播放页：恢复正常系统 UI + 全方向（fire-and-forget，不阻塞返回）。
   void _restoreSystemUi() {
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
-    unawaited(
-        SystemChrome.setPreferredOrientations(DeviceOrientation.values));
+    unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
   }
 
   void _onDanmakuChanged(DanmakuSettings settings) {
@@ -1660,6 +1715,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _foregroundRestoreTimer?.cancel();
     _panFallbackTimeout?.cancel();
     _danmakuTimer?.cancel();
+    _pipSnapshotTimer?.cancel();
     // UI-D2：退出播放页兜底恢复锁屏（对齐 iOS dismiss 后内核 stop 恢复 idle timer；
     // 常规路径 pause 已触发 disable，此处防控制器状态回调丢失）。
     unawaited(_wakeLock.disable());
@@ -1743,15 +1799,19 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                 // UI-E2：屏幕拉伸（对齐 iOS 顶栏「屏幕拉伸」按钮循环切换）。
                 videoGravity: _videoGravity,
                 onCycleVideoGravity: _cycleVideoGravity,
-                videoBuilder: (BuildContext context) => VideoSurface(
-                  textureId: _textureId,
-                  aspectRatio: _aspectRatio,
-                  // UI-E2：画面拉伸模式（填充 / 适应 / 拉伸）。
-                  fit: switch (_videoGravity) {
-                    VideoGravityMode.aspectFill => BoxFit.cover,
-                    VideoGravityMode.aspectFit => BoxFit.contain,
-                    VideoGravityMode.resize => BoxFit.fill,
-                  },
+                videoBuilder: (BuildContext context) => RepaintBoundary(
+                  // D2：浮窗截图快照源（进入浮窗后周期 toImage → 原生换图）。
+                  key: _pipBoundaryKey,
+                  child: VideoSurface(
+                    textureId: _textureId,
+                    aspectRatio: _aspectRatio,
+                    // UI-E2：画面拉伸模式（填充 / 适应 / 拉伸）。
+                    fit: switch (_videoGravity) {
+                      VideoGravityMode.aspectFill => BoxFit.cover,
+                      VideoGravityMode.aspectFit => BoxFit.contain,
+                      VideoGravityMode.resize => BoxFit.fill,
+                    },
+                  ),
                 ),
                 // 弹幕层（叠于画面之上、控制层之下；关开关或无弹幕则不渲染）。
                 danmakuBuilder: (BuildContext context) {

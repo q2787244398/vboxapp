@@ -185,8 +185,7 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   /// 是否云源（对齐 iOS `isCloudVideo`：`vod_remarks` 以 `☁️` 开头）。
-  bool get _isCloudVideo =>
-      _detail?.vod.vodRemarks?.startsWith('☁️') ?? false;
+  bool get _isCloudVideo => _detail?.vod.vodRemarks?.startsWith('☁️') ?? false;
 
   /// TMDB 详情增强（对齐 iOS `VideoDetailView.loadTMDBData`）。
   ///
@@ -275,9 +274,8 @@ class _DetailPageState extends State<DetailPage> {
     if (d == null) return const <PlaybackEpisode>[];
     if (d.froms.isEmpty) return d.episodes;
     final String from = d.froms[lineIndex.clamp(0, d.froms.length - 1)];
-    final List<PlaybackEpisode> out = d.episodes
-        .where((PlaybackEpisode e) => e.from == from)
-        .toList();
+    final List<PlaybackEpisode> out =
+        d.episodes.where((PlaybackEpisode e) => e.from == from).toList();
     return out.isEmpty ? d.episodes : out;
   }
 
@@ -505,11 +503,10 @@ class _DetailPageState extends State<DetailPage> {
     final List<String> failed = <String>[];
     for (int i = 0; i < episodes.length; i++) {
       final PlaybackEpisode episode = episodes[i];
-      final int original =
-          visible.indexWhere((PlaybackEpisode e) => e.url == episode.url && e.name == episode.name);
+      final int original = visible.indexWhere((PlaybackEpisode e) =>
+          e.url == episode.url && e.name == episode.name);
       final int jishu = original >= 0 ? original + 1 : i + 1;
-      final String label =
-          episode.name.isEmpty ? '第$jishu集' : episode.name;
+      final String label = episode.name.isEmpty ? '第$jishu集' : episode.name;
 
       if (cloud) {
         await manager.enqueue(
@@ -538,8 +535,7 @@ class _DetailPageState extends State<DetailPage> {
         continue;
       }
 
-      final String headers =
-          jsonEncode(pc?.header ?? const <String, String>{});
+      final String headers = jsonEncode(pc?.header ?? const <String, String>{});
       await manager.enqueue(
         Download(
           name: '${d.vod.vodName} $label',
@@ -575,7 +571,8 @@ class _DetailPageState extends State<DetailPage> {
   /// 名称缺失 → `剧集列表`。
   String _expandedEpisodeTitle(PlaybackDetail d) {
     if (_isCloudVideo) {
-      final String drive = _selectedCloudDrive ?? _firstCloudDriveName ?? '网盘资源';
+      final String drive =
+          _selectedCloudDrive ?? _firstCloudDriveName ?? '网盘资源';
       return '$drive 剧集列表';
     }
     if (d.froms.isEmpty) return '剧集列表';
@@ -989,7 +986,8 @@ class _DetailPageState extends State<DetailPage> {
       }
       // 统一播放源落地（对齐 iOS 播放器取链后交引擎）：HLS 经 Go 代理注册 +
       // 携带 F21 兜底线路（原画 403 / 断连 / 首帧超时回落 m3u8）。
-      final PlayerSource source = await _pan.sourceFor(item, title: d.vod.vodName);
+      final PlayerSource source =
+          await _pan.sourceFor(item, title: d.vod.vodName);
       if (!mounted) return;
       unawaited(_recordHistory());
       await Navigator.of(context).push(
@@ -1367,38 +1365,44 @@ class _DetailPageState extends State<DetailPage> {
         constraints: const BoxConstraints(maxWidth: 300),
         child: SizedBox(
           width: double.infinity,
-          child: Material(
-            color: VboxColors.detailPlayButton,
-            borderRadius: BorderRadius.circular(VboxRadii.capsule),
-            child: InkWell(
-              onTap: enabled ? _play : null,
+          // E5-3 Semantics 补点：立即播放按钮。
+          child: Semantics(
+            button: true,
+            label: _playing ? '播放中' : '立即播放',
+            child: Material(
+              color: VboxColors.detailPlayButton,
               borderRadius: BorderRadius.circular(VboxRadii.capsule),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    if (_playing)
-                      const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
+              child: InkWell(
+                onTap: enabled ? _play : null,
+                borderRadius: BorderRadius.circular(VboxRadii.capsule),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      if (_playing)
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      else
+                        const Icon(Icons.play_arrow,
+                            size: 16, color: Colors.black),
+                      const SizedBox(width: 8),
+                      Text(
+                        _playing ? '播放中…' : '立即播放',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                           color: Colors.black,
                         ),
-                      )
-                    else
-                      const Icon(Icons.play_arrow, size: 16, color: Colors.black),
-                    const SizedBox(width: 8),
-                    Text(
-                      _playing ? '播放中…' : '立即播放',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black,
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1410,8 +1414,11 @@ class _DetailPageState extends State<DetailPage> {
 
   /// 演职人员（分类 tab + 小方头像卡横滑，对齐 iOS `castSection`）。
   Widget _buildCast(PlaybackDetail d) {
-    final (List<_CastMember> actors, List<_CastMember> directors,
-        List<_CastMember> writers) = _castData(d);
+    final (
+      List<_CastMember> actors,
+      List<_CastMember> directors,
+      List<_CastMember> writers
+    ) = _castData(d);
     final bool hasAny =
         actors.isNotEmpty || directors.isNotEmpty || writers.isNotEmpty;
     if (!hasAny) return const SizedBox.shrink();
@@ -1486,7 +1493,8 @@ class _DetailPageState extends State<DetailPage> {
           style: TextStyle(
             fontSize: 14,
             fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-            color: selected ? Colors.white : Colors.white.withValues(alpha: 0.6),
+            color:
+                selected ? Colors.white : Colors.white.withValues(alpha: 0.6),
           ),
         ),
       ),
@@ -1536,7 +1544,11 @@ class _DetailPageState extends State<DetailPage> {
     }
     // 站点 `vodActor` 纯文本不兜底（对齐 iOS：演职区块只渲染带头像的
     // TMDB / 豆瓣数据，两边皆无 → 整块隐藏，而非显示无名氏文本卡）。
-    return (const <_CastMember>[], const <_CastMember>[], const <_CastMember>[]);
+    return (
+      const <_CastMember>[],
+      const <_CastMember>[],
+      const <_CastMember>[]
+    );
   }
 
   /// 豆瓣演职人员 → 卡片模型（角色文案对齐 iOS `DoubanCelebrity.roleText`）。
@@ -1560,15 +1572,21 @@ class _DetailPageState extends State<DetailPage> {
               ),
             ),
             const Spacer(),
+            // E5-3 Semantics 补点：收藏切换（状态透传 selected）。
             GestureDetector(
               onTap: _toggleFavorite,
               behavior: HitTestBehavior.opaque,
-              child: Icon(
-                _favorite ? Icons.favorite : Icons.favorite_border,
-                size: 24,
-                color: _favorite
-                    ? VboxColors.detailSelected
-                    : Colors.white.withValues(alpha: 0.9),
+              child: Semantics(
+                button: true,
+                selected: _favorite,
+                label: _favorite ? '取消收藏' : '加入收藏',
+                child: Icon(
+                  _favorite ? Icons.favorite : Icons.favorite_border,
+                  size: 24,
+                  color: _favorite
+                      ? VboxColors.detailSelected
+                      : Colors.white.withValues(alpha: 0.9),
+                ),
               ),
             ),
           ],
@@ -1590,7 +1608,9 @@ class _DetailPageState extends State<DetailPage> {
   /// 当前网盘的剧集列表；非云源返回空。
   Widget _buildPanSection() {
     if (!_isCloudVideo) return const SizedBox.shrink();
-    if (_rawCloudLinks.isEmpty && !_isLoadingPan) return const SizedBox.shrink();
+    if (_rawCloudLinks.isEmpty && !_isLoadingPan) {
+      return const SizedBox.shrink();
+    }
     final List<String> drives = _cloudDriveNames;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1644,7 +1664,8 @@ class _DetailPageState extends State<DetailPage> {
             _buildDriveTabs(drives),
             const SizedBox(height: 10),
             _buildDriveEpisodeSection(
-              _selectedCloudDrive != null && drives.contains(_selectedCloudDrive)
+              _selectedCloudDrive != null &&
+                      drives.contains(_selectedCloudDrive)
                   ? _selectedCloudDrive!
                   : drives.first,
             ),
@@ -1787,9 +1808,8 @@ class _DetailPageState extends State<DetailPage> {
       case _DriveExpandKind.loaded:
         final List<_CloudPanLink> links = state.links;
         if (links.isEmpty) return const SizedBox.shrink();
-        final List<_CloudPanLink> ordered = _episodesReversed
-            ? links.reversed.toList(growable: false)
-            : links;
+        final List<_CloudPanLink> ordered =
+            _episodesReversed ? links.reversed.toList(growable: false) : links;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -1847,8 +1867,7 @@ class _DetailPageState extends State<DetailPage> {
                   childAspectRatio: 1.9,
                 ),
                 itemCount: ordered.length,
-                itemBuilder: (BuildContext context, int index) =>
-                    _EpisodeCell(
+                itemBuilder: (BuildContext context, int index) => _EpisodeCell(
                   label: _cloudEpisodeTitle(ordered[index], index),
                   selected: false,
                   onTap: () => unawaited(_playPanLink(ordered[index])),
@@ -1907,7 +1926,9 @@ class _DetailPageState extends State<DetailPage> {
               ),
             ),
             if (episodes.isNotEmpty)
+              // E5-3 Semantics 补点：选集入口。
               IconButton(
+                tooltip: '选集',
                 onPressed: () => _showEpisodePopup(),
                 icon: Icon(
                   Icons.grid_view,
@@ -1916,7 +1937,9 @@ class _DetailPageState extends State<DetailPage> {
                 ),
               ),
             if (episodes.isNotEmpty)
+              // E5-3 Semantics 补点：批量下载入口。
               IconButton(
+                tooltip: '批量下载',
                 onPressed: () => _showEpisodePopup(downloadMode: true),
                 icon: Icon(
                   Icons.download_outlined,
@@ -2168,7 +2191,8 @@ class _DriveExpandState {
       _DriveExpandState(_DriveExpandKind.loading);
 
   /// 空。
-  static const _DriveExpandState empty = _DriveExpandState(_DriveExpandKind.empty);
+  static const _DriveExpandState empty =
+      _DriveExpandState(_DriveExpandKind.empty);
 
   /// 已加载。
   factory _DriveExpandState.loaded(List<_CloudPanLink> links) =>

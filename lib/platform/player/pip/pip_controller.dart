@@ -11,6 +11,7 @@
 library;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import '../../../domain/entities/player/player.dart';
 import '../floating/floating_window.dart';
@@ -30,16 +31,24 @@ enum PipState {
 /// 画中画控制器。
 class PipController {
   /// 构造（[strategy] 由 [resolveAndCreate] 或调用方显式解析注入）。
+  ///
+  /// [onFloatingTogglePlay] / [onFloatingRestoreFullScreen]：浮窗手势回调
+  /// （对齐 iOS `PiPHelper` 通知语义 —— 单击 toggle 播放、双击恢复全屏）；
+  /// 关闭手势由控制器内部消化（exit 退出浮窗并同步状态）。
   PipController({
     required this.enabled,
     required PipStrategy strategy,
     required PipPlatformBridge systemBridge,
     required FloatingWindow floating,
+    this.onFloatingTogglePlay,
+    this.onFloatingRestoreFullScreen,
   })  : _strategy = strategy,
         _system = systemBridge,
         _floating = floating {
     // 缺插件 / 原生异常时事件流会抛错：兜住，避免未处理异步异常。
     _sub = _system.events().listen(_onSystemEvent, onError: (Object _) {});
+    // 浮窗手势三件套（批次 D · D2 对齐 iOS PlayerViewsV2.swift:383-451）。
+    _floating.onGesture = _onFloatingGesture;
   }
 
   /// 异步构造：先探测系统 PiP 可用性，再解析策略并创建控制器。
@@ -50,6 +59,8 @@ class PipController {
     required PipPlatformBridge systemBridge,
     required FloatingWindow floating,
     bool backgroundPlayEnabled = false,
+    void Function()? onFloatingTogglePlay,
+    void Function()? onFloatingRestoreFullScreen,
   }) async {
     final bool systemOk = await systemBridge.isSupported();
     return PipController(
@@ -63,11 +74,19 @@ class PipController {
       ),
       systemBridge: systemBridge,
       floating: floating,
+      onFloatingTogglePlay: onFloatingTogglePlay,
+      onFloatingRestoreFullScreen: onFloatingRestoreFullScreen,
     );
   }
 
   /// 画中画开关（契约 `player_pip_enabled`）。
   bool enabled;
+
+  /// 浮窗手势回调（单击 → toggle 播放；由调用方注入播放编排）。
+  final void Function()? onFloatingTogglePlay;
+
+  /// 浮窗手势回调（双击 → 恢复全屏；由调用方注入页面返回编排）。
+  final void Function()? onFloatingRestoreFullScreen;
 
   final PipStrategy _strategy;
   final PipPlatformBridge _system;
@@ -135,6 +154,13 @@ class PipController {
     await _floating.updateProgress(positionMs, durationMs);
   }
 
+  /// 截图快照上报（浮窗策略消费：RepaintBoundary → PNG → 原生换图，
+  /// 对齐 iOS `updateFloatingSnapshot`；系统画中画自持画面，忽略）。
+  Future<void> updateSnapshot(Uint8List? png) async {
+    if (_state != PipState.active || _strategy.isSystemBased) return;
+    await _floating.updateSnapshot(png);
+  }
+
   /// 生命周期联动：后台 + 播放中 → 自动进入；回前台 → 自动退出。
   Future<void> handleLifecycle(
     PlaybackLifecycle lifecycle, {
@@ -163,6 +189,19 @@ class PipController {
     // 用户侧退出系统画中画（如点全屏按钮）→ 同步状态。
     if (!event.inPip && _state == PipState.active) {
       _setState(PipState.hidden);
+    }
+  }
+
+  /// 浮窗手势分派（对齐 iOS `PiPHelper` 通知语义）：
+  /// `tap` → toggle 播放、`doubleTap` → 恢复全屏、`close` → 退出浮窗。
+  void _onFloatingGesture(String gesture) {
+    switch (gesture) {
+      case 'tap':
+        onFloatingTogglePlay?.call();
+      case 'doubleTap':
+        onFloatingRestoreFullScreen?.call();
+      case 'close':
+        unawaited(exit());
     }
   }
 }

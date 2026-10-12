@@ -12,6 +12,7 @@ import '../../../core/errors/failures.dart';
 import '../../../core/utils/result.dart';
 import '../../../domain/entities/douban/douban_models.dart';
 import '../../../domain/usecases/douban_usecases.dart';
+import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../ui_mode/ui_mode.dart';
@@ -208,6 +209,10 @@ class _DoubanCategoryPageState extends State<DoubanCategoryPage> {
     );
   }
 
+  /// 筛选区（批次 E · E2-2，对齐 iOS `DoubanCategoryBrowserView.swift:249`）：
+  /// 分类 tab 保留 + 五维筛选（排序 / 类型 / 年代 / 平台 / 地区）收为
+  /// **每维一个当前值 chip**，点击弹底部 picker sheet（对齐 iOS detents 形态；
+  /// Flutter 无原生 detents，登记：sheet 高度按选项数自适应、上限半屏）。
   Widget _buildFilterPanel() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -221,48 +226,115 @@ class _DoubanCategoryPageState extends State<DoubanCategoryPage> {
             DoubanCategory.all.firstWhere((DoubanCategory c) => c.name == name),
           ),
         ),
-        _PillRow(
-          values: DoubanSortType.values
-              .map((DoubanSortType s) => s.displayName)
-              .toList(growable: false),
-          selected: _filters.sort.displayName,
-          onTap: (String name) => _updateFilters(
-            _filters.copyWith(
-              sort: DoubanSortType.values
-                  .firstWhere((DoubanSortType s) => s.displayName == name),
-            ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: VboxSpacing.symmetric(
+            horizontal: VboxSpacing.lg,
+            vertical: VboxSpacing.sm,
           ),
-        ),
-        _PillRow(
-          values: _category.genres,
-          selected: _filters.genre ?? '全部',
-          onTap: (String value) => _updateFilters(
-            _filters.copyWith(genre: value == '全部' ? null : value),
-          ),
-        ),
-        _PillRow(
-          values: _category.years,
-          selected: _filters.year ?? '全部',
-          onTap: (String value) => _updateFilters(
-            _filters.copyWith(year: value == '全部' ? null : value),
-          ),
-        ),
-        _PillRow(
-          values: _category.regions,
-          selected: _filters.region ?? '全部',
-          onTap: (String value) => _updateFilters(
-            _filters.copyWith(region: value == '全部' ? null : value),
-          ),
-        ),
-        _PillRow(
-          values: _category.platforms,
-          selected: _filters.platform ?? '全部',
-          onTap: (String value) => _updateFilters(
-            _filters.copyWith(platform: value == '全部' ? null : value),
+          child: Row(
+            children: <Widget>[
+              _FilterDimensionChip(
+                dimension: '排序',
+                value: _filters.sort.displayName,
+                onTap: () => _pickDimension('排序'),
+              ),
+              if (_category.genres.isNotEmpty) ...<Widget>[
+                const SizedBox(width: VboxSpacing.sm),
+                _FilterDimensionChip(
+                  dimension: '类型',
+                  value: _filters.genre ?? '全部',
+                  onTap: () => _pickDimension('类型'),
+                ),
+              ],
+              if (_category.years.isNotEmpty) ...<Widget>[
+                const SizedBox(width: VboxSpacing.sm),
+                _FilterDimensionChip(
+                  dimension: '年代',
+                  value: _filters.year ?? '全部',
+                  onTap: () => _pickDimension('年代'),
+                ),
+              ],
+              if (_category.platforms.isNotEmpty) ...<Widget>[
+                const SizedBox(width: VboxSpacing.sm),
+                _FilterDimensionChip(
+                  dimension: '平台',
+                  value: _filters.platform ?? '全部',
+                  onTap: () => _pickDimension('平台'),
+                ),
+              ],
+              if (_category.regions.isNotEmpty) ...<Widget>[
+                const SizedBox(width: VboxSpacing.sm),
+                _FilterDimensionChip(
+                  dimension: '地区',
+                  value: _filters.region ?? '全部',
+                  onTap: () => _pickDimension('地区'),
+                ),
+              ],
+            ],
           ),
         ),
       ],
     );
+  }
+
+  /// 维度选项清单（'全部' 由 picker 统一补首项；排序维为枚举全集）。
+  List<String> _dimensionValues(String dimension) => switch (dimension) {
+        '排序' =>
+          DoubanSortType.values.map((DoubanSortType s) => s.displayName).toList(),
+        '类型' => _category.genres,
+        '年代' => _category.years,
+        '平台' => _category.platforms,
+        _ => _category.regions,
+      };
+
+  /// 当前维度的生效值（'全部' 表示未筛选）。
+  String _dimensionCurrentValue(String dimension) => switch (dimension) {
+        '排序' => _filters.sort.displayName,
+        '类型' => _filters.genre ?? '全部',
+        '年代' => _filters.year ?? '全部',
+        '平台' => _filters.platform ?? '全部',
+        _ => _filters.region ?? '全部',
+      };
+
+  /// 点击维度 chip → 底部 picker sheet（对齐 iOS detents 形态）→ 选中回填。
+  /// 排序维枚举全集无「全部」项，不补首项。
+  Future<void> _pickDimension(String dimension) async {
+    final List<String> values = dimension == '排序'
+        ? _dimensionValues(dimension)
+        : <String>['全部', ..._dimensionValues(dimension)];
+    final String current = _dimensionCurrentValue(dimension);
+    final String? picked = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (BuildContext sheetContext) => _DimensionPickerSheet(
+        title: dimension,
+        values: values,
+        selected: current,
+      ),
+    );
+    if (picked == null || picked == current || !mounted) return;
+    switch (dimension) {
+      case '排序':
+        _updateFilters(
+          _filters.copyWith(
+            sort: DoubanSortType.values
+                .firstWhere((DoubanSortType s) => s.displayName == picked),
+          ),
+        );
+      case '类型':
+        _updateFilters(_filters.copyWith(genre: picked == '全部' ? null : picked));
+      case '年代':
+        _updateFilters(_filters.copyWith(year: picked == '全部' ? null : picked));
+      case '平台':
+        _updateFilters(
+            _filters.copyWith(platform: picked == '全部' ? null : picked));
+      default:
+        _updateFilters(
+            _filters.copyWith(region: picked == '全部' ? null : picked));
+    }
   }
 
   Widget _buildBody() {
@@ -354,6 +426,136 @@ class _PillRow extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// 维度筛选 chip（批次 E · E2-2）：「维度名 · 当前值 ▾」，非默认值高亮。
+class _FilterDimensionChip extends StatelessWidget {
+  const _FilterDimensionChip({
+    required this.dimension,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String dimension;
+  final String value;
+  final VoidCallback onTap;
+
+  /// 是否有非默认筛选（高亮）。
+  bool get _active => value != '全部';
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(VboxRadii.capsule),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: _active
+              ? scheme.primary.withValues(alpha: 0.12)
+              : scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(VboxRadii.capsule),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              _active ? value : dimension,
+              style: TextStyle(
+                fontSize: VboxTypography.s13,
+                fontWeight: FontWeight.w500,
+                color: _active ? scheme.primary : scheme.onSurface,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 16,
+              color: _active ? scheme.primary : scheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 维度底部 picker sheet（对齐 iOS `DoubanCategoryBrowserView` detents 形态）。
+class _DimensionPickerSheet extends StatelessWidget {
+  const _DimensionPickerSheet({
+    required this.title,
+    required this.values,
+    required this.selected,
+  });
+
+  final String title;
+  final List<String> values;
+  final String selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          // 上限半屏（对齐 iOS detents 语义）。
+          maxHeight: MediaQuery.sizeOf(context).height * 0.5,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                VboxSpacing.lg,
+                VboxSpacing.sm,
+                VboxSpacing.lg,
+                VboxSpacing.sm,
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: VboxTypography.s16,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              ),
+            ),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: values.length,
+                itemBuilder: (BuildContext context, int index) {
+                  final String value = values[index];
+                  final bool current = value == selected;
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: VboxTypography.s14,
+                        fontWeight:
+                            current ? FontWeight.w600 : FontWeight.w400,
+                        color: current ? scheme.primary : scheme.onSurface,
+                      ),
+                    ),
+                    trailing: current
+                        ? Icon(Icons.check_rounded,
+                            size: 18, color: scheme.primary)
+                        : null,
+                    onTap: () => Navigator.of(context).pop(value),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

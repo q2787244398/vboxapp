@@ -20,6 +20,7 @@ import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/player/video_surface.dart';
+import 'epg_sheet.dart';
 
 /// 直播线路播放回调（url → 打开并播放）。
 typedef LiveRoutePlayHandler = Future<void> Function(String url);
@@ -273,12 +274,40 @@ class _LivePlayerSheetState extends State<LivePlayerSheet> {
     );
   }
 
-  /// 控制条叠加层（对齐 iOS `MiniPlayerView`：右上全屏 + 居中播放/暂停）。
+  /// 控制条叠加层（对齐 iOS `MiniPlayerView`：右上全屏 + 居中播放/暂停；
+  /// E4-2 左上补「回看」入口，对齐 iOS `LiveTVView.swift:1693-1702`
+  /// 控制条「回看」按钮 → 打开 [EpgSheet]）。
   Widget _controlsOverlay() {
     return ColoredBox(
       color: Colors.black.withValues(alpha: 0.28),
       child: Stack(
         children: <Widget>[
+          Positioned(
+            top: 2,
+            left: 2,
+            child: IconButton(
+              tooltip: '回看',
+              onPressed: () {
+                _resetHideTimer();
+                showModalBottomSheet<void>(
+                  context: context,
+                  useSafeArea: true,
+                  isScrollControlled: true,
+                  showDragHandle: true,
+                  backgroundColor: Theme.of(context).colorScheme.surface,
+                  builder: (BuildContext sheetContext) => SizedBox(
+                    height: MediaQuery.of(sheetContext).size.height * 0.75,
+                    child: EpgSheet(channel: widget.channel),
+                  ),
+                );
+              },
+              icon: const Icon(
+                Icons.history_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+          ),
           Positioned(
             top: 2,
             right: 2,

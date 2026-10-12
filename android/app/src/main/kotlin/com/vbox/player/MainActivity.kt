@@ -20,6 +20,12 @@ class MainActivity : FlutterActivity() {
         PlayerPlugin.registerWith(flutterEngine)
         // G-02-C：注册系统信息平台通道（UiMode 三重判定）
         SystemPlugin.registerWith(flutterEngine)
+        // 批次 D · D1：注册屏幕亮度/系统音量通道（窗口级亮度 + AudioManager STREAM_MUSIC）
+        flutterEngine.plugins.add(ScreenControlsPlugin())
+        // 批次 D · D2：注册应用内浮窗通道（截图快照承载 + 单击/双击/拖动手势回传）
+        flutterEngine.plugins.add(FloatingWindowPlugin())
+        // 批次 D · D3：注册音乐锁屏媒体会话通道（framework MediaSession 元数据/命令回传）
+        MusicMediaSessionPlugin.registerWith(flutterEngine)
         // C-10：注册 Go 代理平台通道（经 engine.plugins.add 走 FlutterPlugin 生命周期；
         // 遗漏核查修复——C-10 交付插件文件但未在 MainActivity 接线）
         GoProxyPlugin.registerWith(flutterEngine)
@@ -27,6 +33,9 @@ class MainActivity : FlutterActivity() {
         flutterEngine.plugins.add(PipPlugin())
         // C-05：注册后台播放平台通道（启动/停止前台媒体服务）
         BackgroundPlayPlugin.registerWith(flutterEngine)
+        // 批次 E · E1-1：注册下载「保存到相册」通道（MediaExtractor+MediaMuxer
+        // 转封装 + MediaStore 入库，Movies/VBox）
+        flutterEngine.plugins.add(GallerySavePlugin())
         // E-04：注册直播本地文件导入/导出/分享通道（ActivityAware，需 plugins.add 挂 Activity 生命周期）
         flutterEngine.plugins.add(LiveFilePlugin())
         // K-01：注册自更新安装通道（ActivityAware，需 Activity 拉起系统安装器）

@@ -18,9 +18,11 @@
 ///
 /// 落地差异（如实登记）：iOS 歌词经 LX 插件异步拉取；Flutter 侧消费队列条目自带
 /// 的 `lyric`（LRC）字段同步解析，无数据即隐藏（与 iOS「无歌词整区隐藏」一致）。
-/// 音质切换条依赖插件多档音质声明，Flutter 侧无该数据源，暂不显示。
+/// 音质切换条（E4-1）条件显示：`availQualities.length > 1` 时出现（数据由音乐域
+/// resolver 注入；未注入时 `switchQuality` 降级提示，条目无多档音质则不显示）。
 library;
 
+import 'dart:async';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
@@ -53,6 +55,7 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
   double _seekValue = 0;
   bool _isSeeking = false;
   bool _showLyrics = false;
+
   /// 下拉关闭手势累计位移（对齐 iOS `DragGesture.translation.height`）。
   double _dragDy = 0;
   List<_LyricLine> _lyricLines = const <_LyricLine>[];
@@ -97,7 +100,8 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
             onVerticalDragStart: (_) => _dragDy = 0,
-            onVerticalDragUpdate: (DragUpdateDetails d) => _dragDy += d.delta.dy,
+            onVerticalDragUpdate: (DragUpdateDetails d) =>
+                _dragDy += d.delta.dy,
             onVerticalDragEnd: (DragEndDetails _) {
               // 下拉 > 80pt → 关闭（对齐 iOS `DragGesture(minimumDistance: 30)`）。
               if (_dragDy > 80) Navigator.of(context).maybePop();
@@ -122,6 +126,8 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
                               _progress(accent),
                               const SizedBox(height: VboxSpacing.md),
                               _controls(song),
+                              const SizedBox(height: VboxSpacing.xs),
+                              _qualityBar(song),
                               const SizedBox(height: VboxSpacing.md),
                               _queueAndLyricToggle(accent),
                               _lyricSection(accent),
@@ -187,25 +193,30 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
 
   Widget _topBar(Color accent) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.xxl, vertical: 10),
+      padding:
+          const EdgeInsets.symmetric(horizontal: VboxSpacing.xxl, vertical: 10),
       color: Colors.black.withValues(alpha: 0.15),
       child: Row(
         children: <Widget>[
           IconButton(
             key: const ValueKey<String>('music_full_close'),
             onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.keyboard_arrow_down, size: 28, color: Colors.white),
+            icon: const Icon(Icons.keyboard_arrow_down,
+                size: 28, color: Colors.white),
           ),
           const Spacer(),
           Text(
             '正在播放',
-            style: TextStyle(fontSize: VboxTypography.s13, color: Colors.white.withValues(alpha: 0.7)),
+            style: TextStyle(
+                fontSize: VboxTypography.s13,
+                color: Colors.white.withValues(alpha: 0.7)),
           ),
           const Spacer(),
           IconButton(
             key: const ValueKey<String>('music_full_repeat'),
             onPressed: _player.cycleRepeatMode,
-            icon: Icon(_repeatIcon(_player.repeatMode), size: 20, color: accent),
+            icon:
+                Icon(_repeatIcon(_player.repeatMode), size: 20, color: accent),
           ),
         ],
       ),
@@ -280,8 +291,9 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
     final double total = _player.duration.inMilliseconds > 0
         ? _player.duration.inMilliseconds.toDouble()
         : 1;
-    final double value = (_isSeeking ? _seekValue : _player.position.inMilliseconds.toDouble())
-        .clamp(0, total);
+    final double value =
+        (_isSeeking ? _seekValue : _player.position.inMilliseconds.toDouble())
+            .clamp(0, total);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.xxl),
       child: Column(
@@ -312,7 +324,11 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
             padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.sm),
             child: Row(
               children: <Widget>[
-                Text(_formatTime(_isSeeking ? Duration(milliseconds: _seekValue.round()) : _player.position), style: _timeStyle),
+                Text(
+                    _formatTime(_isSeeking
+                        ? Duration(milliseconds: _seekValue.round())
+                        : _player.position),
+                    style: _timeStyle),
                 const Spacer(),
                 Text(_formatTime(_player.duration), style: _timeStyle),
               ],
@@ -343,34 +359,87 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
-        IconButton(
-          key: const ValueKey<String>('music_full_prev'),
-          onPressed: _player.canSkip ? _player.playPrevious : null,
-          icon: Icon(Icons.fast_rewind, size: 32, color: _player.canSkip ? Colors.white : Colors.white38),
-        ),
-        const SizedBox(width: VboxSpacing.xxl),
-        IconButton(
-          key: const ValueKey<String>('music_full_play_pause'),
-          onPressed: song == null ? null : _player.togglePlayPause,
-          icon: Icon(
-            _player.isLoading
-                ? Icons.hourglass_empty
-                : (_player.isPlaying ? Icons.pause : Icons.play_arrow),
-            size: 44,
-            color: Colors.white,
+        // E5-3 Semantics 补点：上一首。
+        Semantics(
+          button: true,
+          label: '上一首',
+          child: IconButton(
+            key: const ValueKey<String>('music_full_prev'),
+            onPressed: _player.canSkip ? _player.playPrevious : null,
+            icon: Icon(Icons.fast_rewind,
+                size: 32,
+                color: _player.canSkip ? Colors.white : Colors.white38),
           ),
         ),
         const SizedBox(width: VboxSpacing.xxl),
-        IconButton(
-          key: const ValueKey<String>('music_full_next'),
-          onPressed: _player.canSkip ? _player.playNext : null,
-          icon: Icon(Icons.fast_forward, size: 32, color: _player.canSkip ? Colors.white : Colors.white38),
+        // E5-3 Semantics 补点：播放 / 暂停（动态 label）。
+        Semantics(
+          button: true,
+          label: _player.isLoading ? '加载中' : (_player.isPlaying ? '暂停' : '播放'),
+          child: IconButton(
+            key: const ValueKey<String>('music_full_play_pause'),
+            onPressed: song == null ? null : _player.togglePlayPause,
+            icon: Icon(
+              _player.isLoading
+                  ? Icons.hourglass_empty
+                  : (_player.isPlaying ? Icons.pause : Icons.play_arrow),
+              size: 44,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        const SizedBox(width: VboxSpacing.xxl),
+        // E5-3 Semantics 补点：下一首。
+        Semantics(
+          button: true,
+          label: '下一首',
+          child: IconButton(
+            key: const ValueKey<String>('music_full_next'),
+            onPressed: _player.canSkip ? _player.playNext : null,
+            icon: Icon(Icons.fast_forward,
+                size: 32,
+                color: _player.canSkip ? Colors.white : Colors.white38),
+          ),
         ),
       ],
     );
   }
 
   // ───────────────────────── 队列 / 歌词切换 ─────────────────────────
+
+  /// 音质切换条（批次 E · E4-1；对齐 iOS 音质条：多档音质 > 1 时显示，
+  /// 当前档高亮，点击 [MusicPlayerController.switchQuality]）。
+  Widget _qualityBar(MusicQueueItem? song) {
+    final List<String> qualities = song?.availQualities ?? const <String>[];
+    if (qualities.length <= 1) return const SizedBox.shrink();
+    final String current = song?.quality ?? qualities.first;
+    final Color accent = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: VboxSpacing.xxl),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: VboxSpacing.sm,
+        runSpacing: VboxSpacing.xs,
+        children: <Widget>[
+          for (final String q in qualities)
+            ChoiceChip(
+              key: ValueKey<String>('music_quality_$q'),
+              label: Text(q),
+              selected: q == current,
+              onSelected: (_) => unawaited(_player.switchQuality(q)),
+              labelStyle: TextStyle(
+                fontSize: VboxTypography.s12,
+                color:
+                    q == current ? accent : Colors.white.withValues(alpha: 0.7),
+              ),
+              selectedColor: accent.withValues(alpha: 0.25),
+              checkmarkColor: accent,
+              visualDensity: VisualDensity.compact,
+            ),
+        ],
+      ),
+    );
+  }
 
   Widget _queueAndLyricToggle(Color accent) {
     return Row(
@@ -384,10 +453,13 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
             builder: (BuildContext context) =>
                 MusicQueueSheet(controller: widget.controller),
           ),
-          icon: Icon(Icons.list, size: 14, color: Colors.white.withValues(alpha: 0.7)),
+          icon: Icon(Icons.list,
+              size: 14, color: Colors.white.withValues(alpha: 0.7)),
           label: Text(
             '播放队列 (${_player.queue.length})',
-            style: TextStyle(fontSize: VboxTypography.s12, color: Colors.white.withValues(alpha: 0.7)),
+            style: TextStyle(
+                fontSize: VboxTypography.s12,
+                color: Colors.white.withValues(alpha: 0.7)),
           ),
         ),
         const SizedBox(width: VboxSpacing.md),
@@ -432,11 +504,13 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
       padding: const EdgeInsets.only(top: VboxSpacing.xxl),
       child: Column(
         children: <Widget>[
-          Icon(Icons.format_quote, size: 40, color: Colors.white.withValues(alpha: 0.35)),
+          Icon(Icons.format_quote,
+              size: 40, color: Colors.white.withValues(alpha: 0.35)),
           const SizedBox(height: VboxSpacing.sm),
           Text(
             '该来源暂无歌词',
-            style: TextStyle(fontSize: 14, color: Colors.white.withValues(alpha: 0.6)),
+            style: TextStyle(
+                fontSize: 14, color: Colors.white.withValues(alpha: 0.6)),
           ),
         ],
       ),
@@ -549,7 +623,8 @@ class _PlaybackNoticeBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.78),
-        borderRadius: const BorderRadius.all(Radius.circular(VboxRadii.capsule)),
+        borderRadius:
+            const BorderRadius.all(Radius.circular(VboxRadii.capsule)),
         boxShadow: <BoxShadow>[
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.25),
@@ -561,7 +636,8 @@ class _PlaybackNoticeBanner extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(Icons.warning_amber_rounded, size: 14, color: Colors.white),
+          const Icon(Icons.warning_amber_rounded,
+              size: 14, color: Colors.white),
           const SizedBox(width: VboxSpacing.sm),
           Flexible(
             child: Text(

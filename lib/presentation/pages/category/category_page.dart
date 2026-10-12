@@ -7,7 +7,6 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/errors/failures.dart';
@@ -18,6 +17,7 @@ import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../../theme/vbox_haptics.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/adaptive/responsive_grid.dart';
 import '../../widgets/detail_page.dart';
@@ -155,7 +155,8 @@ class _CategoryPageState extends State<CategoryPage> {
     }
     final List<VodCategory> list = cats.valueOrNull ?? const <VodCategory>[];
     final String? requestedTid = widget.initialTid;
-    final String? tid = (requestedTid != null && requestedTid.isNotEmpty &&
+    final String? tid = (requestedTid != null &&
+            requestedTid.isNotEmpty &&
             list.any((VodCategory c) => c.typeId == requestedTid))
         ? requestedTid
         : null;
@@ -587,6 +588,9 @@ class _CategoryPageState extends State<CategoryPage> {
       title: vod.vodName,
       imageUrl: vod.vodPic,
       subtitle: subtitle.isEmpty ? null : subtitle,
+      // E2-3：备注角标（对齐 iOS `SourceDiscoveryView.swift:818-819`
+      // 封面右上 `vodRemarks` 胶囊）。
+      badge: (vod.vodRemarks?.isNotEmpty ?? false) ? vod.vodRemarks : null,
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -602,18 +606,23 @@ class _CategoryPageState extends State<CategoryPage> {
   }
 }
 
-/// 网格海报单元（2:3 封面 + 单行标题 + 可选副标题）。
+/// 网格海报单元（2:3 封面 + 单行标题 + 可选副标题 + 可选右上备注角标）。
 class _PosterCell extends StatelessWidget {
   const _PosterCell({
     required this.title,
     this.imageUrl,
     this.subtitle,
+    this.badge,
     this.onTap,
   });
 
   final String title;
   final String? imageUrl;
   final String? subtitle;
+
+  /// 封面右上角备注角标（批次 E · E2-3；对齐 iOS `vodRemarks` 胶囊）。
+  final String? badge;
+
   final VoidCallback? onTap;
 
   @override
@@ -622,7 +631,7 @@ class _PosterCell extends StatelessWidget {
     return GestureDetector(
       onTap: () {
         // 触感反馈（对齐 iOS `SubjectCard.hapticGenerator.selectionChanged()`）。
-        HapticFeedback.selectionClick();
+        VboxHaptics.selection();
         onTap?.call();
       },
       child: Column(
@@ -631,22 +640,53 @@ class _PosterCell extends StatelessWidget {
           Expanded(
             child: ClipRRect(
               borderRadius: VboxRadii.card,
-              child: SizedBox.expand(
-                child: PlatformAsyncImage(
-                  url: imageUrl,
-                  fit: BoxFit.cover,
-                  // UI-B3 骨架屏动效：静态占位 → 渐变扫光（保留影片图标，见 golden 像素契约）。
-                  placeholder: ShimmerBox(
-                    color: scheme.surfaceContainerHighest,
-                    child: Center(
-                      child: Icon(
-                        Icons.movie_outlined,
-                        size: VboxTypography.s24,
-                        color: Colors.white.withValues(alpha: 0.40),
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  PlatformAsyncImage(
+                    url: imageUrl,
+                    fit: BoxFit.cover,
+                    // UI-B3 骨架屏动效：静态占位 → 渐变扫光（保留影片图标，见 golden 像素契约）。
+                    placeholder: ShimmerBox(
+                      color: scheme.surfaceContainerHighest,
+                      child: Center(
+                        child: Icon(
+                          Icons.movie_outlined,
+                          size: VboxTypography.s24,
+                          color: Colors.white.withValues(alpha: 0.40),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  // E2-3：右上备注角标（对齐 iOS `SourceDiscoveryView`
+                  // 封面右上 `vodRemarks` 胶囊）。
+                  if (badge != null)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.6),
+                          borderRadius:
+                              BorderRadius.circular(VboxRadii.capsule),
+                        ),
+                        child: Text(
+                          badge!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: VboxTypography.s10,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),

@@ -198,6 +198,12 @@ class VboxColors {
   /// 远程源设置图标色（对齐 iOS `cloud` 蓝 `#3B82F6`）。
   static const Color remoteSourceAccent = Color(0xFF3B82F6);
 
+  /// 品牌红（搜索页榜钮 / 提交钮 / 选中胶囊；对齐 iOS `MainViews.swift:70`）。
+  ///
+  /// 批次 E · E2-4 新增：与 [skinPrimaryRose] 同值，语义独立单列
+  /// （皮肤主色随皮肤切换，品牌红为固定强调色）。
+  static const Color brandRed = Color(0xFFE11D48);
+
   // ── 品牌渐变（「我的」页头部）───────────────────────────
   /// 品牌渐变起点。
   static const Color brandGradientStart = Color(0xFF3B82F6);

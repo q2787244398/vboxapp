@@ -3,13 +3,12 @@
 /// 跨三页（首页 / 榜单 / 分类）复用的海报卡与空态 / 错误态，避免三处重复实现。
 library;
 
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../domain/entities/douban/douban_models.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../../theme/vbox_haptics.dart';
 import '../../widgets/fall_in_card.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/skeleton_shimmer.dart';
@@ -82,7 +81,8 @@ class DoubanEmptyHint extends StatelessWidget {
 /// 加载失败提示 + 重试。
 class DoubanErrorRetry extends StatelessWidget {
   /// 构造。
-  const DoubanErrorRetry({super.key, required this.message, required this.onRetry});
+  const DoubanErrorRetry(
+      {super.key, required this.message, required this.onRetry});
 
   final String message;
   final VoidCallback onRetry;
@@ -117,7 +117,8 @@ class DoubanErrorRetry extends StatelessWidget {
 /// 加粗 16 + 尾部 chevron。SF Symbol 映射到 Material 图标由调用方传入 [icon]。
 class DoubanSectionHeader extends StatelessWidget {
   /// 构造。
-  const DoubanSectionHeader({super.key, required this.title, required this.icon});
+  const DoubanSectionHeader(
+      {super.key, required this.title, required this.icon});
 
   /// 标题。
   final String title;
@@ -151,7 +152,8 @@ class DoubanSectionHeader extends StatelessWidget {
               ),
             ),
           ),
-          Icon(Icons.chevron_right, size: VboxTypography.s12, color: scheme.outline),
+          Icon(Icons.chevron_right,
+              size: VboxTypography.s12, color: scheme.outline),
         ],
       ),
     );
@@ -287,7 +289,7 @@ class _SubjectRowCard extends StatelessWidget {
           GestureDetector(
             onTap: () {
               // UI-B1 触感反馈：对齐 iOS `SubjectCard.hapticGenerator.selectionChanged()`。
-              HapticFeedback.selectionClick();
+              VboxHaptics.selection();
               onTap?.call();
             },
             child: SizedBox(
@@ -327,7 +329,8 @@ class _SubjectRowCard extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
-                            const Icon(Icons.star, size: 8, color: Colors.yellow),
+                            const Icon(Icons.star,
+                                size: 8, color: Colors.yellow),
                             const SizedBox(width: 2),
                             Text(
                               rating,

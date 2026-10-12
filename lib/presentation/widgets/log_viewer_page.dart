@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/utils/logger.dart';
+import '../../data/datasources/local/prefs_manager.dart';
 
 /// 日志查看页。
 class LogViewerPage extends StatefulWidget {
@@ -32,12 +33,32 @@ class _LogViewerPageState extends State<LogViewerPage> {
 
   StreamSubscription<LogEntry>? _sub;
 
+  /// 上次异常退出标记（批次 E · E3-3；对齐 iOS `AppLogStore.swift:259`）。
+  bool _crashedLastLaunch = false;
+
   @override
   void initState() {
     super.initState();
     _sub = AppLog.stream.listen((_) {
       if (mounted) setState(() {});
     });
+    _loadCrashMarker();
+  }
+
+  /// 读取并清除崩溃标记（一次性提示）。
+  Future<void> _loadCrashMarker() async {
+    try {
+      final bool crashed =
+          await PrefsManager.instance.getBool('app_log_crash_marker');
+      if (crashed) {
+        await PrefsManager.instance.set('app_log_crash_marker', false);
+      }
+      if (mounted) {
+        setState(() => _crashedLastLaunch = crashed);
+      }
+    } catch (_) {
+      // 偏好读取失败不影响日志页主功能。
+    }
   }
 
   @override
@@ -99,11 +120,34 @@ class _LogViewerPageState extends State<LogViewerPage> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          if (_crashedLastLaunch)
+            // 批次 E · E3-3：崩溃恢复横幅（对齐 iOS 日志页顶部提示）。
+            Material(
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: ListTile(
+                dense: true,
+                leading: Icon(
+                  Icons.warning_amber_rounded,
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
+                title: Text(
+                  '检测到上次异常退出',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() => _crashedLastLaunch = false),
+                ),
+              ),
+            ),
           _FilterBar(
             minLevel: _minLevel,
             onMinLevelChanged: (LogLevel? v) => setState(() => _minLevel = v),
             category: _category,
-            onCategoryChanged: (LogCategory? v) => setState(() => _category = v),
+            onCategoryChanged: (LogCategory? v) =>
+                setState(() => _category = v),
             onKeywordChanged: (String v) => setState(() => _keyword = v),
           ),
           Expanded(
@@ -294,7 +338,8 @@ class _LevelBadge extends StatelessWidget {
       backgroundColor: color.withValues(alpha: 0.15),
       child: Text(
         level.name.substring(0, 1).toUpperCase(),
-        style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold),
+        style:
+            TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold),
       ),
     );
   }

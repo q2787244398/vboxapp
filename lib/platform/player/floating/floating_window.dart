@@ -97,6 +97,10 @@ abstract class FloatingWindow {
   /// 浮窗状态/进度变化回调。
   void Function(FloatingWindowInfo info)? onChanged;
 
+  /// 浮窗手势回调（对齐 iOS `PiPHelper` 三手势：`tap` → toggle 播放、
+  /// `doubleTap` → 恢复全屏、`close` → 关闭浮窗；原生端回传）。
+  void Function(String gesture)? onGesture;
+
   /// 显示浮窗（[width]/[height] 为初始尺寸，可缺省走平台默认）。
   Future<bool> show({double? width, double? height});
 
@@ -108,6 +112,10 @@ abstract class FloatingWindow {
 
   /// 进度上报（原生浮窗可能消费）。
   Future<void> updateProgress(int positionMs, int durationMs);
+
+  /// 更新浮窗截图快照（对齐 iOS `updateFloatingSnapshot`：RepaintBoundary →
+  /// PNG bytes → 原生浮窗换图；原生未传 bytes 时 no-op）。
+  Future<void> updateSnapshot(Uint8List? png);
 
   /// 释放浮窗（销毁媒体会话）。
   Future<void> dispose();
@@ -128,6 +136,9 @@ class NoopFloatingWindow implements FloatingWindow {
   void Function(FloatingWindowInfo info)? onChanged;
 
   @override
+  void Function(String gesture)? onGesture;
+
+  @override
   Future<bool> show({double? width, double? height}) async => false;
 
   @override
@@ -138,6 +149,9 @@ class NoopFloatingWindow implements FloatingWindow {
 
   @override
   Future<void> updateProgress(int positionMs, int durationMs) async {}
+
+  @override
+  Future<void> updateSnapshot(Uint8List? png) async {}
 
   @override
   Future<void> dispose() async {}
@@ -207,6 +221,9 @@ class MethodChannelFloatingWindow implements FloatingWindow {
   void Function(FloatingWindowInfo info)? onChanged;
 
   @override
+  void Function(String gesture)? onGesture;
+
+  @override
   Future<bool> show({double? width, double? height}) async {
     try {
       final Object? ok = await _bridge.invoke('show', <String, Object?>{
@@ -265,6 +282,17 @@ class MethodChannelFloatingWindow implements FloatingWindow {
   }
 
   @override
+  Future<void> updateSnapshot(Uint8List? png) async {
+    try {
+      await _bridge.invoke('update', <String, Object?>{
+        if (png != null) 'bytes': png,
+      });
+    } on PlatformException {
+      // 忽略
+    }
+  }
+
+  @override
   Future<void> dispose() async {
     try {
       await _bridge.invoke('dispose');
@@ -278,7 +306,13 @@ class MethodChannelFloatingWindow implements FloatingWindow {
   }
 
   void _onEvent(Map<String, Object?> e) {
-    if ((e['type'] ?? '').toString() != 'info') return;
+    final String type = (e['type'] ?? '').toString();
+    // 浮窗手势事件（原生端回传：tap / doubleTap / close）→ 转发消费方。
+    if (type == 'tap' || type == 'doubleTap' || type == 'close') {
+      onGesture?.call(type);
+      return;
+    }
+    if (type != 'info') return;
     final Map<String, Object?> value =
         (e['value'] as Map? ?? const <String, Object?>{}).cast<String, Object?>();
     _info = FloatingWindowInfo.fromJson(value);

@@ -1,6 +1,8 @@
 /// 批次 C · C-05：PipController 多策略编排 + PipStrategyResolver 判定（纯 Dart）。
 library;
 
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/platform/player/floating/floating_window.dart';
@@ -86,6 +88,14 @@ class FakeFloatingWindow implements FloatingWindow {
   Future<void> updateProgress(int positionMs, int durationMs) async {
     calls.add('updateProgress($positionMs,$durationMs)');
     _info = _info.copyWith(positionMs: positionMs, durationMs: durationMs);
+  }
+
+  @override
+  void Function(String gesture)? onGesture;
+
+  @override
+  Future<void> updateSnapshot(Uint8List? png) async {
+    calls.add('updateSnapshot(${png?.length ?? -1})');
   }
 
   @override

@@ -27,7 +27,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/datasources/local/prefs_manager.dart';
@@ -43,6 +42,7 @@ import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../../theme/vbox_haptics.dart';
 import '../../welfare/welfare_platform_controller.dart';
 import '../../welfare/welfare_platform_router.dart';
 import '../../widgets/vbox/vbox.dart';
@@ -114,7 +114,8 @@ class _WelfareHomePageState extends State<WelfareHomePage>
 
   /// 当前栏目对应的领域分类（枚举名与契约 key 一致：video / live / comic）。
   WelfarePlatformCategory get _category =>
-      WelfarePlatformCategory.fromKey(_tab.name) ?? WelfarePlatformCategory.video;
+      WelfarePlatformCategory.fromKey(_tab.name) ??
+      WelfarePlatformCategory.video;
 
   @override
   Widget build(BuildContext context) {
@@ -234,7 +235,9 @@ class _WelfareHomePageState extends State<WelfareHomePage>
       // 追加远端新增平台（对齐 iOS `ordered + remaining`）。
       final List<WelfarePlatform> remaining = <WelfarePlatform>[
         for (final WelfarePlatform p in all)
-          if (!ordered.any((WelfarePlatform o) => o.platformKey == p.platformKey)) p,
+          if (!ordered
+              .any((WelfarePlatform o) => o.platformKey == p.platformKey))
+            p,
       ];
       next[cat] = <WelfarePlatform>[...ordered, ...remaining];
     });
@@ -266,7 +269,7 @@ class _WelfareHomePageState extends State<WelfareHomePage>
 
   /// 长按进入编辑（对齐 iOS `onLongPressGesture` → medium 震动）。
   void _enterEditMode() {
-    HapticFeedback.mediumImpact();
+    VboxHaptics.medium();
     setState(() => _isEditMode = true);
   }
 
@@ -377,8 +380,7 @@ class _WelfareHomePageState extends State<WelfareHomePage>
       return const Center(child: CircularProgressIndicator());
     }
 
-    final bool failed =
-        controller.loadState == WelfarePlatformLoadState.failed;
+    final bool failed = controller.loadState == WelfarePlatformLoadState.failed;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(VboxSpacing.xxl),
@@ -403,7 +405,8 @@ class _WelfareHomePageState extends State<WelfareHomePage>
               const SizedBox(height: VboxSpacing.md),
               VboxButton(
                 label: '重试',
-                onPressed: () => context.read<WelfarePlatformController>().refresh(),
+                onPressed: () =>
+                    context.read<WelfarePlatformController>().refresh(),
               ),
             ],
           ],
@@ -691,8 +694,7 @@ class _SortablePlatformGridState extends State<_SortablePlatformGrid> {
     final int col = ((contentX - _hPadding - _cellW / 2) / _stepW)
         .round()
         .clamp(0, _columns - 1);
-    final int totalRows =
-        (widget.platforms.length + _columns - 1) ~/ _columns;
+    final int totalRows = (widget.platforms.length + _columns - 1) ~/ _columns;
     final int row = ((contentY - _topPadding - _cellH / 2) / _stepH)
         .round()
         .clamp(0, totalRows - 1);
@@ -700,7 +702,7 @@ class _SortablePlatformGridState extends State<_SortablePlatformGrid> {
   }
 
   void _onDragStart(int index, Offset global) {
-    HapticFeedback.lightImpact();
+    VboxHaptics.light();
     _lastFinger = global;
     setState(() => _dragIndex = index);
     _reconcileDrag(global);
@@ -712,7 +714,7 @@ class _SortablePlatformGridState extends State<_SortablePlatformGrid> {
   }
 
   void _onDragEnd() {
-    HapticFeedback.mediumImpact();
+    VboxHaptics.medium();
     widget.onEdgeProximity(0);
     _lastFinger = null;
     setState(() => _dragIndex = null);
@@ -723,7 +725,7 @@ class _SortablePlatformGridState extends State<_SortablePlatformGrid> {
     if (_dragIndex == null) return;
     final int? target = _slotFor(global);
     if (target != null && target != _dragIndex) {
-      HapticFeedback.selectionClick();
+      VboxHaptics.selection();
       final int from = _dragIndex!;
       // 先更新本地 index（父级 setState 重建后本 State 保留）。
       _dragIndex = target;
@@ -835,7 +837,8 @@ class _SortableCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final List<Color> gradient = VboxColors.welfarePlatformGradient(platform.name);
+    final List<Color> gradient =
+        VboxColors.welfarePlatformGradient(platform.name);
     return AnimatedScale(
       scale: dragging ? 1.15 : 1.0,
       duration: const Duration(milliseconds: 200),

@@ -21,6 +21,7 @@ import '../../data/datasources/local/music_queue_store.dart';
 import '../../data/datasources/local/prefs_manager.dart';
 import '../../domain/entities/music/music.dart';
 import 'media_session.dart';
+import 'media_session/native_music_media_session.dart';
 
 /// 音频输出引擎接缝（缺省空实现，原生接入后替换）。
 abstract class MusicAudioEngine {
@@ -73,13 +74,16 @@ class UnavailableMusicAudioEngine implements MusicAudioEngine {
 /// 音乐播放控制器（对齐 iOS `AudioPlayerManager` 的可观测状态 + 队列方法）。
 class MusicPlayerController extends ChangeNotifier {
   /// 构造（[store] / [engine] / [mediaSession] 可注入；测试用替身）。
+  ///
+  /// [mediaSession] 缺省走 [NativeMusicMediaSession]（批次 D · D3：原生锁屏
+  /// 会话接线；桌面未接线 / 单测环境静默降级，行为等价原 Noop）。
   MusicPlayerController({
     MusicQueueStore? store,
     MusicAudioEngine? engine,
     MusicMediaSession? mediaSession,
   })  : _store = store ?? MusicQueueStore(PrefsManager.instance),
         _engine = engine ?? const UnavailableMusicAudioEngine(),
-        _mediaSession = mediaSession ?? NoopMusicMediaSession() {
+        _mediaSession = mediaSession ?? NativeMusicMediaSession() {
     // 线控命令接线（对齐 iOS `MPRemoteCommandCenter` handler → 播放编排）。
     _mediaSession.onCommand = _handleMediaCommand;
   }
@@ -297,6 +301,49 @@ class MusicPlayerController extends ChangeNotifier {
     await _startPlayback();
     if (keep > Duration.zero) {
       await seek(keep);
+    }
+  }
+
+  /// 音质直链重拉回调（批次 E · E4-1；由音乐域注入 lx `musicUrl` 重拉链路，
+  /// 对齐 iOS `AudioPlayerManager` 走插件 `musicUrl`）。
+  ///
+  /// 返回 null / 空 → 该来源或档位不可用（切换放弃并提示）；
+  /// 缺省 null → 提示「该来源暂不支持音质切换」（登记：音乐域 resolver
+  /// 接线属后续拆分，见方案 E4-1 核验结论）。
+  Future<String?> Function(MusicQueueItem item, String quality)?
+      qualityResolver;
+
+  /// 切换音质（对齐 iOS `switchQuality(q)`：重拉直链 → `replaceCurrent`
+  /// 保留进度；±3s 精度由引擎 seek 决定）。
+  Future<void> switchQuality(String quality) async {
+    final MusicQueueItem? current = _queue.current;
+    if (current == null) return;
+    if (!current.availQualities.contains(quality)) return;
+    if (quality == current.quality) return;
+    final Future<String?> Function(MusicQueueItem, String)? resolver =
+        qualityResolver;
+    if (resolver == null) {
+      _notice = '该来源暂不支持音质切换';
+      notifyListeners();
+      return;
+    }
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final String? url = await resolver(current, quality);
+      if (url == null || url.isEmpty) {
+        _notice = '音质切换失败';
+        notifyListeners();
+        return;
+      }
+      await replaceCurrent(
+        current
+            .copying(playURL: url, quality: quality)
+            .copyWith(qualityIndex: current.availQualities.indexOf(quality)),
+      );
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
   }
 

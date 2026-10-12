@@ -689,10 +689,10 @@ class _SearchPageState extends State<SearchPage> {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: _openRanking,
-          child: Icon(
+          child: const Icon(
             Icons.bar_chart_rounded,
             size: 18,
-            color: scheme.primary,
+            color: VboxColors.brandRed,
           ),
         ),
       ),
@@ -709,6 +709,8 @@ class _SearchPageState extends State<SearchPage> {
         child: FilledButton(
           onPressed: () => _submit(_controller.text),
           style: FilledButton.styleFrom(
+            backgroundColor: VboxColors.brandRed,
+            foregroundColor: Colors.white,
             padding: EdgeInsets.zero,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
@@ -780,7 +782,7 @@ class _SearchPageState extends State<SearchPage> {
                           ? FontWeight.w600
                           : FontWeight.w500,
                       color: i == _doubanTab
-                          ? scheme.primary
+                          ? VboxColors.brandRed
                           : scheme.onSurfaceVariant,
                     ),
                   ),
@@ -790,7 +792,7 @@ class _SearchPageState extends State<SearchPage> {
                     width: 24,
                     decoration: BoxDecoration(
                       color: i == _doubanTab
-                          ? scheme.primary
+                          ? VboxColors.brandRed
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(VboxRadii.r4),
                     ),

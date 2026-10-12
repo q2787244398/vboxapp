@@ -11,13 +11,13 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../../theme/vbox_haptics.dart';
 import '../../welfare/welfare_controller.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../welfare/welfare_settings_page.dart';
@@ -35,7 +35,8 @@ Future<void> showVboxWelfareSheet(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (BuildContext _) => ChangeNotifierProvider<WelfareController>.value(
+    builder: (BuildContext _) =>
+        ChangeNotifierProvider<WelfareController>.value(
       value: resolved,
       child: const _WelfareSheet(),
     ),
@@ -65,7 +66,7 @@ class _WelfareSheetState extends State<_WelfareSheet> {
     if (!mounted) return;
     if (!ok) {
       // UI-B1 触感反馈：对齐 iOS 福利密码错误 medium 震动（ProfileView.swift:585）。
-      HapticFeedback.mediumImpact();
+      VboxHaptics.medium();
       setState(() => _error = true);
       return;
     }
