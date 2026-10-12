@@ -193,6 +193,37 @@ def check_b4(errors: int) -> int:
         print(f"  ❌ 备份扩展名 {ext!r} ≠ 契约 §11 建议值 .vboxbak")
         errors += 1
 
+    # 6i. 远程源采集 / 还原（A2 步骤 6）：allSources 非空路径 + spiderJS 采集路径
+    #     dump：allSources 读 cache-first 同一缓存文件、spiderJS 遍历蜘蛛脚本目录；
+    #     restore：两键分别写回。
+    dump_all_sources = bool(
+        re.search(r"'allSources':\s*allSources", service)
+        and re.search(
+            r"_allSourcesCachePath\?\.call\(\)\s*\?\?\s*_allSourcesDefaultPath",
+            service,
+        )
+    )
+    dump_spider_js = bool(
+        re.search(r"'spiderJS':\s*_dumpSpiderScriptsSync\(\)", service)
+        and re.search(
+            r"_spiderDirPath\?\.call\(\)\s*\?\?\s*StoragePaths\.spiderDir",
+            service,
+        )
+    )
+    restore_remote = bool(
+        re.search(r"snap\['allSources'\]", service)
+        and re.search(r"snap\['spiderJS'\]", service)
+    )
+    if dump_all_sources and dump_spider_js and restore_remote:
+        print("  ✅ 远程源采集/还原：allSources 缓存文件 + spiderJS 脚本目录（A2 步骤 6）")
+    else:
+        print(
+            "  ❌ 远程源采集/还原缺失："
+            f"allSources 采集路径={dump_all_sources}, "
+            f"spiderJS 采集路径={dump_spider_js}, 还原键={restore_remote}"
+        )
+        errors += 1
+
     return errors
 
 
