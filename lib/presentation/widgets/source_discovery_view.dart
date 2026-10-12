@@ -1,11 +1,24 @@
 /// 源发现（单源分类浏览）视图（批次 D · D-07）。
 ///
 /// 对齐 iOS `SourceDiscoveryView`（`vbox/Views/SourceDiscoveryView.swift`）：
-/// 顶部源下拉切换 → 分类滑动栏（「推荐」+ 源分类）→ 三列海报网格，分类滚动到
-/// 底自动分页；点击海报 push 详情页（`DetailPage`，D-05）。
+///   · 顶栏：返回 + 源名下拉按钮（17pt semibold + chevron.down）+ 右侧
+///     类型徽标胶囊（分类色，对齐 `categoryBadgeColor`）；
+///   · 选源浮层：左上角小竖长条（复用 [showVboxSourceSheet]，对齐 iOS
+///     `sourceDropdownOverlay` 同款设计，分组固定顺序 网盘→API→站源→JS→论坛）；
+///   · 分类滑动栏：「推荐」+ 源分类；分类为空但有推荐 → 回退「全部」
+///     （`__all__`，对齐 `displayCategories`）；
+///   · 自适应筛选栏：选中具体分类才显示（`shouldShowFilterBar`），维度从
+///     当前分类数据自适应提取（`extractAdaptiveFilters`），选择后带筛选
+///     重载第 1 页（`reloadCategoryWithFilters`）；
+///   · 内容网格：卡片 = 2:3 封面（备注角标右下角）+ 标题 2 行 + 年份行，
+///     掉落回弹入场（同行 1→2→3 错峰，对齐 `SourceVideoCard.fallDelay`）；
+///   · 分页：滚动接近底部自动 + 「加载更多」footer；分类空态区分
+///     「该分类暂无数据」/「暂无推荐内容」+ 搜索引导文案。
 ///
 /// 数据通路：`ContentBrowseUseCases.listSites` / `homeContent`（推荐） /
-/// `categoryContent`（分类 + 分页），模式分流 CMS / Spider 在用例层完成。
+/// `categoryContent`（分类 + 分页 + 筛选），模式分流 CMS / Spider 在用例层完成。
+/// 筛选实际生效面与 iOS 一致：仅 JSON API（CMS）链路生效（iOS `fetchSingleSourceCategoryContent`
+/// 中 Spider 引擎仍传 `extend: "{}"`、HTML 分类页不拼筛选参数）。
 library;
 
 import 'dart:async';
@@ -17,14 +30,20 @@ import '../../core/errors/failures.dart';
 import '../../core/utils/result.dart';
 import '../../domain/entities/spider/spider.dart';
 import '../../domain/usecases/usecases.dart';
+import '../theme/tokens/colors.dart';
 import '../theme/tokens/radii.dart';
 import '../theme/tokens/spacing.dart';
 import '../theme/tokens/typography.dart';
 import '../ui_mode/ui_mode.dart';
 import 'adaptive/responsive_grid.dart';
 import 'detail_page.dart';
+import 'fall_in_card.dart';
+import '../pages/home/source_sheet.dart';
 import 'platform_async_image.dart';
 import 'vbox/vbox.dart';
+
+/// 「全部」回退分类 ID（对齐 iOS `displayCategories` 的 `"__all__"`）。
+const String _kAllCategoryId = '__all__';
 
 /// 源发现视图（首页站点态覆盖层 / 「远程源」页的「源发现」标签）。
 class SourceDiscoveryView extends StatefulWidget {
@@ -51,6 +70,16 @@ class SourceDiscoveryView extends StatefulWidget {
   /// 任何加载**（对其 iOS「未选中源时不创建 `SourceDiscoveryView`」的等价实现），
   /// 由豆瓣态切到站点态（`active` 转 true）时才按需加载。
   final bool active;
+
+  /// 排序值 → 显示名（对齐 iOS `sortDisplayValue`）。
+  static String sortDisplayValue(String value) => switch (value) {
+        '全部' => '默认',
+        'hits' => '热播',
+        'addtime' => '最新',
+        'score' => '高分',
+        'rand' => '随机',
+        _ => value,
+      };
 
   @override
   State<SourceDiscoveryView> createState() => _SourceDiscoveryViewState();
@@ -86,6 +115,13 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
   bool _loading = false;
   bool _loadingMore = false;
   Failure? _error;
+
+  // 自适应筛选（对齐 iOS `filterOptions` / `selectedClass/.../selectedSort`）。
+  AdaptiveFilterOptions _filterOptions = const AdaptiveFilterOptions();
+  String _selectedClass = '全部';
+  String _selectedArea = '全部';
+  String _selectedYear = '全部';
+  String _selectedSort = '全部';
 
   @override
   void initState() {
@@ -175,7 +211,7 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
   }
 
   void _onScroll() {
-    if (_selectedTid != null && _scroll.position.extentAfter < 240) {
+    if (_isBrowsingCategory && _scroll.position.extentAfter < 240) {
       _loadMore();
     }
   }
@@ -186,24 +222,61 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
     return _lastBatchFull;
   }
 
-  List<VodItem> get _displayItems =>
-      _selectedTid == null ? _recommended : _items;
+  /// 展示分类列表（对齐 iOS `displayCategories`）：分类为空但有推荐 →
+  /// 回退单一「全部」分类。
+  List<VodCategory> get _displayCategories {
+    if (_categories.isEmpty && _recommended.isNotEmpty) {
+      return const <VodCategory>[
+        VodCategory(typeId: _kAllCategoryId, typeName: '全部'),
+      ];
+    }
+    return _categories;
+  }
+
+  /// 是否正在浏览具体分类（排除「推荐」与「全部」回退；对齐 iOS
+  /// `shouldShowFilterBar` 与分页 footer 的判定口径）。
+  bool get _isBrowsingCategory =>
+      _selectedTid != null && _selectedTid != _kAllCategoryId;
+
+  /// 展示条目（对齐 iOS `displayVideos`）：「全部」回退分类展示推荐内容
+  /// （iOS 端 `__all__` 选中后 `categoryVideos = []` 呈现空网格系实现瑕疵，
+  /// 按其意图回退推荐内容）；具体分类展示分类数据（空也显示分类态空页）。
+  List<VodItem> get _displayItems {
+    if (_selectedTid == null || _selectedTid == _kAllCategoryId) {
+      return _recommended;
+    }
+    return _items;
+  }
+
+  /// 当前源显示名（加载/错误文案用，对齐 iOS `source.name`）。
+  String get _currentSiteName {
+    for (final SiteConfig s in _sites) {
+      if (s.key == _siteKey) return s.name.isEmpty ? s.key : s.name;
+    }
+    return _siteKey ?? '';
+  }
 
   // ─────────────── 数据加载 ───────────────
 
-  Future<void> _loadHome() async {
+  /// 加载推荐（homeContent）。
+  ///
+  /// [silent] 下拉刷新模式（对齐 iOS `refreshContent` 推荐分支：不置整页
+  /// loading、不清空现有内容，失败静默保持原内容）。
+  Future<void> _loadHome({bool silent = false}) async {
     final String? siteKey = _siteKey;
     if (siteKey == null || _loading) return;
     setState(() {
-      _loading = true;
+      _loading = !silent;
       _error = null;
-      _selectedTid = null;
-      _categories = const <VodCategory>[];
-      _recommended = const <VodItem>[];
-      _items.clear();
-      _page = 0;
-      _pagecount = null;
-      _lastBatchFull = true;
+      if (!silent) {
+        _selectedTid = null;
+        _categories = const <VodCategory>[];
+        _recommended = const <VodItem>[];
+        _items.clear();
+        _page = 0;
+        _pagecount = null;
+        _lastBatchFull = true;
+      }
     });
     final Result<HomeContentResult> result = await _uc.homeContent(siteKey);
     if (!mounted) return;
@@ -211,7 +284,7 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
     if (failure != null) {
       setState(() {
         _loading = false;
-        _error = failure;
+        if (!silent) _error = failure;
       });
       return;
     }
@@ -226,7 +299,16 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
 
   Future<void> _selectSite(String? siteKey) async {
     if (siteKey == null || siteKey == _siteKey) return;
-    setState(() => _siteKey = siteKey);
+    // 切换源重置（对齐 iOS `onChange(of: source.id)`）：分类/分页/筛选全复位。
+    setState(() {
+      _siteKey = siteKey;
+      _selectedTid = null;
+      _items.clear();
+      _page = 0;
+      _pagecount = null;
+      _lastBatchFull = true;
+      _resetFilters();
+    });
     await _loadHome();
   }
 
@@ -238,39 +320,51 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
       _page = 0;
       _pagecount = null;
       _lastBatchFull = true;
+      // 切分类重置筛选（对齐 iOS 分类 chip `onTapGesture` 的 `resetFilters()`）。
+      _resetFilters();
     });
-    if (tid == null) return; // 「推荐」直接复用已加载的 _recommended
+    if (tid == null || tid == _kAllCategoryId) return; // 推荐 / 全部复用 _recommended
     await _loadCategory();
   }
 
-  Future<void> _loadCategory() async {
+  /// 加载分类内容（首载 / 翻页 / 筛选重载共用）。
+  ///
+  /// [replace] 为 true 时覆盖现有条目并保留旧内容显示（下拉刷新，对齐 iOS
+  /// `refreshContent` 分类分支：不清空 `categoryVideos`，数据到达后整体替换）。
+  Future<void> _loadCategory({bool replace = false}) async {
     if (_loading || _loadingMore) return;
     final String? siteKey = _siteKey;
     final String? tid = _selectedTid;
-    if (siteKey == null || tid == null) return;
+    if (siteKey == null || tid == null || tid == _kAllCategoryId) return;
 
-    final bool initial = _page == 0 && _items.isEmpty;
+    final bool initial = replace || (_page == 0 && _items.isEmpty);
     setState(() {
-      if (initial) {
+      if (initial && _items.isEmpty) {
+        // 首载（无旧内容）→ 整页加载态（对齐 iOS 清空后 ProgressView）。
         _loading = true;
         _error = null;
       } else {
+        // 有旧内容 → 底部进度（数据保留，对齐 iOS isLoadingCategory 保留网格）。
         _loadingMore = true;
       }
     });
 
     final int nextPage = _page + 1;
-    final Result<CategoryContentResult> result =
-        await _uc.categoryContent(siteKey, tid: tid, page: nextPage);
+    final Result<CategoryContentResult> result = await _uc.categoryContent(
+      siteKey,
+      tid: tid,
+      page: nextPage,
+      filters: _activeFilters,
+    );
     if (!mounted) return;
     final Failure? failure = result.failureOrNull;
     if (failure != null) {
       setState(() {
         _loading = false;
         _loadingMore = false;
-        if (initial) _error = failure;
+        if (initial && _items.isEmpty) _error = failure;
       });
-      if (!initial) _toast('加载失败：$failure');
+      if (!(_items.isNotEmpty)) _toast('加载失败：$failure');
       return;
     }
     final CategoryContentResult content =
@@ -290,10 +384,58 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
       _loading = false;
       _loadingMore = false;
     });
+    // 首次进入分类 → 自适应提取筛选维度（对齐 iOS `loadCategoryContent`）。
+    if (initial && !replace) {
+      setState(() => _filterOptions = extractAdaptiveFilters(batch));
+    }
+  }
+
+  /// 筛选选中后重载第 1 页（对齐 iOS `reloadCategoryWithFilters`：不重提取
+  /// 筛选维度，置加载态并覆盖替换）。
+  Future<void> _reloadCategoryWithFilters() async {
+    if (!_isBrowsingCategory) return;
+    setState(() {
+      _items.clear();
+      _page = 0;
+      _pagecount = null;
+      _lastBatchFull = true;
+    });
+    final String siteKey = _siteKey!;
+    final String tid = _selectedTid!;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final Result<CategoryContentResult> result = await _uc.categoryContent(
+      siteKey,
+      tid: tid,
+      page: 1,
+      filters: _activeFilters,
+    );
+    if (!mounted) return;
+    final Failure? failure = result.failureOrNull;
+    if (failure != null) {
+      setState(() {
+        _loading = false;
+        _error = failure;
+      });
+      return;
+    }
+    final CategoryContentResult content =
+        result.valueOrNull ?? const CategoryContentResult();
+    setState(() {
+      _items
+        ..clear()
+        ..addAll(content.list ?? const <VodItem>[]);
+      _page = 1;
+      _pagecount = content.pagecount;
+      _lastBatchFull = (content.list?.length ?? 0) >= _pageSizeHint;
+      _loading = false;
+    });
   }
 
   Future<void> _loadMore() async {
-    if (_selectedTid == null || !_hasMore || _loading || _loadingMore) return;
+    if (!_isBrowsingCategory || !_hasMore || _loading || _loadingMore) return;
     await _loadCategory();
   }
 
@@ -304,49 +446,147 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
       await _bootstrap();
       return;
     }
-    if (_selectedTid == null) {
+    if (_selectedTid == null || _selectedTid == _kAllCategoryId) {
       await _loadHome();
     } else {
       await _loadCategory();
     }
   }
 
-  /// 下拉刷新（对齐 iOS `SourceDiscoveryView.refreshable`）：分类态回第一页，
-  /// 推荐态重载首页内容；源列表失败态则重跑引导。
+  /// 下拉刷新（对齐 iOS `SourceDiscoveryView.refreshable`）：分类态保留旧
+  /// 内容回第一页覆盖，推荐态静默重载首页内容；源列表失败态则重跑引导。
   Future<void> _refresh() async {
     if (_sitesError != null || _sites.isEmpty) {
       _bootstrapped = false;
       await _bootstrap();
       return;
     }
-    if (_selectedTid == null) {
-      await _loadHome();
+    if (_selectedTid == null || _selectedTid == _kAllCategoryId) {
+      await _loadHome(silent: true);
       return;
     }
-    _items.clear();
     _page = 0;
     _pagecount = null;
     _lastBatchFull = true;
-    await _loadCategory();
+    await _loadCategory(replace: true);
   }
 
-  void _openDetail(VodItem vod) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) => DetailPage(
-          siteKey: _siteKey ?? '',
-          vodId: vod.vodId,
-          title: vod.vodName,
-          // 源发现进入 → 沉浸式（隐藏 AppBar，对齐 iOS `isFromSourceDiscovery`）。
-          isFromSourceDiscovery: true,
+  // ─────────────── 自适应筛选（对齐 iOS extractAdaptiveFilters 等） ───────────────
+
+  /// 重置筛选（对齐 iOS `resetFilters`）。
+  void _resetFilters() {
+    _selectedClass = '全部';
+    _selectedArea = '全部';
+    _selectedYear = '全部';
+    _selectedSort = '全部';
+    _filterOptions = const AdaptiveFilterOptions();
+  }
+
+  /// 当前生效筛选参数（「全部」/ 空不传；对齐 iOS `buildFilterQuery` 跳过语义）。
+  Map<String, String> get _activeFilters {
+    final Map<String, String> f = <String, String>{};
+    if (_selectedClass != '全部' && _selectedClass.isNotEmpty) {
+      f['class'] = _selectedClass;
+    }
+    if (_selectedArea != '全部' && _selectedArea.isNotEmpty) {
+      f['area'] = _selectedArea;
+    }
+    if (_selectedYear != '全部' && _selectedYear.isNotEmpty) {
+      f['year'] = _selectedYear;
+    }
+    if (_selectedSort != '全部' && _selectedSort.isNotEmpty) {
+      f['sort'] = _selectedSort;
+    }
+    return f;
+  }
+
+  /// 排序显示名走 [SourceDiscoveryView.sortDisplayValue]（对齐 iOS
+  /// `sortDisplayValue`）。
+
+  /// 筛选选择器（对齐 iOS `presentFilterPicker` 的 actionSheet：标题 + 选项
+  /// （选中高亮）+ 取消）。
+  Future<void> _pickFilter(
+    BuildContext context,
+    String title,
+    List<String> options,
+    String current,
+    ValueChanged<String> onSelect,
+  ) async {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final String? picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: scheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (BuildContext sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  VboxSpacing.lg, VboxSpacing.lg, VboxSpacing.lg, VboxSpacing.xs),
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: VboxTypography.s13,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurface,
+                ),
+              ),
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.only(bottom: VboxSpacing.xs),
+                children: <Widget>[
+                  for (final String opt in options)
+                    ListTile(
+                      dense: true,
+                      title: Text(
+                        title == '排序方式'
+                            ? SourceDiscoveryView.sortDisplayValue(opt)
+                            : opt,
+                        style: TextStyle(
+                          fontSize: VboxTypography.s14,
+                          fontWeight: opt == current
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                          color: opt == current
+                              ? VboxColors.skinPrimaryRose
+                              : scheme.onSurface,
+                        ),
+                      ),
+                      trailing: opt == current
+                          ? const Icon(Icons.check,
+                              size: 16, color: VboxColors.skinPrimaryRose)
+                          : null,
+                      onTap: () => Navigator.of(sheetContext).pop(opt),
+                    ),
+                ],
+              ),
+            ),
+            Divider(height: 1, color: scheme.outlineVariant),
+            ListTile(
+              // 取消按钮居中（对齐 iOS actionSheet Cancel）。
+              title: Center(
+                child: Text(
+                  '取消',
+                  style: TextStyle(
+                    fontSize: VboxTypography.s14,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              ),
+              onTap: () => Navigator.of(sheetContext).pop(),
+            ),
+          ],
         ),
       ),
     );
-  }
-
-  void _toast(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    if (picked == null || picked == current) return;
+    onSelect(picked);
   }
 
   // ─────────────── UI ───────────────
@@ -358,21 +598,29 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
       children: <Widget>[
         _buildSourceBar(),
         _buildCategoryBar(),
+        _buildFilterBar(),
         const SizedBox(height: VboxSpacing.xs),
         Expanded(child: _buildBody()),
       ],
     );
   }
 
+  /// 顶栏（对齐 iOS `topBar`：返回 + 源名下拉按钮 + 右侧类型徽标胶囊）。
   Widget _buildSourceBar() {
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    final SiteConfig? current = _sites
+        .where((SiteConfig s) => s.key == _siteKey)
+        .cast<SiteConfig?>()
+        .firstWhere((SiteConfig? s) => s != null, orElse: () => null);
+    final String label = current == null
+        ? (_siteKey ?? '')
+        : (current.name.isEmpty ? current.key : current.name);
     return Padding(
       padding: VboxSpacing.symmetric(
-          horizontal: VboxSpacing.lg, vertical: VboxSpacing.sm),
+          horizontal: VboxSpacing.lg, vertical: VboxSpacing.compact + 4),
       child: Row(
         children: <Widget>[
-          // 返回（仅嵌入首页站点态时显示；对齐 iOS `SourceDiscoveryView.topBar`
-          // 的 `chevron.left` 返回）。「远程源 → 源发现」标签内不显示。
+          // 返回（仅嵌入首页站点态时显示；对齐 iOS `chevron.left` 返回）。
           if (widget.onDismiss != null) ...<Widget>[
             InkWell(
               onTap: widget.onDismiss,
@@ -387,51 +635,98 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
                 ),
               ),
             ),
-            const SizedBox(width: VboxSpacing.xs),
+            const SizedBox(width: VboxSpacing.sm),
           ],
-          Icon(Icons.language, size: 18, color: scheme.onSurfaceVariant),
-          const SizedBox(width: VboxSpacing.sm),
-          Text(
-            '源',
-            style: TextStyle(
-              fontSize: VboxTypography.s13,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(width: VboxSpacing.xs),
+          // 源名下拉按钮（对齐 iOS：源名 17pt semibold + chevron.down）。
           Expanded(
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                // value 必须命中唯一 item：源列表未就绪 / 不含当前 key 时置 null，
-                // 避免初始（initialSiteKey 已设但 sites 未到）阶段的断言。
-                value: _sites.any((SiteConfig s) => s.key == _siteKey)
-                    ? _siteKey
-                    : null,
-                isExpanded: true,
-                isDense: true,
-                onChanged: _selectSite,
-                items: <DropdownMenuItem<String>>[
-                  for (final SiteConfig s in _sites)
-                    DropdownMenuItem<String>(
-                      value: s.key,
+            child: InkWell(
+              onTap: _openSourceSheet,
+              borderRadius: BorderRadius.circular(VboxRadii.chip.topLeft.x),
+              child: Padding(
+                padding: VboxSpacing.symmetric(vertical: VboxSpacing.xs),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Flexible(
                       child: Text(
-                        s.name.isEmpty ? s.key : s.name,
+                        label,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          // iOS 17pt 不在字号档位（[10..28]），取最近档 18pt。
+                          fontSize: VboxTypography.s18,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurface,
+                        ),
                       ),
                     ),
-                ],
+                    const SizedBox(width: VboxSpacing.compact),
+                    Icon(Icons.expand_more,
+                        size: VboxTypography.s10, color: scheme.onSurfaceVariant),
+                  ],
+                ),
               ),
             ),
           ),
+          const SizedBox(width: VboxSpacing.sm),
+          // 右侧类型徽标（对齐 iOS `source.category.displayName` 胶囊 + 分类色）。
+          if (current != null) _buildCategoryBadge(current),
         ],
       ),
     );
   }
 
+  /// 类型徽标胶囊（对齐 iOS `categoryBadgeColor` 分类色）。
+  Widget _buildCategoryBadge(SiteConfig site) {
+    final String label = site.categoryLabel;
+    final Color color = _categoryBadgeColor(label);
+    return Container(
+      padding: VboxSpacing.symmetric(
+          horizontal: VboxSpacing.sm, vertical: VboxSpacing.compact - 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(VboxRadii.capsule),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: VboxTypography.s11,
+          fontWeight: FontWeight.w500,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  /// 分类徽标色（对齐 iOS `categoryBadgeColor`）。
+  static Color _categoryBadgeColor(String label) => switch (label) {
+        '网盘' => const Color(0xFF007AFF), // cloudCMS / cloudSPA
+        '论坛' => const Color(0xFFFF9500), // cloudForum
+        'API' => const Color(0xFF34C759), // api
+        'JS' => const Color(0xFFAF52DE), // jsSpider
+        '站源' => const Color(0xFFFF3B30), // zhanyuan
+        _ => const Color(0xFF007AFF),
+      };
+
+  /// 打开左上角选源浮层（对齐 iOS `sourceDropdownOverlay` → `selectedSource`）。
+  Future<void> _openSourceSheet() async {
+    if (_sites.isEmpty) return;
+    final String? key = await showVboxSourceSheet(
+      context,
+      sites: _sites,
+      selectedKey: _siteKey,
+    );
+    if (key == null || key == _siteKey || !mounted) return;
+    await _selectSite(key);
+  }
+
+  /// 分类滑动栏（对齐 iOS `categoryScrollBar`：「推荐」+ 分类；chip 粉红选中，
+  /// 对齐 iOS `SourceCategoryChip` 的 `E11B48`）。
   Widget _buildCategoryBar() {
-    if (_categories.isEmpty) return const SizedBox.shrink();
+    final List<VodCategory> cats = _displayCategories;
+    if (cats.isEmpty) return const SizedBox.shrink();
     return SizedBox(
-      height: 40,
+      height: 48,
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: VboxSpacing.symmetric(horizontal: VboxSpacing.lg),
@@ -439,15 +734,89 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
           VboxChip(
             label: '推荐',
             selected: _selectedTid == null,
+            selectedColor: VboxColors.skinPrimaryRose,
             onTap: () => _selectTid(null),
           ),
-          for (int i = 0; i < _categories.length; i++) ...<Widget>[
+          for (int i = 0; i < cats.length; i++) ...<Widget>[
             const SizedBox(width: VboxSpacing.sm),
             VboxChip(
-              label: _categories[i].typeName,
-              selected: _selectedTid == _categories[i].typeId,
-              onTap: () => _selectTid(_categories[i].typeId),
+              label: cats[i].typeName,
+              selected: _selectedTid == cats[i].typeId,
+              selectedColor: VboxColors.skinPrimaryRose,
+              onTap: () => _selectTid(cats[i].typeId),
             ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 自适应筛选栏（对齐 iOS `adaptiveFilterBar` + `shouldShowFilterBar`：
+  /// 选中具体分类才显示；类型/地区/年份有选项才显示，排序始终显示）。
+  Widget _buildFilterBar() {
+    if (!_isBrowsingCategory) return const SizedBox.shrink();
+    final List<Widget> chips = <Widget>[
+      if (_filterOptions.classOptions.isNotEmpty)
+        _FilterChip(
+          title: '类型',
+          value: _selectedClass,
+          hasSelection: _selectedClass != '全部',
+          onTap: () => _pickFilter(context, '选择类型', _filterOptions.classOptions,
+              _selectedClass, (String v) {
+            if (v == _selectedClass) return;
+            setState(() => _selectedClass = v);
+            _reloadCategoryWithFilters();
+          }),
+        ),
+      if (_filterOptions.area.isNotEmpty)
+        _FilterChip(
+          title: '地区',
+          value: _selectedArea,
+          hasSelection: _selectedArea != '全部',
+          onTap: () => _pickFilter(context, '选择地区', _filterOptions.area,
+              _selectedArea, (String v) {
+            if (v == _selectedArea) return;
+            setState(() => _selectedArea = v);
+            _reloadCategoryWithFilters();
+          }),
+        ),
+      if (_filterOptions.year.isNotEmpty)
+        _FilterChip(
+          title: '年份',
+          value: _selectedYear,
+          hasSelection: _selectedYear != '全部',
+          onTap: () => _pickFilter(context, '选择年份', _filterOptions.year,
+              _selectedYear, (String v) {
+            if (v == _selectedYear) return;
+            setState(() => _selectedYear = v);
+            _reloadCategoryWithFilters();
+          }),
+        ),
+      _FilterChip(
+        title: '排序',
+        value: SourceDiscoveryView.sortDisplayValue(_selectedSort),
+        hasSelection: _selectedSort != '全部',
+        onTap: () => _pickFilter(context, '排序方式', _filterOptions.sort,
+            _selectedSort, (String v) {
+          if (v == _selectedSort) return;
+          setState(() => _selectedSort = v);
+          _reloadCategoryWithFilters();
+        }),
+      ),
+    ];
+    if (chips.length == 1 && _filterOptions.sort.length <= 1) {
+      return const SizedBox.shrink();
+    }
+    return SizedBox(
+      height: 34,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: VboxSpacing.symmetric(
+            horizontal: VboxSpacing.lg, vertical: VboxSpacing.compact),
+        children: <Widget>[
+          for (int i = 0; i < chips.length; i++) ...<Widget>[
+            if (i > 0) const SizedBox(width: VboxSpacing.sm),
+            chips[i],
           ],
         ],
       ),
@@ -475,18 +844,46 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
     }
     if (_sites.isEmpty) {
       return _scrollableCenter(
-        const _EmptyHint(text: '没有可浏览的站点\n请先在「订阅源」添加可用源'),
+        const _EmptyState(message: '没有可浏览的站点\n请先在「订阅源」添加可用源'),
       );
     }
-    if (_loading) {
-      return _scrollableCenter(const CircularProgressIndicator());
+    // 加载态（对齐 iOS：ProgressView + 「正在加载 {源名}...」；有旧内容时不整页拦截）。
+    if (_loading && _displayItems.isEmpty) {
+      return _scrollableCenter(
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const CircularProgressIndicator(),
+            const SizedBox(height: VboxSpacing.xl),
+            Text(
+              '正在加载 $_currentSiteName...',
+              style: TextStyle(
+                fontSize: VboxTypography.s14,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      );
     }
     final Failure? error = _error;
-    if (error != null) {
-      return _scrollableCenter(_ErrorRetry(message: '$error', onRetry: _retry));
+    if (error != null && _displayItems.isEmpty) {
+      // 错误态（对齐 iOS：wifi.slash 图标 + 统一文案 + 重试）。
+      return _scrollableCenter(
+        _ErrorRetry(
+          message: '$_currentSiteName 暂无数据，请检查网络或切换其他源',
+          onRetry: _retry,
+        ),
+      );
     }
     if (_displayItems.isEmpty) {
-      return _scrollableCenter(const _EmptyHint(text: '暂无内容\n切换源或分类试试'));
+      // 空态（对齐 iOS：tray 图标 + 分类/推荐区分文案 + 搜索引导）。
+      return _scrollableCenter(
+        _EmptyState(
+          message: _isBrowsingCategory ? '该分类暂无数据' : '暂无推荐内容',
+          hint: '可前往搜索获取更多资源',
+        ),
+      );
     }
     return _buildGrid();
   }
@@ -527,58 +924,199 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
         );
         final double cellWidth =
             (availWidth - spacing * (columns - 1)) / columns;
-        final double cellExtent = cellWidth * 1.5 + 44;
+        // 卡片高：2:3 封面 + 标题 2 行 + 年份行（对齐 iOS SourceVideoCard 结构）。
+        final double cellExtent = cellWidth * 1.5 + 60;
 
-        final bool paging = _selectedTid != null;
+        final bool paging = _isBrowsingCategory;
+        final bool showFooter = paging && _hasMore;
         return GridView.builder(
           controller: _scroll,
-          padding: const EdgeInsets.fromLTRB(
-              paddingH, VboxSpacing.sm, paddingH, VboxSpacing.lg),
+          padding: const EdgeInsets.fromLTRB(paddingH, 12, paddingH, 100),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
             mainAxisSpacing: spacing,
             crossAxisSpacing: spacing,
             mainAxisExtent: cellExtent,
           ),
-          itemCount: _displayItems.length +
-              ((paging && _loadingMore) ? 1 : 0),
+          itemCount: _displayItems.length + (showFooter ? 1 : 0),
           itemBuilder: (BuildContext context, int index) {
             if (index >= _displayItems.length) {
-              return const Center(child: CircularProgressIndicator());
+              return _buildLoadMoreFooter();
             }
-            return _posterFromVod(_displayItems[index]);
+            return _posterFromVod(_displayItems[index], index);
           },
         );
       },
     );
   }
 
-  Widget _posterFromVod(VodItem vod) {
-    final String subtitle = <String?>[
-      if (vod.vodYear?.isNotEmpty ?? false) vod.vodYear,
-      if (vod.vodRemarks?.isNotEmpty ?? false) vod.vodRemarks,
-    ].join(' · ');
-    return _PosterCell(
-      title: vod.vodName,
-      imageUrl: vod.vodPic,
-      subtitle: subtitle.isEmpty ? null : subtitle,
-      onTap: () => _openDetail(vod),
+  /// 「加载更多」footer（对齐 iOS `loadMoreFooter`：加载中显示进度，否则
+  /// 显示可点按钮）。
+  Widget _buildLoadMoreFooter() {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    if (_loadingMore) {
+      return Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: VboxSpacing.xs),
+            Text(
+              '加载中...',
+              style: TextStyle(
+                fontSize: VboxTypography.s12,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return Center(
+      child: InkWell(
+        onTap: _loadMore,
+        borderRadius: BorderRadius.circular(VboxRadii.chip.topLeft.x),
+        child: Padding(
+          padding: VboxSpacing.symmetric(vertical: VboxSpacing.sm),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(Icons.arrow_downward,
+                  size: VboxTypography.s12, color: scheme.onSurfaceVariant),
+              const SizedBox(width: VboxSpacing.xs),
+              Text(
+                '加载更多',
+                style: TextStyle(
+                  fontSize: VboxTypography.s12,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
+  }
+
+  Widget _posterFromVod(VodItem vod, int index) {
+    final String? remarks =
+        (vod.vodRemarks?.isNotEmpty ?? false) ? vod.vodRemarks : null;
+    final String? year = (vod.vodYear?.isNotEmpty ?? false) ? vod.vodYear : null;
+    // 掉落回弹入场：同行卡片自左向右错峰（对齐 iOS `fallDelay = index % 3 * 0.12`）。
+    return FallInCard(
+      delay: (index % 3) * 0.12,
+      child: _PosterCell(
+        title: vod.vodName,
+        imageUrl: vod.vodPic,
+        remarks: remarks,
+        year: year,
+        onTap: () => _openDetail(vod),
+      ),
+    );
+  }
+
+  void _openDetail(VodItem vod) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => DetailPage(
+          siteKey: _siteKey ?? '',
+          vodId: vod.vodId,
+          title: vod.vodName,
+          // 源发现进入 → 沉浸式（隐藏 AppBar，对齐 iOS `isFromSourceDiscovery`）。
+          isFromSourceDiscovery: true,
+        ),
+      ),
+    );
+  }
+
+  void _toast(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
-/// 网格海报单元（2:3 封面 + 单行标题 + 可选副标题）。
+/// 自适应筛选维度（对齐 iOS `SpiderManager.AdaptiveFilterOptions`）。
+class AdaptiveFilterOptions {
+  /// 构造。
+  const AdaptiveFilterOptions({
+    this.classOptions = const <String>[],
+    this.area = const <String>[],
+    this.year = const <String>[],
+    this.sort = const <String>['全部', 'hits', 'addtime', 'score', 'rand'],
+  });
+
+  /// 类型/题材选项（对齐 iOS 现状：`extractAdaptiveFilters` 未从数据提取
+  /// class，恒为空 → 「类型」chip 不显示；参数保留供后续数据源支持）。
+  final List<String> classOptions;
+
+  /// 地区选项（升序，「全部」在首位）。
+  final List<String> area;
+
+  /// 年份选项（降序，「全部」在首位）。
+  final List<String> year;
+
+  /// 排序选项（固定）。
+  final List<String> sort;
+}
+
+/// 从一组 [VodItem] 自适应提取筛选选项（对齐 iOS
+/// `SpiderManager.extractAdaptiveFilters` L2045-L2083）：
+///   · 地区：`vodArea` 按 `/ , ， 、` 拆分去重，升序；
+///   · 年份：`vodYear` 提取前 4 位数字，去重降序；
+///   · 类型：iOS 循环体仅填充 area/year（classSet 声明后未填充），对齐现状
+///     恒空；各维度非空时加「全部」前缀。
+AdaptiveFilterOptions extractAdaptiveFilters(List<VodItem> items) {
+  final Set<String> areaSet = <String>{};
+  final Set<String> yearSet = <String>{};
+
+  for (final VodItem item in items) {
+    final String? area = item.vodArea;
+    if (area != null && area.isNotEmpty) {
+      for (final String part in area.split(RegExp(r'[/,，、]'))) {
+        final String t = part.trim();
+        if (t.isNotEmpty) areaSet.add(t);
+      }
+    }
+    final String? year = item.vodYear;
+    if (year != null && year.isNotEmpty) {
+      final String digits =
+          year.split('').where((String c) => int.tryParse(c) != null).join();
+      if (digits.length >= 4) yearSet.add(digits.substring(0, 4));
+    }
+  }
+
+  final List<String> sortedAreas = areaSet.toList()..sort();
+  final List<String> sortedYears = yearSet.toList()..sort((String a, String b) => b.compareTo(a));
+
+  return AdaptiveFilterOptions(
+    area: sortedAreas.isEmpty ? const <String>[] : <String>['全部', ...sortedAreas],
+    year: sortedYears.isEmpty ? const <String>[] : <String>['全部', ...sortedYears],
+  );
+}
+
+/// 网格海报单元（对齐 iOS `SourceVideoCard`：2:3 封面 + 右下备注角标 +
+/// 标题 2 行 + 年份行）。
 class _PosterCell extends StatelessWidget {
   const _PosterCell({
     required this.title,
     this.imageUrl,
-    this.subtitle,
+    this.remarks,
+    this.year,
     this.onTap,
   });
 
   final String title;
   final String? imageUrl;
-  final String? subtitle;
+
+  /// 备注角标文案（封面右下角，对齐 iOS `vodRemarks` 标签）。
+  final String? remarks;
+
+  /// 年份行（标题下方，对齐 iOS `vodYear` 行）。
+  final String? year;
   final VoidCallback? onTap;
 
   @override
@@ -592,19 +1130,47 @@ class _PosterCell extends StatelessWidget {
           Expanded(
             child: ClipRRect(
               borderRadius: VboxRadii.card,
-              child: SizedBox.expand(
-                child: PlatformAsyncImage(
-                  url: imageUrl,
-                  fit: BoxFit.cover,
-                  placeholderColor: scheme.surfaceContainerHighest,
-                ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  PlatformAsyncImage(
+                    url: imageUrl,
+                    fit: BoxFit.cover,
+                    placeholderColor: scheme.surfaceContainerHighest,
+                  ),
+                  // 备注角标（对齐 iOS：右下角黑底 0.65 圆角 4 白字 10pt）。
+                  if (remarks != null)
+                    Positioned(
+                      right: 4,
+                      bottom: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          remarks!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: VboxTypography.s10,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
-          const SizedBox(height: VboxSpacing.sm),
+          const SizedBox(height: VboxSpacing.compact),
+          // 标题（2 行，对齐 iOS 13pt medium lineLimit 2）。
           Text(
             title,
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: VboxTypography.s13,
@@ -612,9 +1178,9 @@ class _PosterCell extends StatelessWidget {
               color: scheme.onSurface,
             ),
           ),
-          if (subtitle != null)
+          if (year != null)
             Text(
-              subtitle!,
+              year!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -628,30 +1194,126 @@ class _PosterCell extends StatelessWidget {
   }
 }
 
-/// 空态提示。
-class _EmptyHint extends StatelessWidget {
-  const _EmptyHint({required this.text});
+/// 自适应筛选胶囊（对齐 iOS `AdaptiveFilterChip`：title 12pt secondary +
+/// value 12pt medium（选中粉红）+ chevron.down；选中粉红 0.1 底 + 0.3 描边）。
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({
+    required this.title,
+    required this.value,
+    required this.hasSelection,
+    required this.onTap,
+  });
 
-  final String text;
+  final String title;
+  final String value;
+  final bool hasSelection;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Theme.of(context).colorScheme.outline,
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    const Color rose = VboxColors.skinPrimaryRose;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(VboxRadii.capsule),
+      child: Container(
+        padding: VboxSpacing.symmetric(
+            horizontal: VboxSpacing.md, vertical: VboxSpacing.compact),
+        decoration: BoxDecoration(
+          color: hasSelection
+              ? rose.withValues(alpha: 0.1)
+              : scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(VboxRadii.capsule),
+          border: Border.all(
+            color: hasSelection
+                ? rose.withValues(alpha: 0.3)
+                : scheme.outlineVariant.withValues(alpha: 0.5),
+            width: 0.5,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: VboxTypography.s12,
+                color: scheme.onSurfaceVariant,
               ),
+            ),
+            const SizedBox(width: VboxSpacing.xs),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 96),
+              child: Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: VboxTypography.s12,
+                  fontWeight: FontWeight.w500,
+                  color: hasSelection ? rose : scheme.onSurface,
+                ),
+              ),
+            ),
+            Icon(Icons.expand_more,
+                size: VboxTypography.s12, color: scheme.onSurfaceVariant),
+          ],
         ),
       ),
     );
   }
 }
 
-/// 加载失败提示 + 重试。
+/// 空态提示（对齐 iOS：tray 图标 + 主文案 + 可选搜索引导副文案）。
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.message, this.hint});
+
+  final String message;
+  final String? hint;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              Icons.inbox,
+              size: 36,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: VboxSpacing.md),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: VboxTypography.s14,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            if (hint != null) ...<Widget>[
+              const SizedBox(height: VboxSpacing.sm),
+              Text(
+                hint!,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: VboxTypography.s12,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 加载失败提示 + 重试（对齐 iOS：wifi.slash 40pt secondary 图标 + 文案 +
+/// 重试按钮）。
 class _ErrorRetry extends StatelessWidget {
   const _ErrorRetry({required this.message, required this.onRetry});
 
@@ -666,10 +1328,10 @@ class _ErrorRetry extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(
-              Icons.error_outline,
+            const Icon(
+              Icons.wifi_off,
               size: 40,
-              color: Theme.of(context).colorScheme.error,
+              color: Colors.grey,
             ),
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
