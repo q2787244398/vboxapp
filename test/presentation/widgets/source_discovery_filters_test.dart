@@ -9,6 +9,7 @@ import 'package:vbox/core/utils/result.dart';
 import 'package:vbox/domain/entities/remote_source/remote_source.dart';
 import 'package:vbox/domain/entities/spider/spider.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
+import 'package:vbox/presentation/ui_mode/ui_mode.dart';
 import 'package:vbox/presentation/widgets/source_discovery_view.dart';
 
 /// 筛选记录版用例：分类请求记录 filters，返回带地区/年份的数据。
@@ -73,21 +74,26 @@ class _NoClassBrowseUseCases extends _FilterBrowseUseCases {
 }
 
 Widget _host(ContentBrowseUseCases uc) => MultiProvider(
-      providers: <Provider<ContentBrowseUseCases>>[
+      providers: [
         Provider<ContentBrowseUseCases>.value(value: uc),
+        // 视图网格依赖形态控制器（对齐 app.dart 根注入）。
+        ChangeNotifierProvider<UiFormController>.value(
+          value: UiFormController(),
+        ),
       ],
       child: const MaterialApp(home: Scaffold(body: SourceDiscoveryView())),
     );
 
 void main() {
   group('自适应筛选提取（对齐 iOS extractAdaptiveFilters）', () {
-    test('地区按 / ， 、 拆分去重升序 + 「全部」前缀', () {
+    test('地区按 / ， 、 拆分去重 + Unicode 升序 + 「全部」前缀（对齐 iOS sorted()）', () {
       final AdaptiveFilterOptions opts = extractAdaptiveFilters(<VodItem>[
         const VodItem(vodId: '1', vodName: 'a', vodPic: '', vodArea: '大陆/美国'),
         const VodItem(vodId: '2', vodName: 'b', vodPic: '', vodArea: '大陆，香港'),
         const VodItem(vodId: '3', vodName: 'c', vodPic: '', vodArea: ' 美国 、台湾'),
       ]);
-      expect(opts.area, <String>['全部', '大陆', '台湾', '美国', '香港']);
+      // iOS `Array(areaSet).sorted()` 为 Unicode 标量升序：台(U+53F0) < 大(U+5927)。
+      expect(opts.area, <String>['全部', '台湾', '大陆', '美国', '香港']);
     });
 
     test('年份提取前 4 位数字去重降序', () {

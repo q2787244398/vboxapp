@@ -180,8 +180,15 @@ class _PlayerCapsuleNotificationState extends State<PlayerCapsuleNotification> {
 
   @override
   Widget build(BuildContext context) {
-    final DownloadManager manager = context.watch<DownloadManager>();
-    final DownloadCapsuleMessage? message = manager.capsuleMessage;
+    // 播放页可被无 DownloadManager 作用域的宿主直接承载（如独立测试环境），
+    // 此时胶囊退化为不可见，不阻断播放器构建（应用根节点始终注入该 Provider）。
+    DownloadManager? manager;
+    try {
+      manager = context.watch<DownloadManager>();
+    } on ProviderNotFoundException {
+      manager = null;
+    }
+    final DownloadCapsuleMessage? message = manager?.capsuleMessage;
 
     // 消息变化 → 显示并重置 5s 自动消失（对齐 iOS `handleMessageChange`）。
     if (message != _current) {

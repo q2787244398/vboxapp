@@ -144,16 +144,19 @@ class PlayerTopBar extends StatelessWidget {
                 ],
               ),
             ),
-            _IconButton(
-              // UI-D4 辅助功能：旋转（进入 / 退出全屏）。
-              tooltip: landscape ? '退出全屏' : '进入全屏',
-              // 对齐 iOS：竖屏「转横屏」，横屏「转竖屏」。
-              icon: landscape
-                  ? Icons.rotate_left_rounded
-                  : Icons.rotate_right_rounded,
-              color: foreground,
-              onTap: onRotate,
-            ),
+            // 旋转（切换横竖屏）：回调为 null（桌面端无方向概念）时隐藏，
+            // 同投屏 / 拉伸按钮的 null 语义。
+            if (onRotate != null)
+              _IconButton(
+                // UI-D4 辅助功能：旋转（进入 / 退出全屏）。
+                tooltip: landscape ? '退出全屏' : '进入全屏',
+                // 对齐 iOS：竖屏「转横屏」，横屏「转竖屏」。
+                icon: landscape
+                    ? Icons.rotate_left_rounded
+                    : Icons.rotate_right_rounded,
+                color: foreground,
+                onTap: onRotate,
+              ),
             if (showPip)
               _IconButton(
                 // UI-D4 辅助功能：画中画（进入 / 退出）。

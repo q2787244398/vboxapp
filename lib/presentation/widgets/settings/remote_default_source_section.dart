@@ -60,6 +60,13 @@ class _RemoteDefaultSourceSectionState
     final RemoteLoadStatus status = await _remote.status();
     if (!mounted) return;
     setState(() => _status = status);
+    await _reloadSettingsOnly();
+  }
+
+  /// 仅重读设置四键（版本 / 同步时间 / 开关 / 地址），**不覆盖装载状态**——
+  /// 供刷新 / 清缓存后调用：`_refresh` 刚写入的 loadedRemote / failed 状态
+  /// 是最新事实，若经 `status()` 读回会被仓储的旧状态覆盖（回归修复）。
+  Future<void> _reloadSettingsOnly() async {
     final Result<RemoteSourceSettings> result = await _remote.settings();
     if (!mounted) return;
     final RemoteSourceSettings s =
@@ -99,14 +106,15 @@ class _RemoteDefaultSourceSectionState
           ? RemoteLoadStatus.failed('$failure')
           : RemoteLoadStatus.loadedRemote(result.valueOrNull!.configVersion);
     });
-    await _loadSettings();
+    await _reloadSettingsOnly();
   }
 
   /// 清空远程源缓存（清单文件 + 版本/时间/错误镜像键）。
   Future<void> _clearCache() async {
     await _remote.clearCache();
     if (!mounted) return;
-    await _loadSettings();
+    setState(() => _status = const RemoteLoadStatus.idle());
+    await _reloadSettingsOnly();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已清空远程源缓存')),

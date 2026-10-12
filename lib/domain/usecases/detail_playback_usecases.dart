@@ -479,6 +479,10 @@ class DetailPlaybackUseCases {
     return v;
   }
 
+  /// 清空网盘解析缓存（对齐 iOS `SpiderManager.clearCloudPlayCache`
+  /// L4012-L4015：设置页「清除缓存」确认后调用）。
+  void clearCloudPlayCache() => _cloudPlayCache.clear();
+
   /// 写入网盘解析缓存（对齐 iOS `cacheCloudPlay` L4004-L4010：30min TTL，
   /// 超 100 条时仅清理过期项）。
   void _cacheCloudPlay(String url, List<(String, String)> links, String siteName) {

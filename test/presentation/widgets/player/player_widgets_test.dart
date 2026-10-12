@@ -33,10 +33,12 @@ Widget _host(Widget child, {Size size = const Size(1200, 800)}) => MaterialApp(
 void main() {
   group('PlayerTopBar', () {
     testWidgets('竖屏：标题 + 副标题 + 旋转/投屏/更多按钮', (WidgetTester tester) async {
-      await tester.pumpWidget(_host(const PlayerTopBar(
+      await tester.pumpWidget(_host(PlayerTopBar(
         form: UiForm.portrait,
         title: '测试剧',
         subtitle: '第 3 集 · 默认源',
+        // 移动端语义：旋转按钮随回调注入显示（桌面端为 null 隐藏）。
+        onRotate: () {},
       )));
       expect(find.text('测试剧'), findsOneWidget);
       expect(find.text('第 3 集 · 默认源'), findsOneWidget);
@@ -72,6 +74,12 @@ void main() {
     testWidgets('无标题副标题时不渲染文本', (WidgetTester tester) async {
       await tester.pumpWidget(_host(const PlayerTopBar(form: UiForm.portrait)));
       expect(find.byType(Text), findsNothing);
+    });
+
+    testWidgets('桌面端语义：onRotate 为 null → 隐藏旋转按钮', (WidgetTester tester) async {
+      await tester.pumpWidget(_host(const PlayerTopBar(form: UiForm.portrait)));
+      expect(find.byIcon(Icons.rotate_right_rounded), findsNothing);
+      expect(find.byIcon(Icons.rotate_left_rounded), findsNothing);
     });
 
     testWidgets('UI-D3 画中画入口：pipEnabled 才显示 / 不支持置灰 / 激活换图标',

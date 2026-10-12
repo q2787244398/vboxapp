@@ -1153,7 +1153,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     };
     _controls.onToggleOrientationLock = () => unawaited(_toggleOrientationLock());
     // 顶栏旋转按钮：切换横竖屏（对齐 iOS `rotate.left` / `rotate.right`）。
-    _controls.onToggleFullscreen = () => unawaited(_rotate());
+    // 桌面端（Windows / macOS）无方向概念且 SystemChrome 方向 API 为空操作，
+    // 置 null 隐藏按钮（顶栏对 null 回调隐藏按钮，同投屏 / 拉伸语义）。
+    _controls.onToggleFullscreen =
+        (Platform.isAndroid || Platform.isIOS) ? () => unawaited(_rotate()) : null;
     _controls.onToggleToolsMenu = () {
       _showControls();
       _controls.openToolsMenu();

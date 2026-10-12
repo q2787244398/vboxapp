@@ -18,6 +18,7 @@ import '../../../domain/usecases/usecases.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
+import '../../widgets/fall_in_card.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/adaptive/responsive_grid.dart';
 import '../../widgets/detail_page.dart';
@@ -534,23 +535,27 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
           orientation: MediaQuery.orientationOf(context),
         );
         const double paddingH = VboxSpacing.lg;
-        const double spacing = VboxSpacing.md;
+        // 对齐 iOS LazyVGrid：列间距 12、行距 16。
+        const double columnSpacing = VboxSpacing.md;
+        const double rowSpacing = VboxSpacing.lg;
         final double availWidth = constraints.maxWidth - paddingH * 2;
         final int columns = ResponsiveGrid.columnsFor(
           form: form,
           width: constraints.maxWidth,
         );
         final double cellWidth =
-            (availWidth - spacing * (columns - 1)) / columns;
+            (availWidth - columnSpacing * (columns - 1)) / columns;
         final double cellExtent = cellWidth * 1.5 + 44;
 
         final Widget grid = GridView.builder(
-          padding: const EdgeInsets.fromLTRB(
-              paddingH, VboxSpacing.sm, paddingH, VboxSpacing.lg),
+          // 对齐 iOS `.padding(.horizontal, 16).padding(.top, 8)
+          // .padding(.bottom, 90)`。
+          padding: const EdgeInsets.fromLTRB(paddingH, VboxSpacing.sm,
+              paddingH, 90),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
-            mainAxisSpacing: spacing,
-            crossAxisSpacing: spacing,
+            mainAxisSpacing: rowSpacing,
+            crossAxisSpacing: columnSpacing,
             mainAxisExtent: cellExtent,
           ),
           itemCount: _items.length + (_loadingMore ? 1 : 0),
@@ -559,10 +564,10 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
               return const Center(child: CircularProgressIndicator());
             }
             final VodItem vod = _items[index];
-            return _DramaCard(
-              vod: vod,
-              sourceName: _selectedSource?.name,
-              onTap: () => _openDetail(vod),
+            return FallInCard(
+              // 掉落入场（对齐 iOS DramaCardView fallDelay = index % 3 * 0.12）。
+              delay: (index % 3) * 0.12,
+              child: _DramaCard(vod: vod, onTap: () => _openDetail(vod)),
             );
           },
         );
@@ -587,22 +592,21 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
   }
 }
 
-/// 短剧海报卡（封面 + 集数角标 + 标题 + 来源·集数）。
+/// 短剧海报卡（封面 + 集数角标 + 标题 + 备注）。
+///
+/// 对齐 iOS `DramaCardView`：封面 2/3、圆角 8、备注角标右下角黑底
+/// （剥去「xx · 」前缀，字号 10 semibold 圆角 4）、标题 13pt medium、
+/// 副标题仅备注（iOS 无来源行）、整卡掉落入场动效（同豆瓣分类网格）。
 class _DramaCard extends StatelessWidget {
-  const _DramaCard({required this.vod, this.sourceName, this.onTap});
+  const _DramaCard({required this.vod, this.onTap});
 
   final VodItem vod;
-  final String? sourceName;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final String remarks = vod.vodRemarks?.trim() ?? '';
-    final String subtitle = <String?>[
-      if (sourceName != null && sourceName!.isNotEmpty) sourceName,
-      if (remarks.isNotEmpty) remarks,
-    ].join(' · ');
 
     return GestureDetector(
       onTap: onTap,
@@ -611,7 +615,8 @@ class _DramaCard extends StatelessWidget {
         children: <Widget>[
           Expanded(
             child: ClipRRect(
-              borderRadius: VboxRadii.card,
+              // iOS `RoundedRectangle(cornerRadius: 8)`（非通用 card 12 档）。
+              borderRadius: BorderRadius.circular(8),
               child: Stack(
                 fit: StackFit.expand,
                 children: <Widget>[
@@ -630,23 +635,25 @@ class _DramaCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  // 集数角标（对齐 iOS bottomTrailing：黑底 60%、圆角 4、
+                  // 内边距 6/2、外边距 4、字号 10 semibold、剥「xx · 」前缀）。
                   if (remarks.isNotEmpty)
                     Positioned(
-                      left: VboxSpacing.sm,
-                      top: VboxSpacing.sm,
+                      right: VboxSpacing.xs,
+                      bottom: VboxSpacing.xs,
                       child: Container(
-                        padding: VboxSpacing.symmetric(
-                            horizontal: VboxSpacing.sm, vertical: VboxSpacing.xs),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.60),
-                          borderRadius: VboxRadii.badge,
+                          borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          remarks,
+                          remarks.replaceFirst(RegExp('^.*?· '), ''),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: VboxTypography.s11,
+                            fontSize: VboxTypography.s10,
                             fontWeight: FontWeight.w600,
                             color: Colors.white,
                           ),
@@ -657,7 +664,8 @@ class _DramaCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: VboxSpacing.sm),
+          // 对齐 iOS VStack(spacing: 4)。
+          const SizedBox(height: VboxSpacing.xs),
           Text(
             vod.vodName,
             maxLines: 1,
@@ -668,14 +676,18 @@ class _DramaCard extends StatelessWidget {
               color: scheme.onSurface,
             ),
           ),
-          if (subtitle.isNotEmpty)
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: VboxTypography.s11,
-                color: scheme.onSurfaceVariant,
+          if (remarks.isNotEmpty)
+            Padding(
+              // 对齐 iOS VStack(spacing: 4)。
+              padding: const EdgeInsets.only(top: VboxSpacing.xs),
+              child: Text(
+                remarks,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: VboxTypography.s11,
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ),
         ],

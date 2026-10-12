@@ -276,8 +276,10 @@ void main() {
       await tester.tap(find.text('源发现'));
       await tester.pumpAndSettle();
 
-      expect(find.text('源'), findsOneWidget);
+      // 顶栏对齐 iOS：源名下拉按钮（源名 + chevron.down）+ 类型徽标，
+      // 旧版独立「源」小标题已随对齐重构移除。
       expect(find.text('站点1'), findsOneWidget);
+      expect(find.byIcon(Icons.expand_more), findsOneWidget);
       expect(find.text('推荐'), findsOneWidget);
       expect(find.text('电影'), findsOneWidget);
       expect(find.text('推荐片'), findsOneWidget);

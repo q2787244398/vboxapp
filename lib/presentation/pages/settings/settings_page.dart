@@ -30,6 +30,7 @@ import '../../../data/datasources/local/tg_search_config_store.dart';
 import '../../../domain/entities/tg/tg_channel.dart';
 import '../../../domain/entities/spider/site_config.dart';
 import '../../../domain/usecases/content_browse_usecases.dart';
+import '../../../domain/usecases/detail_playback_usecases.dart';
 import '../../../domain/usecases/source_governance_usecases.dart';
 import '../../../platform/update/update.dart';
 import '../../phone/remote_source_page.dart';
@@ -73,6 +74,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 已启用站源数（Wave D；来自 `SourceGovernanceUseCases.activeZhanyuanCount()`）。
   int _zhanyuanActive = 0;
+
+  /// 缓存行副标题（对齐 iOS `cacheSize`：占位「256 MB」，清除后置「0 MB」）。
+  String _cacheSize = '256 MB';
 
   @override
   void initState() {
@@ -527,19 +531,63 @@ class _SettingsPageState extends State<SettingsPage> {
   /// TMDB 设置（批次 G · G-06；对齐 iOS `SettingsViews.tmdbSettingsSection`）。
   Widget _tmdbSection() => const TmdbSettingsSection();
 
-  /// 存储管理（缓存概览；清缓存依赖缓存层，暂登记为待接线）。
+  /// 存储管理（对齐 iOS `SettingsViews.swift` L807 缓存管理行 + L88-L96
+  /// 清除缓存确认弹窗；确认后执行 iOS L90-L95 三项清理）。
   Widget _storageSection() {
     return VboxSettingsSection(
       title: '存储管理',
       children: <Widget>[
         VboxSettingsRow.navigation(
           title: '缓存管理',
-          subtitle: '清缓存将在后续批次开放',
-          icon: Icons.cleaning_services,
-          onTap: () => VboxToast.show(context, '缓存清理将在后续批次开放'),
+          subtitle: _cacheSize,
+          icon: Icons.storage,
+          onTap: () => unawaited(_confirmClearCache()),
         ),
       ],
     );
+  }
+
+  /// 清除缓存确认弹窗（对齐 iOS `.alert("清除缓存")`：取消 / 确定删除角色）。
+  Future<void> _confirmClearCache() async {
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('清除缓存'),
+        content: const Text('确定要清除所有缓存数据吗？'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    // ① 网盘详情页解析缓存（对齐 iOS `spiderManager.clearCloudPlayCache()`）。
+    context.read<DetailPlaybackUseCases>().clearCloudPlayCache();
+    // ② 百度播放缓存五键 + 校验冷却键（对齐 iOS
+    //    `cloudDriveManager.clearAllBaiduPlaybackCaches()` 的 defaults 清理）。
+    final PrefsManager prefs = PrefsManager.instance;
+    for (final String key in const <String>[
+      'baidu_play_result_cache_v1',
+      'baidu_play_item_cache_v1',
+      'baidu_ibox_play_item_cache_v1',
+      'baidu_file_list_cache_v1',
+      'baidu_share_context_cache_v1',
+      'baidu_verify_cooldown_v1',
+    ]) {
+      await prefs.remove(key);
+    }
+    // ③ 豆瓣封面流磁盘缓存：Flutter 端封面为直连抓取（无本地代理与磁盘流
+    //    缓存），无对应清理面（差异登记）。
+    setState(() => _cacheSize = '0 MB');
   }
 
   /// 日志调试（开启日志记录 + 查看日志；对齐 iOS `developerSection`）。
