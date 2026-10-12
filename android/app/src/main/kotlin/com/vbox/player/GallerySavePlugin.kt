@@ -13,8 +13,9 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.os.Handler
 import android.os.Looper
+import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.FlutterPlugin
 import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -48,7 +49,7 @@ class GallerySavePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         applicationContext = null
     }
 
-    override fun onMethodCall(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "save" -> {
                 val path = call.argument<String>("path")

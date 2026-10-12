@@ -10,10 +10,17 @@
 //  （GUID 见 media.idl）。
 //
 
+// MSVC 17.10+：cppwinrt 内部使用的 <experimental/coroutine> 弃用转硬错误，
+// 须在任何 winrt 头之前定义该宏抑制（否则 C2338 static_assert 报错）。
+#define _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+
 #include "music_media_plugin.h"
 
 #include <flutter/encodable_value.h>
 #include <flutter/standard_method_codec.h>
+
+// IInspectable 基类（手工声明 interop 接口所需；windows.h 默认不含）。
+#include <inspectable.h>
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Media.h>
@@ -30,8 +37,8 @@ using namespace Windows::Media;
 namespace vbox {
 namespace {
 
-// SDK media.idl：ISystemMediaTransportControlsInterop。
-struct __declspec(uuid("0a7e0e3e-7795-4f04-9c57-a83c7f0df82a"))
+// SDK media.idl：ISystemMediaTransportControlsInterop（Win32 取 SMTC 的入口）。
+struct __declspec(uuid("ddb0472d-c911-4a1f-86d9-dc3d71a95f5a"))
     ISystemMediaTransportControlsInterop : ::IInspectable {
   virtual HRESULT STDMETHODCALLTYPE GetForWindow(HWND appWindow, REFIID riid,
                                                  void** result) = 0;
@@ -81,6 +88,26 @@ struct SmtcState {
   bool has_button_token = false;
   bool has_position_token = false;
 };
+
+namespace {
+
+// 封面异步加载（fire-and-forget；失败静默，对齐 iOS 封面加载失败忽略）。
+// WinRT 对象引用计数，插件销毁后协程仍安全。
+winrt::fire_and_forget LoadCoverAsync(
+    winrt::SystemMediaTransportControls controls, std::string cover) {
+  try {
+    auto ref = winrt::Windows::Storage::Streams::RandomAccessStreamReference::
+        CreateFromUri(winrt::Uri(winrt::to_hstring(cover)));
+    auto stream = co_await ref.OpenReadAsync();
+    auto updater = controls.DisplayUpdater();
+    updater.Thumbnail(stream);
+    updater.Update();
+  } catch (...) {
+  }
+  co_return;
+}
+
+}  // namespace
 
 // ─────────────── EventChannel StreamHandler（与 FloatingPlugin 同模式）───────
 
@@ -191,7 +218,6 @@ void MusicMediaPlugin::EnsureSmtc() {
     state->controls.IsEnabled(true);
     state->controls.IsPlayEnabled(true);
     state->controls.IsPauseEnabled(true);
-    state->controls.IsPlayPauseToggleEnabled(true);
     state->controls.IsNextEnabled(true);
     state->controls.IsPreviousEnabled(true);
 
@@ -230,7 +256,7 @@ void MusicMediaPlugin::EnsureSmtc() {
     state->position_token =
         state->controls.PlaybackPositionChangeRequested([self](
             const winrt::SystemMediaTransportControls&,
-            const winrt::SystemMediaTransportControlsPositionChangedEventArgs&
+            const winrt::SystemMediaTransportControlsPlaybackPositionChangeRequestedEventArgs&
                 args) {
           try {
             const int64_t ms = args.RequestedPlaybackPosition().count() / 10000;
@@ -299,20 +325,7 @@ void MusicMediaPlugin::Update(const flutter::EncodableMap& args) {
     // 封面：URL 异步加载（失败静默；WinRT 对象引用计数，插件销毁后仍安全）。
     const std::string cover = GetString(args, "coverURL");
     if (!cover.empty()) {
-      winrt::SystemMediaTransportControls controls_ref = controls;
-      winrt::fire_and_forget([controls_ref, cover]() -> winrt::fire_and_forget {
-        try {
-          auto ref = winrt::Windows::Storage::Streams::
-              RandomAccessStreamReference::CreateFromUri(
-                  winrt::Uri(winrt::to_hstring(cover)));
-          auto stream = co_await ref.OpenReadAsync();
-          auto updater = controls_ref.DisplayUpdater();
-          updater.Thumbnail(stream);
-          updater.Update();
-        } catch (...) {
-        }
-        co_return;
-      }());
+      (void)LoadCoverAsync(controls, cover);
     }
   } catch (...) {
     // SMTC 更新失败不阻断播放编排。
@@ -326,7 +339,6 @@ void MusicMediaPlugin::Clear() {
     controls.PlaybackStatus(winrt::MediaPlaybackStatus::Closed);
     controls.IsPlayEnabled(false);
     controls.IsPauseEnabled(false);
-    controls.IsPlayPauseToggleEnabled(false);
     controls.IsNextEnabled(false);
     controls.IsPreviousEnabled(false);
     auto updater = controls.DisplayUpdater();

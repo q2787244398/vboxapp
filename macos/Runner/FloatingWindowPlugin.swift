@@ -36,7 +36,7 @@ import FlutterMacOS
     let instance = FloatingWindowPlugin()
     let channel = FlutterMethodChannel(
       name: "com.vbox.player/floating", binaryMessenger: registrar.messenger)
-    channel.setMethodCallHandler { call, result in instance.handle(call, result) }
+    registrar.addMethodCallDelegate(instance, channel: channel)
     let eventChannel = FlutterEventChannel(
       name: "com.vbox.player/floating/events", binaryMessenger: registrar.messenger)
     eventChannel.setStreamHandler(instance)
@@ -58,7 +58,7 @@ import FlutterMacOS
 
   // ─────────────── MethodChannel ───────────────
 
-  private func handle(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "isAvailable":
       result(true)

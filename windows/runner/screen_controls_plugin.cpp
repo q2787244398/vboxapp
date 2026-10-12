@@ -68,7 +68,7 @@ bool WithEndpointVolume(bool (*action)(IAudioEndpointVolume*, void*),
 
 bool ReadVolume(IAudioEndpointVolume* endpoint, void* ctx) {
   float volume = 0.5f;
-  if (!endpoint->GetMasterVolumeLevelScalar(&volume)) return false;
+  if (FAILED(endpoint->GetMasterVolumeLevelScalar(&volume))) return false;
   *static_cast<double*>(ctx) = static_cast<double>(volume);
   return true;
 }

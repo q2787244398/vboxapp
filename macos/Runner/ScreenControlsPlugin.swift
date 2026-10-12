@@ -65,8 +65,7 @@ import Foundation
     let channel = FlutterMethodChannel(
       name: "com.vbox.player/screen_controls", binaryMessenger: registrar.messenger)
     let instance = ScreenControlsPlugin()
-    registrar.addMethodCallHandler(instance)
-    _ = channel
+    registrar.addMethodCallDelegate(instance, channel: channel)
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {

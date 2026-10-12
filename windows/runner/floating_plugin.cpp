@@ -234,7 +234,7 @@ void FloatingPlugin::UpdateSnapshot(const uint8_t* png, size_t size) {
 }
 
 void FloatingPlugin::HideWindow() {
-  if (hwnd_ != nullptr) ShowWindow(hwnd_, SW_HIDE);
+  if (hwnd_ != nullptr) ::ShowWindow(hwnd_, SW_HIDE);
 }
 
 void FloatingPlugin::DestroyWindow() {

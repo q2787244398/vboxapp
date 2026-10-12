@@ -17,6 +17,7 @@
 //  {command: play|pause|toggle|next|previous|seek, positionMs?}。
 //
 
+import AppKit
 import FlutterMacOS
 import MediaPlayer
 
@@ -25,13 +26,14 @@ import MediaPlayer
 {
   private var eventSink: FlutterEventSink?
   // (命令对, target)：clear 时配对移除（对齐 iOS addTarget/removeTarget 语义）。
-  private var registrations: [(MPRemoteCommand, MPRemoteCommandTarget)] = []
+  // `addTarget(handler:)` 返回 `Any`（ObjC id），故按 Any 持有。
+  private var registrations: [(MPRemoteCommand, Any)] = []
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let instance = MusicMediaSessionPlugin()
     let channel = FlutterMethodChannel(
       name: "com.vbox.player/music_media", binaryMessenger: registrar.messenger)
-    channel.setMethodCallHandler { call, result in instance.handle(call, result) }
+    registrar.addMethodCallDelegate(instance, channel: channel)
     let eventChannel = FlutterEventChannel(
       name: "com.vbox.player/music_media/events",
       binaryMessenger: registrar.messenger)
@@ -55,7 +57,7 @@ import MediaPlayer
 
   // ─────────────── MethodChannel ───────────────
 
-  private func handle(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "update":
       updateNowPlaying(call.arguments as? [String: Any])

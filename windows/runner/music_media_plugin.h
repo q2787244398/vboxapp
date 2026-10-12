@@ -25,6 +25,7 @@
 #ifndef RUNNER_MUSIC_MEDIA_PLUGIN_H_
 #define RUNNER_MUSIC_MEDIA_PLUGIN_H_
 
+#include <flutter/encodable_value.h>
 #include <flutter/event_channel.h>
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
@@ -42,13 +43,14 @@ struct SmtcState;
 
 class MusicMediaPlugin : public flutter::Plugin {
  public:
+  MusicMediaPlugin(flutter::PluginRegistrarWindows* registrar, HWND owner);
+
   static void RegisterWithRegistrar(
       flutter::PluginRegistrarWindows* registrar, HWND owner);
 
- private:
-  MusicMediaPlugin(flutter::PluginRegistrarWindows* registrar, HWND owner);
   ~MusicMediaPlugin() override;
 
+ private:
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);

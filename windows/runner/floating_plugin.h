@@ -30,14 +30,14 @@ namespace vbox {
 class FloatingPlugin : public flutter::Plugin {
  public:
   // [owner] 为主窗口句柄（浮窗无 owner 直接置顶亦可；传 nullptr 亦可工作）。
+  FloatingPlugin(flutter::PluginRegistrarWindows* registrar, HWND owner);
+
   static void RegisterWithRegistrar(
       flutter::PluginRegistrarWindows* registrar, HWND owner);
 
   ~FloatingPlugin() override;
 
  private:
-  FloatingPlugin(flutter::PluginRegistrarWindows* registrar, HWND owner);
-
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);

@@ -28,12 +28,12 @@ namespace vbox {
 
 class ScreenControlsPlugin : public flutter::Plugin {
  public:
+  explicit ScreenControlsPlugin(flutter::PluginRegistrarWindows* registrar);
+
   static void RegisterWithRegistrar(
       flutter::PluginRegistrarWindows* registrar);
 
  private:
-  explicit ScreenControlsPlugin(flutter::PluginRegistrarWindows* registrar);
-
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
