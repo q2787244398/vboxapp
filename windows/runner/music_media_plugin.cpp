@@ -89,26 +89,6 @@ struct SmtcState {
   bool has_position_token = false;
 };
 
-namespace {
-
-// 封面异步加载（fire-and-forget；失败静默，对齐 iOS 封面加载失败忽略）。
-// WinRT 对象引用计数，插件销毁后协程仍安全。
-winrt::fire_and_forget LoadCoverAsync(
-    winrt::SystemMediaTransportControls controls, std::string cover) {
-  try {
-    auto ref = winrt::Windows::Storage::Streams::RandomAccessStreamReference::
-        CreateFromUri(winrt::Uri(winrt::to_hstring(cover)));
-    auto stream = co_await ref.OpenReadAsync();
-    auto updater = controls.DisplayUpdater();
-    updater.Thumbnail(stream);
-    updater.Update();
-  } catch (...) {
-  }
-  co_return;
-}
-
-}  // namespace
-
 // ─────────────── EventChannel StreamHandler（与 FloatingPlugin 同模式）───────
 
 namespace {
@@ -222,11 +202,10 @@ void MusicMediaPlugin::EnsureSmtc() {
     state->controls.IsPreviousEnabled(true);
 
     // 线控命令 → EventChannel 回派（SMTC 回调线程，sink 快照发送）。
+    // 形参用 auto const& 泛型 lambda，避免依赖具体 WinRT 事件参数类型名。
     MusicMediaPlugin* self = this;
     state->button_token = state->controls.ButtonPressed([self](
-        const winrt::SystemMediaTransportControls&,
-        const winrt::SystemMediaTransportControlsButtonPressedEventArgs&
-            args) {
+        auto const&, auto const& args) {
       try {
         switch (args.Button()) {
           case winrt::SystemMediaTransportControlsButton::Play:
@@ -235,9 +214,6 @@ void MusicMediaPlugin::EnsureSmtc() {
           case winrt::SystemMediaTransportControlsButton::Pause:
             self->EmitCommand("pause");
             break;
-          case winrt::SystemMediaTransportControlsButton::PlayPauseToggle:
-            self->EmitCommand("toggle");
-            break;
           case winrt::SystemMediaTransportControlsButton::Next:
             self->EmitCommand("next");
             break;
@@ -245,6 +221,8 @@ void MusicMediaPlugin::EnsureSmtc() {
             self->EmitCommand("previous");
             break;
           default:
+            // SMTC 无独立 toggle 按钮（仅 Play/Pause 两键）；toggle 语义由
+            // Dart 侧按当前播放态自解（对齐 iOS togglePlayPauseCommand）。
             break;
         }
       } catch (...) {
@@ -255,9 +233,7 @@ void MusicMediaPlugin::EnsureSmtc() {
     // 进度条拖动 → seek（TimeSpan 100ns → ms）。
     state->position_token =
         state->controls.PlaybackPositionChangeRequested([self](
-            const winrt::SystemMediaTransportControls&,
-            const winrt::SystemMediaTransportControlsPlaybackPositionChangeRequestedEventArgs&
-                args) {
+            auto const&, auto const& args) {
           try {
             const int64_t ms = args.RequestedPlaybackPosition().count() / 10000;
             self->EmitCommand("seek", static_cast<int>(ms));
@@ -311,21 +287,29 @@ void MusicMediaPlugin::Update(const flutter::EncodableMap& args) {
     // 时间线（进度 / 时长；TimeSpan 100ns 单位）。
     winrt::SystemMediaTransportControlsTimelineProperties timeline;
     timeline.StartTime(winrt::TimeSpan{0});
-    timeline.MinTime(winrt::TimeSpan{0});
     timeline.EndTime(
         winrt::TimeSpan{std::max<int64_t>(GetInt(args, "durationMs"), 0) *
                         10000});
-    timeline.MaxTime(timeline.EndTime());
+    timeline.MinSeekTime(winrt::TimeSpan{0});
+    timeline.MaxSeekTime(timeline.EndTime());
     timeline.Position(
         winrt::TimeSpan{std::max<int64_t>(GetInt(args, "positionMs"), 0) *
                         10000});
-    timeline.PlaybackRate(1.0);
     controls.UpdateTimelineProperties(timeline);
 
-    // 封面：URL 异步加载（失败静默；WinRT 对象引用计数，插件销毁后仍安全）。
+    // 封面：直接交 RandomAccessStreamReference（SMTC 按需异步拉取，失败静默；
+    // 对齐 iOS 封面加载失败忽略）。
     const std::string cover = GetString(args, "coverURL");
     if (!cover.empty()) {
-      (void)LoadCoverAsync(controls, cover);
+      try {
+        auto thumbnail = winrt::Windows::Storage::Streams::
+            RandomAccessStreamReference::CreateFromUri(
+                winrt::Uri(winrt::to_hstring(cover)));
+        auto cover_updater = controls.DisplayUpdater();
+        cover_updater.Thumbnail(thumbnail);
+        cover_updater.Update();
+      } catch (...) {
+      }
     }
   } catch (...) {
     // SMTC 更新失败不阻断播放编排。

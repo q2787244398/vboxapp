@@ -266,7 +266,7 @@ LRESULT FloatingPlugin::WndProc(HWND hwnd, UINT message, WPARAM wparam,
     case WM_NCHITTEST: {
       // 关闭按钮区域不交给系统拖动；其余区域 HTCAPTION 系统拖动
       // （对齐 iOS UIPanGestureRecognizer 自由拖动）。
-      const POINT pt = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+      POINT pt = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
       ScreenToClient(hwnd, &pt);
       if (pt.x >= width_ - kCloseBoxSize && pt.y <= kCloseBoxSize) {
         return HTCLIENT;
@@ -316,9 +316,12 @@ void FloatingPlugin::SnapToEdge() {
               ? work.left + kEdgeMargin
               : work.right - width_ - kEdgeMargin;
   int y = rect.top;
-  y = std::max(work.top + kYMargin, y);
-  y = std::min(y, work.bottom - height_ - kYMargin);
-  y = std::max(y, work.top + kYMargin);
+  // RECT 成员为 LONG，显式收敛到 int 以避免 std::max/min 模板类型不匹配。
+  const int work_top = static_cast<int>(work.top);
+  const int work_bottom = static_cast<int>(work.bottom);
+  y = std::max(work_top + kYMargin, y);
+  y = std::min(y, work_bottom - height_ - kYMargin);
+  y = std::max(y, work_top + kYMargin);
   SetWindowPos(hwnd_, nullptr, x, y, 0, 0,
                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }

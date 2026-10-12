@@ -50,6 +50,11 @@ class MusicMediaPlugin : public flutter::Plugin {
 
   ~MusicMediaPlugin() override;
 
+  // sink 管理（EventChannel 回调类直接调用；SMTC 线程快照发送）。
+  void SetSink(
+      std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> sink);
+  void ClearSink();
+
  private:
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,
@@ -58,11 +63,6 @@ class MusicMediaPlugin : public flutter::Plugin {
   // update / clear（方法面）。
   void Update(const flutter::EncodableMap& args);
   void Clear();
-
-  // sink 管理（EventChannel 回调；SMTC 线程快照发送）。
-  void SetSink(
-      std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> sink);
-  void ClearSink();
 
   // SMTC 懒建（首次 update 建；clear 不销毁只复位）。
   void EnsureSmtc();
