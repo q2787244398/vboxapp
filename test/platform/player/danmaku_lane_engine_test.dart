@@ -42,6 +42,41 @@ void main() {
       expect(s, isEmpty);
     });
 
+    test('速度倍率：2x 推进距离是 1x 的两倍（对齐 iOS danmakuSpeed）', () {
+      // 1x 基准。
+      final DanmakuLaneEngine base = DanmakuLaneEngine(
+        viewportWidth: 1000,
+        scrollSpeedPxPerSec: 100,
+      );
+      base.compute(
+        0,
+        const <DanmakuItem>[DanmakuItem(content: 'a', timeMs: 0)],
+      );
+      final double x1 = base.compute(1000, const <DanmakuItem>[]).single.x;
+
+      // 2x：同弹幕同间隔推进加倍。
+      final DanmakuLaneEngine fast = DanmakuLaneEngine(
+        viewportWidth: 1000,
+        scrollSpeedPxPerSec: 100,
+      )..speedMultiplier = 2.0;
+      fast.compute(
+        0,
+        const <DanmakuItem>[DanmakuItem(content: 'a', timeMs: 0)],
+      );
+      final double x2 = fast.compute(1000, const <DanmakuItem>[]).single.x;
+
+      expect(x1, closeTo(900, 0.01));
+      expect(x2, closeTo(800, 0.01));
+    });
+
+    test('速度倍率下限 0.25 钳制（对齐 iOS max(speed, 0.25)）', () {
+      final DanmakuLaneEngine engine = DanmakuLaneEngine(
+        viewportWidth: 1000,
+        scrollSpeedPxPerSec: 100,
+      )..speedMultiplier = 0.1;
+      expect(engine.effectiveScrollSpeed, 25);
+    });
+
     test('车道分配：不同车道互不重叠（宽弹幕占多车道）', () {
       final DanmakuLaneEngine engine = DanmakuLaneEngine(
         viewportWidth: 200,

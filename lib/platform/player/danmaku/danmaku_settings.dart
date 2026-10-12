@@ -1,7 +1,8 @@
 /// 平台层：弹幕设置（批次 C · C-03）。
 ///
-/// - 会话级显示参数（开 / 透明度 / 字号 / 显示区域 / 颜色模式）：契约 99 键已冻结，
-///   不持久化，由弹幕设置面板在播放会话内调整（默认 开 / 0.8 / 16px / 1.0 / 随机色）。
+/// - 会话级显示参数（开 / 透明度 / 字号 / 显示区域 / 颜色模式 / 滚动速度）：
+///   契约 99 键已冻结，不持久化，由弹幕设置面板在播放会话内调整
+///   （默认 开 / 0.8 / 16px / 1.0 / 随机色 / 1.0x）。
 /// - 自定义弹幕源（开关 + 地址）：走契约键 `custom_danmaku_source_enabled` /
 ///   `custom_danmaku_source_url`，经 [PlaybackSettings.loadWithDanmaku] 读取。
 library;
@@ -17,22 +18,33 @@ class DanmakuSettings {
     required this.fontSize,
     required this.area,
     required this.colorMode,
+    required this.speed,
     required this.customSourceEnabled,
     required this.customSourceUrl,
   });
 
-  /// 默认值（开 / 0.8 / 16px / 1.0 / 颜色随机；自定义源关 + 空地址）。
+  /// 默认值（开 / 0.8 / 16px / 1.0 / 颜色随机 / 1.0x；自定义源关 + 空地址）。
   ///
-  /// 颜色模式默认 7（随机）对齐 iOS `PlayerState.danmakuColorMode = 7`。
+  /// 颜色模式默认 7（随机）、速度默认 1.0x，对齐 iOS
+  /// `PlayerState.danmakuColorMode = 7 / danmakuSpeed = 1.0`。
   static const DanmakuSettings defaults = DanmakuSettings(
     enabled: true,
     opacity: 0.8,
     fontSize: 16,
     area: 1.0,
     colorMode: 7,
+    speed: 1.0,
     customSourceEnabled: false,
     customSourceUrl: '',
   );
+
+  /// 滚动速度档位（对齐 iOS `speedValues`：0.5 / 0.75 / 1.0 / 1.5 / 2.0）。
+  static const List<double> speedValues = <double>[0.5, 0.75, 1.0, 1.5, 2.0];
+
+  /// 滚动速度档位标签（对齐 iOS `speedLabels`）。
+  static const List<String> speedLabels = <String>[
+    '0.5x 慢', '0.75x', '1.0x 正常', '1.5x', '2.0x 快',
+  ];
 
   /// 弹幕颜色预设表（对齐 iOS `PlayerState.presetColors`；RGB 值，渲染时补
   /// alpha）。0=原始颜色（不覆盖，用弹幕自带色）；7=随机（特殊标记，
@@ -75,6 +87,9 @@ class DanmakuSettings {
   /// `danmakuColorMode`）。
   final int colorMode;
 
+  /// 弹幕滚动速度倍率（0.5 ~ 2.0，默认 1.0；对齐 iOS `danmakuSpeed`）。
+  final double speed;
+
   /// 自定义弹幕源开关。
   final bool customSourceEnabled;
 
@@ -88,6 +103,7 @@ class DanmakuSettings {
     double? fontSize,
     double? area,
     int? colorMode,
+    double? speed,
     bool? customSourceEnabled,
     String? customSourceUrl,
   }) =>
@@ -97,6 +113,7 @@ class DanmakuSettings {
         fontSize: fontSize ?? this.fontSize,
         area: area ?? this.area,
         colorMode: colorMode ?? this.colorMode,
+        speed: speed ?? this.speed,
         customSourceEnabled: customSourceEnabled ?? this.customSourceEnabled,
         customSourceUrl: customSourceUrl ?? this.customSourceUrl,
       );
@@ -108,6 +125,7 @@ class DanmakuSettings {
         fontSize: 16,
         area: 1.0,
         colorMode: 7,
+        speed: 1.0,
         customSourceEnabled: p.customDanmakuSourceEnabled,
         customSourceUrl: p.customDanmakuSourceUrl,
       );
@@ -123,10 +141,11 @@ class DanmakuSettings {
         opacity: opacity.clamp(0.1, 1.0),
         fontSize: fontSize.clamp(10, 32),
         area: area.clamp(0.25, 1.0),
+        speed: speed.clamp(0.25, 2.0),
       );
 
   @override
   String toString() =>
       'DanmakuSettings(en=$enabled, op=$opacity, size=$fontSize, area=$area, '
-      'color=$colorMode, custom=$customSourceEnabled)';
+      'color=$colorMode, speed=$speed, custom=$customSourceEnabled)';
 }

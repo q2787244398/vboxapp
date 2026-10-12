@@ -12,8 +12,15 @@ void main() {
       expect(DanmakuSettings.defaults.opacity, 0.8);
       expect(DanmakuSettings.defaults.fontSize, 16);
       expect(DanmakuSettings.defaults.area, 1.0);
-      // 颜色模式默认 7（随机），对齐 iOS `PlayerState.danmakuColorMode = 7`。
+      // 颜色模式默认 7（随机）、速度默认 1.0x，对齐 iOS
+      // `PlayerState.danmakuColorMode = 7 / danmakuSpeed = 1.0`。
       expect(DanmakuSettings.defaults.colorMode, 7);
+      expect(DanmakuSettings.defaults.speed, 1.0);
+      // 速度档位表对齐 iOS speedValues / speedLabels。
+      expect(DanmakuSettings.speedValues, <double>[0.5, 0.75, 1.0, 1.5, 2.0]);
+      expect(DanmakuSettings.speedLabels, <String>[
+        '0.5x 慢', '0.75x', '1.0x 正常', '1.5x', '2.0x 快',
+      ]);
       expect(DanmakuSettings.defaults.customSourceEnabled, isFalse);
       expect(DanmakuSettings.defaults.customSourceUrl, isEmpty);
     });
@@ -37,12 +44,13 @@ void main() {
 
     test('copyWith 只改指定字段，其余保留', () {
       final DanmakuSettings s = DanmakuSettings.defaults
-          .copyWith(opacity: 0.5, enabled: false);
+          .copyWith(opacity: 0.5, enabled: false, speed: 2.0);
       expect(s.opacity, 0.5);
       expect(s.enabled, isFalse);
       expect(s.fontSize, 16); // 未改
       expect(s.area, 1.0);
       expect(s.colorMode, 7); // 未改
+      expect(s.speed, 2.0);
     });
 
     test('fromPlayback 取自定义弹幕源，会话参数保持默认', () {
@@ -68,6 +76,7 @@ void main() {
         fontSize: 100,
         area: 0.01,
         colorMode: 7,
+        speed: 1.0,
         customSourceEnabled: false,
         customSourceUrl: '',
       );
@@ -84,6 +93,7 @@ void main() {
         fontSize: 18,
         area: 0.75,
         colorMode: 7,
+        speed: 1.0,
         customSourceEnabled: false,
         customSourceUrl: '',
       );

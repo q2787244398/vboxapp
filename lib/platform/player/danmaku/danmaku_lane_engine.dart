@@ -80,6 +80,15 @@ class DanmakuLaneEngine {
   final double topMargin;
   final double bottomMargin;
 
+  /// 弹幕滚动速度倍率（对齐 iOS `PlayerState.danmakuSpeed`：0.5/0.75/1.0/1.5/2.0，
+  /// 默认 1.0；iOS 渲染端 `duration = baseDuration / max(speed, 0.25)`，等价于
+  /// 有效速度 = 基速 × max(倍率, 0.25)，倍率越大滚得越快）。面板可实时调整。
+  double speedMultiplier = 1.0;
+
+  /// 有效滚动速度（px/s；含速度倍率钳制，语义对齐 iOS `max(speed, 0.25)`）。
+  double get effectiveScrollSpeed =>
+      scrollSpeedPxPerSec * math.max(speedMultiplier, 0.25);
+
   /// 滚动车道数。
   int get scrollLaneCount =>
       math.max(1, ((viewportHeight - topMargin - bottomMargin) / laneHeight).floor());
@@ -102,9 +111,10 @@ class DanmakuLaneEngine {
     final List<DanmakuRenderState> out = <DanmakuRenderState>[];
 
     // 1. 已出场滚动弹幕：推进位置，越界即移除。
+    final double speed = effectiveScrollSpeed;
     final List<_ActiveScroll> kept = <_ActiveScroll>[];
     for (final _ActiveScroll a in _scrolls) {
-      final double x = a.startX - (nowMs - a.startMs) / 1000 * scrollSpeedPxPerSec;
+      final double x = a.startX - (nowMs - a.startMs) / 1000 * speed;
       if (x + a.width < 0) continue; // 完全出屏
       kept.add(a);
       out.add(DanmakuRenderState(
@@ -202,13 +212,14 @@ class DanmakuLaneEngine {
 
   /// 选择滚动车道：避免与已入场弹幕重叠（首尾间距 ≥ [minScrollGapPx]）。
   int _pickScrollLane(double width, int nowMs) {
+    final double speed = effectiveScrollSpeed;
     for (int lane = 0; lane < scrollLaneCount; lane++) {
       bool busy = false;
       for (final _ActiveScroll a in _scrolls) {
         if (a.lane != lane) continue;
         // 新弹幕右缘贴边入场，需与同车道已有弹幕保持间距。
         final double aRight = a.startX -
-            (nowMs - a.startMs) / 1000 * scrollSpeedPxPerSec +
+            (nowMs - a.startMs) / 1000 * speed +
             a.width;
         if (aRight > viewportWidth - width - minScrollGapPx &&
             aRight <= viewportWidth + a.width) {

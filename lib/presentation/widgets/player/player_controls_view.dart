@@ -477,6 +477,44 @@ class DanmakuSettingsPanelBody extends StatelessWidget {
           divisions: 7,
           onChanged: (double v) => onChanged(settings.copyWith(area: v)),
         ),
+        // 弹幕显示速度（对齐 iOS「显示速度」Section：segmented 5 档）。
+        ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            '弹幕显示速度',
+            style: TextStyle(fontSize: 13, color: Colors.white70),
+          ),
+          subtitle: SegmentedButton<int>(
+            segments: <ButtonSegment<int>>[
+              for (final (int idx, String label)
+                  in DanmakuSettings.speedLabels.indexed)
+                ButtonSegment<int>(
+                  value: idx,
+                  label: Text(
+                    label,
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ),
+            ],
+            selected: <int>{
+              DanmakuSettings.speedValues.indexOf(
+                DanmakuSettings.speedValues.reduce(
+                  (double a, double b) =>
+                      (a - settings.speed).abs() <= (b - settings.speed).abs()
+                          ? a
+                          : b,
+                ),
+              ),
+            },
+            showSelectedIcon: false,
+            onSelectionChanged: (Set<int> selection) => onChanged(
+              settings.copyWith(
+                speed: DanmakuSettings.speedValues[selection.first],
+              ),
+            ),
+          ),
+        ),
         // 弹幕颜色（对齐 iOS「弹幕颜色」Section：segmented 8 档）。
         ListTile(
           dense: true,

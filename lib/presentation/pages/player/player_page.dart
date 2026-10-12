@@ -423,7 +423,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       engine: DanmakuLaneEngine(
         viewportWidth: size.width,
         viewportHeight: size.height,
-      ),
+      )..speedMultiplier = _danmaku.speed,
     );
     _danmakuStates = const <DanmakuRenderState>[];
   }
@@ -1638,6 +1638,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     setState(() {
       _danmaku = normalized;
       _controls.setDanmakuEnabled(normalized.enabled);
+      // 滚动速度倍率实时生效（引擎可变字段；对齐 iOS danmakuSpeed）。
+      _danmakuCtrl?.engine.speedMultiplier = normalized.speed;
     });
   }
 
