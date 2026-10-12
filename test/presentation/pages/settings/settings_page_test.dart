@@ -280,7 +280,8 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
   });
 
-  testWidgets('I-03：工具分区承接个人中心迁出的四个入口', (WidgetTester tester) async {
+  testWidgets('I-03：工具分区三个入口（备份还原仅在个人中心登录态，对齐 iOS）',
+      (WidgetTester tester) async {
     tester.view.physicalSize = const Size(390, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -288,10 +289,12 @@ void main() {
     await tester.pumpWidget(_page(UiFormController()));
     await tester.pumpAndSettle();
 
+    // 对齐 iOS：设置页工具区 = 书架 / 远程源 / 网盘管理；无「备份还原」
+    // （其唯一入口在个人中心功能宫格且仅登录态显示，ProfileView L464-466）。
     expect(find.text('书架'), findsOneWidget);
     expect(find.text('远程源'), findsOneWidget);
     expect(find.text('网盘管理'), findsOneWidget);
-    expect(find.text('备份还原'), findsOneWidget);
+    expect(find.text('备份还原'), findsNothing);
   });
 
   testWidgets('I-03：皮肤四选 + 跟随系统开关存在', (WidgetTester tester) async {

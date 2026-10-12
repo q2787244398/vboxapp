@@ -477,6 +477,32 @@ class DanmakuSettingsPanelBody extends StatelessWidget {
           divisions: 7,
           onChanged: (double v) => onChanged(settings.copyWith(area: v)),
         ),
+        // 弹幕颜色（对齐 iOS「弹幕颜色」Section：segmented 8 档）。
+        ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text(
+            '弹幕颜色',
+            style: TextStyle(fontSize: 13, color: Colors.white70),
+          ),
+          subtitle: SegmentedButton<int>(
+            segments: <ButtonSegment<int>>[
+              for (final (int idx, String label)
+                  in DanmakuSettingsPanel.colorLabels.indexed)
+                ButtonSegment<int>(
+                  value: idx,
+                  label: Text(
+                    label,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+            ],
+            selected: <int>{settings.colorMode},
+            showSelectedIcon: false,
+            onSelectionChanged: (Set<int> selection) =>
+                onChanged(settings.copyWith(colorMode: selection.first)),
+          ),
+        ),
       ];
 
   Widget _slider({

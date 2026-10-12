@@ -11,6 +11,11 @@ import '../../../../platform/player/danmaku/danmaku_settings.dart';
 
 /// 弹幕设置面板。
 class DanmakuSettingsPanel extends StatelessWidget {
+  /// 颜色档标签（对齐 iOS `colorLabels`：原始/白色/黄色/绿色/蓝色/红色/粉色/随机）。
+  static const List<String> colorLabels = <String>[
+    '原始', '白色', '黄色', '绿色', '蓝色', '红色', '粉色', '随机',
+  ];
+
   /// 构造。
   const DanmakuSettingsPanel({
     super.key,
@@ -87,6 +92,28 @@ class DanmakuSettingsPanel extends StatelessWidget {
           max: 1.0,
           divisions: 7,
           onChanged: (double v) => onChanged(settings.copyWith(area: v)),
+        ),
+        // 弹幕颜色（对齐 iOS「弹幕颜色」Section：segmented 8 档）。
+        ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('弹幕颜色'),
+          subtitle: SegmentedButton<int>(
+            segments: <ButtonSegment<int>>[
+              for (final (int idx, String label) in colorLabels.indexed)
+                ButtonSegment<int>(
+                  value: idx,
+                  label: Text(
+                    label,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+            ],
+            selected: <int>{settings.colorMode},
+            showSelectedIcon: false,
+            onSelectionChanged: (Set<int> selection) =>
+                onChanged(settings.copyWith(colorMode: selection.first)),
+          ),
         ),
       ];
 

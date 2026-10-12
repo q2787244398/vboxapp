@@ -7,22 +7,42 @@ import 'package:vbox/platform/player/playback_settings.dart';
 
 void main() {
   group('DanmakuSettings', () {
-    test('会话默认值（开 / 0.8 / 16px / 1.0，自定义源关）', () {
+    test('会话默认值（开 / 0.8 / 16px / 1.0 / 随机色，自定义源关）', () {
       expect(DanmakuSettings.defaults.enabled, isTrue);
       expect(DanmakuSettings.defaults.opacity, 0.8);
       expect(DanmakuSettings.defaults.fontSize, 16);
       expect(DanmakuSettings.defaults.area, 1.0);
+      // 颜色模式默认 7（随机），对齐 iOS `PlayerState.danmakuColorMode = 7`。
+      expect(DanmakuSettings.defaults.colorMode, 7);
       expect(DanmakuSettings.defaults.customSourceEnabled, isFalse);
       expect(DanmakuSettings.defaults.customSourceUrl, isEmpty);
     });
 
+    test('颜色预设表 / 随机池数值对齐 iOS PlayerState', () {
+      // 对齐 iOS presetColors（RGB）。
+      expect(DanmakuSettings.presetColors[1], 0xFFFFFF); // 白色
+      expect(DanmakuSettings.presetColors[2], 0xFFFF00); // 黄色
+      expect(DanmakuSettings.presetColors[3], 0x00FF00); // 绿色
+      expect(DanmakuSettings.presetColors[4], 0x0000FF); // 蓝色
+      expect(DanmakuSettings.presetColors[5], 0xFF0000); // 红色
+      expect(DanmakuSettings.presetColors[6], 0xFF69B4); // 粉色
+      // 随机池 8 色（黄绿蓝红粉橙青紫），排除白色。
+      expect(DanmakuSettings.randomColorPool.length, 8);
+      expect(DanmakuSettings.randomColorPool.contains(0xFFFFFF), isFalse);
+      expect(DanmakuSettings.randomColorPool, <int>[
+        0xFFFF00, 0x00FF00, 0x0000FF, 0xFF0000,
+        0xFF69B4, 0xFF8C00, 0x00FFFF, 0x9932CC,
+      ]);
+    });
+
     test('copyWith 只改指定字段，其余保留', () {
-      final DanmakuSettings s =
-          DanmakuSettings.defaults.copyWith(opacity: 0.5, enabled: false);
+      final DanmakuSettings s = DanmakuSettings.defaults
+          .copyWith(opacity: 0.5, enabled: false);
       expect(s.opacity, 0.5);
       expect(s.enabled, isFalse);
       expect(s.fontSize, 16); // 未改
       expect(s.area, 1.0);
+      expect(s.colorMode, 7); // 未改
     });
 
     test('fromPlayback 取自定义弹幕源，会话参数保持默认', () {
@@ -47,6 +67,7 @@ void main() {
         opacity: 3.0,
         fontSize: 100,
         area: 0.01,
+        colorMode: 7,
         customSourceEnabled: false,
         customSourceUrl: '',
       );
@@ -62,6 +83,7 @@ void main() {
         opacity: 0.5,
         fontSize: 18,
         area: 0.75,
+        colorMode: 7,
         customSourceEnabled: false,
         customSourceUrl: '',
       );

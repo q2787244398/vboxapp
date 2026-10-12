@@ -10,7 +10,7 @@
 ///
 /// **落地范围（如实登记）**：本轮落地「皮肤（B4 组件 + 跟随系统）」「显示模式（I-04）」
 /// 「播放设置」「切片资源（Wave D）」「站源管理（Wave D）」「TG 搜索」「订阅配置」
-/// 「工具入口（承接自个人中心迁出的远程源 / 网盘管理 / 备份还原）」「站点诊断（G-08）」
+/// 「工具入口（书架 / 远程源 / 网盘管理；备份还原仅在个人中心登录态，对齐 iOS）」
 /// 「TMDB（G-06）」「存储管理」「日志调试」「关于」十三个分区；
 /// iOS 侧其余域分区（福利 / 账号等）在 Flutter 侧对应域功能尚未实现。
 library;
@@ -34,7 +34,6 @@ import '../../../platform/update/update.dart';
 import '../../phone/remote_source_page.dart';
 import '../../theme/theme.dart';
 import '../../ui_mode/ui_mode.dart';
-import '../../widgets/backup_page.dart';
 import '../../widgets/library_views.dart';
 import '../../widgets/log_viewer_page.dart';
 import '../../widgets/settings/remote_default_source_section.dart';
@@ -467,7 +466,12 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  /// 工具入口（承接个人中心迁出的远程源 / 网盘管理 / 备份还原）。
+  /// 工具入口（书架 / 远程源 / 网盘管理）。
+  ///
+  /// 差异登记（对齐 iOS）：iOS 设置页**没有**「备份还原」入口——其唯一入口
+  /// 在个人中心功能宫格且**仅登录态显示**（`ProfileView` L464-L466）；Flutter
+  /// 侧个人中心已同款实现，此处不再重复提供入口（原 G 系列曾从个人中心
+  /// 迁入，现按 iOS 真相源移除）。
   Widget _toolsSection() {
     return VboxSettingsSection(
       title: '工具',
@@ -486,11 +490,6 @@ class _SettingsPageState extends State<SettingsPage> {
           title: '网盘管理',
           icon: Icons.folder,
           onTap: () => _push(const CloudDriveAuthCenterPage()),
-        ),
-        VboxSettingsRow.navigation(
-          title: '备份还原',
-          icon: Icons.backup,
-          onTap: () => _push(const BackupPage()),
         ),
       ],
     );

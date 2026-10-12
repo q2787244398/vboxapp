@@ -1758,6 +1758,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                     opacity: _danmaku.opacity,
                     area: _danmaku.area,
                     fontSize: _danmaku.fontSize,
+                    colorMode: _danmaku.colorMode,
                   );
                 },
               ),

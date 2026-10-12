@@ -7,7 +7,9 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../../../platform/player/danmaku/danmaku_item.dart';
 import '../../../../platform/player/danmaku/danmaku_lane_engine.dart';
+import '../../../../platform/player/danmaku/danmaku_settings.dart';
 import '../../../theme/tokens/colors.dart';
 
 /// 弹幕覆盖层。
@@ -19,6 +21,7 @@ class DanmakuOverlay extends StatelessWidget {
     this.opacity = 0.8,
     this.area = 1.0,
     this.fontSize,
+    this.colorMode = 7,
     this.ignorePointer = true,
   });
 
@@ -34,8 +37,33 @@ class DanmakuOverlay extends StatelessWidget {
   /// 覆盖字号（px；null 用弹幕自带 [DanmakuItem.sizePx]，对齐弹幕设置面板）。
   final double? fontSize;
 
+  /// 颜色模式（0=原始 1=白 2=黄 3=绿 4=蓝 5=红 6=粉 7=随机；对齐 iOS
+  /// `danmakuColorMode`，默认随机）。
+  final int colorMode;
+
   /// 是否忽略指针事件（默认 true：不拦截播放器手势）。
   final bool ignorePointer;
+
+  /// 解析单条弹幕的显示颜色（ARGB，对齐 iOS L2036 语义）：
+  ///   · mode 0 → 弹幕原始颜色；
+  ///   · mode 7 → 从随机池选色（iOS 逐条随机；此处按弹幕标识做**确定性选色**——
+  ///     同一条弹幕每次重建稳定同色，避免逐帧重掷导致的闪烁，分布等效随机）；
+  ///   · 其余 → 预设色表（缺项回落原始颜色）。
+  int _resolveColor(DanmakuItem item) {
+    switch (colorMode) {
+      case 0:
+        return item.argb;
+      case 7:
+        const List<int> pool = DanmakuSettings.randomColorPool;
+        final String key = item.id ?? item.content;
+        return 0xFF000000 | pool[key.hashCode.abs() % pool.length];
+      default:
+        final int? preset = DanmakuSettings.presetColors[colorMode];
+        return preset == null
+            ? item.argb
+            : 0xFF000000 | preset;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +97,7 @@ class DanmakuOverlay extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.visible,
                             style: TextStyle(
-                              color: Color(s.item.argb),
+                              color: Color(_resolveColor(s.item)),
                               fontSize: fontSize ?? s.item.sizePx,
                               fontWeight: FontWeight.w500,
                               shadows: const <Shadow>[
