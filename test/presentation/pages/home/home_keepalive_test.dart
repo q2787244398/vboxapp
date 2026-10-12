@@ -7,9 +7,12 @@ import 'package:provider/provider.dart';
 import 'package:provider/single_child_widget.dart';
 import 'package:vbox/core/utils/result.dart';
 import 'package:vbox/domain/entities/douban/douban_models.dart';
+import 'package:vbox/domain/entities/remote_source/remote_source.dart';
+import 'package:vbox/domain/entities/spider/spider.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
 import 'package:vbox/presentation/pages/douban/douban_home_page.dart';
 import 'package:vbox/presentation/pages/home/home_page.dart';
+import 'package:vbox/presentation/ui_mode/ui_mode_resolver.dart';
 
 import '../../../support/fakes.dart';
 
@@ -62,6 +65,35 @@ Widget _hostHome(_CountingDoubanUseCases uc) => MultiProvider(
       ],
       child: const MaterialApp(home: Scaffold(body: VboxHomePage())),
     );
+
+/// 站点态数据假用例：固定单站点 + 单分类 + 单推荐项（供「切换源即切站点态」断言）。
+class _SitesBrowseUseCases extends ContentBrowseUseCases {
+  _SitesBrowseUseCases()
+      : super(
+          loadAllSources: () async =>
+              const Success<AllSourcesContainer>(AllSourcesContainer()),
+        );
+
+  @override
+  Future<Result<List<SiteConfig>>> listSites() async =>
+      const Success<List<SiteConfig>>(<SiteConfig>[
+        SiteConfig(
+          key: 's1',
+          name: '站点1',
+          type: 0,
+          api: 'https://s1.example.com',
+        ),
+      ]);
+
+  @override
+  Future<Result<HomeContentResult>> homeContent(String siteKey) async =>
+      const Success<HomeContentResult>(
+        HomeContentResult(
+          classes: <VodCategory>[VodCategory(typeId: '1', typeName: '电影')],
+          list: <VodItem>[VodItem(vodId: '1', vodName: '推荐片', vodPic: '')],
+        ),
+      );
+}
 
 void main() {
   // DoubanHomeView._cachedFeed 是进程级 static 缓存：跨用例残留会让
@@ -177,6 +209,50 @@ void main() {
 
       // 关闭后恢复未选中前景色（不再是白色）。
       expect(hasWhiteHighlighted(), isFalse);
+    });
+  });
+
+  group('UI-A1 切换源 → 立即站点态（对齐 iOS selectedSource 覆盖展示）', () {
+    testWidgets('选中源即切站点态并渲染分类栏 + 网格（不等待网络）',
+        (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: <SingleChildWidget>[
+            Provider<ContentBrowseUseCases>.value(value: _SitesBrowseUseCases()),
+            Provider<DoubanUseCases>.value(
+              value: _CountingDoubanUseCases(_feed()),
+            ),
+            ChangeNotifierProvider<UiFormController>.value(
+              value: UiFormController(),
+            ),
+          ],
+          child: const MaterialApp(home: Scaffold(body: VboxHomePage())),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<IndexedStack>(find.byType(IndexedStack).first).index,
+        0,
+        reason: '默认豆瓣态',
+      );
+
+      // 打开切换源浮层 → 选「站点1」。
+      await tester.tap(find.byIcon(Icons.grid_view_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('站点1').last);
+      await tester.pumpAndSettle();
+
+      // 选中源即覆盖展示站点态（分类滑动栏 + 网格），不再残留豆瓣大封面。
+      final IndexedStack stack =
+          tester.widget<IndexedStack>(find.byType(IndexedStack).first);
+      expect(stack.index, 1, reason: '选中源 → 立即切到站点态（不等网络）');
+      expect(find.text('推荐'), findsOneWidget);
+      expect(find.text('电影'), findsOneWidget);
+      expect(find.text('推荐片'), findsOneWidget);
     });
   });
 }

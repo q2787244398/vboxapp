@@ -17,6 +17,7 @@ import '../../core/utils/time_utils.dart';
 import '../../domain/entities/remote_source/remote_source.dart';
 import '../../domain/repositories/remote_source_repository.dart';
 import '../datasources/local/prefs_manager.dart';
+import '../datasources/remote/all_sources_datasource.dart';
 import '../datasources/remote/remote_manifest_datasource.dart';
 
 /// 远程源仓储实现。
@@ -219,6 +220,11 @@ class RemoteSourceRepositoryImpl implements RemoteSourceRepository {
   Future<Result<bool>> clearCache() async {
     try {
       await FileStore.delete(_cachePath);
+      // 一并清除 all_sources.json 本地缓存（对齐 iOS `clearCache` 删除整个
+      // `remote_sources` 目录）：否则 cache-first 会继续命中旧站点列表。
+      await FileStore.delete(
+        FileStore.join(StoragePaths.cacheDir, AllSourcesDatasource.cacheFileName),
+      );
       await _p.remove(_keyLastVersion);
       await _p.remove(_keyLastSyncTime);
       await _p.remove(_keyLastError);

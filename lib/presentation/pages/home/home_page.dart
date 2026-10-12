@@ -1,14 +1,15 @@
-/// 首页内容浏览（批次 D · D-01；批次 A · A9「默认内容改豆瓣」）。
+/// 首页（豆瓣推荐 + 站点态源发现）。
 ///
-/// 唯一真相源：iOS `MainViews.swift` L229-L276「首页视图（豆瓣推荐）」。
+/// 唯一真相源：iOS `MainViews.swift HomeView`（L230-L372）：
+///   · 豆瓣首页始终存活（zIndex 0）；选中源后以 `SourceDiscoveryView` **覆盖展示**
+///     （zIndex 1，本页用 [IndexedStack] 等价常驻保活）；
+///   · 选中源即切换到源发现页（分类滑动栏 + 三列网格），**不等待网络请求**
+///     —— 加载态由 `SourceDiscoveryView` 自身渐进呈现（对齐 iOS
+///     `SourceDiscoveryView.isLoading` 分支，不是豆瓣大封面 + 推荐行）；
+///   · **无可用源时不报错**，保持豆瓣默认内容。
 ///
-/// A9 口径（R-11）：
-///   · 首页**默认内容 = 豆瓣**（[DoubanHomeView]，对齐 iOS「豆瓣推荐」）；
-///   · 源（Spider / CMS）通过顶部「切换源」浮层进入并覆盖展示，**不是**首页默认内容；
-///   · **无可用源时不报错**，保持豆瓣默认内容（原 `UnknownFailure('无可用站点')` 已废弃）。
-///
-/// 站点内容通路：`ContentBrowseUseCases.listSites` + `homeContent`（模式分流在用例层完成），
-/// 点击海报 push 详情页。
+/// A9 口径（R-11）：首页**默认内容 = 豆瓣**；源（Spider / CMS）经顶部「切换源」
+/// 浮层选中后进入并覆盖展示，**不是**首页默认内容。
 library;
 
 import 'dart:async';
@@ -17,27 +18,23 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/errors/failures.dart';
 import '../../../core/utils/result.dart';
 import '../../../domain/entities/douban/douban_models.dart';
 import '../../../domain/entities/spider/spider.dart';
 import '../../../domain/usecases/usecases.dart';
 import '../../lifecycle/vbox_lifecycle_mixin.dart';
-import '../../shell/splash_gate_monitor.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
-import '../../widgets/detail_page.dart';
 import '../../widgets/library_views.dart';
+import '../../widgets/source_discovery_view.dart';
 import '../../widgets/vbox/vbox.dart';
-import '../category/category_page.dart';
 import '../douban/douban_home_page.dart';
 import '../douban/douban_ranking_page.dart';
 import '../search/search_page.dart';
-import 'home_banner_carousel.dart';
 import 'source_sheet.dart';
 
-/// 首页（内容浏览）。默认展示豆瓣推荐；切换源后展示对应站点内容。
+/// 首页（内容浏览）。默认展示豆瓣推荐；切换源后覆盖展示对应站点源发现页。
 class VboxHomePage extends StatefulWidget {
   /// 构造。
   const VboxHomePage({super.key});
@@ -47,104 +44,60 @@ class VboxHomePage extends StatefulWidget {
 }
 
 class _VboxHomePageState extends State<VboxHomePage> with VboxLifecycleMixin {
-  /// 站点清单进程级缓存（对齐 iOS `MainViews.swift` 的静态缓存口径）：
-  /// tab 切换重建本页时直接复用，不再重复请求站点列表。
+  /// 站点清单进程级缓存（对齐 iOS `HomeView` 的 `allSources` 预载 + onChange
+  /// 刷新口径）：tab 切换重建本页时直接复用，不再重复请求站点列表。
   static List<SiteConfig>? _cachedSites;
-
-  /// 站点内容按 `siteKey` 的进程级缓存：切回首页 / 复选同一源直接命中，不重复拉取。
-  static final Map<String, HomeContentResult> _cachedHomeBySite =
-      <String, HomeContentResult>{};
 
   late final ContentBrowseUseCases _uc;
 
   List<SiteConfig> _sites = const <SiteConfig>[];
   String? _siteKey;
-  HomeContentResult? _home;
-  Failure? _error;
-  bool _loading = false;
+  bool _loadingSites = false;
 
   @override
   void initState() {
     super.initState();
     _uc = context.read<ContentBrowseUseCases>();
-    // 对齐 iOS `HomeView.onAppear`：有缓存先恢复，无缓存才加载。
+    // 对齐 iOS `HomeView.onAppear`：有缓存先恢复，无缓存才加载（不阻塞首屏）。
     final List<SiteConfig>? cachedSites = _cachedSites;
     if (cachedSites != null) {
       _sites = cachedSites;
     } else {
-      _loadSites();
+      unawaited(_loadSites());
     }
   }
 
   /// 加载站点清单（仅供「切换源」使用；失败 / 为空**不报错**，保持豆瓣默认内容）。
   Future<void> _loadSites() async {
+    if (_loadingSites) return;
+    _loadingSites = true;
     final Result<List<SiteConfig>> result = await _uc.listSites();
+    _loadingSites = false;
     if (!mounted) return;
     final List<SiteConfig> sites = result.valueOrNull ?? const <SiteConfig>[];
     _cachedSites = sites;
     setState(() => _sites = sites);
   }
 
-  /// 回前台补拉站点清单（UI-E4，对齐 iOS `HomeView.onAppear` 预载 /
-  /// `onChange(sourceListReady)` 刷新）：有缓存则静默复用，不重复请求。
+  /// 回前台补拉站点清单（UI-E4）：有缓存则静默复用，不重复请求。
   @override
   void onAppResumed() {
-    if (_sites.isEmpty && !_loading) {
+    if (_sites.isEmpty && !_loadingSites) {
       unawaited(_loadSites());
     }
   }
 
-  Future<void> _loadHome(String siteKey) async {
-    final HomeContentResult? cached = _cachedHomeBySite[siteKey];
-    if (cached != null) {
-      // 命中缓存：直接复用，不重复请求（对齐 iOS 静态缓存复用）。
-      setState(() {
-        _loading = false;
-        _error = null;
-        _home = cached;
-        _siteKey = siteKey;
-      });
-      if (cached.list?.isNotEmpty ?? false) {
-        SplashGateMonitor.instance.markHomeReady();
-      }
-      return;
-    }
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    final Result<HomeContentResult> result = await _uc.homeContent(siteKey);
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      _error = result.failureOrNull;
-      _home = result.valueOrNull;
-      _siteKey = siteKey;
-    });
-    final HomeContentResult? home = result.valueOrNull;
-    if (home != null) {
-      _cachedHomeBySite[siteKey] = home;
-    }
-    // L-壳1 数据门控：切换源后已有可展示内容 → 允许启动页淡出。
-    if ((home?.list ?? const <VodItem>[]).isNotEmpty) {
-      SplashGateMonitor.instance.markHomeReady();
-    }
-  }
-
   /// 回到豆瓣默认内容（A9）。
-  void _backToDouban() {
-    setState(() {
-      _siteKey = null;
-      _home = null;
-      _error = null;
-    });
-  }
+  void _backToDouban() => setState(() => _siteKey = null);
 
   Future<void> _switchSource() async {
     if (_sites.isEmpty) {
-      VboxToast.show(context, '暂无可用站点，当前为豆瓣推荐');
       await _loadSites();
-      if (!mounted || _sites.isEmpty) return;
+      if (!mounted) return;
+      if (_sites.isEmpty) {
+        VboxToast.show(context, '暂无可用站点，当前为豆瓣推荐');
+        return;
+      }
     }
     final String? picked = await showVboxSourceSheet(
       context,
@@ -152,43 +105,47 @@ class _VboxHomePageState extends State<VboxHomePage> with VboxLifecycleMixin {
       selectedKey: _siteKey,
     );
     if (picked == null || !mounted || picked == _siteKey) return;
-    await _loadHome(picked);
+    // 选中源 → **立即**切到站点态（对齐 iOS `selectedSource = item` 即覆盖展示
+    // `SourceDiscoveryView`）：加载态与分类栏由源发现页自身渐进呈现，
+    // 不等待网络请求、不白屏、不残留豆瓣首页。
+    setState(() => _siteKey = picked);
   }
 
   @override
   Widget build(BuildContext context) {
     final bool doubanMode = _siteKey == null;
     return Scaffold(
-      // 首页顶栏对齐 iOS `MainViews.swift HomeSearchBar`（L918-L997）：
-      // 源切换（square.grid.2x2）→ 搜索框 → 豆瓣排行榜（chart.bar.fill）→
-      // 观看历史（clock.arrow.circlepath）→ AI 星星（sparkles）；
-      // 不用 AppBar，保持与 iOS「内容内顶栏」一致的排布。
       body: SafeArea(
         bottom: false,
-        child: Column(
+        // UI-A1 双态常驻：对齐 iOS ZStack 结构（MainViews.swift L301-L336）——
+        // 豆瓣首页始终存活（zIndex 0），站点态覆盖其上，切换不销毁重建
+        // （iOS 用 opacity + allowsHitTesting 控制；Flutter IndexedStack 等价：
+        // 非活跃态保状态、不绘制、不命中）。
+        child: IndexedStack(
+          index: doubanMode ? 0 : 1,
           children: <Widget>[
-            _buildTopBar(context, sourceSelected: !doubanMode),
-            Expanded(
-              // UI-A1 双态常驻：对齐 iOS ZStack 结构（MainViews.swift
-              // L301-L336）——豆瓣首页始终存活（zIndex 0），站点态覆盖其上，
-              // 切换不销毁重建（iOS 用 opacity + allowsHitTesting 控制；
-              // Flutter IndexedStack 等价：非活跃态保状态、不绘制、不命中）。
-              child: IndexedStack(
-                index: doubanMode ? 0 : 1,
-                children: <Widget>[
+            // 豆瓣态（zIndex 0）：顶栏 + 豆瓣推荐。
+            Column(
+              children: <Widget>[
+                _buildTopBar(context),
+                Expanded(
                   // 对齐 iOS `DoubanHomeView`：首页豆瓣条目点击即
                   // `triggerSearch(title)` 进入搜索页按标题搜索。
-                  DoubanHomeView(
+                  child: DoubanHomeView(
                     onSubjectTap: (DoubanSubject subject) =>
                         _openSearchForKey(subject.title),
                   ),
-                  RefreshIndicator(
-                    // UI-B2：下拉刷新当前源首页。
-                    onRefresh: _refreshHome,
-                    child: _buildSiteBody(),
-                  ),
-                ],
-              ),
+                ),
+              ],
+            ),
+            // 站点态（zIndex 1，覆盖豆瓣态）：对齐 iOS `HomeView` 内嵌
+            // `SourceDiscoveryView` —— 源名栏 + 分类滑动栏（推荐 + 分类）+
+            // 三列海报网格 + 滚动分页，而非豆瓣的大封面轮播 + 推荐横排。
+            // 非活跃（豆瓣态）时 `active: false` 常驻但不发起加载。
+            SourceDiscoveryView(
+              initialSiteKey: _siteKey,
+              onDismiss: _backToDouban,
+              active: !doubanMode,
             ),
           ],
         ),
@@ -197,8 +154,7 @@ class _VboxHomePageState extends State<VboxHomePage> with VboxLifecycleMixin {
   }
 
   /// 首页顶栏（对齐 iOS `HomeSearchBar`）。
-  Widget _buildTopBar(BuildContext context, {required bool sourceSelected}) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
+  Widget _buildTopBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         VboxSpacing.sm,
@@ -208,13 +164,10 @@ class _VboxHomePageState extends State<VboxHomePage> with VboxLifecycleMixin {
       ),
       child: Row(
         children: <Widget>[
-          // 多源选择（对齐 iOS `square.grid.2x2`；选中源时高亮绿）。
+          // 多源选择（对齐 iOS `square.grid.2x2`）。
           _TopBarIcon(
             tooltip: '切换源',
             icon: Icons.grid_view_rounded,
-            color: sourceSelected
-                ? VboxColors.topBarSourceSelected
-                : scheme.onSurface,
             onPressed: _switchSource,
           ),
           Expanded(child: _buildSearchField(context)),
@@ -237,12 +190,6 @@ class _VboxHomePageState extends State<VboxHomePage> with VboxLifecycleMixin {
             color: VboxColors.topBarAiAccent,
             onPressed: _openAi,
           ),
-          if (sourceSelected)
-            _TopBarIcon(
-              tooltip: '返回豆瓣推荐',
-              icon: Icons.recommend_outlined,
-              onPressed: _backToDouban,
-            ),
         ],
       ),
     );
@@ -330,141 +277,12 @@ class _VboxHomePageState extends State<VboxHomePage> with VboxLifecycleMixin {
       mode: LaunchMode.externalApplication,
     );
   }
-
-  Widget _buildSiteBody() {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    final Failure? error = _error;
-    if (error != null) {
-      return _ErrorRetry(message: '$error', onRetry: _retry);
-    }
-    final HomeContentResult? home = _home;
-    final List<VodItem> items = home?.list ?? const <VodItem>[];
-    if (items.isEmpty && (home?.classes ?? const <VodCategory>[]).isEmpty) {
-      return const _EmptyHint(text: '站点暂无内容\n点击右上角切换源试试');
-    }
-    return ListView(
-      // UI-B2：允许内容不足一屏时也能下拉（配合外层 RefreshIndicator）。
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(vertical: VboxSpacing.md),
-      children: <Widget>[
-        if (items.isNotEmpty) _buildCarousel(items),
-        if (home?.classes != null && home!.classes!.isNotEmpty)
-          _buildCategories(home.classes!),
-        if (items.isNotEmpty) _buildPosterSection(items),
-      ],
-    );
-  }
-
-  /// 下拉刷新（UI-B2）：重载当前源首页（无源时退回源列表加载）。
-  Future<void> _refreshHome() async {
-    final String? key = _siteKey;
-    if (key == null) {
-      await _loadSites();
-      return;
-    }
-    await _loadHome(key);
-  }
-
-  void _retry() {
-    final String? key = _siteKey;
-    if (key != null) {
-      _loadHome(key);
-    } else {
-      _loadSites();
-    }
-  }
-
-  Widget _buildCarousel(List<VodItem> items) {
-    final List<VodItem> top = items.take(HomeBannerCarousel.maxCount).toList();
-    return HomeBannerCarousel(items: top);
-  }
-
-  Widget _buildCategories(List<VodCategory> classes) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        const VboxSectionHeader(title: '分类'),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: VboxSpacing.symmetric(horizontal: VboxSpacing.lg),
-          child: Row(
-            children: <Widget>[
-              for (int i = 0; i < classes.length; i++) ...<Widget>[
-                if (i > 0) const SizedBox(width: VboxSpacing.sm),
-                VboxChip(
-                  label: classes[i].typeName,
-                  onTap: () => _openCategory(classes[i].typeId),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _openCategory(String tid) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) => CategoryPage(
-          initialSiteKey: _siteKey,
-          initialTid: tid,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPosterSection(List<VodItem> items) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        const VboxSectionHeader(title: '推荐'),
-        SizedBox(
-          height: 240,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: VboxSpacing.symmetric(horizontal: VboxSpacing.lg),
-            itemCount: items.length,
-            separatorBuilder: (BuildContext context, int index) =>
-                const SizedBox(width: VboxSpacing.md),
-            itemBuilder: (BuildContext context, int index) =>
-                _posterFromVod(items[index]),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _posterFromVod(VodItem vod) {
-    final String subtitle = <String?>[
-      if (vod.vodYear?.isNotEmpty ?? false) vod.vodYear,
-      if (vod.vodRemarks?.isNotEmpty ?? false) vod.vodRemarks,
-    ].join(' · ');
-    return VboxPosterCard(
-      title: vod.vodName,
-      imageUrl: vod.vodPic,
-      subtitle: subtitle.isEmpty ? null : subtitle,
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (BuildContext context) => DetailPage(
-              siteKey: _siteKey ?? '',
-              vodId: vod.vodId,
-              title: vod.vodName,
-            ),
-          ),
-        );
-      },
-    );
-  }
 }
 
 /// 首页顶栏图标按钮。
 ///
 /// 对齐 iOS `MainViews.swift HomeSearchBar`（L918-L997）：图标 18、无背景、
-/// 可选高亮色（切换源选中绿 / AI 蓝），点击区域紧凑排布。
+/// 可选高亮色（AI 蓝），点击区域紧凑排布。
 class _TopBarIcon extends StatelessWidget {
   const _TopBarIcon({
     required this.tooltip,
@@ -489,60 +307,6 @@ class _TopBarIcon extends StatelessWidget {
         visualDensity: VisualDensity.compact,
         padding: const EdgeInsets.all(6),
         constraints: const BoxConstraints(),
-      ),
-    );
-  }
-}
-
-/// 空态提示。
-class _EmptyHint extends StatelessWidget {
-  const _EmptyHint({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Theme.of(context).colorScheme.outline,
-              ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 加载失败提示 + 重试。
-class _ErrorRetry extends StatelessWidget {
-  const _ErrorRetry({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(
-              Icons.error_outline,
-              size: 40,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
-          ],
-        ),
       ),
     );
   }

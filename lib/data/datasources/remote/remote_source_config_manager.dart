@@ -36,6 +36,7 @@ import '../local/prefs_manager.dart';
 import 'all_sources_datasource.dart';
 import 'lx_plugin_syncer.dart';
 import 'remote_manifest_datasource.dart';
+import 'spider_script_cache.dart';
 
 /// 同步动作（状态机出口，对齐 iOS `syncIfNeeded` 各分支）。
 enum RemoteSourceSyncAction {
@@ -125,6 +126,7 @@ class RemoteSourceConfigManager {
     int Function()? nowSeconds,
     List<ProxyHost> proxies = RemoteSourceStrategy.proxyHosts,
     LxPluginSyncer? lxPluginSyncer,
+    SpiderScriptCache? spiderScriptCache,
   })  : _manifestDatasource = manifestDatasource,
         _allSourcesDatasource = allSourcesDatasource,
         _repository = repository,
@@ -133,7 +135,8 @@ class RemoteSourceConfigManager {
         _appVersion = appVersion,
         _nowSeconds = nowSeconds,
         _proxies = proxies,
-        _lxPluginSyncer = lxPluginSyncer ?? LxPluginSyncer();
+        _lxPluginSyncer = lxPluginSyncer ?? LxPluginSyncer(),
+        _spiderScriptCache = spiderScriptCache;
 
   final RemoteManifestDatasource _manifestDatasource;
   final AllSourcesDatasource _allSourcesDatasource;
@@ -144,6 +147,10 @@ class RemoteSourceConfigManager {
   final int Function()? _nowSeconds;
   final List<ProxyHost> _proxies;
   final LxPluginSyncer _lxPluginSyncer;
+
+  /// JS 蜘蛛脚本本地缓存（对齐 iOS `downloadAndCacheSpiderJS`：同步完成后批量
+  /// 下载 spiderSources 脚本到本地，运行时 cache-first 读取）。未注入 → 跳过缓存。
+  final SpiderScriptCache? _spiderScriptCache;
 
   // ────────────── 加载状态源（对齐 iOS `@Published loadState`）──────────────
   // iOS `RemoteSourceConfigManager` 自身是 `ObservableObject`，`loadState`
@@ -328,6 +335,18 @@ class RemoteSourceConfigManager {
     // ④ 6 合 1 聚合解析（B-03）：api + spider 站点合并、disabledKeys 剔除、key 去重
     final List<Map<String, Object?>> sites =
         aggregateSites(container, disabledKeys: manifest.disabledKeys);
+
+    // ④a JS 蜘蛛脚本本地缓存（对齐 iOS `syncNow` 步骤 4：downloadAndCacheSpiderJS）。
+    //     把 spiderSources 站点的主脚本 / ext 批量落盘到 `<spiderDir>/<key>.js`，
+    //     运行时 cache-first 读取（见 `ContentBrowseUseCases._prepareEngine`），
+    //     避免每次切源/翻分类都在线拉脚本 → 超时或失败导致分类无数据。
+    //     失败仅日志、不抛错 —— 缓存缺失由运行时回退在线下载（iOS cache-first 语义）。
+    try {
+      await _spiderScriptCache?.syncSites(
+        sites: container.spiderSites,
+        baseURL: _dirName(allSourcesUrl),
+      );
+    } catch (_) {}
 
     // ④b lx 插件远程缓存（对齐 iOS `syncNow` 步骤 4b：downloadAndCacheLXPlugins，
     //     P1-A6）：命中 engineType == "lxMusic" 的站点按 pluginPath 下载插件 JS
@@ -596,6 +615,23 @@ class RemoteSourceConfigManager {
       allSourcesDatasource: AllSourcesDatasource(client: client),
       repository: RemoteSourceRepositoryImpl(datasource: manifestDatasource),
       probeClient: client,
+      spiderScriptCache: SpiderScriptCache(
+        // 脚本下载通道：与 all_sources / manifest 同一可达性语义
+        //（仅 GitHub 域名走 ghfast→gh-proxy→直连代理降级链）。
+        fetch: (Uri url) async {
+          for (final String candidate
+              in RemoteSourceStrategy.candidates(url.toString())) {
+            try {
+              final HttpClientResponse res =
+                  await client.get(Uri.parse(candidate));
+              if (res.isOk && res.text.isNotEmpty) return res.text;
+            } catch (_) {
+              continue;
+            }
+          }
+          return null;
+        },
+      ),
     );
   }
 }

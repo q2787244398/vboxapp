@@ -17,6 +17,7 @@ import '../../data/datasources/local/tg_search_config_store.dart';
 import '../../data/datasources/remote/all_sources_datasource.dart';
 import '../../data/datasources/remote/cms_v10_datasource.dart';
 import '../../data/datasources/remote/cms_v10_models.dart';
+import '../../data/datasources/remote/spider_script_cache.dart';
 import '../../platform/runtime/quickjs_ffi.dart';
 import '../../platform/spider/node_http_client.dart';
 import '../../platform/spider/spider_engine_factory.dart';
@@ -43,11 +44,13 @@ class ContentBrowseUseCases {
     QuickJsNativeBridge? quickJsBridge,
     NodeHttpClient? nodeClient,
     this.scriptBaseUrl,
+    SpiderScriptCache? spiderScriptCache,
     Future<void> Function()? waitNodeReady,
   })  : _engineFactory = engineFactory,
         _cmsDatasource = cmsDatasource,
         _quickJsBridge = quickJsBridge,
         _nodeClient = nodeClient,
+        _scriptCache = spiderScriptCache,
         _waitNodeReady = waitNodeReady;
 
   /// 站点聚合加载器。
@@ -66,6 +69,10 @@ class ContentBrowseUseCases {
   final CmsV10Datasource? _cmsDatasource;
   final QuickJsNativeBridge? _quickJsBridge;
   final NodeHttpClient? _nodeClient;
+
+  /// JS/Python 蜘蛛脚本本地缓存（对齐 iOS `cachedSpiderJSContent(forKey:)`：
+  /// 远程同步已把脚本落盘，运行时 cache-first 读取，避免每次冷启动重拉脚本）。
+  final SpiderScriptCache? _scriptCache;
 
   /// 蜘蛛引擎缓存（对齐 iOS `SpiderManager` 引擎/脚本复用：同一站点首次
   /// 下载解析脚本后复用，翻页/切分类不再重复拉脚本）。key = 站点 key。
@@ -604,35 +611,87 @@ class ContentBrowseUseCases {
     final SpiderEngineType engineType = _effectiveEngineType(site);
     if (engineType == SpiderEngineType.quickJS ||
         engineType == SpiderEngineType.python) {
-      final String? api = site.api;
-      if (api == null || api.trim().isEmpty) {
-        throw const ValidationFailure('蜘蛛脚本地址为空');
-      }
-      final String trimmed = api.trim();
-      final bool isUrl =
-          trimmed.startsWith('http://') || trimmed.startsWith('https://');
-      if (!isUrl) {
-        // 相对路径脚本（`./x.js` / `x.js` / `x.py`）：以 allSources 清单 URL 为
-        // base 解析绝对地址，对齐 iOS `SpiderManager` 订阅源 subBaseURL 分支
-        // （`URL(string:).deletingLastPathComponent().appendingPathComponent(api)`）。
-        await engine.loadScriptFromURL(_resolveScriptUrl(trimmed, site));
+      final String key = site.key.isEmpty ? site.name : site.key;
+
+      // ★ cache-first（对齐 iOS `loadSingleRemoteSpider` / `loadSinglePythonSpider`）：
+      //   远程源同步已把脚本落盘到本地（`downloadAndCacheSpiderJS`），此处优先读本地；
+      //   命中即离线加载，未命中才回退网络下载。这是「切源/翻分类必须有网且易失败」
+      //   的根因修复：iOS 端同样先读 `cachedSpiderJSContent(forKey:)`。
+      final String? cachedScript = _scriptCache?.read(key);
+      if (cachedScript != null) {
+        await engine.loadScript(cachedScript);
       } else {
-        // G-04：TG 搜索蜘蛛注入用户配置——对齐 iOS `SpiderManager` L1391-L1400
-        // 在主脚本前 prepend `var __TG_CONFIG__ = {...};` 的语义；Flutter 以
-        // `loadLibrary`（不检查注册）先建立全局变量，再加载主脚本。
-        if (site.key == _tgSearchSiteKey &&
-            engineType == SpiderEngineType.quickJS) {
-          final String configJs = TGSearchConfigStore.shared.generateConfigJs();
-          if (configJs.isNotEmpty) {
-            await engine.loadLibrary(configJs);
-          }
+        final String? api = site.api;
+        if (api == null || api.trim().isEmpty) {
+          throw const ValidationFailure('蜘蛛脚本地址为空');
         }
-        await engine.loadScriptFromURL(trimmed);
+        final String trimmed = api.trim();
+        final bool isUrl =
+            trimmed.startsWith('http://') || trimmed.startsWith('https://');
+        if (!isUrl) {
+          // 相对路径脚本（`./x.js` / `x.js` / `x.py`）：以 allSources 清单 URL 为
+          // base 解析绝对地址，对齐 iOS `SpiderManager` 订阅源 subBaseURL 分支
+          // （`URL(string:).deletingLastPathComponent().appendingPathComponent(api)`）。
+          await engine.loadScriptFromURL(_resolveScriptUrl(trimmed, site));
+        } else {
+          // G-04：TG 搜索蜘蛛注入用户配置——对齐 iOS `SpiderManager` L1391-L1400
+          // 在主脚本前 prepend `var __TG_CONFIG__ = {...};` 的语义；Flutter 以
+          // `loadLibrary`（不检查注册）先建立全局变量，再加载主脚本。
+          if (site.key == _tgSearchSiteKey &&
+              engineType == SpiderEngineType.quickJS) {
+            final String configJs = TGSearchConfigStore.shared.generateConfigJs();
+            if (configJs.isNotEmpty) {
+              await engine.loadLibrary(configJs);
+            }
+          }
+          await engine.loadScriptFromURL(trimmed);
+        }
       }
+
+      // ★ ext 脚本（对齐 iOS `loadSpiderExt`）：此前 Flutter 端**完全未加载 ext**，
+      //   依赖 ext 补充 `__JS_SPIDER__` / 请求函数的蜘蛛源注册或请求必然失败
+      //   → 分类数据恒为空。ext 加载失败不影响主框架（iOS 同语义）。
+      try {
+        await _loadSpiderExt(engine, site, key);
+      } catch (_) {}
     }
     await engine.registerSpider();
     if (!engine.isSpiderReady) {
       throw const SpiderFailure('蜘蛛注册失败（未找到 __JS_SPIDER__）');
+    }
+  }
+
+  /// 加载蜘蛛 ext（对齐 iOS `loadSpiderExt`，SpiderManager.swift L1507-L1557）：
+  /// 本地缓存 → 绝对 URL → 相对路径（`./x.js` / `x.js`）→ 内联 JS。
+  Future<void> _loadSpiderExt(
+    SpiderEngine engine,
+    SiteConfig site,
+    String key,
+  ) async {
+    final String ext = (site.ext ?? '').trim();
+    if (ext.isEmpty) return;
+
+    // ① polyfill：优先本地缓存（同步时按 `<key>_ext` 落盘）。
+    final String? cachedExt = _scriptCache?.read('${key}_ext');
+    if (cachedExt != null) {
+      await engine.loadLibrary(cachedExt);
+      return;
+    }
+
+    // ② 绝对 URL → ③ 相对路径 → ④ 内联 JS。
+    if (ext.startsWith('http://') || ext.startsWith('https://')) {
+      await engine.loadScriptFromURL(ext);
+      return;
+    }
+    if (ext.startsWith('./') || ext.endsWith('.js') || ext.endsWith('.py')) {
+      await engine.loadScriptFromURL(_resolveScriptUrl(ext, site));
+      return;
+    }
+    if (ext.contains('function ') ||
+        ext.contains('var ') ||
+        ext.contains('let ') ||
+        ext.contains('const ')) {
+      await engine.loadLibrary(ext);
     }
   }
 

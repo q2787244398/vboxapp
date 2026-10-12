@@ -193,6 +193,22 @@ class AllSourcesContainer {
     return out;
   }
 
+  /// 蜘蛛源站点原始 JSON（`spiderSources.sites`）。
+  ///
+  /// 对齐 iOS `cachedSpiderSites()` 的取值口径（`allSources.spiderSources?.sites`）：
+  /// 只含 spider 段站点，供远程同步批量下载 JS/Python 脚本到本地缓存
+  /// （iOS `downloadAndCacheSpiderJS`）——api 段站点的 `api` 是 CMS 端点，
+  /// 不能被当作脚本下载。
+  List<Map<String, Object?>> get spiderSites {
+    final Object? arr = spiderSources?['sites'];
+    if (arr is! List) return const <Map<String, Object?>>[];
+    final List<Map<String, Object?>> out = <Map<String, Object?>>[];
+    for (final Object? e in arr) {
+      if (e is Map) out.add(e.cast<String, Object?>());
+    }
+    return out;
+  }
+
   /// 网盘站点列表（`cloudSources.cloudSites`）。
   ///
   /// 对齐 iOS `SpiderManager.loadCloudSitesFromJSONConfig()`：网盘源是与

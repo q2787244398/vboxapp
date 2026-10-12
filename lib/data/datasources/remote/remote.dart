@@ -10,5 +10,6 @@ export 'lx_plugin_syncer.dart';
 export 'node_credential_sync_service.dart';
 export 'remote_manifest_datasource.dart';
 export 'remote_source_config_manager.dart';
+export 'spider_script_cache.dart';
 export 'tmdb_datasource.dart';
 export 'welfare_platform_datasource.dart';

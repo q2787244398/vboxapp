@@ -92,6 +92,9 @@ class _VBoxAppState extends State<VBoxApp> {
   late final AllSourcesDatasource _allSourcesDatasource;
   late final CmsV10Datasource _cmsDatasource;
 
+  /// JS/Python 蜘蛛脚本本地缓存（远程同步落盘 + 运行时 cache-first 读取）。
+  late final SpiderScriptCache _spiderScriptCache;
+
   /// 豆瓣浏览用例（A9：首页默认内容）。
   late final DoubanUseCases _doubanUseCases;
 
@@ -150,10 +153,18 @@ class _VBoxAppState extends State<VBoxApp> {
     final Result<RemoteManifest> manifestResult =
         await _remoteSourceUseCases.refresh();
     final Failure? failure = manifestResult.failureOrNull;
-    if (failure != null) return Err<AllSourcesContainer>(failure);
+    // 刷新失败 → 回退缓存清单（对齐 iOS `loadCachedManifestState` 兜底）：
+    // 离线/弱网下仍能按缓存的 all_sources.json 本地加载站点列表与分类资源，
+    // 而不是整条链路直接失败（此前 refresh 失败即无站点）。
+    RemoteManifest? manifest = manifestResult.valueOrNull;
+    manifest ??= (await _remoteSourceUseCases.cached()).valueOrNull;
+    if (manifest == null) {
+      return Err<AllSourcesContainer>(
+        failure ?? const UnknownFailure('清单加载失败'),
+      );
+    }
 
-    final String? url =
-        manifestResult.valueOrNull?.files[RemoteManifest.keyAllSources];
+    final String? url = manifest.files[RemoteManifest.keyAllSources];
     if (url == null || url.isEmpty) {
       return const Err<AllSourcesContainer>(
         ValidationFailure('清单缺少 allSources 文件条目'),
@@ -338,6 +349,24 @@ class _VBoxAppState extends State<VBoxApp> {
         RemoteSourceRepositoryImpl(datasource: remoteManifestDatasource),
       );
       _allSourcesDatasource = AllSourcesDatasource(client: remoteSourceClient);
+      // JS/Python 蜘蛛脚本本地缓存（对齐 iOS `downloadAndCacheSpiderJS` +
+      // `cachedSpiderJSContent`）：同步时批量落盘、运行时 cache-first 读取。
+      // 下载通道复用远程源专用 client（放宽 TLS + GitHub 代理降级链）。
+      _spiderScriptCache = SpiderScriptCache(
+        fetch: (Uri url) async {
+          for (final String candidate
+              in RemoteSourceStrategy.candidates(url.toString())) {
+            try {
+              final HttpClientResponse res =
+                  await remoteSourceClient.get(Uri.parse(candidate));
+              if (res.isOk && res.text.isNotEmpty) return res.text;
+            } catch (_) {
+              continue;
+            }
+          }
+          return null;
+        },
+      );
       // 远程源编排器（对齐 iOS `RemoteSourceConfigManager.shared`）：启动时
       // 按官方状态机（开关 → 空地址 → 首同步 / App 升级 / force → 版本探测 →
       // 降级 TTL）决定是否全量拉取，并把 `loadState` 暴露给首页胶囊与设置页。
@@ -354,6 +383,9 @@ class _VBoxAppState extends State<VBoxApp> {
               (await remoteSourceClient.get(url)).rawBytes,
           pluginsDirPath: () => NodeRuntimeManager.instance.lxPluginsDirPath,
         ),
+        // JS/Python 蜘蛛脚本本地缓存（对齐 iOS `syncNow` 步骤 4）：
+        // 同步完成后批量下载脚本到本地，运行时 cache-first 读取。
+        spiderScriptCache: _spiderScriptCache,
       );
       // 注册全局单例（对齐 iOS `RemoteSourceConfigManager.shared`）：首页胶囊
       // 与设置页经 `shared` 订阅 `loadState` / 触发手动刷新，无需 Provider 传递。
@@ -385,6 +417,9 @@ class _VBoxAppState extends State<VBoxApp> {
         loadAllSources: _loadAllSources,
         cmsDatasource: _cmsDatasource,
         scriptBaseUrl: () => _allSourcesUrl,
+        // 脚本 cache-first：详情/播放链路与首页/分类链路共用同一缓存实例，
+        // 对齐 iOS 端 `SpiderManager.loadSingleRemoteSpider` 的 cache-first + ext。
+        spiderScriptCache: _spiderScriptCache,
         tencentSpider: _tencentSpider,
         // O-源2：非直链播放地址在返回前尝试解析器（远程默认 + 自定义）。
         customParser: _sourceGovernanceUseCases.resolveWithParsers,
@@ -407,6 +442,8 @@ class _VBoxAppState extends State<VBoxApp> {
         loadAllSources: _loadAllSources,
         cmsDatasource: _cmsDatasource,
         scriptBaseUrl: () => _allSourcesUrl,
+        // 脚本 cache-first：与同步落盘共用同一缓存实例。
+        spiderScriptCache: _spiderScriptCache,
         // Node 承载源调用前等常驻宿主就绪（对齐 iOS
         // `waitForNodeReadyIfNeeded`，SpiderManager.swift L2136）：
         // 轮询 NodeRuntimeManager 就绪位，上限 5s；node-failed 立即放行

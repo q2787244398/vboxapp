@@ -8,6 +8,8 @@
 /// `categoryContent`（分类 + 分页），模式分流 CMS / Spider 在用例层完成。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -24,10 +26,31 @@ import 'detail_page.dart';
 import 'platform_async_image.dart';
 import 'vbox/vbox.dart';
 
-/// 源发现视图（嵌入「远程源」页的「源发现」标签）。
+/// 源发现视图（首页站点态覆盖层 / 「远程源」页的「源发现」标签）。
 class SourceDiscoveryView extends StatefulWidget {
   /// 构造。
-  const SourceDiscoveryView({super.key});
+  const SourceDiscoveryView({
+    super.key,
+    this.initialSiteKey,
+    this.onDismiss,
+    this.active = true,
+  });
+
+  /// 首次进入要选中的站点 key（缺省选首个可用站点）。
+  ///
+  /// 首页切入站点态时传入当前选中的源；值变化（用户在首页再次切换源）
+  /// 由 [State.didUpdateWidget] 驱动换源。
+  final String? initialSiteKey;
+
+  /// 返回回调（非空时左上加返回按钮，用于嵌入首页站点态返回豆瓣）。
+  final VoidCallback? onDismiss;
+
+  /// 是否激活（可见）。
+  ///
+  /// 首页 `IndexedStack` 中站点态常驻但不参与绘制：`active: false` 时**不发起
+  /// 任何加载**（对其 iOS「未选中源时不创建 `SourceDiscoveryView`」的等价实现），
+  /// 由豆瓣态切到站点态（`active` 转 true）时才按需加载。
+  final bool active;
 
   @override
   State<SourceDiscoveryView> createState() => _SourceDiscoveryViewState();
@@ -39,6 +62,9 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
 
   late final ContentBrowseUseCases _uc;
   final ScrollController _scroll = ScrollController();
+
+  /// 是否已完成首次引导（避免 `active` 反复切换时重复加载）。
+  bool _bootstrapped = false;
 
   // 源
   List<SiteConfig> _sites = const <SiteConfig>[];
@@ -66,7 +92,78 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
     super.initState();
     _uc = context.read<ContentBrowseUseCases>();
     _scroll.addListener(_onScroll);
-    _init();
+    if (widget.active) {
+      _bootstrap();
+    }
+  }
+
+  @override
+  void didUpdateWidget(SourceDiscoveryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final String? incoming = widget.initialSiteKey;
+    if (!oldWidget.active && widget.active) {
+      // 豆瓣态 → 站点态：首次则完整引导，已引导则按传入 key 换源。
+      if (!_bootstrapped) {
+        _bootstrap();
+      } else if (incoming != null && incoming.isNotEmpty && incoming != _siteKey) {
+        _selectSite(incoming);
+      }
+      return;
+    }
+    // 激活状态下传入 key 变化（首页再次切换源）。
+    if (widget.active &&
+        incoming != null &&
+        incoming.isNotEmpty &&
+        incoming != _siteKey) {
+      _selectSite(incoming);
+    }
+  }
+
+  /// 首次引导（对齐 iOS `SourceDiscoveryView.onAppear` → `loadData()`）。
+  ///
+  /// 渐进加载：先按 [SourceDiscoveryView.initialSiteKey] **立即**发起内容请求，
+  /// 再并行拉源列表（源列表失败只影响下拉可选，不阻断内容）——避免
+  /// 「等站点列表 → 再等内容」的串行白屏（对齐 iOS 先出分类栏再出数据的体感）。
+  Future<void> _bootstrap() async {
+    if (_bootstrapped) return;
+    _bootstrapped = true;
+
+    final String? initial = widget.initialSiteKey;
+    if (initial != null && initial.isNotEmpty) {
+      _siteKey = initial;
+      unawaited(_loadHome());
+    }
+
+    setState(() {
+      _loadingSites = true;
+      _sitesError = null;
+    });
+    final Result<List<SiteConfig>> result = await _uc.listSites();
+    if (!mounted) return;
+    final Failure? failure = result.failureOrNull;
+    if (failure != null) {
+      setState(() {
+        _loadingSites = false;
+        _sitesError = failure;
+      });
+      return;
+    }
+    final List<SiteConfig> sites = result.valueOrNull ?? const <SiteConfig>[];
+    if (sites.isEmpty) {
+      setState(() {
+        _loadingSites = false;
+        _sitesError = const UnknownFailure('无可用站点');
+      });
+      return;
+    }
+    setState(() {
+      _loadingSites = false;
+      _sites = sites;
+      _siteKey ??= sites.first.key;
+    });
+    if (initial == null || initial.isEmpty) {
+      await _loadHome();
+    }
   }
 
   @override
@@ -93,37 +190,6 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
       _selectedTid == null ? _recommended : _items;
 
   // ─────────────── 数据加载 ───────────────
-
-  Future<void> _init() async {
-    setState(() {
-      _loadingSites = true;
-      _sitesError = null;
-    });
-    final Result<List<SiteConfig>> result = await _uc.listSites();
-    if (!mounted) return;
-    final Failure? failure = result.failureOrNull;
-    if (failure != null) {
-      setState(() {
-        _loadingSites = false;
-        _sitesError = failure;
-      });
-      return;
-    }
-    final List<SiteConfig> sites = result.valueOrNull ?? const <SiteConfig>[];
-    if (sites.isEmpty) {
-      setState(() {
-        _loadingSites = false;
-        _sitesError = const UnknownFailure('无可用站点');
-      });
-      return;
-    }
-    setState(() {
-      _loadingSites = false;
-      _sites = sites;
-      _siteKey = sites.first.key;
-    });
-    await _loadHome();
-  }
 
   Future<void> _loadHome() async {
     final String? siteKey = _siteKey;
@@ -232,11 +298,36 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
   }
 
   Future<void> _retry() async {
+    if (_sitesError != null || _sites.isEmpty) {
+      // 源列表失败 / 为空：重跑首次引导（解除引导幂等保护）。
+      _bootstrapped = false;
+      await _bootstrap();
+      return;
+    }
     if (_selectedTid == null) {
       await _loadHome();
     } else {
       await _loadCategory();
     }
+  }
+
+  /// 下拉刷新（对齐 iOS `SourceDiscoveryView.refreshable`）：分类态回第一页，
+  /// 推荐态重载首页内容；源列表失败态则重跑引导。
+  Future<void> _refresh() async {
+    if (_sitesError != null || _sites.isEmpty) {
+      _bootstrapped = false;
+      await _bootstrap();
+      return;
+    }
+    if (_selectedTid == null) {
+      await _loadHome();
+      return;
+    }
+    _items.clear();
+    _page = 0;
+    _pagecount = null;
+    _lastBatchFull = true;
+    await _loadCategory();
   }
 
   void _openDetail(VodItem vod) {
@@ -280,6 +371,24 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
           horizontal: VboxSpacing.lg, vertical: VboxSpacing.sm),
       child: Row(
         children: <Widget>[
+          // 返回（仅嵌入首页站点态时显示；对齐 iOS `SourceDiscoveryView.topBar`
+          // 的 `chevron.left` 返回）。「远程源 → 源发现」标签内不显示。
+          if (widget.onDismiss != null) ...<Widget>[
+            InkWell(
+              onTap: widget.onDismiss,
+              borderRadius: BorderRadius.circular(16),
+              child: SizedBox(
+                width: 32,
+                height: 32,
+                child: Icon(
+                  Icons.chevron_left,
+                  size: 22,
+                  color: scheme.onSurface,
+                ),
+              ),
+            ),
+            const SizedBox(width: VboxSpacing.xs),
+          ],
           Icon(Icons.language, size: 18, color: scheme.onSurfaceVariant),
           const SizedBox(width: VboxSpacing.sm),
           Text(
@@ -293,7 +402,11 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
           Expanded(
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
-                value: _siteKey,
+                // value 必须命中唯一 item：源列表未就绪 / 不含当前 key 时置 null，
+                // 避免初始（initialSiteKey 已设但 sites 未到）阶段的断言。
+                value: _sites.any((SiteConfig s) => s.key == _siteKey)
+                    ? _siteKey
+                    : null,
                 isExpanded: true,
                 isDense: true,
                 onChanged: _selectSite,
@@ -342,23 +455,59 @@ class _SourceDiscoveryViewState extends State<SourceDiscoveryView> {
   }
 
   Widget _buildBody() {
-    if (_loadingSites) return const Center(child: CircularProgressIndicator());
+    // 常驻 RefreshIndicator（对齐 iOS `.refreshable`）：即使加载 / 空态 / 失败态
+    // 也保持下拉可用，且首页站点态常驻保活依赖它存在（见 home_keepalive 测试）。
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: _buildBodyContent(),
+    );
+  }
+
+  Widget _buildBodyContent() {
+    if (_loadingSites) {
+      return _scrollableCenter(const CircularProgressIndicator());
+    }
     final Failure? sitesError = _sitesError;
     if (sitesError != null) {
-      return _ErrorRetry(message: '$sitesError', onRetry: _init);
+      return _scrollableCenter(
+        _ErrorRetry(message: '$sitesError', onRetry: _retry),
+      );
     }
     if (_sites.isEmpty) {
-      return const _EmptyHint(text: '没有可浏览的站点\n请先在「订阅源」添加可用源');
+      return _scrollableCenter(
+        const _EmptyHint(text: '没有可浏览的站点\n请先在「订阅源」添加可用源'),
+      );
     }
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) {
+      return _scrollableCenter(const CircularProgressIndicator());
+    }
     final Failure? error = _error;
     if (error != null) {
-      return _ErrorRetry(message: '$error', onRetry: _retry);
+      return _scrollableCenter(_ErrorRetry(message: '$error', onRetry: _retry));
     }
     if (_displayItems.isEmpty) {
-      return const _EmptyHint(text: '暂无内容\n切换源或分类试试');
+      return _scrollableCenter(const _EmptyHint(text: '暂无内容\n切换源或分类试试'));
     }
     return _buildGrid();
+  }
+
+  /// 将不可滚动的内容（加载 / 空态 / 失败态）包进可滚动视口，
+  /// 保证 [RefreshIndicator] 始终有可下拉的 Scrollable。
+  Widget _scrollableCenter(Widget child) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        return ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: <Widget>[
+            SizedBox(
+              height: constraints.maxHeight,
+              width: constraints.maxWidth,
+              child: Center(child: child),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildGrid() {
