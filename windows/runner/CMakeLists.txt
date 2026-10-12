@@ -42,6 +42,9 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # 否则链接期报 LNK2019（PluginRegistrar/PluginRegistrarManager 未解析）。
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app flutter_wrapper_plugin)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+# 批次 D · D3：SMTC 走 C++/WinRT（music_media_plugin.cpp），需链接 Windows 运行时
+# 伞形导入库，否则 LNK2019（RoGetActivationFactory / RoOriginateLanguageException）。
+target_link_libraries(${BINARY_NAME} PRIVATE "windowsapp.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
