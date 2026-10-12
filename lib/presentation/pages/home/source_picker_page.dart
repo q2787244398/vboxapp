@@ -9,6 +9,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../../domain/entities/spider/spider.dart';
+import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/typography.dart';
 
@@ -261,12 +262,13 @@ class _SourcePickerPageState extends State<SourcePickerPage> {
 /// 分类视觉（对齐 iOS `categoryColor` / `categoryIcon`；Flutter 侧无音乐
 /// 分类来源，登记省略音乐项）。
 (Color, IconData) _categoryVisual(String category) {
+  const Map<String, Color> palette = VboxColors.siteCategoryBadgeColors;
   return switch (category) {
-    '网盘' => (const Color(0xFF007AFF), Icons.cloud),
-    'API' => (const Color(0xFF34C759), Icons.settings_input_antenna),
-    '站源' => (const Color(0xFFFF3B30), Icons.link),
-    'JS' => (const Color(0xFFAF52DE), Icons.settings),
-    '论坛' => (const Color(0xFFFF9500), Icons.forum),
-    _ => (const Color(0xFF34C759), Icons.settings_input_antenna),
+    '网盘' => (palette['网盘']!, Icons.cloud),
+    'API' => (palette['API']!, Icons.settings_input_antenna),
+    '站源' => (palette['站源']!, Icons.link),
+    'JS' => (palette['JS']!, Icons.settings),
+    '论坛' => (palette['论坛']!, Icons.forum),
+    _ => (palette['API']!, Icons.settings_input_antenna),
   };
 }

@@ -23,6 +23,8 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/result.dart';
+import '../../../data/datasources/local/baidu_playback_cache_store.dart';
+import '../../../data/datasources/local/cloud_play_item_cache_store.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../data/datasources/local/source_governance_store.dart';
 import '../../../data/datasources/local/subscribe_config_store.dart';
@@ -574,20 +576,13 @@ class _SettingsPageState extends State<SettingsPage> {
     if (ok != true || !mounted) return;
     // ① 网盘详情页解析缓存（对齐 iOS `spiderManager.clearCloudPlayCache()`）。
     context.read<DetailPlaybackUseCases>().clearCloudPlayCache();
-    // ② 百度播放缓存五键 + 校验冷却键（对齐 iOS
-    //    `cloudDriveManager.clearAllBaiduPlaybackCaches()` 的 defaults 清理）。
+    // ② 百度播放缓存六键（对齐 iOS `cloudDriveManager.clearAllBaiduPlaybackCaches()`）。
     final PrefsManager prefs = PrefsManager.instance;
-    for (final String key in const <String>[
-      'baidu_play_result_cache_v1',
-      'baidu_play_item_cache_v1',
-      'baidu_ibox_play_item_cache_v1',
-      'baidu_file_list_cache_v1',
-      'baidu_share_context_cache_v1',
-      'baidu_verify_cooldown_v1',
-    ]) {
-      await prefs.remove(key);
-    }
-    // ③ 豆瓣封面流磁盘缓存：Flutter 端封面为直连抓取（无本地代理与磁盘流
+    await BaiduPlaybackCacheStore(prefs).clearAll();
+    // ③ 统一网盘播放缓存 baidu 分区（对齐 iOS
+    //    `clearUnifiedCloudPlayItems(provider: .baidu)`，见 CloudDriveManager L879）。
+    await CloudPlayItemCacheStore(prefs).clear('baidu');
+    // ④ 豆瓣封面流磁盘缓存：Flutter 端封面为直连抓取（无本地代理与磁盘流
     //    缓存），无对应清理面（差异登记）。
     setState(() => _cacheSize = '0 MB');
   }

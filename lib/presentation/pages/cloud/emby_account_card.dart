@@ -327,7 +327,7 @@ class _EmbyAccountCardState extends State<EmbyAccountCard> {
               Expanded(
                 child: _tintButton(
                   '删除服务器',
-                  const Color(0xFFE53935),
+                  VboxColors.danger,
                   onTap: (_busy || _servers.isEmpty) ? null : _delete,
                 ),
               ),
@@ -339,7 +339,7 @@ class _EmbyAccountCardState extends State<EmbyAccountCard> {
               style: TextStyle(
                 fontSize: VboxTypography.s12,
                 color: _message.contains('失败')
-                    ? const Color(0xFFE53935)
+                    ? VboxColors.danger
                     : VboxColors.success,
               ),
             ),

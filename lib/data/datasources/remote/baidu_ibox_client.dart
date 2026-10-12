@@ -34,10 +34,9 @@ library;
 
 import 'dart:convert';
 
-import 'package:crypto/crypto.dart' as crypto;
-
 import '../../../platform/spider/spider_http_bridge.dart';
 import '../../../platform/webview/webview_bridge.dart';
+import '../local/baidu_playback_cache_store.dart';
 import '../local/prefs_manager.dart';
 
 /// 百度分享文件条目（对齐 iOS `BaiduFileItem`）。
@@ -124,20 +123,25 @@ class BaiduIBoxException implements Exception {
 
 /// 百度 iBox 本机链客户端（C1：分享上下文 + 文件列表）。
 class BaiduIBoxClient {
-  /// 构造（[transport] / [prefs] 供测试注入）。
+  /// 构造（[transport] / [prefs] / [cache] 供测试注入）。
   BaiduIBoxClient({
     SpiderHttpTransport? transport,
     PrefsManager? prefs,
     WebViewBridge? webView,
+    BaiduPlaybackCacheStore? cache,
   })  : _transport = transport ?? IoSpiderHttpTransport(),
         _prefs = prefs,
-        _webView = webView ?? const UnavailableWebViewBridge();
+        _webView = webView ?? const UnavailableWebViewBridge(),
+        _cacheOverride = cache;
 
   /// 分享上下文缓存契约键（对齐 iOS `baidu_share_context_cache_v1`）。
-  static const String shareContextCacheKey = 'baidu_share_context_cache_v1';
+  static const String shareContextCacheKey =
+      BaiduPlaybackCacheStore.shareContextKey;
 
-  /// 分享上下文缓存 TTL（近似 iOS `storeShareContext` 的默认有效期）。
-  static const Duration shareContextTtl = Duration(minutes: 30);
+  /// 分享上下文缓存 TTL（对齐 iOS `storeShareContext` 默认 8h；批次 E · E5-5
+  /// 由原 30min 修正为 8h）。
+  static const Duration shareContextTtl =
+      BaiduPlaybackCacheStore.shareContextTtl;
 
   /// Mac Chrome UA（对齐 iOS iBox：分享验证 / share/list 用它，非 iOS Safari）。
   static const String webUA =
@@ -168,6 +172,14 @@ class BaiduIBoxClient {
 
   /// 内嵌 WebView 桥（C3 回退：URLSession 失败时复刻 iOS WKWebView XHR）。
   final WebViewBridge _webView;
+
+  /// 播放缓存统一层注入（测试用；缺省走全局 [PrefsManager]）。
+  final BaiduPlaybackCacheStore? _cacheOverride;
+
+  /// 播放缓存统一层（批次 E · E5-5；对齐 iOS `CloudDriveManager` 缓存族）。
+  BaiduPlaybackCacheStore get _cache =>
+      _cacheOverride ??
+      BaiduPlaybackCacheStore(_prefs ?? PrefsManager.instance);
 
   // ─────────────── 静态工具（对齐 iOS 同名函数）───────────────
 
@@ -364,17 +376,51 @@ class BaiduIBoxClient {
 
   // ─────────────── 分享上下文 + 文件列表（C1 主链）───────────────
 
-  /// 分享链接 → 全部可播放文件（对齐 iOS `baiduGetFileList`）。
+  /// 分享链接 → 全部可播放文件（对齐 iOS `baiduGetFileList`：文件列表缓存 +
+  /// 路由诊断埋点）。
   Future<List<BaiduFileItem>> getFileList({
     required String shareUrl,
     required String cookie,
-  }) async =>
-      (await extractShareMeta(
-        shareUrl: shareUrl,
-        cookie: cookie,
-        returnAll: true,
-      ))
-          .files;
+  }) async {
+    final String cacheKey = BaiduPlaybackCacheStore.fileListCacheKey(
+      shareUrl: shareUrl,
+      bduss: cookie,
+    );
+    final List<BaiduCacheFile>? cached = await _cache.cachedFileList(cacheKey);
+    if (cached != null) {
+      await _cache.recordRouteDiagnostic(
+        stage: '文件列表',
+        status: '缓存命中',
+        detail: '命中百度文件列表缓存：${cached.length} 个文件',
+      );
+      return cached
+          .map((BaiduCacheFile f) => BaiduFileItem(fsId: f.fsId, name: f.name))
+          .toList(growable: false);
+    }
+    await _cache.recordRouteDiagnostic(
+      stage: '文件列表',
+      status: 'iBox开始',
+      detail: '本机 /wap/init + verify + share页/yunData + gettemplatevariable '
+          '+ share/list(web=1)，不走 Worker',
+    );
+    final BaiduShareMeta meta = await extractShareMeta(
+      shareUrl: shareUrl,
+      cookie: cookie,
+      returnAll: true,
+    );
+    await _cache.storeFileList(
+      cacheKey,
+      meta.files
+          .map((BaiduFileItem f) => BaiduCacheFile(fsId: f.fsId, name: f.name))
+          .toList(growable: false),
+    );
+    await _cache.recordRouteDiagnostic(
+      stage: '文件列表',
+      status: 'iBox成功',
+      detail: 'share/list 返回 ${meta.files.length} 个文件',
+    );
+    return meta.files;
+  }
 
   /// 分享验证链（对齐 iOS `baiduExtractShareMeta`，C1 范围）。
   Future<BaiduShareMeta> extractShareMeta({
@@ -387,11 +433,25 @@ class BaiduIBoxClient {
       throw const BaiduIBoxException('无法识别的分享链接');
     }
     final String? pwd = extractPwd(shareUrl);
-    final String contextKey = _shareContextKey(shareUrl, cookie);
+    final String contextKey = BaiduPlaybackCacheStore.shareContextCacheKey(
+      shareUrl: shareUrl,
+      cookie: cookie,
+    );
 
     if (!returnAll) {
-      final BaiduShareMeta? cached = await _cachedContext(contextKey);
-      if (cached != null) return cached;
+      final BaiduShareContextCacheItem? cached =
+          await _cache.cachedShareContext(
+        contextKey,
+        needsRandsk: (pwd ?? '').isNotEmpty,
+      );
+      if (cached != null) {
+        await _cache.recordRouteDiagnostic(
+          stage: '分享上下文',
+          status: '缓存命中',
+          detail: '命中分享上下文缓存',
+        );
+        return _metaFromCache(cached);
+      }
     }
 
     final String shortSurl = shortSurlOf(surl);
@@ -632,9 +692,39 @@ class BaiduIBoxClient {
       files: files,
       randsk: randskForList,
     );
-    await _storeContext(contextKey, meta);
+    await _cache.storeShareContext(
+      contextKey,
+      BaiduShareContextCacheItem(
+        shareUrl: shareUrl,
+        surl: surl,
+        pwd: pwd,
+        shareid: shareid,
+        shareUk: shareUk,
+        bdstoken: bdstoken,
+        randsk: randskForList,
+        cookie: iBoxCookie,
+        files: files
+            .map((BaiduFileItem f) => BaiduCacheFile(fsId: f.fsId, name: f.name))
+            .toList(growable: false),
+        source: 'iBox',
+      ),
+    );
     return meta;
   }
+
+  /// 缓存项 → [BaiduShareMeta]。
+  static BaiduShareMeta _metaFromCache(BaiduShareContextCacheItem c) =>
+      BaiduShareMeta(
+        shareid: c.shareid,
+        shareUk: c.shareUk,
+        bdstoken: c.bdstoken ?? '',
+        surl: c.surl,
+        cookie: c.cookie,
+        files: c.files
+            .map((BaiduCacheFile f) => BaiduFileItem(fsId: f.fsId, name: f.name))
+            .toList(growable: false),
+        randsk: c.randsk ?? '',
+      );
 
   // ─────────────── 转存链 + DLNA 取链（C2 主链）───────────────
 
@@ -1061,6 +1151,55 @@ class BaiduIBoxClient {
     final String pcs = normalizePCSCookie(pcsCookie);
     final String accountCookie = mergeCookieStrings(<String>[webCookie, pcs]);
     final String pureCookie = pureAccountCookie(accountCookie);
+
+    // 主路链缓存键（对齐 iOS `baiduMainRouteCacheKey`，前缀 `main-route-v2|`）。
+    final String cacheKey = BaiduPlaybackCacheStore.mainRouteCacheKey(
+      shareUrl: shareUrl,
+      fsId: fsId,
+      bduss: bduss,
+      pcsCookie: pcsCookie,
+    );
+
+    // ① 命中主路链播放缓存 → 直接返回（对齐 iOS L5729-5733）。
+    final BaiduPersistedPlayCacheItem? cachedPlay =
+        await _cache.cachedPlayResult(cacheKey);
+    if (cachedPlay != null) {
+      await _cache.recordRouteDiagnostic(
+        stage: '主路链缓存',
+        status: '命中',
+        detail: '命中主路链 dlink 缓存',
+        fsId: fsId,
+      );
+      return BaiduPlayResult(
+        url: cachedPlay.url,
+        headers: cachedPlay.headers,
+        source: 'baidu-main-cache',
+      );
+    }
+
+    // ② iBox PlayItem 复用（dlink 命中 / path 刷新；对齐 iOS L5735-5751）。
+    final BaiduPlayResult? itemResult = await _resolveViaIBoxPlayItem(
+      cacheKey: cacheKey,
+      fsId: fsId,
+      cookie: webCookie,
+    );
+    if (itemResult != null) {
+      await _cache.storePlayResult(
+        cacheKey,
+        url: itemResult.url,
+        headers: itemResult.headers,
+      );
+      return itemResult;
+    }
+
+    await _cache.recordRouteDiagnostic(
+      stage: 'iBox主路链',
+      status: '开始',
+      detail: 'wap/init → verify → share页/yunData → gettemplatevariable → '
+          'share/list → transfer → api/list → locatedownload → 本地代理',
+      fsId: fsId,
+    );
+
     final BaiduShareMeta context = await extractShareMeta(
       shareUrl: shareUrl,
       cookie: webCookie,
@@ -1069,17 +1208,34 @@ class BaiduIBoxClient {
     // 分享页解析与 bdstoken 获取可并行（对齐 iOS [优化2]）。
     final String userBdstoken = await fetchUserBdstoken(cookie: pureCookie);
     if (userBdstoken.isEmpty) {
-      throw const BaiduIBoxException(
-        '百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录',
+      const String message = '百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录';
+      await _cache.recordRouteDiagnostic(
+        stage: '主路链',
+        status: '缺少用户态bdstoken',
+        detail: message,
+        fsId: fsId,
       );
+      throw const BaiduIBoxException(message);
     }
     final BaiduFileItem? selected = _selectFile(context.files, fsId);
     if (selected == null) {
+      await _cache.recordRouteDiagnostic(
+        stage: '主路链',
+        status: '文件未找到',
+        detail: 'fsId=$fsId 未在主路链文件列表中找到可播放视频',
+        fsId: fsId,
+      );
       throw const BaiduIBoxException('主路链未找到可播放视频');
     }
     final String mergedCookie =
         mergeCookieStrings(<String>[context.cookie, accountCookie]);
     if (mergedCookie.isEmpty) {
+      await _cache.recordRouteDiagnostic(
+        stage: '主路链',
+        status: 'Cookie缺失',
+        detail: '主路链缺少百度 Cookie',
+        fsId: fsId,
+      );
       throw const BaiduIBoxException('主路链缺少百度 Cookie');
     }
     await ensureTransferDir(
@@ -1110,22 +1266,223 @@ class BaiduIBoxClient {
         referer: shareUrl,
       );
       sourcePrefix = 'main-transfer';
+      await _cache.recordRouteDiagnostic(
+        stage: 'iBox主路链',
+        status: '转存成功',
+        detail: '转存落盘：$filePath',
+        fsId: fsId,
+        fileName: selected.name,
+      );
     }
     try {
-      return await getLocatedownload(
+      final BaiduPlayResult result = await getLocatedownload(
         filePath: filePath,
         cookie: mergedCookie,
         source: '$sourcePrefix-locatedownload',
         enableFastestNode: true,
       );
+      await _storeMainRouteSuccess(
+        cacheKey: cacheKey,
+        shareUrl: shareUrl,
+        fsId: selected.fsId,
+        fileName: selected.name,
+        path: filePath,
+        result: result,
+        source: '$sourcePrefix-locatedownload',
+      );
+      return result;
     } on BaiduIBoxException {
+      await _cache.recordRouteDiagnostic(
+        stage: 'iBox主路链',
+        status: 'locatedownload失败',
+        detail: 'locatedownload 失败，转 mediainfo 兜底',
+        fsId: fsId,
+        fileName: selected.name,
+      );
       // locatedownload 失败 → mediainfo dlink 兜底（对齐 iOS）。
-      return getDLNADlink(
-        filePath: filePath,
-        cookie: mergedCookie,
-        source: '$sourcePrefix-mediainfo-fallback',
+      try {
+        final BaiduPlayResult result = await getDLNADlink(
+          filePath: filePath,
+          cookie: mergedCookie,
+          source: '$sourcePrefix-mediainfo-fallback',
+        );
+        await _storeMainRouteSuccess(
+          cacheKey: cacheKey,
+          shareUrl: shareUrl,
+          fsId: selected.fsId,
+          fileName: selected.name,
+          path: filePath,
+          result: result,
+          source: '$sourcePrefix-mediainfo-fallback',
+        );
+        return result;
+      } on BaiduIBoxException catch (e) {
+        await _cache.recordRouteDiagnostic(
+          stage: 'iBox主路链',
+          status: '失败',
+          detail: '$e',
+          fsId: fsId,
+          fileName: selected.name,
+        );
+        rethrow;
+      }
+    }
+  }
+
+  /// 主路链成功落缓存（播放结果 + iBox PlayItem，对齐 iOS L5865-5890）。
+  Future<void> _storeMainRouteSuccess({
+    required String cacheKey,
+    required String shareUrl,
+    required String fsId,
+    required String fileName,
+    required String path,
+    required BaiduPlayResult result,
+    required String source,
+    DateTime? now,
+  }) async {
+    final DateTime ts = now ?? DateTime.now();
+    await _cache.storePlayResult(
+      cacheKey,
+      url: result.url,
+      headers: result.headers,
+      now: ts,
+    );
+    await _cache.storeIBoxPlayItem(
+      cacheKey,
+      BaiduIBoxPlayItem(
+        shareUrl: shareUrl,
+        fsId: fsId,
+        fileName: fileName,
+        path: path,
+        dlinkUrl: result.url,
+        headers: result.headers,
+        dlinkExpiresAt: ts.add(BaiduPlaybackCacheStore.iboxDlinkTtl),
+        preparedAt: ts,
+        updatedAt: ts,
+        lastUsedAt: ts,
+        source: source,
+      ),
+    );
+    await _cache.recordRouteDiagnostic(
+      stage: 'iBox主路链',
+      status: '成功',
+      detail: '取链成功：$path',
+      fsId: fsId,
+      fileName: fileName,
+    );
+  }
+
+  /// iBox PlayItem 复用（对齐 iOS `baiduResolveViaIBoxPlayItem`）：
+  /// dlink 未过期（> now+5min）直接用；否则用 path 刷新（locatedownload →
+  /// mediainfo 兜底）；均失败返回 null 交由主路链重跑。
+  Future<BaiduPlayResult?> _resolveViaIBoxPlayItem({
+    required String cacheKey,
+    required String fsId,
+    required String cookie,
+    DateTime? now,
+  }) async {
+    final BaiduIBoxPlayItem? item = await _cache.cachedIBoxPlayItem(cacheKey);
+    if (item == null) return null;
+    final DateTime ts = now ?? DateTime.now();
+    final String dlink = item.dlinkUrl ?? '';
+    final DateTime? exp = item.dlinkExpiresAt;
+    if (exp != null &&
+        exp.isAfter(ts.add(const Duration(minutes: 5))) &&
+        dlink.isNotEmpty) {
+      await _cache.recordRouteDiagnostic(
+        stage: 'iBox',
+        status: 'dlink命中',
+        detail: '命中已准备 dlink，source=${item.source}',
+        fsId: fsId,
+        fileName: item.fileName,
+      );
+      await _cache.storeIBoxPlayItem(
+        cacheKey,
+        item.copyWith(updatedAt: ts, lastUsedAt: ts),
+      );
+      return BaiduPlayResult(
+        url: dlink,
+        headers: item.headers,
+        source: 'baidu-main-playitem',
       );
     }
+
+    if (item.path.isEmpty) return null;
+    await _cache.recordRouteDiagnostic(
+      stage: 'iBox',
+      status: 'path刷新',
+      detail: 'dlink 过期/缺失，使用 path 刷新：${item.path}',
+      fsId: fsId,
+      fileName: item.fileName,
+    );
+    final String itemCookie = item.headers.entries
+        .firstWhere(
+          (MapEntry<String, String> e) => e.key.toLowerCase() == 'cookie',
+          orElse: () => const MapEntry<String, String>('', ''),
+        )
+        .value;
+    final String mergedCookie = mergeCookieStrings(<String>[itemCookie, cookie]);
+    if (mergedCookie.isEmpty) {
+      await _cache.recordRouteDiagnostic(
+        stage: 'iBox',
+        status: 'Cookie缺失',
+        detail: 'path 刷新缺少 Cookie，转入 iBox 主路链重新验证/转存',
+        fsId: fsId,
+        fileName: item.fileName,
+      );
+      return null;
+    }
+
+    Future<BaiduPlayResult?> refresh(Future<BaiduPlayResult> Function() fetch) async {
+      try {
+        final BaiduPlayResult refreshed = await fetch();
+        await _cache.storeIBoxPlayItem(
+          cacheKey,
+          item.copyWith(
+            dlinkUrl: () => refreshed.url,
+            headers: refreshed.headers,
+            dlinkExpiresAt: () => ts.add(BaiduPlaybackCacheStore.iboxDlinkTtl),
+            updatedAt: ts,
+            lastUsedAt: ts,
+            source: 'ibox-path-refresh',
+          ),
+        );
+        await _cache.recordRouteDiagnostic(
+          stage: 'iBox',
+          status: 'path刷新成功',
+          detail: 'path 刷新完成：${item.path}',
+          fsId: fsId,
+          fileName: item.fileName,
+        );
+        return refreshed;
+      } on BaiduIBoxException {
+        return null;
+      }
+    }
+
+    final BaiduPlayResult? located = await refresh(() => getLocatedownload(
+          filePath: item.path,
+          cookie: mergedCookie,
+          source: 'ibox-path-refresh',
+          enableFastestNode: true,
+        ));
+    if (located != null) return located;
+
+    final BaiduPlayResult? dlna = await refresh(() => getDLNADlink(
+          filePath: item.path,
+          cookie: mergedCookie,
+          source: 'ibox-mediainfo-fallback',
+        ));
+    if (dlna != null) return dlna;
+
+    await _cache.recordRouteDiagnostic(
+      stage: 'iBox',
+      status: 'mediainfo失败',
+      detail: 'path 刷新 locatedownload/mediainfo 均失败：${item.path}',
+      fsId: fsId,
+      fileName: item.fileName,
+    );
+    return null;
   }
 
   // ─────────────── 内部：HTTP ───────────────
@@ -1585,84 +1942,11 @@ class BaiduIBoxClient {
     );
   }
 
-  // ─────────────── 内部：缓存 ───────────────
-
-  String _shareContextKey(String shareUrl, String cookie) =>
-      '$shareUrl|${crypto.sha256.convert(utf8.encode(cookie)).toString().substring(0, 16)}';
-
-  Future<BaiduShareMeta?> _cachedContext(String key) async {
-    try {
-      final PrefsManager p = _prefs ?? PrefsManager.instance;
-      final String raw = await p.getString(shareContextCacheKey);
-      if (raw.isEmpty) return null;
-      final Object? decoded = jsonDecode(raw);
-      if (decoded is! Map) return null;
-      final Object? entry = decoded[key];
-      if (entry is! Map) return null;
-      final Map<String, Object?> e = entry.cast<String, Object?>();
-      final int exp = (e['expiresAt'] as num?)?.toInt() ?? 0;
-      if (exp <= DateTime.now().millisecondsSinceEpoch) return null;
-      final Object? filesRaw = e['files'];
-      final List<BaiduFileItem> files = filesRaw is List
-          ? filesRaw
-              .whereType<Map<Object?, Object?>>()
-              .map((Map<Object?, Object?> m) => BaiduFileItem(
-                    fsId: _asString(m['fsId']) ?? '',
-                    name: _asString(m['name']) ?? '',
-                  ))
-              .where((BaiduFileItem f) => f.fsId.isNotEmpty)
-              .toList(growable: false)
-          : const <BaiduFileItem>[];
-      if (files.isEmpty) return null;
-      return BaiduShareMeta(
-        shareid: _asString(e['shareid']) ?? '',
-        shareUk: _asString(e['shareUk']) ?? '',
-        bdstoken: _asString(e['bdstoken']) ?? '',
-        surl: _asString(e['surl']) ?? '',
-        cookie: _asString(e['cookie']) ?? '',
-        files: files,
-        randsk: _asString(e['randsk']) ?? '',
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> _storeContext(String key, BaiduShareMeta meta) async {
-    try {
-      final PrefsManager p = _prefs ?? PrefsManager.instance;
-      final String raw = await p.getString(shareContextCacheKey);
-      Map<String, Object?> cache = <String, Object?>{};
-      if (raw.isNotEmpty) {
-        final Object? decoded = jsonDecode(raw);
-        if (decoded is Map) cache = decoded.cast<String, Object?>();
-      }
-      final int now = DateTime.now().millisecondsSinceEpoch;
-      cache[key] = <String, Object?>{
-        'shareid': meta.shareid,
-        'shareUk': meta.shareUk,
-        'bdstoken': meta.bdstoken,
-        'surl': meta.surl,
-        'cookie': meta.cookie,
-        'randsk': meta.randsk,
-        'files': meta.files
-            .map((BaiduFileItem f) =>
-                <String, Object?>{'fsId': f.fsId, 'name': f.name})
-            .toList(growable: false),
-        'createdAt': now,
-        'expiresAt': now + shareContextTtl.inMilliseconds,
-      };
-      // 过期裁剪。
-      cache.removeWhere((String _, Object? v) {
-        final Map<String, Object?>? m =
-            v is Map ? v.cast<String, Object?>() : null;
-        return ((m?['expiresAt'] as num?)?.toInt() ?? 0) <= now;
-      });
-      await p.set(shareContextCacheKey, jsonEncode(cache));
-    } catch (_) {
-      // 落盘失败不阻断（下次重抓）。
-    }
-  }
+  // 分享上下文缓存读写已统一并入 [BaiduPlaybackCacheStore]（批次 E · E5-5），
+  // 对齐 iOS `CloudDriveManager` 的 `baiduCachedShareContext` /
+  // `baiduStoreShareContext`（TTL 8h、上限 60、bdstoken/randsk 完整性校验）；
+  // 键派生改用 `BaiduPlaybackCacheStore.shareContextCacheKey`（FNV-1a，对齐
+  // iOS `baiduShareContextKey`）。
 
   // ─────────────── JSON 助手 ───────────────
 
