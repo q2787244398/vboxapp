@@ -95,7 +95,7 @@ void main() {
     expect(find.text('8.5 · 国产 · 12:34'), findsOneWidget);
   });
 
-  testWidgets('短视频 Tab：mini 短视频网格 + 作者名', (WidgetTester tester) async {
+  testWidgets('短视频 Tab：黑底入口页 +「开始浏览」按钮', (WidgetTester tester) async {
     final BananaXjspFuliService service = _service(<String, String>{
       '/minivod/reqlist': _miniJson,
       _categoriesPath: _categoriesJson,
@@ -107,7 +107,8 @@ void main() {
     await tester.tap(find.text('短视频'));
     await tester.pumpAndSettle();
 
-    expect(find.text('短视频一'), findsOneWidget);
+    // 对齐 iOS `YBoxBananaShortVideoTab` 入口态。
+    expect(find.text('开始浏览'), findsOneWidget);
   });
 
   testWidgets('演员 Tab：双列网格 +「N部」角标', (WidgetTester tester) async {

@@ -10,6 +10,7 @@ library;
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vbox/domain/entities/welfare/banana_mini_video.dart';
 import 'package:vbox/domain/entities/welfare/fuli_models.dart';
 import 'package:vbox/domain/services/banana_xjsp_service.dart';
 import 'package:vbox/platform/spider/spider_http_bridge.dart';
@@ -200,7 +201,7 @@ void main() {
     expect(result.hasMore, isTrue);
   });
 
-  test('短视频列表：vodrow + user 解析 + mini: 前缀', () async {
+  test('短视频列表：vodrow + user 解析（裸 vodId，作者昵称 / 头像）', () async {
     final BananaXjspFuliService service = BananaXjspFuliService(
       bridge: _bridge(<String, String>{
         '/minivod/reqlist': _miniJson,
@@ -208,15 +209,17 @@ void main() {
       }),
     );
 
-    final List<FuliVideo> videos =
+    final List<BananaMiniVideo> videos =
         await service.fetchMiniVideos(page: 1);
 
     expect(videos, hasLength(2));
-    expect(videos.first.vodId, '${BananaXjspFuliService.miniVodPrefix}mv1');
-    expect(videos.first.vodName, '短视频一');
-    expect(videos.first.vodRemarks, '作者甲');
+    expect(videos.first.vodId, 'mv1');
+    expect(videos.first.title, '短视频一');
+    expect(videos.first.userName, '作者甲');
+    // 端点由 mini: 前缀在播放链路补足（服务返回裸 id）。
+    expect(BananaXjspFuliService.miniVodPrefix, 'mini:');
     // 无 vodrow 包装时回落到行本身。
-    expect(videos[1].vodName, '短视频二');
+    expect(videos[1].title, '短视频二');
   });
 
   test('演员导航：actorrows → BananaXjspSpecial', () async {

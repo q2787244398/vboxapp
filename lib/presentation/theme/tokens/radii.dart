@@ -43,6 +43,11 @@ class VboxRadii {
   /// 仅约束常规圆角，胶囊属形状语义而非档位采样）。
   static const double capsule = 40;
 
+  /// 1.5 · 细进度条圆角（对齐 iOS 香蕉秀短视频 3pt 进度条，专属）。
+  ///
+  /// 语义等同「圆角 = 条高一半」；非档位采样值，不进 [scale]（同 [capsule]）。
+  static const double progressBar = 1.5;
+
   /// 全部圆角档位（升序；供守卫 R-2 白名单与单测断言）。
   static const List<double> scale = <double>[r4, r6, r8, r10, r12, r14, r16, r20];
 

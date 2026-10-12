@@ -47,6 +47,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../../platform/spider/spider_http_bridge.dart';
+import '../entities/welfare/banana_mini_video.dart';
 import '../entities/welfare/fuli_models.dart';
 import 'native_fuli_services.dart';
 
@@ -274,15 +275,18 @@ class BananaXjspFuliService extends ProbedFuliService {
   }
 
   /// 短视频列表（`GET /minivod/reqlist?page={page}`，10 条/页）。
-  Future<List<FuliVideo>> fetchMiniVideos({required int page}) async {
+  ///
+  /// 返回对齐 iOS `YBoxBananaMiniVideo` 的 [BananaMiniVideo]（含作者昵称 / 头像）；
+  /// 播放端点由调用方以 [miniVodPrefix] 前缀在 `vodId` 上补足。
+  Future<List<BananaMiniVideo>> fetchMiniVideos({required int page}) async {
     await ensureHostReady();
     final Map<String, Object?>? json = await _getJson(
       '/minivod/reqlist',
       query: <String, String>{'page': '$page'},
     );
     return _rowsOf(json, 'rows')
-        .map((Map<String, Object?> row) => _parseMiniVideo(row))
-        .whereType<FuliVideo>()
+        .map(_parseMiniVideo)
+        .whereType<BananaMiniVideo>()
         .toList(growable: false);
   }
 
@@ -471,8 +475,9 @@ class BananaXjspFuliService extends ProbedFuliService {
 
   /// 短视频条目（对齐 iOS `fetchBananaMiniVideos` L420-L436）。
   ///
-  /// `vodrow` 内嵌视频体、`user` 内嵌作者；`mini:` 前缀标记短视频端点。
-  FuliVideo? _parseMiniVideo(Map<String, Object?> row) {
+  /// `vodrow` 内嵌视频体、`user` 内嵌作者（字段名 `user` 而非 `userinfo`）。
+  /// 返回裸 `vodId`（端点由 [miniVodPrefix] 前缀在播放链路补足）。
+  BananaMiniVideo? _parseMiniVideo(Map<String, Object?> row) {
     final Object? vodRaw = row['vodrow'];
     final Map<String, Object?> vod =
         vodRaw is Map<String, Object?> ? vodRaw : row;
@@ -486,12 +491,14 @@ class BananaXjspFuliService extends ProbedFuliService {
     final String? preview = _strOf(vod['preview_url']);
     if (preview != null && preview.isNotEmpty) previewUrls[vodId] = preview;
 
-    return FuliVideo(
-      vodId: '$miniVodPrefix$vodId',
-      vodName: _strOf(vod['title']) ?? _strOf(vod['vodname']) ?? '',
-      vodPic: _strOf(vod['coverpic']) ?? _strOf(vod['vodpic']) ?? '',
+    return BananaMiniVideo(
+      vodId: vodId,
+      title: _strOf(vod['title']) ?? _strOf(vod['vodname']) ?? '',
+      cover: _strOf(vod['coverpic']) ?? _strOf(vod['vodpic']) ?? '',
+      videoUrl: _strOf(vod['play_url']) ?? _strOf(vod['vodPlayUrl']),
       duration: _strOf(vod['duration']),
-      vodRemarks: _strOf(user['nickname']) ?? _strOf(user['name']),
+      userName: _strOf(user['nickname']) ?? _strOf(user['name']) ?? '',
+      userAvatar: _strOf(user['avatar']) ?? _strOf(user['headimg']) ?? '',
     );
   }
 

@@ -5,6 +5,7 @@
 /// `vbox/Models/FuliPlatformKit.swift`。
 library;
 
+export 'banana_mini_video.dart';
 export 'fuli_models.dart';
 export 'welfare_isolation.dart';
 export 'welfare_platform_config.dart';

@@ -2,7 +2,8 @@
 ///
 /// 对齐 iOS `ShortDramaView` / `ShortDramaService`：自动扫描所有 VOD 源中的
 /// 短剧分类（分类名命中关键词）→ 顶部源标签滚动条切源 → 三列海报网格；点击
-/// 卡片 push 详情页（`DetailPage`，D-05 扩展）。
+/// 卡片 push **短剧详情专页** `ShortDramaDetailPage`（对齐 iOS `ShortDramaView`
+/// L140-142 的 `.sheet(item:) { ShortDramaDetailView(drama: drama) }`，传整条 `VodItem`）。
 ///
 /// 数据通路：`ContentBrowseUseCases.listSites` / `categories` / `categoryContent`
 /// / `searchContent`（模式分流 CMS / Spider 在用例层完成）。
@@ -21,10 +22,10 @@ import '../../theme/tokens/typography.dart';
 import '../../widgets/fall_in_card.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/adaptive/responsive_grid.dart';
-import '../../widgets/detail_page.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/skeleton_shimmer.dart';
 import '../../widgets/vbox/vbox.dart';
+import 'short_drama_detail_page.dart';
 
 /// 短剧分类关键词（对齐 iOS `ShortDramaService.dramaKeywords`）。
 const List<String> kShortDramaKeywords = <String>[
@@ -45,6 +46,7 @@ class ShortDramaSource {
     required this.siteKey,
     required this.categoryId,
     required this.categoryName,
+    this.engineKey,
   });
 
   /// 唯一标识。
@@ -61,6 +63,10 @@ class ShortDramaSource {
 
   /// 分类名。
   final String categoryName;
+
+  /// 蜘蛛引擎 key（对齐 iOS `ShortDramaSource.engineKey`：蜘蛛源 = 站点 key，
+  /// API / 站源为 null）；供详情专页按 engineKey 重排源列表使用。
+  final String? engineKey;
 
   /// 展示名（对齐 iOS：`name(categoryName)`）。
   String get displayName => '$name($categoryName)';
@@ -179,12 +185,21 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
         if (!looksLikeShortDramaCategory(cat.typeName)) continue;
         final String id = '${site.key}_${cat.typeId}';
         if (!seenIds.add(id)) continue;
+        // 引擎 key：蜘蛛源（node / JS / Python）= 站点 key，API / 站源为 null
+        // （对齐 iOS `ShortDramaService`：`engineKey = site.key`，API 源为 nil）。
+        final SiteMode mode = site.resolveSiteMode();
+        final String? engineKey = mode == SiteMode.node ||
+                mode == SiteMode.jsSpider ||
+                mode == SiteMode.pythonSpider
+            ? site.key
+            : null;
         final ShortDramaSource source = ShortDramaSource(
           id: id,
           name: site.name.isEmpty ? site.key : site.name,
           siteKey: site.key,
           categoryId: cat.typeId,
           categoryName: cat.typeName,
+          engineKey: engineKey,
         );
         if (!mounted) return;
         // 命中即上屏：立即追加源标签；首个命中的源不等其它站点，
@@ -322,15 +337,13 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
 
   // ─────────────── 明细跳转 ───────────────
 
+  /// 打开短剧详情专页（对齐 iOS `ShortDramaView` L140-142：传整条 `VodItem` +
+  /// 短剧源列表）。iOS 用 sheet 模态，Flutter 以 push 整页承载（语义等价）。
   void _openDetail(VodItem vod) {
-    final ShortDramaSource? source = _selectedSource;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => DetailPage(
-          siteKey: source?.siteKey ?? '',
-          vodId: vod.vodId,
-          title: vod.vodName,
-        ),
+        builder: (BuildContext context) =>
+            ShortDramaDetailPage(drama: vod, sources: _sources),
       ),
     );
   }

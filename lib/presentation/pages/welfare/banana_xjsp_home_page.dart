@@ -25,10 +25,9 @@
 /// 现取 `reqplay` 地址 → 全屏播放页），与每日大乱斗 / 今日看料同口径。
 ///
 /// 与 iOS 的差异（如实登记）：
-///   · **短视频 Tab**：iOS 为「入口页 → 竖屏全屏滑动播放器」（上下滑切换、
-///     预加载、失败自动跳过、进度条 + 倍速）；Flutter 本页实现为
-///     **2 列短视频网格 + 点击进播放中转页**，未复刻内嵌全屏滑动播放器 ——
-///     浏览与播放功能可用，交互形式不同；
+///   · **短视频 Tab**：对齐 iOS 形态 —— 黑底入口页（「短视频」+「开始浏览」）→
+///     push 全屏竖屏播放器 [BananaShortPlayerPage]（上下滑切换 / 预加载 /
+///     失败自动跳过 / 只读进度条 + 倍速）；播放器自身与 iOS 的差异详见该文件头；
 ///   · iOS 顶部 Tab 用 `TabView(.page)`，Flutter 用 `PageView`（等价：可左右
 ///     滑动 + 指示条联动）；
 ///   · 无限滚动触发：iOS 按末 4 项 `onAppear`，Flutter 用滚动接近底部触发
@@ -44,6 +43,7 @@ import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
+import 'banana_short_player_page.dart';
 import 'welfare_video_bridge_page.dart';
 
 /// 香蕉秀 XJSP 原生专用页（首页 / 短视频 / 演员 三 Tab）。
@@ -395,29 +395,177 @@ class _BananaHomeTabState extends State<_BananaHomeTab> {
 
 // ─────────────── 短视频 Tab ───────────────
 
-/// 短视频 Tab（对齐 iOS `YBoxBananaShortVideoTab` 的数据源，布局改为网格）。
-class _BananaMiniTab extends StatelessWidget {
+/// 短视频 Tab（对齐 iOS `YBoxBananaShortVideoTab`：黑底入口页 → 全屏竖屏播放器）。
+class _BananaMiniTab extends StatefulWidget {
   const _BananaMiniTab({required this.service});
 
   final BananaXjspFuliService service;
 
-  void _openVideo(BuildContext context, FuliVideo video) {
+  @override
+  State<_BananaMiniTab> createState() => _BananaMiniTabState();
+}
+
+class _BananaMiniTabState extends State<_BananaMiniTab> {
+  bool _isChecking = true;
+  String? _apiError;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAPI();
+  }
+
+  /// 探测短视频 API 是否可用（对齐 iOS `checkAPI`：结果为空 → 错误态）。
+  Future<void> _checkAPI() async {
+    setState(() {
+      _isChecking = true;
+      _apiError = null;
+    });
+    final List<BananaMiniVideo> list =
+        await widget.service.fetchMiniVideos(page: 1);
+    if (!mounted) return;
+    setState(() {
+      _isChecking = false;
+      if (list.isEmpty) _apiError = '暂无短视频数据';
+    });
+  }
+
+  void _openPlayer() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
+        fullscreenDialog: true,
         builder: (BuildContext context) =>
-            WelfareVideoBridgePage(service: service, video: video),
+            BananaShortPlayerPage(service: widget.service),
       ),
     );
   }
 
   @override
-  Widget build(BuildContext context) => _BananaPagedGrid(
-        loader: (int page) => service.fetchMiniVideos(page: page),
-        // 对齐 iOS `hasMore = result.count >= 10`。
-        pageSize: 10,
-        emptyText: '暂无短视频数据',
-        onVideoTap: (FuliVideo video) => _openVideo(context, video),
-      );
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return ColoredBox(
+      color: Colors.black,
+      child: _isChecking
+          ? _loadingView()
+          : (_apiError != null ? _errorView(scheme) : _entryView(scheme)),
+    );
+  }
+
+  /// 加载中（对齐 iOS：白色转圈 + 「加载中...」）。
+  Widget _loadingView() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const SizedBox(
+            width: 32,
+            height: 32,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ),
+          const SizedBox(height: VboxSpacing.lg),
+          Text(
+            '加载中...',
+            // iOS 默认 body(~17) → 就近档位 s16。
+            style: TextStyle(
+              fontSize: VboxTypography.s16,
+              color: Colors.white.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 错误态（对齐 iOS：天线斜杠(50) + 文案 15 + 「重试」）。
+  Widget _errorView(ColorScheme scheme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(VboxSpacing.xl),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Icon(Icons.podcasts, size: 50, color: scheme.onSurfaceVariant),
+            const SizedBox(height: VboxSpacing.lg),
+            Text(
+              _apiError!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: VboxTypography.s15,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: VboxSpacing.lg),
+            TextButton.icon(
+              onPressed: _checkAPI,
+              icon: const Icon(Icons.refresh, size: VboxTypography.s16),
+              label: const Text('重试', style: TextStyle(fontSize: VboxTypography.s14)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 入口（对齐 iOS：`play.rectangle.on.rectangle`(50) + 「短视频」(20 semibold)
+  /// + 「开始浏览」按钮（`play.fill` + 16 medium，h40/v12，主色底，圆角 25））。
+  Widget _entryView(ColorScheme scheme) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Icon(
+            Icons.play_circle_outline,
+            size: 50,
+            color: Colors.white.withValues(alpha: 0.6),
+          ),
+          const SizedBox(height: VboxSpacing.lg),
+          const Text(
+            '短视频',
+            style: TextStyle(
+              // iOS 20 semibold → 就近档位 s18。
+              fontSize: VboxTypography.s18,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: VboxSpacing.xl),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _openPlayer,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 40,
+                vertical: VboxSpacing.md,
+              ),
+              decoration: BoxDecoration(
+                color: scheme.primary,
+                // iOS `cornerRadius(25)`（胶囊）→ 令牌 capsule。
+                borderRadius: BorderRadius.circular(VboxRadii.capsule),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(Icons.play_arrow, size: 18, color: Colors.white),
+                  SizedBox(width: VboxSpacing.sm),
+                  Text(
+                    '开始浏览',
+                    style: TextStyle(
+                      fontSize: VboxTypography.s16,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ─────────────── 演员 Tab ───────────────
