@@ -116,16 +116,26 @@ void FloatingPlugin::HandleMethodCall(
     const uint8_t* png = nullptr;
     size_t size = 0;
     if (args != nullptr) {
-      if (const auto* w = std::get_if<double>(&args->at(std::string("width")))) {
-        width = *w;
+      // EncodableMap::at 在缺键时抛 std::out_of_range（Dart 侧始终传参，
+      // 但用 find 兜底避免异常穿透到平台线程）。
+      const auto w_it = args->find(flutter::EncodableValue("width"));
+      if (w_it != args->end()) {
+        if (const auto* w = std::get_if<double>(&w_it->second)) {
+          width = *w;
+        }
       }
-      if (const auto* h = std::get_if<double>(&args->at(std::string("height")))) {
-        height = *h;
+      const auto h_it = args->find(flutter::EncodableValue("height"));
+      if (h_it != args->end()) {
+        if (const auto* h = std::get_if<double>(&h_it->second)) {
+          height = *h;
+        }
       }
-      if (const auto* bytes =
-              std::get_if<flutter::EncodableValue>(
-                  &args->at(std::string("bytes")))) {
-        if (const auto* vector = std::get_if<std::vector<uint8_t>>(bytes)) {
+      const auto b_it = args->find(flutter::EncodableValue("bytes"));
+      if (b_it != args->end()) {
+        // 注意：EncodableValue 是包装类型（非 variant 备选项），
+        // 直接取 vector<uint8_t>，不可 get_if<EncodableValue>。
+        if (const auto* vector =
+                std::get_if<std::vector<uint8_t>>(&b_it->second)) {
           png = vector->data();
           size = vector->size();
         }
@@ -138,9 +148,12 @@ void FloatingPlugin::HandleMethodCall(
   if (call.method_name() == "update") {
     const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
     if (args != nullptr) {
-      if (const auto* vector = std::get_if<std::vector<uint8_t>>(
-              &args->at(std::string("bytes")))) {
-        UpdateSnapshot(vector->data(), vector->size());
+      const auto b_it = args->find(flutter::EncodableValue("bytes"));
+      if (b_it != args->end()) {
+        if (const auto* vector =
+                std::get_if<std::vector<uint8_t>>(&b_it->second)) {
+          UpdateSnapshot(vector->data(), vector->size());
+        }
       }
     }
     result->Success(flutter::EncodableValue(nullptr));
