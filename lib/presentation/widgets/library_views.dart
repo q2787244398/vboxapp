@@ -13,8 +13,10 @@ import '../../core/utils/result.dart';
 import '../../core/utils/time_utils.dart';
 import '../../domain/entities/library/library.dart';
 import '../../domain/usecases/usecases.dart';
+import '../welfare/welfare_controller.dart';
 import '../welfare/welfare_replay_bridge.dart';
 import 'detail_page.dart';
+import 'platform_async_image.dart';
 
 /// 收藏 Tab（直连 [FavoriteUseCases]）。
 class FavoritesView extends StatefulWidget {
@@ -232,79 +234,150 @@ class _HistoryViewState extends State<HistoryView> {
     if (error != null) {
       return _ErrorRetry(message: '$error', onRetry: _load);
     }
-    final List<HistoryItem> items = _items ?? const <HistoryItem>[];
+    // 福利总开关关闭时过滤 [福利] 记录（对齐 iOS `WatchHistoryView.onAppear`）。
+    final bool welfareEnabled = context.watch<WelfareController>().enabled;
+    final List<HistoryItem> items = (_items ?? const <HistoryItem>[])
+        .where((HistoryItem i) => welfareEnabled || !i.laiyuan.startsWith('[福利]'))
+        .toList(growable: false);
     if (items.isEmpty) {
-      return const _EmptyHint(text: '暂无播放历史\n看完的片子会出现在这里');
+      // 对齐 iOS 空态：「暂无观看记录」14pt 灰。
+      return Center(
+        child: Text(
+          '暂无观看记录',
+          style: TextStyle(
+            fontSize: 14,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+        ),
+      );
     }
-    return ListView.separated(
+    // 对齐 iOS `WatchHistoryView`（ProfileView L1210）：
+    //   · 行 = 封面 60×80 圆角 6 + 名称 15pt medium + 来源 12pt 灰 + 绝对日期
+    //     11pt 灰（`yyyy-MM-dd HH:mm`）——无进度条 / 无集数；
+    //   · 删除 = 左滑（iOS swipeActions trailing destructive），行尾无按钮；
+    //   · 清空 = 顶部右侧主色文字按钮（iOS 在导航栏 trailing，Flutter 该视图
+    //     为嵌入 body，以列表首行右侧按钮等价承接）。
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 4),
       itemCount: items.length + 1,
-      separatorBuilder: (BuildContext context, int index) =>
-          const Divider(height: 1),
       itemBuilder: (BuildContext context, int index) {
         if (index == 0) {
           return Align(
             alignment: Alignment.centerRight,
-            child: TextButton.icon(
+            child: TextButton(
               onPressed: _clearAll,
-              icon: const Icon(Icons.delete_sweep_outlined, size: 18),
-              label: const Text('清空'),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+              child: const Text('清空'),
             ),
           );
         }
         final HistoryItem item = items[index - 1];
-        final int percent = (item.clampedProgress * 100).round();
-        return ListTile(
-          leading: const Icon(Icons.history),
-          title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              const SizedBox(height: 4),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(2),
-                child: LinearProgressIndicator(
-                  value: item.clampedProgress,
-                  minHeight: 4,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '第 ${item.jishu} 集 · $percent%'
-                ' · ${TimeUtils.relative(TimeUtils.fromUnixSeconds(item.lastPlayedAt))}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+        return Dismissible(
+          key: ValueKey<int>(item.id ?? item.hashCode),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            color: Colors.red,
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 24),
+            child: const Icon(Icons.delete_outline, color: Colors.white),
           ),
-          isThreeLine: true,
-          trailing: IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: '移除',
-            onPressed: () => _remove(item),
-          ),
-          onTap: () {
-            // W-福2：福利记录分流到「福利重播桥」；其余续播入口接线
-            // （进入详情页并定位到历史剧集）。
-            if (isWelfareReplayRecord(
-              laiyuan: item.laiyuan,
-              detailua: item.detailua,
-            )) {
-              unawaited(_openWelfare(item));
-              return;
-            }
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (BuildContext context) => DetailPage(
-                  siteKey: item.laiyuan,
-                  vodId: item.detailurl,
-                  initialIndex: item.jishu,
-                  title: item.name,
-                ),
+          onDismissed: (_) => _remove(item),
+          child: InkWell(
+            onTap: () => _openRecord(item),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: <Widget>[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: SizedBox(
+                      width: 60,
+                      height: 80,
+                      child: item.imgurl.isEmpty
+                          ? ColoredBox(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
+                              child: const Icon(Icons.movie_outlined),
+                            )
+                          : PlatformAsyncImage(
+                              url: item.imgurl,
+                              fit: BoxFit.cover,
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          item.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        if (item.laiyuan.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 4),
+                          Text(
+                            item.laiyuan,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color:
+                                  Theme.of(context).colorScheme.outline,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 4),
+                        Text(
+                          TimeUtils.formatUnixSeconds(
+                            item.lastPlayedAt,
+                            pattern: 'yyyy-MM-dd HH:mm',
+                          ),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
         );
       },
+    );
+  }
+
+  /// 打开记录（福利分流 + 续播入口，与 iOS `onTapGesture` 分流一致）。
+  void _openRecord(HistoryItem item) {
+    if (isWelfareReplayRecord(
+      laiyuan: item.laiyuan,
+      detailua: item.detailua,
+    )) {
+      unawaited(_openWelfare(item));
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => DetailPage(
+          siteKey: item.laiyuan,
+          vodId: item.detailurl,
+          initialIndex: item.jishu,
+          title: item.name,
+        ),
+      ),
     );
   }
 

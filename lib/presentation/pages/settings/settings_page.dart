@@ -10,7 +10,8 @@
 ///
 /// **落地范围（如实登记）**：本轮落地「皮肤（B4 组件 + 跟随系统）」「显示模式（I-04）」
 /// 「播放设置」「切片资源（Wave D）」「站源管理（Wave D）」「TG 搜索」「订阅配置」
-/// 「工具入口（书架 / 远程源 / 网盘管理；备份还原仅在个人中心登录态，对齐 iOS）」
+/// 「工具入口（远程源 / 网盘管理；书架已按 iOS 移除；备份还原仅在个人中心
+/// 登录态，对齐 iOS）」
 /// 「TMDB（G-06）」「存储管理」「日志调试」「关于」十三个分区；
 /// iOS 侧其余域分区（福利 / 账号等）在 Flutter 侧对应域功能尚未实现。
 library;
@@ -34,7 +35,6 @@ import '../../../platform/update/update.dart';
 import '../../phone/remote_source_page.dart';
 import '../../theme/theme.dart';
 import '../../ui_mode/ui_mode.dart';
-import '../../widgets/library_views.dart';
 import '../../widgets/log_viewer_page.dart';
 import '../../widgets/settings/remote_default_source_section.dart';
 import '../../widgets/update/update_sheet.dart';
@@ -477,11 +477,6 @@ class _SettingsPageState extends State<SettingsPage> {
       title: '工具',
       children: <Widget>[
         VboxSettingsRow.navigation(
-          title: '书架',
-          icon: Icons.menu_book,
-          onTap: () => _push(_bookshelf()),
-        ),
-        VboxSettingsRow.navigation(
           title: '远程源',
           icon: Icons.cloud_sync,
           onTap: () => _push(const RemoteSourcePage()),
@@ -654,29 +649,9 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) VboxToast.show(context, '已切换为「${selected.title}」');
   }
 
-  /// 书架（收藏 / 历史双 Tab；承接自底栏迁出的入口）。
-  Widget _bookshelf() {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('书架'),
-          bottom: const TabBar(
-            tabs: <Widget>[
-              Tab(text: '收藏'),
-              Tab(text: '历史'),
-            ],
-          ),
-        ),
-        body: const TabBarView(
-          children: <Widget>[
-            FavoritesView(),
-            HistoryView(),
-          ],
-        ),
-      ),
-    );
-  }
+  /// 书架页已按 iOS 真相源移除：iOS 设置页无「书架」入口（观看记录的唯一
+  /// 入口在个人中心「历史记录」/「我的收藏」，Flutter 侧 `ProfilePage` /
+  /// `HomePage` 已同款接入 `HistoryView` / `FavoritesView`）。
 
   void _push(Widget page) {
     Navigator.of(context).push(

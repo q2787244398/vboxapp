@@ -91,9 +91,10 @@ void main() {
     await tester.tap(find.text('查看更多 >'));
     await tester.pumpAndSettle();
 
-    // 新页 AppBar 标题 + 历史列表空态（内存仓储为空）。
+    // 新页 AppBar 标题 + 历史列表空态（内存仓储为空；文案对齐 iOS
+    // `WatchHistoryView`：「暂无观看记录」）。
     expect(find.widgetWithText(AppBar, '观看记录'), findsOneWidget);
-    expect(find.text('暂无播放历史\n看完的片子会出现在这里'), findsOneWidget);
+    expect(find.text('暂无观看记录'), findsOneWidget);
   });
 
   testWidgets('M-账1：登录弹窗含上级推荐码字段，提交后落库',

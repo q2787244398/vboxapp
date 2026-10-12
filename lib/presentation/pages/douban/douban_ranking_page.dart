@@ -1,7 +1,8 @@
 /// 豆瓣榜单（批次 D · D-03）。
 ///
 /// 顶部榜单分类胶囊（剧情 / 喜剧 / 动作…）+ 排行列表（名次 + 封面 + 标题 + 信息 +
-/// 评分）。数据通路：[DoubanUseCases.ranking]（chart top_list）。仅浏览。
+/// 评分）。数据通路：[DoubanUseCases.ranking]（chart top_list）。
+/// 条目点击 → 进搜索页自动搜索（对齐 iOS `settings.triggerSearch`，同豆瓣分类页）。
 library;
 
 import 'package:flutter/material.dart';
@@ -16,6 +17,7 @@ import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/platform_async_image.dart';
 import '../../widgets/vbox/vbox.dart';
+import '../search/search_page.dart';
 import 'douban_widgets.dart';
 
 /// 豆瓣榜单页。
@@ -108,17 +110,32 @@ class _DoubanRankingPageState extends State<DoubanRankingPage> {
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: VboxSpacing.sm),
       itemCount: _items.length,
-      itemBuilder: (BuildContext context, int index) =>
-          _RankRow(item: _items[index]),
+      itemBuilder: (BuildContext context, int index) => _RankRow(
+        item: _items[index],
+        onTap: () => _openSubject(_items[index]),
+      ),
+    );
+  }
+
+  /// 条目点击 → 进搜索页自动搜索（对齐 iOS `settings.triggerSearch(subject.title)`；
+  /// 同豆瓣分类页，`SearchPage` 的 `initialKeyword` 自动搜索链路）。
+  void _openSubject(DoubanChartSubject subject) {
+    final String kw = subject.title.trim();
+    if (kw.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => SearchPage(initialKeyword: kw),
+      ),
     );
   }
 }
 
 /// 排行行（名次 + 封面 + 标题 / 信息 + 评分）。
 class _RankRow extends StatelessWidget {
-  const _RankRow({required this.item});
+  const _RankRow({required this.item, required this.onTap});
 
   final DoubanChartSubject item;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -133,7 +150,10 @@ class _RankRow extends StatelessWidget {
         horizontal: VboxSpacing.lg,
         vertical: VboxSpacing.sm,
       ),
-      child: Row(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: VboxRadii.button,
+        child: Row(
         children: <Widget>[
           SizedBox(
             width: 28,
@@ -196,6 +216,7 @@ class _RankRow extends StatelessWidget {
             ),
           ],
         ],
+        ),
       ),
     );
   }

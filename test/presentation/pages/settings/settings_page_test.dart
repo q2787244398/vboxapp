@@ -289,9 +289,10 @@ void main() {
     await tester.pumpWidget(_page(UiFormController()));
     await tester.pumpAndSettle();
 
-    // 对齐 iOS：设置页工具区 = 书架 / 远程源 / 网盘管理；无「备份还原」
-    // （其唯一入口在个人中心功能宫格且仅登录态显示，ProfileView L464-466）。
-    expect(find.text('书架'), findsOneWidget);
+    // 对齐 iOS：设置页工具区 = 远程源 / 网盘管理（书架已按 iOS 真相源移除，
+    // iOS 设置页无书架入口）；无「备份还原」（其唯一入口在个人中心功能宫格
+    // 且仅登录态显示，ProfileView L464-466）。
+    expect(find.text('书架'), findsNothing);
     expect(find.text('远程源'), findsOneWidget);
     expect(find.text('网盘管理'), findsOneWidget);
     expect(find.text('备份还原'), findsNothing);

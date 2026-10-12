@@ -107,6 +107,10 @@ Widget _settings() {
       Provider<ContentBrowseUseCases>.value(
         value: buildContentBrowseUseCases(),
       ),
+      // 订阅配置内联「远程默认源」编辑区消费 RemoteSourceUseCases。
+      Provider<RemoteSourceUseCases>.value(
+        value: RemoteSourceUseCases(InMemoryRemoteSourceRepository()),
+      ),
     ],
     child: const MaterialApp(
       debugShowCheckedModeBanner: false,

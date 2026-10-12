@@ -203,9 +203,9 @@ void main() {
       expect(find.textContaining('暂无收藏'), findsOneWidget);
     });
 
-    testWidgets('设置页（I-03）：工具 · 书架承载收藏 / 历史双 Tab（入口迁自个人中心）',
+    testWidgets('设置页（I-03）：工具承载远程源 / 网盘管理（书架已按 iOS 移除）',
         (WidgetTester tester) async {
-      tester.view.physicalSize = const Size(390, 1600);
+      tester.view.physicalSize = const Size(390, 2600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 
@@ -218,19 +218,35 @@ void main() {
       await tester.tap(find.byIcon(Icons.settings));
       await tester.pumpAndSettle();
       expect(find.text('皮肤'), findsOneWidget);
-      expect(find.text('工具'), findsOneWidget);
-      // 迁入设置页的四个工具入口。
-      expect(find.text('书架'), findsOneWidget);
+      // 工具区块在页面下方：滚动到可见（订阅配置内联编辑区加长页面后
+      // 390×1600 视口外——CI 曾因此失败，滚动后断言）。
+      await tester.scrollUntilVisible(
+        find.text('工具'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      // 迁入设置页的工具入口（书架已按 iOS 真相源移除；备份还原仅在个人中心）。
+      expect(find.text('书架'), findsNothing);
+      expect(find.text('备份还原'), findsNothing);
       expect(find.text('远程源'), findsOneWidget);
       expect(find.text('网盘管理'), findsOneWidget);
-      expect(find.text('备份还原'), findsOneWidget);
+    });
 
-      // 书架 → 收藏 / 历史双 Tab。
-      await tester.tap(find.text('书架'));
+    testWidgets('个人中心：观看记录入口 → 观看记录页（对齐 iOS WatchHistoryView）',
+        (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(_shell());
       await tester.pumpAndSettle();
-      expect(find.text('收藏'), findsOneWidget);
-      expect(find.text('历史'), findsOneWidget);
-      expect(find.textContaining('暂无收藏'), findsOneWidget);
+      await tester.tap(find.text('我的'));
+      await tester.pumpAndSettle();
+
+      // 个人中心「观看记录」入口 → HistoryView（空态文案对齐 iOS）。
+      await tester.tap(find.text('观看记录'));
+      await tester.pumpAndSettle();
+      expect(find.text('暂无观看记录'), findsOneWidget);
     });
 
     testWidgets('横屏：仍为底栏（无侧栏 Rail / 顶栏）', (WidgetTester tester) async {
