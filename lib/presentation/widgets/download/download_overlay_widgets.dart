@@ -1,9 +1,10 @@
 /// 表现层：下载管理浮层 UI（G-02 UI）。
 ///
-/// 唯一真相源：iOS `vbox/Views/DownloadOverlayViews.swift`，三件套：
+/// 唯一真相源：iOS `vbox/Views/DownloadOverlayViews.swift`，四件套：
 ///   ① [DownloadCapsuleNotification]  —— 全局胶囊通知（底部居中，5s 自动消失）
-///   ② [FloatingVideoDownloadButton] —— 悬浮下载按键（进度环/角标/拖动吸附）
-///   ③ [DownloadManagementPopup]      —— 下载管理弹窗（分组列表 + 底部操作栏）
+///   ② [PlayerCapsuleNotification]    —— 播放器内胶囊通知（顶部居中，5s 自动消失）
+///   ③ [FloatingVideoDownloadButton] —— 悬浮下载按键（进度环/角标/拖动吸附）
+///   ④ [DownloadManagementPopup]      —— 下载管理弹窗（分组列表 + 底部操作栏）
 ///
 /// 差异登记：
 ///   · SF Symbols 图标名 → Material 图标映射（[_sfIcon]，名字段由平台层透传）；
@@ -125,12 +126,100 @@ class _DownloadCapsuleNotificationState
             duration: const Duration(milliseconds: 300),
             switchInCurve: Curves.easeOut,
             switchOutCurve: Curves.easeOut,
+            // 对齐 iOS `.transition(.move(edge: .bottom) + .opacity +
+            // .scale(0.9))`：从底部滑入 + 淡入 + 缩放。
             transitionBuilder: (Widget child, Animation<double> animation) {
-              return FadeTransition(
-                opacity: animation,
-                child: ScaleTransition(
-                  scale: Tween<double>(begin: 0.9, end: 1).animate(animation),
-                  child: child,
+              final Animatable<Offset> slide =
+                  Tween<Offset>(begin: const Offset(0, 0.35), end: Offset.zero)
+                      .chain(CurveTween(curve: Curves.easeOut));
+              return SlideTransition(
+                position: slide.animate(animation),
+                child: FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.9, end: 1).animate(animation),
+                    child: child,
+                  ),
+                ),
+              );
+            },
+            child: _visible && _current != null
+                ? _CapsuleBody(key: ValueKey<Object?>(_current), message: _current)
+                : const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 播放器内胶囊通知 — 显示在播放器顶部，5s 自动消失，不阻挡播放器手势。
+///
+/// 对齐 iOS `PlayerCapsuleNotification`（DownloadOverlayViews.swift L143-L218）：
+/// 顶部安全区下方居中，`.transition(.move(edge: .top) + .opacity +
+/// .scale(0.9))` 顶部滑入；[IgnorePointer] 确保不拦截播放器手势与按钮。
+class PlayerCapsuleNotification extends StatefulWidget {
+  /// 构造。
+  const PlayerCapsuleNotification({super.key});
+
+  @override
+  State<PlayerCapsuleNotification> createState() =>
+      _PlayerCapsuleNotificationState();
+}
+
+class _PlayerCapsuleNotificationState extends State<PlayerCapsuleNotification> {
+  bool _visible = false;
+  DownloadCapsuleMessage? _current;
+  Timer? _dismissTimer;
+
+  @override
+  void dispose() {
+    _dismissTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final DownloadManager manager = context.watch<DownloadManager>();
+    final DownloadCapsuleMessage? message = manager.capsuleMessage;
+
+    // 消息变化 → 显示并重置 5s 自动消失（对齐 iOS `handleMessageChange`）。
+    if (message != _current) {
+      _current = message;
+      _dismissTimer?.cancel();
+      if (message == null) {
+        _visible = false;
+      } else {
+        _visible = true;
+        _dismissTimer = Timer(const Duration(seconds: 5), () {
+          if (mounted) setState(() => _visible = false);
+        });
+      }
+    }
+
+    return IgnorePointer(
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeOut,
+            // 对齐 iOS `.transition(.move(edge: .top) + .opacity +
+            // .scale(0.9))`：从顶部滑入 + 淡入 + 缩放。
+            transitionBuilder: (Widget child, Animation<double> animation) {
+              final Animatable<Offset> slide =
+                  Tween<Offset>(begin: const Offset(0, -0.35), end: Offset.zero)
+                      .chain(CurveTween(curve: Curves.easeOut));
+              return SlideTransition(
+                position: slide.animate(animation),
+                child: FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.9, end: 1).animate(animation),
+                    child: child,
+                  ),
                 ),
               );
             },

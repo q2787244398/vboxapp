@@ -51,6 +51,7 @@ import '../../../platform/player/wake_lock.dart';
 import '../../theme/tokens/colors.dart';
 import '../../theme/tokens/typography.dart';
 import '../../ui_mode/ui_mode.dart';
+import '../../widgets/download/download_overlay_widgets.dart';
 import '../../widgets/player/cast/cast_controller.dart';
 import '../../widgets/player/cast/cast_device_sheet.dart';
 import '../../widgets/player/danmaku/danmaku_overlay.dart';
@@ -1774,6 +1775,17 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
               // C-05 长按倍速提示浮层。
               if (_longPressSpeedActive)
                 _LongPressSpeedOverlay(text: _controls.speedDisplayText),
+              // 下载/拉取胶囊通知（对齐 iOS PlayerViewsV2 L572-L574：播放器
+              // 顶部安全区下方显示，不影响播放器交互，5s 自动消失）。
+              const Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  child: PlayerCapsuleNotification(),
+                ),
+              ),
               // UI-F10 错误态 / 重试视图（覆盖全屏；含可展开调试日志）。
               if (_errorMessage != null)
                 Positioned.fill(

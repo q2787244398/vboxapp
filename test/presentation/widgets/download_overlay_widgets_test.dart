@@ -150,6 +150,45 @@ void main() {
     });
   });
 
+  group('①b 播放器内胶囊通知（对齐 iOS PlayerCapsuleNotification）', () {
+    testWidgets('postCapsule 后顶部显示，5s 自动消失', (WidgetTester tester) async {
+      final DownloadManager manager = DownloadManager(store: InMemoryDownloadStore());
+      addTearDown(manager.dispose);
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<DownloadManager>.value(value: manager),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: Stack(
+                children: <Widget>[PlayerCapsuleNotification()],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // 未发送消息：不显示
+      expect(find.textContaining('已添加'), findsNothing);
+
+      manager.postCapsule(
+        text: '已添加「示例片 第1集」到下载',
+        icon: 'arrow.down.circle.fill',
+        type: DownloadCapsuleType.info,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.textContaining('已添加「示例片'), findsOneWidget);
+
+      // 5s 后自动消失
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.textContaining('已添加「示例片'), findsNothing);
+    });
+  });
+
   group('② 悬浮下载按键', () {
     testWidgets('无记录隐藏，有记录显示', (WidgetTester tester) async {
       final DownloadManager manager = DownloadManager(
