@@ -75,7 +75,20 @@ List<(String, IconData)> cloudDriveAuthActions(CloudDriveType type) {
           ('Node扫码登录', Icons.phone_iphone),
           ('网页兜底', Icons.language),
         ],
-      CloudDriveType.pan123 || CloudDriveType.pan189 => <(String, IconData)>[
+      // pan123：对齐 iOS「Node账号登录」（`NodePan123LoginView`）+「网页兜底」。
+      CloudDriveType.pan123 => <(String, IconData)>[
+          ('Node账号登录', Icons.phone_iphone),
+          ('网页兜底', Icons.language),
+        ],
+      // pan189（P2-1）：+「原生扫码」三段链（对齐 iOS `NativeCloudQRLoginView(.pan189)`
+      // 承载的原生 API `pan189CreateQrToken` / `pan189PollQrStatus` /
+      // `pan189ExchangeCookie`，`CloudDriveAuthManager.swift:455-603`；iOS 卡片
+      // 入口文案为「网页兜底」、主走 WebView 自动化，Flutter 无内嵌 WebView
+      // 自动化栈，以三段扫码链补位为等效登录方式）。「Node账号登录」对齐
+      // iOS 内部实现 `NodePan189AccountLoginView`（账号密码 + 可选短信；
+      // iOS 按钮文案「Node验证码登录」与其内部实现不一致，此处按实现语义命名）。
+      CloudDriveType.pan189 => <(String, IconData)>[
+          ('原生扫码', Icons.qr_code_2),
           ('Node账号登录', Icons.phone_iphone),
           ('网页兜底', Icons.language),
         ],

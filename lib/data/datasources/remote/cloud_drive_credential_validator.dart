@@ -23,9 +23,11 @@ library;
 
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../domain/entities/cloud/cloud_drive.dart';
+import '../local/prefs_manager.dart';
 
 /// 校验异常（对齐 iOS `AuthError` 的两类文案来源：`notAuthorized` / `remoteError`）。
 class CredentialValidationException implements Exception {
@@ -39,21 +41,33 @@ class CredentialValidationException implements Exception {
 
 /// 校验结果（`valid` + 状态文案；落库语义见文件头注释）。
 class CredentialValidationResult {
-  const CredentialValidationResult({required this.valid, this.message});
+  const CredentialValidationResult({
+    required this.valid,
+    this.message,
+    this.skipped = false,
+  });
 
   final bool valid;
 
   /// 成功 → 「授权检测正常」（对齐 iOS `markValid` 缺省 message）；
   /// 失败 → iOS 侧 `error.localizedDescription` 同源文案。
   final String? message;
+
+  /// P2-5：防风控冷却期内跳过远程校验（true 时调用方**不应**据此改落库
+  /// 状态——结果既非「已验证有效」也非「已验证失效」）。
+  final bool skipped;
 }
 
 /// 凭据校验器（纯静态依赖注入 http client，便于单测）。
 class CloudDriveCredentialValidator {
-  CloudDriveCredentialValidator({http.Client? client})
-      : _client = client ?? http.Client();
+  CloudDriveCredentialValidator({http.Client? client, PrefsManager? prefs})
+      : _client = client ?? http.Client(),
+        _prefs = prefs;
 
   final http.Client _client;
+
+  /// prefs 持久化（P2-5 冷却；null → 仅进程内存冷却，测试环境友好）。
+  final PrefsManager? _prefs;
 
   /// 通用 UA（对齐 iOS `validateCookie` L3053）。
   static const String _chromeUA =
@@ -94,7 +108,24 @@ class CloudDriveCredentialValidator {
             referer: 'https://drive.uc.cn/',
           );
         case CloudDriveType.baidu:
-          await validateBaiduCookie(credential.cookie ?? '');
+          // P2-5：防风控冷却（对齐 iOS `baiduIsVerifyCoolingDown` /
+          // `baiduMarkVerifyCooldown`，`CloudDriveAuthManager.swift:1318-1337`，
+          // prefs 键 `baidu_verify_cooldowns_v1`）：校验失败记 10 分钟冷却，
+          // 冷却期内跳过远程校验，避免频繁触发百度风控。
+          final String key = _baiduCooldownKey(credential.cookie ?? '');
+          if (await _baiduIsVerifyCoolingDown(key)) {
+            return const CredentialValidationResult(
+              valid: false,
+              message: '检测过于频繁，已跳过远程校验（防风控冷却中）',
+              skipped: true,
+            );
+          }
+          try {
+            await validateBaiduCookie(credential.cookie ?? '');
+          } on CredentialValidationException {
+            await _baiduMarkVerifyCooldown(key);
+            rethrow;
+          }
         case CloudDriveType.pan123:
           await validatePan123(
             cookie: credential.cookie ?? '',
@@ -333,6 +364,90 @@ class CloudDriveCredentialValidator {
       default:
         break;
     }
+  }
+
+  // ─────────────── P2-5 · 百度验证防风控冷却 ───────────────
+
+  /// 冷却 prefs 键（契约 `baidu_verify_cooldowns_v1`，对齐 iOS
+  /// `baiduVerifyCooldownKey`，`CloudDriveAuthManager.swift:79`）。
+  static const String _baiduCooldownPrefsKey = 'baidu_verify_cooldowns_v1';
+
+  /// 进程内冷却缓存（prefs 不可用时的回退，单测环境友好）。
+  final Map<String, int> _memoryCooldowns = <String, int>{};
+
+  /// 冷却 key：凭据稳定标识（优先 BDUSS 值——账号身份、重登 cookie 变化仍
+  /// 命中；提取不到回退整段 cookie 的 MD5）。
+  String _baiduCooldownKey(String cookie) {
+    final RegExpMatch? m = RegExp(r'BDUSS=([^;]+)').firstMatch(cookie);
+    if (m != null && m.group(1)!.isNotEmpty) return 'bduss:${m.group(1)}';
+    return 'md5:${md5.convert(utf8.encode(cookie)).toString()}';
+  }
+
+  /// 读冷却缓存（JSON `{key: epochMs}`；prefs 异常回退内存缓存）。
+  Future<Map<String, int>> _loadCooldowns() async {
+    final PrefsManager? p = _prefs;
+    if (p == null) return Map<String, int>.of(_memoryCooldowns);
+    try {
+      final Object? raw = await p.get(_baiduCooldownPrefsKey);
+      if (raw is! String || raw.isEmpty) {
+        return Map<String, int>.of(_memoryCooldowns);
+      }
+      final Object? decoded = jsonDecode(raw);
+      if (decoded is! Map) return Map<String, int>.of(_memoryCooldowns);
+      return decoded.map<String, int>((Object? k, Object? v) =>
+          MapEntry<String, int>('$k', v is int ? v : int.tryParse('$v') ?? 0));
+    } catch (_) {
+      return Map<String, int>.of(_memoryCooldowns);
+    }
+  }
+
+  /// 写冷却缓存（同步刷内存缓存；prefs 异常静默——冷却不阻断校验主流程）。
+  Future<void> _saveCooldowns(Map<String, int> cache) async {
+    _memoryCooldowns
+      ..clear()
+      ..addAll(cache);
+    final PrefsManager? p = _prefs;
+    if (p == null) return;
+    try {
+      await p.set(_baiduCooldownPrefsKey, jsonEncode(cache));
+    } catch (_) {
+      // prefs 不可用（未初始化等）→ 仅内存冷却。
+    }
+  }
+
+  /// 冷却判定（对齐 iOS `baiduIsVerifyCoolingDown`：读取即清理过期项）。
+  Future<bool> _baiduIsVerifyCoolingDown(String key) async {
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    final Map<String, int> cache = await _loadCooldowns();
+    final Map<String, int> alive = <String, int>{
+      for (final MapEntry<String, int> e in cache.entries)
+        if (e.value > now) e.key: e.value,
+    };
+    if (alive.length != cache.length) await _saveCooldowns(alive);
+    return (alive[key] ?? 0) > now;
+  }
+
+  /// 记冷却（对齐 iOS `baiduMarkVerifyCooldown`：默认 10 分钟；
+  /// >60 项清理过期（对齐 iOS 缓存上限），仍超限移除最早过期项）。
+  Future<void> _baiduMarkVerifyCooldown(
+    String key, {
+    int seconds = 10 * 60,
+  }) async {
+    final Map<String, int> cache = await _loadCooldowns();
+    cache[key] =
+        DateTime.now().millisecondsSinceEpoch + Duration(seconds: seconds).inMilliseconds;
+    if (cache.length > 60) {
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      cache.removeWhere((_, int v) => v <= now);
+      while (cache.length > 60) {
+        final String oldest = cache.entries
+            .reduce((MapEntry<String, int> a, MapEntry<String, int> b) =>
+                a.value <= b.value ? a : b)
+            .key;
+        cache.remove(oldest);
+      }
+    }
+    await _saveCooldowns(cache);
   }
 
   Map<String, Object?>? _tryDecode(String body) {

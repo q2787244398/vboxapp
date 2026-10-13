@@ -101,9 +101,9 @@ class BiliQrStart {
 
   /// 可渲染的二维码 data URL（[qrImage] 为空时返回 null）。
   ///
-  /// 说明：iOS 在 `qrImage` 缺失时用 CoreImage 本地生成；Flutter 侧不引入
-  /// 额外 QR 编码依赖，缺图时由 UI 展示占位（`qrcode_key` 链接仍可通过
-  /// [qrUrl] 复制/打开）。
+  /// 说明：iOS 在 `qrImage` 缺失时用 CoreImage 本地生成；Flutter 侧由
+  /// [NodeCloudDriveLoginGateway.startQrLogin] 把 [qrUrl] 标记为 `qr_data:`
+  /// 形态，UI 复用 `QrImageView` 本地编码兜底（P2-3）。
   String? get qrDataUrl => qrImage.isEmpty ? null : qrImage;
 
   /// 提示文案（空则回退 iOS 默认文案）。

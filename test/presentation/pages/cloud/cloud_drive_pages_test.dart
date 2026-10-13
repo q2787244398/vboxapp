@@ -130,7 +130,8 @@ void main() {
       expect(find.text('扫码授权'), findsOneWidget); // 百度
       expect(find.text('扫码登录'), findsOneWidget); // 夸克
       // P0-A2：阿里对齐 iOS「原生扫码」（OpenList 授权页），UC / B站 / 阿里各一枚。
-      expect(find.text('原生扫码'), findsNWidgets(3));
+      // P2-1：天翼 189 追加「原生扫码」（三段链，对齐 iOS pan189Helper 原生 API）。
+      expect(find.text('原生扫码'), findsNWidgets(4));
       expect(find.text('网页登录兜底'), findsNWidgets(2)); // 夸克 / UC
       expect(find.text('网页兜底'), findsNWidgets(6)); // 百度/115/123/139/189/迅雷
       // P1-A：百度/夸克/UC 三张原生卡对齐 iOS 卡内 Segmented 的 Node 档

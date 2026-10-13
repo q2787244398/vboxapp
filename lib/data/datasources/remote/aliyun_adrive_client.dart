@@ -171,6 +171,12 @@ class AliyunAdriveClient {
   static const String officialClientSecret =
       '8c7e2a1f3d5b4c6e9a8f2d3c1b4e5a6f';
 
+  /// OpenList renewapi 请求 UA（P2-6，对齐 iOS `aliUserAgent`，
+  /// `CloudDriveAuthManager.swift:2685-2687`）。
+  static const String _aliOpenListUserAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
   /// 桌面 UA（对齐 iOS 直链默认头；集中层单一常量 [PlaybackHeaders.aliyunDesktopUA]）。
   static const String desktopUA = PlaybackHeaders.aliyunDesktopUA;
 
@@ -340,9 +346,105 @@ class AliyunAdriveClient {
       onTokenRefreshed?.call(webApp.accessToken, webApp.refreshToken);
       return webApp;
     }
+    // 兜底：OpenList renewapi GET（P2-6，对齐 iOS `refreshAliViaOpenList`
+    // GET 分支，`CloudDriveAuthManager.swift:295-307`；成功直接返回，
+    // 不做 `verifyAdriveToken`——对齐 iOS OpenList 层落库语义）。
+    try {
+      final ({String accessToken, String refreshToken}) openListGet =
+          await _refreshOpenList(refreshToken, usePost: false);
+      onTokenRefreshed?.call(openListGet.accessToken, openListGet.refreshToken);
+      return openListGet;
+    } catch (_) {
+      // GET 失败 → 继续 POST 兜底。
+    }
+    // 兜底：OpenList renewapi POST（对齐 iOS POST 分支，`L309-323`）。
+    try {
+      final ({String accessToken, String refreshToken}) openListPost =
+          await _refreshOpenList(refreshToken, usePost: true);
+      onTokenRefreshed?.call(openListPost.accessToken,
+          openListPost.refreshToken);
+      return openListPost;
+    } catch (_) {
+      // POST 也失败 → 落到下方统一抛错。
+    }
     throw const AliyunAdriveException(
       'PG Token 刷新失败：无法获取兼容分享操作的 ADrive token',
     );
+  }
+
+  /// OpenList renewapi 刷新（P2-6，对齐 iOS `refreshAliViaOpenList`，
+  /// `CloudDriveAuthManager.swift:372-435`）：
+  /// - 端点 `https://api.oplist.org/alicloud/renewapi`；
+  /// - GET（URL query）/ POST（form-urlencoded body）两形态，参数
+  ///   `driver_txt=alicloud_qr` / `refresh_ui=<refreshToken>` / `server_use=true`；
+  /// - `{"text":"..."}` 错误格式：含 invalid / expired / 过期 → 「已失效」文案；
+  /// - HTTP >= 400 报错（message / error 字段）；
+  /// - 必须返回新 refresh_token 才算成功（不回退旧 token，避免掩盖错误）；
+  ///   access_token 可空（返回空串，语义对齐 iOS 可空落库）。
+  Future<({String accessToken, String refreshToken})> _refreshOpenList(
+    String refreshToken, {
+    required bool usePost,
+  }) async {
+    const String renewURL = 'https://api.oplist.org/alicloud/renewapi';
+    final Map<String, String> query = <String, String>{
+      'driver_txt': 'alicloud_qr',
+      'refresh_ui': refreshToken,
+      'server_use': 'true',
+    };
+    final SpiderTransportResponse res = await _transport.send(
+      SpiderTransportRequest(
+        method: usePost ? 'POST' : 'GET',
+        url: Uri.parse(usePost
+            ? renewURL
+            : Uri.parse(renewURL).replace(queryParameters: query).toString()),
+        headers: <String, String>{
+          'User-Agent': _aliOpenListUserAgent,
+          if (usePost) 'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: usePost
+            ? query.entries
+                .map((MapEntry<String, String> e) =>
+                    '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+                .join('&')
+            : null,
+        timeout: const Duration(seconds: 30),
+      ),
+    );
+    final int httpStatus = res.status;
+    final String text = utf8.decode(res.bodyBytes, allowMalformed: true);
+    Map<String, Object?>? json;
+    try {
+      final Object? decoded = jsonDecode(text);
+      if (decoded is Map) json = decoded.cast<String, Object?>();
+    } catch (_) {
+      json = null;
+    }
+    // OpenList 错误格式：`{"text":"<错误描述>"}`。
+    final String? errorText = _asString(json?['text']);
+    if (errorText != null && errorText.isNotEmpty) {
+      if (errorText.contains('invalid') ||
+          errorText.contains('expired') ||
+          errorText.contains('过期')) {
+        throw AliyunAdriveException('阿里云盘 refresh_token 已失效：$errorText');
+      }
+      throw AliyunAdriveException('阿里云盘 token 刷新失败：$errorText');
+    }
+    if (httpStatus >= 400) {
+      final String msg = _asString(json?['message']) ??
+          _asString(json?['error']) ??
+          'HTTP $httpStatus';
+      throw AliyunAdriveException('阿里云盘 token 刷新失败：$msg');
+    }
+    final String newRefreshToken =
+        _asString(json?['refresh_token']) ?? _asString(json?['refreshToken']) ?? '';
+    final String newAccessToken =
+        _asString(json?['access_token']) ?? _asString(json?['accessToken']) ?? '';
+    if (newRefreshToken.isEmpty) {
+      throw AliyunAdriveException(
+        '阿里云盘刷新 token 未返回 refresh_token (HTTP $httpStatus)',
+      );
+    }
+    return (accessToken: newAccessToken, refreshToken: newRefreshToken);
   }
 
   Future<({String accessToken, String refreshToken})?> _refreshOfficial(

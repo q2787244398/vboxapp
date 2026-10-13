@@ -61,11 +61,12 @@ void main() {
       );
 
   group('supports', () {
-    test('仅覆盖 UC / 百度 / 夸克 + nativeQr', () {
+    test('仅覆盖 UC / 百度 / 夸克 / 天翼189 + nativeQr', () {
       for (final CloudDriveType t in <CloudDriveType>[
         CloudDriveType.uc,
         CloudDriveType.baidu,
         CloudDriveType.quark,
+        CloudDriveType.pan189, // P2-1
       ]) {
         expect(
           NativeCloudDriveLoginGateway.supports(t, CloudDriveLoginMode.nativeQr),
@@ -234,6 +235,129 @@ void main() {
       gateway.startQrLogin(
         type: CloudDriveType.ali,
         mode: CloudDriveLoginMode.nativeQr,
+      ),
+      throwsA(isA<CloudDriveLoginException>()),
+    );
+  });
+
+  test('P2-1 天翼189 扫码：uuid/ticket → 状态机 → loginUrl 逐跳收 Cookie', () async {
+    int pollCount = 0;
+    final NativeCloudDriveLoginGateway gateway = gatewayWith(
+      (SpiderTransportRequest r) {
+        final String url = r.url.toString();
+        if (url.contains('getQRCodeInfo.action')) {
+          return _json('{"resCode":0,"data":{"uuid":"U1","ticket":"TK1"}}');
+        }
+        if (url.contains('queryQRCodeStatus.action')) {
+          // 状态机推进：0=待扫 → 1=已扫 → 2=成功(loginUrl)。
+          pollCount++;
+          if (pollCount == 1) return _json('{"resCode":0,"data":{"status":0}}');
+          if (pollCount == 2) return _json('{"resCode":0,"data":{"status":1}}');
+          return _json(
+            '{"resCode":0,"data":{"status":2,'
+            '"loginUrl":"https://cloud.189.cn/loginsucc?token=abc"}}',
+          );
+        }
+        if (url.contains('loginsucc')) {
+          // 302 → 逐跳收集（对齐 iOS session cookie jar 语义）。
+          return const SpiderTransportResponse(
+            status: 302,
+            headers: <String, String>{
+              'location': 'https://cloud.189.cn/finish',
+              'set-cookie': 'ssotoken=st1; Path=/',
+            },
+            bodyBytes: <int>[],
+          );
+        }
+        if (url.contains('finish')) {
+          return const SpiderTransportResponse(
+            status: 200,
+            headers: <String, String>{
+              'set-cookie': 'usersession=us1; Path=/',
+            },
+            bodyBytes: <int>[],
+          );
+        }
+        return _json('{}');
+      },
+    );
+
+    final CloudDriveQrTask task = await gateway.startQrLogin(
+      type: CloudDriveType.pan189,
+      mode: CloudDriveLoginMode.nativeQr,
+    );
+    expect(
+      task.qrDataUrl,
+      '${kQrDataContentPrefix}https://cloud.189.cn/qrlogin?uuid=U1',
+    );
+
+    expect(
+      await gateway.pollQrLogin(
+        type: CloudDriveType.pan189,
+        mode: CloudDriveLoginMode.nativeQr,
+        taskId: task.taskId,
+      ),
+      CloudDriveLoginPhase.waitingScan,
+    );
+    expect(
+      await gateway.pollQrLogin(
+        type: CloudDriveType.pan189,
+        mode: CloudDriveLoginMode.nativeQr,
+        taskId: task.taskId,
+      ),
+      CloudDriveLoginPhase.scanned,
+    );
+    expect(
+      await gateway.pollQrLogin(
+        type: CloudDriveType.pan189,
+        mode: CloudDriveLoginMode.nativeQr,
+        taskId: task.taskId,
+      ),
+      CloudDriveLoginPhase.success,
+    );
+
+    final CloudDriveCredential? cred =
+        await store.credential(CloudDriveType.pan189);
+    expect(cred, isNotNull);
+    expect(cred!.cookie, contains('ssotoken=st1'));
+    expect(cred.cookie, contains('usersession=us1'));
+    expect(cred.statusMessage, '扫码授权成功');
+  });
+
+  test('P2-1 天翼189 过期：status=-1 → 抛「二维码已过期」并销毁任务', () async {
+    final NativeCloudDriveLoginGateway gateway = gatewayWith(
+      (SpiderTransportRequest r) {
+        final String url = r.url.toString();
+        if (url.contains('getQRCodeInfo.action')) {
+          return _json('{"resCode":0,"data":{"uuid":"U2","ticket":"TK2"}}');
+        }
+        if (url.contains('queryQRCodeStatus.action')) {
+          return _json('{"resCode":0,"data":{"status":-1}}');
+        }
+        return _json('{}');
+      },
+    );
+    final CloudDriveQrTask task = await gateway.startQrLogin(
+      type: CloudDriveType.pan189,
+      mode: CloudDriveLoginMode.nativeQr,
+    );
+    await expectLater(
+      gateway.pollQrLogin(
+        type: CloudDriveType.pan189,
+        mode: CloudDriveLoginMode.nativeQr,
+        taskId: task.taskId,
+      ),
+      throwsA(
+        isA<CloudDriveLoginException>()
+            .having((CloudDriveLoginException e) => e.message, 'message', '二维码已过期，请重试'),
+      ),
+    );
+    // 任务已销毁 → 再次轮询报「任务已失效」。
+    await expectLater(
+      gateway.pollQrLogin(
+        type: CloudDriveType.pan189,
+        mode: CloudDriveLoginMode.nativeQr,
+        taskId: task.taskId,
       ),
       throwsA(isA<CloudDriveLoginException>()),
     );

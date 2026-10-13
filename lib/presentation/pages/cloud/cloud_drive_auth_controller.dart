@@ -23,6 +23,7 @@ import 'package:flutter/foundation.dart';
 import '../../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../data/datasources/remote/cloud_drive_credential_validator.dart';
+import '../../../data/datasources/remote/node_credential_sync_service.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../platform/node/node_runtime_manager.dart' as node;
 
@@ -245,7 +246,8 @@ class CloudDriveAuthController extends ChangeNotifier {
     node.NodeRuntimeManager? nodeRuntimeManager,
   })  : _store = credentialStore ??
             CloudDriveCredentialStore(PrefsManager.instance),
-        _validator = validator ?? CloudDriveCredentialValidator(),
+        _validator = validator ??
+            CloudDriveCredentialValidator(prefs: PrefsManager.instance),
         _nodeStatus = nodeStatus,
         _nodeRuntime = nodeRuntimeManager {
     final node.NodeRuntimeManager? runtime = _nodeRuntime;
@@ -347,6 +349,8 @@ class CloudDriveAuthController extends ChangeNotifier {
     if (credential == null) return;
     final CredentialValidationResult result =
         await _validator.validate(type, credential);
+    // P2-5：防风控冷却跳过 → 不落库不改状态（结果既非已验证有效也非失效）。
+    if (result.skipped) return;
     final DateTime now = DateTime.now();
     await _store.save(
       credential.copyWith(
@@ -387,6 +391,19 @@ class CloudDriveAuthController extends ChangeNotifier {
 
   /// 删除某网盘凭据（对齐 iOS `removeToken(at:)`）。
   Future<void> removeCredential(CloudDriveType type) async {
+    // P2-4：删除前级联清 Node 侧登录态（对齐 iOS
+    // `NodeCredentialSyncService.deleteNodeCredential(driveType:)`，
+    // `NodeCredentialSyncService.swift:231-260`）：逐字段 DELETE +
+    // 配置文件兜底清理，防止 Node 登录态被 pull「复活」。
+    // 实现已在 [NodeCredentialSyncService.deleteNodeCredential]，此处仅接线；
+    // Node 侧失败不中断本地删除（本地凭据必须删掉），错误吞掉记日志。
+    try {
+      await NodeCredentialSyncService(
+        client: LocalNodeCredentialApiClient(),
+      ).deleteNodeCredential(type);
+    } catch (e) {
+      debugPrint('[CloudDriveAuth] 删除 Node 侧凭据失败($type): $e');
+    }
     await _store.remove(type);
     await load();
   }

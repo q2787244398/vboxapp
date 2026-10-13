@@ -17,6 +17,7 @@ import '../../../data/datasources/remote/aliyun_extscreen_client.dart';
 import '../../../domain/entities/cloud/aliyun_extscreen.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_login.dart';
+import '../../../domain/entities/cloud/pg_auto.dart';
 import 'login_gateway.dart';
 
 /// PG 阿里云盘扫码登录网关。
@@ -118,6 +119,11 @@ class AliyunPgLoginGateway implements CloudDriveLoginGateway {
   }
 
   /// 凭据落库（`cloud_drive_credentials_v1`）；失败不阻断「登录成功」展示。
+  ///
+  /// P2-2：落库时打上 `pg_source=qr_scan` 标记（对齐 iOS
+  /// `AliyunPgAuthManager.savePgCredential` + `AliyunPgConfig.pgSourceKey/
+  /// pgSourceValue`，`AliyunPgConfig.swift:176-178`），使 PG 凭据来源可追溯
+  /// （刷新分层 `PgCredentialMark.isPgCredential` 依赖该标记）。
   Future<void> _persist(String refreshToken, ExtscreenToken token) async {
     try {
       final DateTime now = DateTime.now();
@@ -131,6 +137,7 @@ class AliyunPgLoginGateway implements CloudDriveLoginGateway {
             expiresIn == null ? null : now.add(Duration(seconds: expiresIn)),
         state: CloudDriveAuthState.valid,
         updatedAt: now,
+        extra: PgCredentialMark.mark(const <String, String>{}),
       ));
     } catch (_) {
       // 凭据回收失败不影响登录态（对齐 iOS 网关容错）。

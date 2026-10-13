@@ -97,7 +97,15 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   }) async {
     if (_isBili(type, mode) && providerOverride == null) {
       final BiliQrStart start = await _bili.startQrLogin();
-      return (taskId: start.taskId, qrDataUrl: start.qrDataUrl ?? '');
+      // P2-3：服务端 qrImage 缺失时把 qrUrl 标记为 `qr_data:` 形态 → UI
+      // 复用 QrImageView 本地编码（对齐 iOS `BiliQrLoginView` qrImage 缺失时
+      // 本地 CoreImage 生成二维码的兜底；弱网下 Node 不回图也能扫码）。
+      final String qr = start.qrImage.isNotEmpty
+          ? start.qrImage
+          : (start.qrUrl.isEmpty
+              ? ''
+              : '$kQrDataContentPrefix${start.qrUrl}');
+      return (taskId: start.taskId, qrDataUrl: qr);
     }
     final String? provider =
         providerOverride ?? NodeLoginRouting.qrProviderFor(type);

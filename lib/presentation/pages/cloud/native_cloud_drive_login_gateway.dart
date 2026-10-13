@@ -85,7 +85,15 @@ class _QuarkQrTask {
   final String pollClientId;
 }
 
-/// 原生扫码登录网关（UC / 百度 / 夸克）。
+/// 天翼 189 扫码任务暂存（对齐 iOS `Pan189QrLoginToken`：uuid / ticket）。
+class _Pan189QrTask {
+  const _Pan189QrTask({required this.uuid, required this.ticket});
+
+  final String uuid;
+  final String ticket;
+}
+
+/// 原生扫码登录网关（UC / 百度 / 夸克 / 天翼 189）。
 class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   /// 构造（[bridge] / [credentialStore] 供测试注入）。
   NativeCloudDriveLoginGateway({
@@ -99,10 +107,13 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   final CloudDriveCredentialStore _store;
 
   /// 原生扫码覆盖的网盘（对齐 iOS 原生档；不含阿里 / Node 托管盘）。
+  /// P2-1：+ 天翼 189（对齐 iOS `NativeCloudQRLoginView(.pan189)` 内
+  /// `pan189Helper` 三段链路，`CloudDriveAuthManager.swift:455-603`）。
   static const Set<CloudDriveType> nativeTypes = <CloudDriveType>{
     CloudDriveType.uc,
     CloudDriveType.baidu,
     CloudDriveType.quark,
+    CloudDriveType.pan189,
   };
 
   /// 该网关是否覆盖给定网盘 / 方式。
@@ -129,6 +140,11 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       '(KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36';
   static const String _quarkQrClientId = '386';
   static const String _quarkPollClientId = '532';
+  /// 天翼 189 桌面 Chrome UA（对齐 iOS `pan189UserAgent`，
+  /// `CloudDriveAuthManager.swift:453`）。
+  static const String _pan189UserAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
   // UC TV OAuth 常量（对齐 iOS `CloudDriveAuthManager.swift:906-910`）。
   static const String _ucTvClientId = '5acf882d27b74502b7040b0c65519aa7';
@@ -143,6 +159,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   final Map<String, _UcTvTask> _ucTvTasks = <String, _UcTvTask>{};
   final Map<String, _BaiduQrTask> _baiduTasks = <String, _BaiduQrTask>{};
   final Map<String, _QuarkQrTask> _quarkTasks = <String, _QuarkQrTask>{};
+  final Map<String, _Pan189QrTask> _pan189Tasks = <String, _Pan189QrTask>{};
 
   // ─────────────── 扫码入口 ───────────────
 
@@ -162,6 +179,8 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
         return _baiduStart();
       case CloudDriveType.quark:
         return _quarkStart();
+      case CloudDriveType.pan189:
+        return _pan189Start();
       default:
         throw CloudDriveLoginException('${type.displayName} 原生扫码尚未接入');
     }
@@ -184,6 +203,8 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
         return _baiduPoll(taskId);
       case CloudDriveType.quark:
         return _quarkPoll(taskId);
+      case CloudDriveType.pan189:
+        return _pan189Poll(taskId);
       default:
         throw CloudDriveLoginException('${type.displayName} 原生扫码尚未接入');
     }
@@ -195,6 +216,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     _ucTvTasks.remove(taskId);
     _baiduTasks.remove(taskId);
     _quarkTasks.remove(taskId);
+    _pan189Tasks.remove(taskId);
   }
 
   // ─────────────── UC ───────────────
@@ -930,6 +952,140 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
         'uc_param_str': '',
         'uc_biz_str': 'S:custom|OPT:SAREA@0|OPT:IMMERSIVE@1|OPT:BACK_BTN_STYLE@0',
       }).toString();
+
+  // ─────────────── 天翼 189（P2-1，对齐 iOS `pan189CreateQrToken` /
+  // `pan189PollQrStatus` / `pan189ExchangeCookie`，L455-603）───────────────
+
+  Future<CloudDriveQrTask> _pan189Start() async {
+    final SpiderHttpResult res = await _bridge.request(
+      'https://cloud.189.cn/api/portal/getQRCodeInfo.action',
+      options: const SpiderHttpOptions(
+        headers: <String, String>{
+          'User-Agent': _pan189UserAgent,
+          'Referer': 'https://cloud.189.cn/',
+        },
+        timeout: Duration(seconds: 15),
+      ),
+    );
+    // 对齐 iOS：HTTP 非 200 直接报错（`pan189CreateQrToken` L474-476）。
+    if (res.status != 200) {
+      throw CloudDriveLoginException('天翼云盘获取二维码 HTTP 失败 (${res.status})');
+    }
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    final int resCode = _pickInt(json, <String>['resCode']) ?? -1;
+    if (resCode != 0) {
+      final String msg = _pickString(json, <String>['resMessage', 'msg']);
+      throw CloudDriveLoginException(
+        '获取二维码失败: ${msg.isNotEmpty ? msg : '未知错误'}',
+      );
+    }
+    final Map<String, Object?>? data = _asMap(json?['data']);
+    final String uuid = _pickString(data, <String>['uuid']);
+    final String ticket = _pickString(data, <String>['ticket']);
+    if (uuid.isEmpty || ticket.isEmpty) {
+      throw const CloudDriveLoginException('天翼云盘未返回二维码 uuid/ticket');
+    }
+    final String taskId = 'pan189_${_randomHex(16)}';
+    _pan189Tasks[taskId] = _Pan189QrTask(uuid: uuid, ticket: ticket);
+    // 对齐 iOS `qrPayload = cloud.189.cn/qrlogin?uuid=`（L493）：文本授权
+    // 链接 → `qr_data:` 前缀交给 UI 本地生成二维码。
+    return (
+      taskId: taskId,
+      qrDataUrl:
+          '${kQrDataContentPrefix}https://cloud.189.cn/qrlogin?uuid=$uuid',
+    );
+  }
+
+  Future<CloudDriveLoginPhase> _pan189Poll(String taskId) async {
+    final _Pan189QrTask? task = _pan189Tasks[taskId];
+    if (task == null) {
+      throw const CloudDriveLoginException('扫码任务已失效，请重新生成二维码');
+    }
+    final Uri url = Uri.parse(
+      'https://cloud.189.cn/api/portal/queryQRCodeStatus.action',
+    ).replace(queryParameters: <String, String>{
+      'ticket': task.ticket,
+      'uuid': task.uuid,
+    });
+    final SpiderHttpResult res = await _bridge.request(
+      url.toString(),
+      options: const SpiderHttpOptions(
+        headers: <String, String>{
+          'User-Agent': _pan189UserAgent,
+          'Referer': 'https://cloud.189.cn/',
+        },
+        timeout: Duration(seconds: 10),
+      ),
+    );
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    final int resCode = _pickInt(json, <String>['resCode']) ?? -1;
+    if (resCode != 0) {
+      // 对齐 iOS `.failed(message:)`（L517-520）：报错但不销毁任务，可重试。
+      final String msg = _pickString(json, <String>['resMessage', 'msg']);
+      throw CloudDriveLoginException(
+        msg.isNotEmpty ? msg : '天翼云盘查询异常',
+      );
+    }
+    final Map<String, Object?>? data = _asMap(json?['data']);
+    // 对齐 iOS 状态机（L530-544）：0=待扫 1=已扫 2=成功(loginUrl)
+    // -1=过期 其他=data 缺失 → 一律按 pending。
+    final int status = _pickInt(data, <String>['status']) ?? 0;
+    switch (status) {
+      case 1:
+        return CloudDriveLoginPhase.scanned;
+      case 2:
+        final String loginUrl = _pickString(data, <String>['loginUrl']);
+        if (loginUrl.isEmpty) {
+          throw const CloudDriveLoginException('登录成功但未返回 loginUrl');
+        }
+        await _pan189Exchange(loginUrl);
+        _pan189Tasks.remove(taskId);
+        return CloudDriveLoginPhase.success;
+      case -1:
+        _pan189Tasks.remove(taskId);
+        throw const CloudDriveLoginException('二维码已过期，请重试');
+      default:
+        return CloudDriveLoginPhase.waitingScan;
+    }
+  }
+
+  /// 天翼 189 兑换 Cookie（对齐 iOS `pan189ExchangeCookie`，L547-603）。
+  ///
+  /// iOS 用独立 ephemeral session 自动跟随跳转后从 cookie jar 收集
+  /// `cloud.189.cn` 全部 Cookie；Flutter 端复用 [_collectFollowingRedirects]
+  /// 逐跳跟随并携带已收集 Cookie，语义等价。校验通过后 Cookie 整串落库。
+  Future<void> _pan189Exchange(String loginUrl) async {
+    final Map<String, String> cookies = await _collectFollowingRedirects(
+      loginUrl,
+      headers: <String, String>{
+        'User-Agent': _pan189UserAgent,
+        'Referer': 'https://cloud.189.cn/',
+      },
+      maxHops: 8,
+    );
+    final String cookie = joinCookies(cookies);
+    // 对齐 iOS 登录态字段判定（L571-574）：小写包含任一标记即有效。
+    final String cookieLower = cookie.toLowerCase();
+    const List<String> loginMarkers = <String>[
+      'ssotoken=',
+      'sso_token=',
+      'usersession=',
+      'ec_session=',
+      'castgc=',
+      'islogin=',
+    ];
+    final bool hasLoginCookie = loginMarkers.any(cookieLower.contains);
+    if (!hasLoginCookie) {
+      throw const CloudDriveLoginException(
+        '天翼云盘 Cookie 缺少登录态字段，登录可能无效',
+      );
+    }
+    await _persist(
+      CloudDriveType.pan189,
+      cookie: cookie,
+      statusMessage: '扫码授权成功',
+    );
+  }
 
   // ─────────────── 落库 ───────────────
 
