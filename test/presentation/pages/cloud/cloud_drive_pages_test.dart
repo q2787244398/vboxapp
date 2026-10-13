@@ -134,9 +134,10 @@ void main() {
       expect(find.text('原生扫码'), findsNWidgets(4));
       expect(find.text('网页登录兜底'), findsNWidgets(2)); // 夸克 / UC
       expect(find.text('网页兜底'), findsNWidgets(6)); // 百度/115/123/139/189/迅雷
-      // P1-A：百度/夸克/UC 三张原生卡对齐 iOS 卡内 Segmented 的 Node 档
-      // （动作矩阵追加），加 115 原有的一枚 = 4。
-      expect(find.text('Node扫码登录'), findsNWidgets(4)); // 115/百度/夸克/UC
+      // 问题 11：百度/夸克/UC 原生卡对齐 iOS 后的 **2 项**矩阵（原生扫码 +
+      // 网页兜底），Node 档不再在卡片上重复暴露（藏在原生扫码 Sheet 内的
+      // Segmented 切换），因此「Node扫码登录」只剩 Node 托管派生卡 one15 一枚。
+      expect(find.text('Node扫码登录'), findsOneWidget); // one15
       expect(find.text('Node账号登录'), findsNWidgets(2)); // 123/189
       expect(find.text('Node验证码登录'), findsNWidgets(2)); // 139/迅雷
       expect(find.text('手机验证码登录'), findsOneWidget); // 光鸭
