@@ -82,7 +82,9 @@ Filename: "{app}\{#MyAppExeName}"; Description: "启动 vbox"; Flags: nowait pos
 //  进度上报通道（路线 A 新增 · 供 .NET 壳轮询读取，驱动自绘 UI）
 //  ──────────────────────────────────────────────────────────────
 //  路径由壳通过自定义参数 /VBOXPROG="<path>" 注入（Inno 6 支持
-//  {param:VBOXPROG} 常量）；未注入时退化到临时目录下的固定文件名。
+//  {param:VBOXPROG|} 常量；末尾竖线给出「参数缺失时的默认值=空串」，
+//  避免无壳调试时 ExpandConstant 因参数不存在而抛异常）。
+//  未注入时退化到临时目录下的固定文件名。
 //  写入内容为单行 JSON：
 //    · 阶段事件： {"stage":"解压程序文件","cur":-1,"max":-1}
 //    · 字节进度： {"stage":"","cur":<n>,"max":<m>}   （CurInstallProgressChanged）
@@ -94,7 +96,7 @@ var
 
 function ProgPath(): String;
 begin
-  Result := ExpandConstant('{param:VBOXPROG}');
+  Result := ExpandConstant('{param:VBOXPROG|}');
   if Result = '' then
     Result := ExpandConstant('{tmp}\vbox-setup-progress.json');
 end;
