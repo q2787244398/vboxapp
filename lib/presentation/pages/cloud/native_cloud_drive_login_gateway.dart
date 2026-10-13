@@ -662,7 +662,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     if (errno == 1 || errno == 2) return CloudDriveLoginPhase.waitingScan;
     if (errno == 0) {
       Map<String, Object?> payload = json;
-      final Object? raw = json?['channel_v'];
+      final Object? raw = json['channel_v'];
       if (raw is String) {
         final Map<String, Object?>? nested = _decodeMap(raw);
         if (nested != null) payload = nested;
