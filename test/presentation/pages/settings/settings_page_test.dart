@@ -447,10 +447,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(remote.fetchCount, 1);
-    expect(
-      find.textContaining('配置版本：远程配置 2026.09.29.1'),
-      findsOneWidget,
-    );
+    // 刷新成功后副标题为 loadedRemote displayText（对齐原远程源页用例断言）。
+    expect(find.textContaining('远程配置 2026.09.29.1'), findsOneWidget);
   });
 
   testWidgets('G-09：刷新失败：区块副标题显示失败信息', (WidgetTester tester) async {
