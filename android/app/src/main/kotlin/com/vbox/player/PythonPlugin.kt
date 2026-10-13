@@ -21,19 +21,21 @@ import kotlin.concurrent.thread
  *
  * ## 背景
  * Dart `PythonBridgeEngine` 原以 `Process.start("python3", …)` 起常驻子进程跑蜘蛛脚本，
- * 但 Android 无 `python3` 可执行文件 → 9 个 `y_*` Python 站点在 Android / TV 全不可用。
+ * 但 Android 无 `python3` 可执行文件 → 8 个 `y_*` Python 站点在 Android / TV 全不可用。
  * Chaquopy 把 CPython 解释器随 APK 打包，本插件据此在**进程内**运行脚本。
  *
  * ## 协议（MethodChannel `com.vbox.python/python`）
- *  - `launch`（`script` / `timeoutMs`）→ `null`；启动并等待脚本首行 `READY`
+ *  - `launch`（`script` / `timeoutMs`）→ `null`；加载脚本并等待 `READY`
  *  - `request`（`line` / `timeoutMs`）→ 一行 JSON 响应；超时或脚本退出 → `PlatformException`
  *  - `shutdown` → `null`
  *
- * ## stdio 语义复刻（关键）
- * 既有蜘蛛脚本按 stdio ABI 编写：`print("READY")` 后循环读请求行、写响应行。
- * Chaquopy 下 `sys.stdin` 恒为 EOF，故由 Python 侧引导模块 `vbox_python_bridge.run()`
- * 用本插件传入的 [StdioBridge] 替换 `sys.stdin` / `sys.stdout` / `sys.stderr`，
- * 使**同一份脚本零改动复用**（子进程版与 Chaquopy 版共用源码，一致性由 conformance 夹具锁定）。
+ * ## 调用模型（v2 · 对齐 iOS `PythonBridge.m` 的对象调用）
+ * 真实 TVBox py 源是标准 `Spider` 类定义脚本（无 READY/stdio 循环），v1 的
+ * 「脚本自实现 stdio ABI」模型永远等不到 READY → 分类数据「暂无数据」。
+ * v2 由 Python 侧 `vbox_python_bridge.run()` 承担 ABI 循环：exec 脚本 → 校验
+ * `Spider` 类 → READY → 逐请求实例化 Spider 并按 TVBox 标准签名调用方法
+ * （与 iOS callSpider 一致）。本插件的 stdio 桥（[StdioBridge]）语义不变，
+ * 只是输出方从「脚本自身」变为「桥模块」。
  *
  * ## 线程模型
  *  - 脚本运行在常驻线程 `vbox-python-spider`，阻塞于 [StdioBridge.readLine]；

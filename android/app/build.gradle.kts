@@ -119,10 +119,14 @@ kotlin {
 
 // Wave G · RT-运1：Chaquopy 配置。
 //  · version 3.11：3.11 及更早保留 32 位 ABI 支持（Chaquopy 17 默认 3.10）；
-//  · 无 pip 依赖：`y_*` 蜘蛛仅依赖标准库（json / urllib / re / sys）；
+//  · 无 pip 构建依赖：纯 Python 库直接 vendor 在 src/main/python/
+//    （base.spider / Crypto / pyaes / requests / urllib3 / idna / certifi /
+//    charset_normalizer，对齐 iOS site-packages 的纯 Python 部署），避免
+//    构建机 Python 版本（buildPython 须与 3.11 同 minor）与网络依赖；
 //  · pyc.src = false：不要求构建机安装同 minor 版本 Python（CI 免额外前置），
 //    源码 .py 直接入 APK，首次运行由设备端编译（仅影响首启耗时，不影响正确性）。
-//  蜘蛛脚本源码目录：android/app/src/main/python（Chaquopy 默认 source set）。
+//  蜘蛛脚本桥：src/main/python/vbox_python_bridge.py（v2 对象调用模型，
+//  对齐 iOS PythonBridge.m）。
 chaquopy {
     defaultConfig {
         version = "3.11"

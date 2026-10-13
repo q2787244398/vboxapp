@@ -25,10 +25,12 @@ class PythonBridgeEngine implements SpiderEngine {
   /// [runtime] 可注入（测试用 fake / 指定宿主）。
   /// [httpBridge] 脚本拉取桥（[loadScriptFromURL] 用）；注入实例生命周期归
   /// 调用方，缺省按需临时创建、用后即关。
+  /// 超时缺省 20s：对齐 iOS `PythonSpiderEngine.withPythonTimeout`（注册与
+  /// 各方法调用统一 20s；真实 py 源在弱网下抓取较慢，15s 偏紧）。
   PythonBridgeEngine({
     String pythonExecutable = 'python3',
     SpiderAbiCodec? codec,
-    this.timeout = const Duration(seconds: 15),
+    this.timeout = const Duration(seconds: 20),
     PythonRuntime? runtime,
     SpiderHttpBridge? httpBridge,
   })  : _codec = codec ?? const SpiderAbiCodec(),
