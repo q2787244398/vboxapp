@@ -34,7 +34,6 @@ import '../../../domain/entities/spider/site_config.dart';
 import '../../../domain/usecases/content_browse_usecases.dart';
 import '../../../domain/usecases/detail_playback_usecases.dart';
 import '../../../domain/usecases/source_governance_usecases.dart';
-import '../../../platform/network/dns_cache.dart';
 import '../../../platform/update/update.dart';
 import '../../theme/theme.dart';
 import '../../ui_mode/ui_mode.dart';
@@ -603,19 +602,6 @@ class _SettingsPageState extends State<SettingsPage> {
           title: '查看日志',
           icon: Icons.list_alt,
           onTap: () => _push(const LogViewerPage()),
-        ),
-        // 批次 E · E3-2：零消费键 `dns_cache_clear` 收口（对齐 iOS
-        // `AppSettings.swift` 「DNS 缓存清理」动作行：触发后清缓存并回弹）。
-        VboxSettingsRow.toggle(
-          title: 'DNS 缓存清理',
-          subtitle: '清空进程级 DNS 解析缓存，下次连接重新解析',
-          icon: Icons.dns_outlined,
-          value: false,
-          onChanged: (bool value) {
-            if (!value) return;
-            VboxDnsCache.clear();
-            VboxToast.show(context, 'DNS 缓存已清理');
-          },
         ),
       ],
     );

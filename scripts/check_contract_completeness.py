@@ -29,6 +29,8 @@ EXCLUDE = {
     "headers", "httpHeaders", "playerUrl", "referer", "orientation",
     "inputCorrectionLevel", "inputMessage", "MPV", "NetworkLoggerHandled",
     "builtin_",
+    # IJK 播放器 FFmpeg 选项（非 prefs 键；v1.5 修订移除的误抓键）
+    "dns_cache_clear",
     # 测试数据 / UI 局部状态 / 非键字符串
     "a1b2c3d4e5f60708", "abcdefghijklmnopqrstuvwxyz0123456789",
     "app", "feedback", "samsung", "today", "wy", "drpy_js_腾云驾雾",

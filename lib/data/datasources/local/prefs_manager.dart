@@ -1,6 +1,6 @@
 /// 数据层：偏好管理器（Preferences Manager）。
 ///
-/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.4，99 键）
+/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.5，98 键）
 ///
 /// 设计要点：
 /// - **普通键** → `SharedPreferences`（对应 iOS `UserDefaults.standard`）

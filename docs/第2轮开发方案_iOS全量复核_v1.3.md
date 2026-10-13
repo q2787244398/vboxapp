@@ -282,7 +282,7 @@
 
 | 维度 | 实测结果 | 来源 |
 |------|---------|------|
-| Prefs 契约 | **21 组 / 99 键**，`schemaVersion 1.4`；敏感键 **7 个**（`app_tmdb_proxy_token`、`one_platform_token`、`one_platform_userkey`、`one_platform_uuid`、`quark_device_id`、`baidu_local_pcs_device_id`、`saved_drive_tokens`） | `contract/schema/prefs_keys_v1.json` |
+| Prefs 契约 | **21 组 / 98 键**，`schemaVersion 1.5`；敏感键 **7 个**（`app_tmdb_proxy_token`、`one_platform_token`、`one_platform_userkey`、`one_platform_uuid`、`quark_device_id`、`baidu_local_pcs_device_id`、`saved_drive_tokens`） | `contract/schema/prefs_keys_v1.json` |
 | 分组错位 | 皮肤键 `app_skin_mode` / `app_skin_follows_system` 落在 `_group_log` 组内（语义应属界面/皮肤） | 同上 |
 | 契约无「显示模式」键 | 确认 `app_ui_form_override` 为**新增键** → 走 **D17** 契约变更 | 同上 |
 | SQLite | `vbox.sqlite3`，**9 张业务表**：`zhanyuan` `apiyuan` `subscription` `favorite` `history` `settings` `jiexisetting` `search_history` `download`；迁移链 **v1 建表 → v2/v3/v4 扩列**；`download` v4 新增 `sourceType` / `engineKey` / `vodId` / `headers` | `vbox/Services/DatabaseManager.swift` |
@@ -377,7 +377,7 @@
 
 | 层 | 状态 |
 |----|------|
-| 契约 / 数据层 | **本轮新覆盖**（99 键 / 9 表 / Keychain / 端点 / 端口） |
+| 契约 / 数据层 | **本轮新覆盖**（98 键 / 9 表 / Keychain / 端点 / 端口） |
 | Flutter 现状 | **本轮新覆盖**（已有基建盘点 → 新建 / 改造 / 复用三分） |
 | 仍为抽样 | `Services/` 各服务的**逐行实现细节**与**跨端真机行为**（须真机） |
 

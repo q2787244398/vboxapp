@@ -1,6 +1,6 @@
 /// 契约层：Preferences 键名
 ///
-/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.4，99 键 + 7 敏感键）
+/// 唯一真相源：`contract/schema/prefs_keys_v1.json`（v1.5，98 键 + 7 敏感键）
 /// 本文件是该契约的 Dart 移植，**任何修改必须同步两侧**。
 ///
 /// 提取依据：iOS 源码 `vbox/` 中的 UserDefaults 调用（3 种写法穷举）
@@ -222,11 +222,10 @@ const List<PrefsKey> kAllPrefsKeys = <PrefsKey>[
   // ────────────── _group_welfare（2）──────────────
   PrefsKey(name: 'welfare_platform_order', group: PrefsGroup.welfare, type: PrefsType.string, storage: PrefsStorage.userDefaults, defaultValue: '[]', description: '福利平台排序（JSON）'),
   PrefsKey(name: 'fuli_remote_platform_order_v2', group: PrefsGroup.welfare, type: PrefsType.string, storage: PrefsStorage.userDefaults, defaultValue: '[]', description: '福利远程平台排序 v2'),
-  // ────────────── _group_debug（4）──────────────
+  // ────────────── _group_debug（3）──────────────
   PrefsKey(name: 'show_debug_overlay', group: PrefsGroup.debug, type: PrefsType.bool, storage: PrefsStorage.userDefaults, defaultValue: false, description: '调试浮层'),
   PrefsKey(name: 'show_search_debug', group: PrefsGroup.debug, type: PrefsType.bool, storage: PrefsStorage.userDefaults, defaultValue: false, description: '搜索调试'),
   PrefsKey(name: 'searchHistory', group: PrefsGroup.debug, type: PrefsType.string, storage: PrefsStorage.userDefaults, defaultValue: '[]', description: '搜索历史（JSON）'),
-  PrefsKey(name: 'dns_cache_clear', group: PrefsGroup.debug, type: PrefsType.bool, storage: PrefsStorage.userDefaults, defaultValue: false, description: 'DNS 缓存清理'),
   // ────────────── _group_legacy_migration（1）──────────────
   PrefsKey(name: 'vbox_sqlite_migration_done', group: PrefsGroup.legacyMigration, type: PrefsType.bool, storage: PrefsStorage.userDefaults, defaultValue: false, description: 'UserDefaults→SQLite 迁移标记。Flutter 首次启动必须识别，避免重复迁移'),
   // ────────────── _group_log（8）──────────────

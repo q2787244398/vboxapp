@@ -658,8 +658,8 @@
 |---|---|---|
 | 导入路径校验 | `check_dart_imports.py`（416 文件） | ✅ 全绿（相对 / `package:vbox` 路径全可达） |
 | UI 令牌守卫 | `check_ui_tokens.py`（271 文件） | ✅ 全绿（R-2 / R-3 / R-4） |
-| 契约完整性 | `check_contract_completeness.py` | ✅ 通过（契约覆盖 99 键；`app_ui_form_override` 为 D17 新增键，提示「源码未见」属预期） |
-| 契约镜像同步 | `check_contract_sync.py` | ✅ 通过（99 键 storage 标注 + 9 表字段 + conformance fixture） |
+| 契约完整性 | `check_contract_completeness.py` | ✅ 通过（契约覆盖 98 键；`app_ui_form_override` 为 D17 新增键，提示「源码未见」属预期） |
+| 契约镜像同步 | `check_contract_sync.py` | ✅ 通过（98 键 storage 标注 + 9 表字段 + conformance fixture） |
 | prefs_manager 守卫 | `check_prefs_manager.py` | ✅ 通过（键字面量 / JSON 列表 / 安全存储分派） |
 | 备份契约 | `check_backup_contract.py` | ✅ 通过 |
 | 文档一致性 | `check_docs_consistency.py` | ✅ 通过（含本文件升版 v1.7 后复跑） |

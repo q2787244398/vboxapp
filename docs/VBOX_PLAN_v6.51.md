@@ -1129,7 +1129,7 @@ vboxapp/
 > `UiForm{portrait,landscape}` + `InputModality{touch,remote,mouseKeyboard}`，
 > `UiFormController.resolveWithBridge` 经 `SystemBridge` 走平台通道，视口由 `_RootRouter` 经
 > `MediaQuery` 注入（原「无调用方提供 `screenSize/hasTouch/hasRemote`」的占位缺陷已消除）；
-> 注释中提及的 `ui_tv_mode` 键**不在契约 99 键内**（Android TV 经通道判定，不读此键）。
+> 注释中提及的 `ui_tv_mode` 键**不在契约 98 键内**（Android TV 经通道判定，不读此键）。
 > 接线已于 **v6.26**（G-02-C `SystemPlugin.kt` 三重判定通道）+ **v6.34**（A-05 `SystemBridge` 消费）完成。
 
 ### 2.5 平台能力矩阵（v3）
@@ -1221,7 +1221,7 @@ abstract class UiModeResolver {
 
 1. **SQLite**：严格遵循 `schema_v1.sql`，复刻 v1→v4 迁移链（含 v2 重建表）
 2. **JSON**：数据模型字段名与 SQL 列名 1:1
-3. **Prefs**：遵循 `prefs_keys_v1.json`，99 键名 + 类型完全一致（v1.4，A-06 扩键）
+3. **Prefs**：遵循 `prefs_keys_v1.json`，98 键名 + 类型完全一致（v1.5，A-06 扩键后 v1.5 移除误抓键）
 4. **备份**：格式与加密参数不变，须通过跨端互通测试
 5. **迁移标记**：`vbox_sqlite_migration_done` 必须识别，避免重复迁移
 6. **敏感键**：7 个敏感键 + `storage=keychain` + `storage=credential_extra` 键建议迁 secure storage（v1.3，B2/B3 裁定），需兼容读取 UserDefaults
@@ -1712,7 +1712,7 @@ enum class PlayerBackend { MEDIA3, LIBVLC }
 /var/minis/workspace/vbox-contract/
 ├── schema/
 │   ├── schema_v1.sql          ✅ SQLite DDL（9 表 + v1→v4 迁移链）
-│   └── prefs_keys_v1.json     ✅ Prefs 键名契约（99 键 + 7 敏感键；v1.4）
+│   └── prefs_keys_v1.json     ✅ Prefs 键名契约（98 键 + 7 敏感键；v1.5）
 ├── conformance/fixtures/      ✅ 已交付（SQLite 样本 / 备份样本 / Spider IO，conformance 45/45）
 └── docs/                      ✅ 已交付（Spider ABI / 备份格式规范 / android-compat）
 ```
@@ -1742,7 +1742,7 @@ enum class PlayerBackend { MEDIA3, LIBVLC }
 | `_group_one_platform` | 5 | 含 **3** 敏感键 |
 | `_group_quark_pg` | 10 | 含 1 敏感键 |
 | `_group_welfare` | 2 | 福利排序 |
-| `_group_debug` | 4 | 调试 |
+| `_group_debug` | 3 | 调试（v1.5 移除误抓键 `dns_cache_clear`） |
 | `_group_legacy_migration` | 1 | **必须迁移**（`vbox_sqlite_migration_done`） |
 | `_group_log` | 8 | 日志（v1.2 新增组） |
 | `_group_app_settings` | 5 | 应用设置（v1.2 新增组；v1.4 增 `app_ui_form_override`） |
@@ -1753,14 +1753,14 @@ enum class PlayerBackend { MEDIA3, LIBVLC }
 | `_group_push` | 1 | 推送（v1.2 新增组） |
 | `_group_pg_extra` | 2 | 凭据扩展（`credential_extra`，v1.2 新增组） |
 | `_group_cloud` | 17 | 云盘（含 2 keychain 键，v1.2 新增组） |
-| **合计** | **99** | **21 组** |
+| **合计** | **98** | **21 组** |
 
 **7 个敏感键**（v1.3，B3 裁定）：`app_tmdb_proxy_token`、`one_platform_token`、`one_platform_userkey`、`one_platform_uuid`、`quark_device_id`、`baidu_local_pcs_device_id`、`saved_drive_tokens`
 
 **关键提醒**：`vbox_sqlite_migration_done` 必须迁移，否则 Flutter 首次启动会重复执行 UserDefaults→SQLite 迁移，导致数据重复。
 
 > **结构统一（v6.3 已闭环）**：v6.2 登记的键对象异构（原前 12 组为 `{type, default, desc[, sensitive]}`、
-> 后 9 组为 `{type, storage, evidence, desc}`）**已消除** —— 现**全部 99 键**均显式标注 `storage`
+> 后 9 组为 `{type, storage, evidence, desc}`）**已消除** —— 现**全部 98 键**均显式标注 `storage`
 > （取值 `userdefaults | keychain | credential_extra`），落实 **D19**。
 > `check_contract_sync.py` 新增「**3d. storage 完整性 + Dart↔JSON 逐键比对**」防回归
 > （已通过负向测试：人为删去任一键的 `storage` 即硬失败）。
@@ -2040,7 +2040,7 @@ notes: "第一行末尾正常，仅第二行复现"
 - [ ] SQLite 迁移链 v1→v4 完整复刻
 - [ ] 旧数据可读写（fixtures 实测）
 - [ ] 备份文件可双向互通
-- [ ] Prefs 键名 99 个全覆盖，无遗漏无拼错
+- [ ] Prefs 键名 98 个全覆盖，无遗漏无拼错
 - [ ] 敏感键按约定处理
 
 **③ 平台差异**
@@ -3570,7 +3570,7 @@ AliyunPlayer + IJK   ~30 MB
 
 | 模块 | 产物 |
 |------|------|
-| 契约层 | `contract/prefs_keys.dart`（**99 键/21 组**）· `contract/schema/schema.dart`（9 表+迁移链） |
+| 契约层 | `contract/prefs_keys.dart`（**98 键/21 组**）· `contract/schema/schema.dart`（9 表+迁移链） |
 | 数据层 | `data/models/`（9 模型）· `data/datasources/local/`（database/prefs/backup manager） |
 | 领域层 | `domain/entities/spider/`（6 文件）· `remote_source/`（3）· `player/`（1） |
 | 表现层 | `presentation/ui_mode/ui_mode_resolver.dart`（⭐ 三重判定） |
@@ -3718,7 +3718,7 @@ lib/
 |--------|------|
 | 契约同步校验 | ✅ |
 | 契约完整性（双向） | ✅ |
-| Dart 无契约外键 | ✅ 99 键全部在契约内 |
+| Dart 无契约外键 | ✅ 98 键全部在契约内 |
 | conformance 100% 通过 | ✅ **runner 已交付，45/45 通过**（原 ❌ → 见 P.8b） |
 
 #### ② 数据与状态（5/5 通过）
@@ -3728,7 +3728,7 @@ lib/
 | SQLite 迁移链 v1→v4 | ✅ |
 | 旧数据可读写（fixtures） | ✅ |
 | 备份格式契约对齐 | ✅ |
-| Prefs 键全覆盖 | ✅ **99 键** |
+| Prefs 键全覆盖 | ✅ **98 键** |
 | 敏感键按约定处理 | ✅ 5 个 |
 
 #### ③ 平台差异（2/5 通过）
@@ -3835,7 +3835,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 
 | 编号 | 决策 |
 |------|------|
-| D17 | 契约键范围 = 全模块（99 键，v1.4），以 iOS 源码实测为唯一基准 |
+| D17 | 契约键范围 = 全模块（98 键，v1.5），以 iOS 源码实测为唯一基准 |
 | D18 | 目录结构基准 = 方案 §2.4 五层架构 |
 | D19 | 契约键须标注 `storage`（userDefaults/keychain/credentialExtra） |
 | D20 | 第 1 轮完成判定 = **代码侧交付 + 自动化门禁（E.10b 六类扫描）通过**（**已修订**，见 D30：G-09 / G-10 真机项整体后移至第 2 轮末） |
@@ -3878,7 +3878,7 @@ E.10b 结果：❌ 未通过（12 → 9 项不达标）
 
 | # | 事项 | 状态 |
 |---|------|------|
-| 1 | ~~契约键范围~~ | ✅ 已定：全模块（99 键，v1.4） |
+| 1 | ~~契约键范围~~ | ✅ 已定：全模块（98 键，v1.5） |
 | 2 | ~~目录结构~~ | ✅ 已定：方案 §2.4 五层 |
 | 3 | ~~键数口径~~ | ✅ 已定：以 iOS 源码 98 键为基准（第 2 轮 A-06 扩 1 键 → 99 键） |
 | 4 | ~~conformance runner~~ | ✅ **已交付**（45/45 + 否定测试通过） |
@@ -5359,7 +5359,7 @@ lib/
 ├── app.dart                         根组件（依赖初始化 + Provider 注入 + 形态路由）
 │
 ├── contract/                        ── 第 1 层：契约镜像（与 contract/ 一一对应）
-│   ├── prefs_keys.dart              99 键 / 21 组 / 3 种存储方式
+│   ├── prefs_keys.dart              98 键 / 21 组 / 3 种存储方式
 │   ├── schema/schema.dart            9 表 DDL + v1→v4 迁移链
 │   └── abi/                          Spider ABI 镜像
 │

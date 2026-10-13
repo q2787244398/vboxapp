@@ -61,7 +61,7 @@
 
 | 项 | 值 |
 |----|----|
-| Prefs 契约 | **21 组 / 99 键**，`schemaVersion 1.4`，敏感键 **7**（`app_tmdb_proxy_token` · `one_platform_token` · `one_platform_userkey` · `one_platform_uuid` · `quark_device_id` · `baidu_local_pcs_device_id` · `saved_drive_tokens`） |
+| Prefs 契约 | **21 组 / 98 键**，`schemaVersion 1.5`，敏感键 **7**（`app_tmdb_proxy_token` · `one_platform_token` · `one_platform_userkey` · `one_platform_uuid` · `quark_device_id` · `baidu_local_pcs_device_id` · `saved_drive_tokens`） |
 | 本轮新增键 | `app_ui_form_override`（显示模式 auto/portrait/landscape）→ **D17 契约变更** |
 | SQLite | `vbox.sqlite3`，**9 表**：`zhanyuan` `apiyuan` `subscription` `favorite` `history` `settings` `jiexisetting` `search_history` `download`；迁移链 v1 建表 → v2/v3/v4 扩列（`download` v4 加 `sourceType` `engineKey` `vodId` `headers`） |
 | Keychain | `credentialService` · `tokenService` 两套 `service/account` |

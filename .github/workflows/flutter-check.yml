@@ -43,6 +43,12 @@ on:
       - 'windows/**'
       - '.github/workflows/flutter-check.yml'
 
+# 并发控制：同一分支同一工作流仅保留最新一次运行（旧运行自动取消），
+# 避免连续推送时多个 analyze / test / 契约校验任务并行抢占机时。
+concurrency:
+  group: flutter-check-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ── 契约与一致性校验（纯 Python，不需要 Flutter）──────────────
   contract-checks:

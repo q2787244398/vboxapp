@@ -2,7 +2,7 @@
 """契约一致性校验：lib/contract/*.dart  vs  contract/schema/*
 
 校验项：
-  1. prefs_keys.dart 的键名集合 == prefs_keys_v1.json 的 99 键
+  1. prefs_keys.dart 的键名集合 == prefs_keys_v1.json 的 98 键
   2. prefs_keys.dart 的敏感键集合 == JSON 的 sensitiveKeys
      （声明集 kSensitiveKeys 与逐键 sensitive:true 标志**各自**都要一致）
   3. prefs_keys.dart 的分组枚举数 == JSON 的 _group_* 分组数（21 组）
@@ -130,13 +130,17 @@ def main() -> int:
         "bufferedPosition", "maxBufferDuration", "highBufferDuration",
         "startBufferDuration", "maxDelayTime", "timeout", "networkTimeout",
         "positionTimerIntervalMs", "reconnect", "danmaku_scroll",
+        # v1.5：dns_cache_clear 系 IJK 播放器 FFmpeg 选项
+        # （IJKPlayerRepresentable.swift:98 setOptionIntValue(..., of: kIJKFFOptionCategoryFormat)），
+        # 非 UserDefaults 偏好键，v1.5 修订已从契约移除。
+        "dns_cache_clear",
     }
     leaked = false_positives & json_keys
     if leaked:
-        fail(f"误抓键回归（v1.1 应已移除）: {sorted(leaked)}")
+        fail(f"误抓键回归（v1.5 及后续应已移除）: {sorted(leaked)}")
         errors += 1
     else:
-        ok("10 个误抓键（播放器 KVC / CA 动画 key）均不在契约中")
+        ok("11 个误抓键（播放器 KVC / CA 动画 key / IJK FFmpeg 选项）均不在契约中")
 
     # 3d. storage 完整性（D19）：每个键对象必须显式标注 storage，且 Dart 镜像逐键一致
     print("== 3d. storage 完整性（D19）==")

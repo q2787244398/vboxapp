@@ -238,7 +238,7 @@
 
 ## 7. 零消费契约键
 
-`lib/contract/prefs_keys.dart` 共 **99 键**（+7 敏感键，`contract/schema/prefs_keys_v1.json` v1.4）。
+`lib/contract/prefs_keys.dart` 共 **98 键**（+7 敏感键，`contract/schema/prefs_keys_v1.json` v1.5）。
 
 **v1.1（批次 A–E 收口后）**：v1.0 列出的 14 个零消费键中，**12 个已消费**，仅剩 2 个：
 

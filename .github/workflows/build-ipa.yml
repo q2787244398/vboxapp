@@ -15,6 +15,12 @@ on:
         description: 'MobileVLCKit 备用下载地址（videolan.org 不可达时使用，可填 https 镜像或仓库内 file:// 路径）'
         required: false
 
+# 并发控制：同一分支仅保留最新一次 iOS 构建，新推送自动取消仍在跑/排队的旧构建。
+# 避免「一次代码改动带动好几个编译任务」同时占用 macos-15 机时（旧运行被顶替）。
+concurrency:
+  group: build-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
