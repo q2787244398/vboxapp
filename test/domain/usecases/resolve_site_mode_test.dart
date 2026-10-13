@@ -30,12 +30,11 @@ void main() {
   const ResolveSiteModeUseCase useCase = ResolveSiteModeUseCase();
 
   test('构造函数可在运行时非 const 实例化（lcov 覆盖回归）', () {
-    // const 上下文的实例化不产生运行时构造调用；通过闭包返回表达式
-    // 触发真正的运行时构造（同时避开 prefer_const_constructors lint），
-    // 覆盖 `const ResolveSiteModeUseCase()` 构造行。
-    final ResolveSiteModeUseCase Function() make =
-        () => ResolveSiteModeUseCase();
-    expect(make(), isA<ResolveSiteModeUseCase>());
+    // 故意使用非 const 实例化：const 上下文的实例化不产生运行时构造调用，
+    // 无法覆盖 `const ResolveSiteModeUseCase()` 构造行（lcov 覆盖回归）。
+    // ignore: prefer_const_constructors
+    final ResolveSiteModeUseCase runtime = ResolveSiteModeUseCase();
+    expect(runtime, isA<ResolveSiteModeUseCase>());
   });
 
   group('B-04 · 常规 type 分流（iOS resolveSiteMode switch）', () {
