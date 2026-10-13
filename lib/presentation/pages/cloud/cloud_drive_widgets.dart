@@ -48,22 +48,20 @@ List<(String, IconData)> cloudDriveAuthActions(CloudDriveType type) {
       CloudDriveType.ali => <(String, IconData)>[
           ('原生扫码', Icons.qr_code_2),
         ],
-      // 原生盘：走原生链（非 Node）；「Node扫码登录」对齐 iOS 卡内 Segmented
-      // 的 Node 档（百度/夸克 `NodeScanQRLoginView(provider:)`、UC
-      // `NodeUcTwoStepLoginView`），登录态写 Node 常驻系统（独立命名空间）。
+      // 原生盘：对齐 iOS `providerAccountCard`（`SettingsViews.swift:1997-2061`）
+      // —— uc / 百度 / 夸克卡片均为 **2 项**（原生扫码 + 网页兜底）；「Node 档」
+      // 藏在原生扫码 Sheet 内的 Segmented 切换（`SettingsViews.swift:4415-4427`），
+      // 不在卡片上重复暴露（问题 11）。
       CloudDriveType.uc => <(String, IconData)>[
           ('原生扫码', Icons.qr_code_2),
-          ('Node扫码登录', Icons.phone_iphone),
           ('网页登录兜底', Icons.language),
         ],
       CloudDriveType.baidu => <(String, IconData)>[
           ('扫码授权', Icons.qr_code_2),
-          ('Node扫码登录', Icons.phone_iphone),
           ('网页兜底', Icons.language),
         ],
       CloudDriveType.quark => <(String, IconData)>[
           ('扫码登录', Icons.qr_code_2),
-          ('Node扫码登录', Icons.phone_iphone),
           ('网页登录兜底', Icons.language),
         ],
       // Node 托管派生卡：动作须落到 Node 模式（F-P16）。

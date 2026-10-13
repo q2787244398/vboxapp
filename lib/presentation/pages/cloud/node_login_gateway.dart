@@ -114,6 +114,12 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     }
     final ({String qrDataUrl, String taskId}) r =
         await _node.startQr(provider);
+    // 对齐 iOS `regenerate`：Node 只回 taskId、缺二维码图像时直接落「生成失败」，
+    // 不进入轮询 —— 否则 UI 会长期停在「正在生成二维码…」的转圈态
+    //（问题 7 / 9 / 10 的直接成因）。
+    if (r.qrDataUrl.isEmpty) {
+      throw const CloudDriveLoginException('二维码生成失败：缺少图片数据');
+    }
     return (taskId: r.taskId, qrDataUrl: r.qrDataUrl);
   }
 
@@ -132,20 +138,22 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     if (provider == null || !mode.isQr) {
       throw CloudDriveLoginException(_unavailableMessage(mode));
     }
-    final NodeLoginPoll poll =
-        await _node.pollQr(provider: provider, taskId: taskId);
+    final NodeLoginPoll poll;
+    try {
+      poll = await _node.pollQr(provider: provider, taskId: taskId);
+    } on NodeLoginTerminalException catch (e) {
+      // 对齐 iOS `catch let NodeLoginError.terminal(msg)`：终端态交由控制器自动换码。
+      throw CloudDriveTerminalLoginException(e.message);
+    }
     if (poll.status == 'success') {
       await _recover();
       return CloudDriveLoginPhase.success;
     }
-    if (poll.status == 'expired' || poll.status == 'error') {
-      throw CloudDriveLoginException(
-        poll.msg.isEmpty ? '二维码已过期，请重试' : poll.msg,
-      );
-    }
-    if (poll.terminal) {
-      throw CloudDriveLoginException(
-        poll.msg.isEmpty ? '扫码登录已结束' : poll.msg,
+    if (poll.status == 'expired' || poll.status == 'error' || poll.terminal) {
+      // 对齐 iOS `poll` 分支：`expired` / `error`（terminal=true）一律按**终端态**
+      // 处理 —— 任务已丢失 / 过期，旧码必然失效 → 控制器停止轮询并自动换码。
+      throw CloudDriveTerminalLoginException(
+        poll.msg.isEmpty ? '二维码已失效，正在刷新…' : poll.msg,
       );
     }
     return _phaseFor(poll.status, poll.msg);
@@ -157,18 +165,20 @@ class NodeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       await _recover();
       return CloudDriveLoginPhase.success;
     }
+    // 对齐 iOS 扫码态机：过期 / 失败 / 终端（任务丢失）均为**终端态** ——
+    // 交由控制器停止轮询 + 自动换码，而不是当作可重试的瞬时错误。
     if (result.status == BiliAuthStatus.expired) {
-      throw CloudDriveLoginException(
-        result.msg.isEmpty ? '二维码已过期，请重试' : result.msg,
+      throw CloudDriveTerminalLoginException(
+        result.msg.isEmpty ? '二维码已失效，正在刷新…' : result.msg,
       );
     }
     if (result.status == BiliAuthStatus.error) {
-      throw CloudDriveLoginException(
+      throw CloudDriveTerminalLoginException(
         result.msg.isEmpty ? '扫码登录失败' : result.msg,
       );
     }
     if (result.terminal && result.status == BiliAuthStatus.waiting) {
-      throw CloudDriveLoginException(
+      throw CloudDriveTerminalLoginException(
         result.msg.isEmpty ? '扫码登录已结束' : result.msg,
       );
     }

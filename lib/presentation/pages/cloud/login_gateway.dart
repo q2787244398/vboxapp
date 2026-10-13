@@ -50,6 +50,17 @@ class CloudDriveLoginException implements Exception {
   String toString() => message;
 }
 
+/// 登录网关「终端态」异常（对齐 iOS `NodeLoginError.terminal`）。
+///
+/// 表示 Node / 原生侧任务已**不可恢复地失效**（任务不存在、已结束、已过期、
+/// 引擎重启清表）。此类错误**不可当作瞬时网络错误重试**：控制器必须停止轮询、
+/// 自动换一张新码（对齐 iOS `handleTerminal` → `regenerate`），
+/// 超过上限后才落失败态。
+class CloudDriveTerminalLoginException extends CloudDriveLoginException {
+  /// 构造。
+  const CloudDriveTerminalLoginException(super.message);
+}
+
 /// 网盘登录网关抽象。
 ///
 /// 所有方法失败时抛 [CloudDriveLoginException]（UI 统一渲染到错误行）。

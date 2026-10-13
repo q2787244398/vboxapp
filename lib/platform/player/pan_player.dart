@@ -347,6 +347,9 @@ class PanPlayer {
             );
           } on BaiduIBoxException catch (e) {
             throw PanPlayException(e.message);
+          } catch (e) {
+            // P0-D（问题 4）：同 prepare 分支，扩大捕获面，避免非预期异常冒泡闪退。
+            throw PanPlayException('百度分享解析异常：$e');
           }
           return NodePanShare(
             title: '百度分享',
@@ -479,6 +482,11 @@ class PanPlayer {
             );
           } on BaiduIBoxException catch (e) {
             throw PanPlayException(e.message);
+          } catch (e) {
+            // P0-D（问题 4）：扩大异常捕获面 —— 非 `BaiduIBoxException` 的异常
+            //（空指针 / 平台通道异常等）也统一转成 PanPlayException 文案，
+            // 绝不允许冒泡到 UI 触发 App 闪退。
+            throw PanPlayException('百度播放解析异常：$e');
           }
           playURL = r.url;
           fileName = entry.name;

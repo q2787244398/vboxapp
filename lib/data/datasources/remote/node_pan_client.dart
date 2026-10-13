@@ -136,7 +136,7 @@ class NodePanClient {
     if (clean.isEmpty) {
       throw const NodePanException(NodePanErrorKind.invalidShareURL);
     }
-    final NodePanHttpResponse res = await _transport.postJson(
+    final NodePanHttpResponse res = await _postWithWarmup(
       NodePanPaths.detail,
       <String, dynamic>{
         'id': <String>[clean],
@@ -177,7 +177,7 @@ class NodePanClient {
     if (playID.isEmpty) {
       throw const NodePanException(NodePanErrorKind.nodeRejected, '播放参数无效');
     }
-    final NodePanHttpResponse res = await _transport.postJson(
+    final NodePanHttpResponse res = await _postWithWarmup(
       NodePanPaths.play,
       <String, dynamic>{'id': playID},
     );
@@ -212,6 +212,30 @@ class NodePanClient {
   String _baseUrl() => _transport is LocalNodePanTransport
       ? _transport.baseUrl
       : 'http://127.0.0.1:58080';
+
+  /// 路由预热短重试（问题 5）：bundle spider 路由刚就绪前可能返回 404 / 502 /
+  /// 503，此时 Node **进程**虽已在（横幅显示「就绪」），但解析端点尚未预热完成。
+  /// 短重试等待其预热，耗尽后才由 [_ensureOk] 报 `nodeUnavailable`，使解析侧口径
+  /// 与横幅口径一致（避免「横幅就绪 + 解析报未就绪」的矛盾）。
+  static const int _routeWarmupRetries = 4;
+  static const Duration _routeWarmupDelay = Duration(milliseconds: 700);
+
+  Future<NodePanHttpResponse> _postWithWarmup(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    NodePanHttpResponse res = await _transport.postJson(path, body);
+    for (int i = 1;
+        i <= _routeWarmupRetries && _isRouteWarmingUp(res.statusCode);
+        i++) {
+      await Future<void>.delayed(_routeWarmupDelay);
+      res = await _transport.postJson(path, body);
+    }
+    return res;
+  }
+
+  static bool _isRouteWarmingUp(int statusCode) =>
+      statusCode == 404 || statusCode == 502 || statusCode == 503;
 
   /// 清洗分享链接（去首尾空白与零宽字符，对齐 iOS）。
   static String _cleanShareUrl(String url) => url

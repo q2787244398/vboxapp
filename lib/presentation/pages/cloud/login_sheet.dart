@@ -229,6 +229,12 @@ class _CloudDriveQrLoginSheetState extends State<CloudDriveQrLoginSheet> {
     if (_controller.phase == CloudDriveLoginPhase.success && !_succeeded) {
       _succeeded = true;
       widget.onLoginCompleted?.call();
+      // P1-B：对齐 iOS（`SettingsViews.swift:4934/4977` 等）成功后停留约 800ms，
+      // 让用户看到「登录成功」态，随后**自动关闭**弹窗（问题 3）。
+      // UC 原生扫码时宿主据此再延时弹出 TV 授权页（问题 8）。
+      Future<void>.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) Navigator.of(context).maybePop();
+      });
     }
     if (mounted) setState(() {});
   }
@@ -540,6 +546,11 @@ class _CloudDriveUcTwoStepQrSheetState
         Future<void>.delayed(const Duration(milliseconds: 600), _goStepTwo);
       } else {
         _finished = true;
+        // P1-B：第 2 步（TV Token）成功后自动关闭弹窗
+        //（对齐 iOS `NodeUcTwoStepLoginView` 走完两步后 dismiss）。
+        Future<void>.delayed(const Duration(milliseconds: 800), () {
+          if (mounted) Navigator.of(context).maybePop();
+        });
       }
     }
     if (mounted) setState(() {});

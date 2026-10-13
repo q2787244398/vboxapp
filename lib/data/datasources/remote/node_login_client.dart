@@ -14,6 +14,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../../domain/entities/cloud/node_login.dart';
+import '../../../platform/node/node_runtime_manager.dart';
 
 /// Node 登录接口传输接缝（可注入）。
 abstract interface class NodeLoginTransport {
@@ -67,6 +68,15 @@ class LocalNodeLoginTransport implements NodeLoginTransport {
     String path, {
     Map<String, dynamic>? body,
   }) async {
+    // 对齐 iOS `NodeLoginAPIClient.request`：Node 未就绪时先等待就绪（最多 15s，
+    // App 刚启动 / 引擎重启后在拉起），仍不就绪则直接抛「Node 常驻系统未就绪」
+    // ——避免界面长期停在「正在生成二维码…」的 loading 文案（问题 7 / 9 / 10）。
+    if (!NodeRuntimeManager.instance.isSystemReady) {
+      await _waitForNodeReady(const Duration(seconds: 15));
+    }
+    if (!NodeRuntimeManager.instance.isSystemReady) {
+      throw const NodeLoginException('Node 常驻系统未就绪');
+    }
     NodeLoginException last = const NodeLoginException('未知错误');
     for (int attempt = 1; attempt <= attempts; attempt++) {
       try {
@@ -89,14 +99,23 @@ class LocalNodeLoginTransport implements NodeLoginTransport {
           for (final MapEntry<Object?, Object?> e in decoded.entries)
             e.key.toString(): e.value,
         };
-        // Node 侧统一 {code,msg}；code != 0 视为业务失败（terminal 例外，由调用方处理）。
+        // Node 侧统一 {code,msg}。对齐 iOS `NodeLoginAPIClient.request`：
+        //   仅当 `code` 是整数且 != 0 才算业务失败；`code` 缺失 / 非整数一律放行
+        //   （iOS 用 `json["code"] as? Int` 判定，非整数不会触发失败分支）。
+        //   `terminal=true` 表示任务已丢失 → 抛 [NodeLoginTerminalException]，
+        //   供网关 / 控制器区分「瞬时失败」与「终端失效」。
         final Object? code = json['code'];
-        final bool ok = code is int ? code == 0 : '${code ?? ''}' == '0';
-        if (!ok && json['terminal'] != true) {
-          throw NodeLoginException('${json['msg'] ?? 'Node 返回错误 code=$code'}');
+        if (code is int && code != 0) {
+          final String msg = '${json['msg'] ?? 'Node 返回错误 code=$code'}';
+          if (json['terminal'] == true) {
+            throw NodeLoginTerminalException(msg);
+          }
+          throw NodeLoginException(msg);
         }
         return json;
       } catch (e) {
+        // 终端态不重试（对齐 iOS：terminal 直接抛给上层走自动换码，不做退避重试）。
+        if (e is NodeLoginTerminalException) rethrow;
         last = e is NodeLoginException ? e : NodeLoginException('$e');
         if (attempt < attempts) {
           await Future<void>.delayed(Duration(milliseconds: 500 * attempt));
@@ -104,6 +123,16 @@ class LocalNodeLoginTransport implements NodeLoginTransport {
       }
     }
     throw last;
+  }
+
+  /// 轮询等待 Node 就绪（对齐 iOS `NodeLoginAPIClient.waitForNodeReady(timeout:)`）。
+  Future<void> _waitForNodeReady(Duration timeout) async {
+    final NodeRuntimeManager manager = NodeRuntimeManager.instance;
+    final DateTime deadline = DateTime.now().add(timeout);
+    const Duration step = Duration(milliseconds: 250);
+    while (!manager.isSystemReady && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(step);
+    }
   }
 
   /// 释放连接资源。
@@ -120,6 +149,16 @@ class NodeLoginException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Node 登录协议「终端态」异常（对齐 iOS `NodeLoginError.terminal`）。
+///
+/// Node 侧明确返回 `terminal=true`（如「登录任务不存在或已结束」）时抛出，
+/// 表示该任务**不可重试**：轮询必须停止并引导重新生成二维码，
+/// 不可计入「连续失败」的网络抖动计数。
+class NodeLoginTerminalException extends NodeLoginException {
+  /// 构造。
+  const NodeLoginTerminalException(super.message);
 }
 
 /// 扫码轮询结果（对齐 iOS `poll` 的三要素）。

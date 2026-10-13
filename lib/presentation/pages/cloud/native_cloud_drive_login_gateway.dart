@@ -647,10 +647,21 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       ),
     );
     final Map<String, Object?>? json = _decodeMap(res.content);
-    final int errno = _pickInt(json, <String>['errno']) ?? -1;
+    // P1-C（问题 1）：区分「响应不可解析 / 瞬时抖动」与「真·业务错误」。
+    // 响应体为空或非 JSON 时 `_decodeMap` 返回 null，此前会被兜底成 errno=-1
+    // 并直接致命失败；现改为抛**可重试的瞬时失败**，由控制器按连续失败计数
+    // （对齐 iOS 网络类错误重试 5 次的策略），不再一次抖动就判死。
+    if (json == null) {
+      throw const CloudDriveLoginException('百度轮询响应异常，请稍后重试');
+    }
+    final int? errnoRaw = _pickInt(json, <String>['errno']);
+    if (errnoRaw == null || errnoRaw == -1) {
+      throw const CloudDriveLoginException('百度轮询响应异常，请稍后重试');
+    }
+    final int errno = errnoRaw;
     if (errno == 1 || errno == 2) return CloudDriveLoginPhase.waitingScan;
     if (errno == 0) {
-      Map<String, Object?> payload = json ?? const <String, Object?>{};
+      Map<String, Object?> payload = json;
       final Object? raw = json?['channel_v'];
       if (raw is String) {
         final Map<String, Object?>? nested = _decodeMap(raw);
@@ -668,8 +679,9 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       return CloudDriveLoginPhase.waitingScan;
     }
     if (errno == 3 || errno == 4) {
+      // 任务失效（过期）：抛终端态 → 控制器停止轮询并自动换码（对齐 iOS expired）。
       _baiduTasks.remove(taskId);
-      throw const CloudDriveLoginException('二维码已过期，请重试');
+      throw const CloudDriveTerminalLoginException('二维码已过期，请重试');
     }
     final String msg = _pickString(json, <String>['errmsg']);
     throw CloudDriveLoginException(
@@ -731,12 +743,37 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       if (text != null && text.isNotEmpty) extra[key] = text;
     }
 
+    /// 取用户态 bdstoken / uk / username（用当前 merged Cookie）。
+    Future<void> fetchUserFields() async {
+      try {
+        final SpiderHttpResult res = await _bridge.request(
+          'https://pan.baidu.com/api/gettemplatevariable?clienttype=0&app_id=250528'
+          '&web=1&fields=[%22bdstoken%22,%22uk%22,%22username%22]',
+          options: SpiderHttpOptions(
+            headers: <String, String>{
+              'Cookie': joinCookies(merged),
+              'User-Agent': _baiduUserAgent,
+              'Referer': 'https://pan.baidu.com/disk/main',
+            },
+            timeout: const Duration(seconds: 12),
+          ),
+        );
+        merged.addAll(_filteredCookiesFromHeaders(res.headers));
+        final Map<String, Object?>? json = _decodeMap(res.content);
+        final Map<String, Object?>? result = _asMap(json?['result']);
+        putField('bdstoken', result?['bdstoken'] ?? json?['bdstoken']);
+        putField('uk', result?['uk'] ?? json?['uk']);
+        putField('username', result?['username'] ?? json?['username']);
+      } catch (_) {
+        // 静默回退（对齐 iOS continue 语义）。
+      }
+    }
+
+    // 先串行访问只读端点，让服务端通过 Set-Cookie 补齐 BFESS 系字段。
     const List<String> endpoints = <String>[
       'https://www.baidu.com/',
       'https://passport.baidu.com/center',
       'https://pan.baidu.com/disk/main',
-      'https://pan.baidu.com/api/gettemplatevariable?clienttype=0&app_id=250528'
-          '&web=1&fields=[%22bdstoken%22,%22uk%22,%22username%22]',
       'https://pan.baidu.com/api/getuinfo?clienttype=0&app_id=250528&web=1',
     ];
     for (final String urlString in endpoints) {
@@ -753,16 +790,15 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
           ),
         );
         merged.addAll(_filteredCookiesFromHeaders(res.headers));
-        if (urlString.contains('gettemplatevariable')) {
-          final Map<String, Object?>? json = _decodeMap(res.content);
-          final Map<String, Object?>? result = _asMap(json?['result']);
-          putField('bdstoken', result?['bdstoken'] ?? json?['bdstoken']);
-          putField('uk', result?['uk'] ?? json?['uk']);
-          putField('username', result?['username'] ?? json?['username']);
-        }
       } catch (_) {
         continue; // 单点失败静默回退（对齐 iOS continue 语义）。
       }
+    }
+    // Cookie 补全后再取用户态字段；仍缺 bdstoken 时再兜一次（首跳可能因 Cookie
+    // 尚未生效取不到，而 bdstoken 直接决定播放链能否创建转存目录）。
+    await fetchUserFields();
+    if (!extra.containsKey('bdstoken')) {
+      await fetchUserFields();
     }
     return _BaiduEnrichResult(cookie: joinCookies(merged), extra: extra);
   }
@@ -883,6 +919,11 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       ),
     );
     final Map<String, Object?>? json = _decodeMap(res.content);
+    // P1-C（问题 6）：响应体为空 / 非 JSON 时按可重试的瞬时失败处理（对齐 iOS
+    // 会话连续性 + 控制器连续失败容忍），不因一次抖动直接提示「登录请求已过期」。
+    if (json == null) {
+      throw const CloudDriveLoginException('夸克扫码状态查询失败，请稍后重试');
+    }
     final int status = _pickInt(json, <String>['status']) ?? -1;
     if (status == 2000000) {
       final String ticket =
@@ -896,8 +937,9 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     }
     if (status == 50004001) return CloudDriveLoginPhase.waitingScan;
     if (status == 50004002 || status == 50004003 || status == 50004004) {
+      // 任务失效（过期）：抛终端态 → 控制器停止轮询并自动换码（对齐 iOS `.expired`）。
       _quarkTasks.remove(taskId);
-      throw const CloudDriveLoginException('二维码已过期，请重试');
+      throw const CloudDriveTerminalLoginException('二维码已过期，请重试');
     }
     final String msg = _pickString(json, <String>['message']);
     throw CloudDriveLoginException(
