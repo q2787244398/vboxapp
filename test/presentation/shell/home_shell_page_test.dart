@@ -203,7 +203,7 @@ void main() {
       expect(find.textContaining('暂无收藏'), findsOneWidget);
     });
 
-    testWidgets('设置页（I-03）：工具承载远程源 / 网盘管理（书架已按 iOS 移除）',
+    testWidgets('设置页（I-03）：工具仅网盘管理（远程源页已收敛，对齐 iOS）',
         (WidgetTester tester) async {
       tester.view.physicalSize = const Size(390, 2600);
       tester.view.devicePixelRatio = 1.0;
@@ -225,10 +225,11 @@ void main() {
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      // 迁入设置页的工具入口（书架已按 iOS 真相源移除；备份还原仅在个人中心）。
+      // 迁入设置页的工具入口（书架已按 iOS 真相源移除；备份还原仅在个人中心；
+      // 远程源独立页已按 iOS 唯一真相源移除）。
       expect(find.text('书架'), findsNothing);
       expect(find.text('备份还原'), findsNothing);
-      expect(find.text('远程源'), findsOneWidget);
+      expect(find.text('远程源'), findsNothing);
       expect(find.text('网盘管理'), findsOneWidget);
     });
 
