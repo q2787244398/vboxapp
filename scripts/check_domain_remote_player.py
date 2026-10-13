@@ -2,7 +2,7 @@
 """远程源 + 播放器领域层验证。
 
 远程源（对齐 manifest_v1.json + RemoteSourceConfigManager.swift）：
-  1. 代理降级链顺序：ghfast → gh-proxy → 直连
+  1. 代理降级链顺序：ghfast → gh-proxy → ghproxy.link → 直连
   2. configVersion 格式 YYYY.MM.DD.N
   3. TTL 21600（6h）
   4. shouldSync 判定（force/未同步/过期/版本变化）
@@ -33,7 +33,7 @@ def main() -> int:
     print("== 1. 代理降级链顺序 ==")
     m = re.search(r"proxyHosts = <ProxyHost>\[(.*?)\];", rs, re.S)
     hosts = re.findall(r"host: '([^']+)'", m.group(1)) if m else []
-    want = ["https://ghfast.top", "https://gh-proxy.com"]
+    want = ["https://ghfast.top", "https://gh-proxy.com", "https://ghproxy.link"]
     if hosts == want:
         print(f"  ✅ {hosts}")
     else:
