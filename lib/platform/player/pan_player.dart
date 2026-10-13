@@ -19,6 +19,8 @@
 ///    （F-P03，`UcNativeClient`：分享解析 → 文件列表 → 转存 → v2/play/download）。
 library;
 
+import 'dart:async' show unawaited;
+
 import '../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../data/datasources/local/cloud_play_item_cache_store.dart';
 import '../../data/datasources/local/pg_auto_store.dart';
@@ -94,7 +96,13 @@ class PanPlayer {
         _quark = quarkClient ?? QuarkNativeClient(),
         _baiduIBox = baiduIBoxClient ?? BaiduIBoxClient(),
         _uc = ucClient ?? UcNativeClient(),
-        _aliyun = aliyunClient ?? AliyunAdriveClient(),
+        _aliyun = aliyunClient ??
+            AliyunAdriveClient(
+              // 刷新结果落库（对齐 iOS `refreshAliAccessTokenIfNeeded`
+              // 全链落库语义）：refresh_token 轮换新值写回凭据存储。
+              onTokenRefreshed: (String accessToken, String refreshToken) =>
+                  unawaited(_saveAliTokenRefreshed(accessToken, refreshToken)),
+            ),
         _cookieFor = cookieFor;
 
   final NodePanClient _client;
@@ -137,6 +145,67 @@ class PanPlayer {
   /// 阿里云盘 PG 播放所需 Refresh Token（对齐 iOS `credential.refreshToken`）。
   Future<String> _aliyunRefreshToken() async =>
       (await _credential(CloudDriveType.ali))?.refreshToken ?? '';
+
+  /// 阿里刷新结果落库（对齐 iOS `refreshAliAccessTokenIfNeeded` 全链落库，
+  /// `CloudDriveAuthManager.swift:270-339`）。
+  ///
+  /// refresh_token 有轮换语义（每次刷新返回新值），不落库会导致下次播放
+  /// 用旧值自毁凭据（`cloud_drive_credential_validator.dart` 登记缺陷）。
+  static Future<void> _saveAliTokenRefreshed(
+    String accessToken,
+    String refreshToken,
+  ) async {
+    if (refreshToken.isEmpty) return;
+    try {
+      final CloudDriveCredentialStore store =
+          CloudDriveCredentialStore(PrefsManager.instance);
+      final CloudDriveCredential? cred =
+          await store.credential(CloudDriveType.ali);
+      if (cred == null) return;
+      if (cred.refreshToken == refreshToken &&
+          cred.accessToken == accessToken) {
+        return;
+      }
+      await store.save(cred.copyWith(
+        accessToken: accessToken.isEmpty ? null : accessToken,
+        refreshToken: refreshToken,
+        updatedAt: DateTime.now(),
+      ));
+    } catch (_) {
+      // 落库失败不阻断播放（下次播放仍可用旧值重试刷新）。
+    }
+  }
+
+  /// 百度授权中心保存的 bdstoken（凭据 `extra["bdstoken"]`）。
+  ///
+  /// 播放链 `fetchUserBdstoken` 四层兜底的最后一层
+  /// （对齐 iOS `CloudDriveManager.swift:4726-4728`）。
+  Future<String> _baiduSavedBdstoken() async =>
+      (await _credential(CloudDriveType.baidu))?.extra['bdstoken'] ?? '';
+
+  /// 百度用户态 bdstoken 回写（对齐 iOS `saveBdstokenCredential`，
+  /// `CloudDriveManager.swift:4761-4762`）：播放链活取成功后更新凭据 extra，
+  /// 下次活取被风控时可走保存值兜底。
+  Future<void> _saveBaiduBdstoken(String bdstoken, String source) async {
+    if (bdstoken.isEmpty) return;
+    try {
+      final CloudDriveCredentialStore store =
+          CloudDriveCredentialStore(PrefsManager.instance);
+      final CloudDriveCredential? cred =
+          await store.credential(CloudDriveType.baidu);
+      if (cred == null || cred.extra['bdstoken'] == bdstoken) return;
+      await store.save(cred.copyWith(
+        updatedAt: DateTime.now(),
+        extra: <String, String>{
+          ...cred.extra,
+          'bdstoken': bdstoken,
+          'bdstoken_source': source,
+        },
+      ));
+    } catch (_) {
+      // 回写失败不阻断播放（对齐 iOS 宽松语义）。
+    }
+  }
 
   /// 阿里 PG 自动化配置（对齐 iOS `AliyunPgConfig.shared`，读取 `pg_ali_*`）。
   ///
@@ -404,6 +473,9 @@ class PanPlayer {
               bduss: pair.web.value,
               fsId: entry.playID,
               pcsCookie: pair.pcs?.value ?? '',
+              savedBdstoken: await _baiduSavedBdstoken(),
+              onBdstokenFetched: (String token, String source) =>
+                  unawaited(_saveBaiduBdstoken(token, source)),
             );
           } on BaiduIBoxException catch (e) {
             throw PanPlayException(e.message);

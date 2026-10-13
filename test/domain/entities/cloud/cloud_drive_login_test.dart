@@ -167,6 +167,9 @@ void main() {
         CloudDriveType.pan139,
         CloudDriveType.pan189,
         CloudDriveType.xunlei,
+        // P0-A2：阿里补齐网页兜底（OpenList 授权页，对齐 iOS saveWebViewCookie
+        // ali 分支——提取值写 refreshToken 而非 cookie）。
+        CloudDriveType.ali,
       ];
       for (final CloudDriveType type in withWeb) {
         expect(CloudDriveWebLogin.supports(type), isTrue, reason: type.id);
@@ -174,9 +177,16 @@ void main() {
       }
     });
 
-    test('无网页兜底入口的网盘（阿里 / Node 托管三盘）返回 false / null', () {
+    test('阿里网页兜底指向 OpenList 授权页', () {
+      expect(
+        CloudDriveWebLogin.urlFor(CloudDriveType.ali),
+        'https://api.oplist.org/?driver=alicloud'
+        '&driver_txt=alicloud_qr&server_use=true&server_set=true',
+      );
+    });
+
+    test('无网页兜底入口的网盘（Node 托管三盘）返回 false / null', () {
       const List<CloudDriveType> withoutWeb = <CloudDriveType>[
-        CloudDriveType.ali,
         CloudDriveType.guangya,
         CloudDriveType.woniu4k,
         CloudDriveType.bilibili,

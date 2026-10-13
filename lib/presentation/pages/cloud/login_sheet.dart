@@ -32,9 +32,11 @@ import '../../theme/tokens/radii.dart';
 import '../../theme/tokens/spacing.dart';
 import '../../theme/tokens/typography.dart';
 import '../../widgets/vbox/vbox.dart';
+import 'aliyun_oplist_login_sheet.dart';
 import 'cloud_drive_widgets.dart';
 import 'login_controller.dart';
 import 'login_gateway.dart';
+import 'native_cloud_drive_login_gateway.dart';
 import 'node_login_gateway.dart';
 
 /// 授权中心动作 → 打开对应登录 Sheet。
@@ -48,15 +50,64 @@ Future<void> openCloudDriveLoginSheet(
   CloudDriveLoginGateway? gateway,
   CloudDriveWebCredentialSaver? webSaver,
   WebViewBridge? webViewBridge,
-}) {
-  final CloudDriveLoginMode mode = CloudDriveLoginMode.fromActionLabel(action);
+}) async {
+  CloudDriveLoginMode mode = CloudDriveLoginMode.fromActionLabel(action);
+  // P1-A：原生盘的「Node扫码登录」→ Node 派生类型（对齐 iOS 卡内 Segmented
+  // 的 Node 档：百度 `NodeScanQRLoginView(provider:"baidu")`、夸克
+  // `provider:"quark"`、UC `NodeUcTwoStepLoginView`；登录态写 Node 常驻系统，
+  // 与本地原生凭据互不影响）。ucNode 命中下方两步扫码特判。
+  if (action == 'Node扫码登录') {
+    type = switch (type) {
+      CloudDriveType.baidu => CloudDriveType.baiduNode,
+      CloudDriveType.quark => CloudDriveType.quarkNode,
+      CloudDriveType.uc => CloudDriveType.ucNode,
+      _ => type,
+    };
+  }
   final ColorScheme scheme = Theme.of(context).colorScheme;
+  // P1-B：UC 原生扫码成功 → sheet 关闭后 0.5s 自动弹 TV 授权
+  // （对齐 iOS `onChange(of: showUCNativeQR)` + `asyncAfter 0.5` → `UCTVAuthQRView`）。
+  if (type == CloudDriveType.uc && mode == CloudDriveLoginMode.nativeQr) {
+    bool justCompleted = false;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: scheme.surface,
+      shape: const RoundedRectangleBorder(borderRadius: VboxRadii.panel),
+      builder: (BuildContext _) {
+        return CloudDriveQrLoginSheet(
+          driveType: type,
+          mode: mode,
+          gateway: gateway,
+          onLoginCompleted: () => justCompleted = true,
+        );
+      },
+    );
+    if (!justCompleted) return;
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (!context.mounted) return;
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: scheme.surface,
+      shape: const RoundedRectangleBorder(borderRadius: VboxRadii.panel),
+      builder: (BuildContext _) => CloudDriveUcTvAuthSheet(
+        gateway: gateway is NativeCloudDriveLoginGateway ? gateway : null,
+      ),
+    );
+  }
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: scheme.surface,
     shape: const RoundedRectangleBorder(borderRadius: VboxRadii.panel),
     builder: (BuildContext _) {
+      // 阿里原生扫码 = OpenList 授权页（对齐 iOS `NativeCloudQRLoginView(.ali)`
+      // 内嵌 `AliOpenListQrLoginHelper`：WebView 扫码 → JS 提取 refresh_token）。
+      if (type == CloudDriveType.ali &&
+          mode == CloudDriveLoginMode.nativeQr) {
+        return const AliyunOpenListLoginSheet();
+      }
       // UCNode 两步扫码（对齐 iOS `NodeUcTwoStepLoginView`：Cookie → TV Token）。
       if (type == CloudDriveType.ucNode && mode == CloudDriveLoginMode.nodeQr) {
         return CloudDriveUcTwoStepQrSheet(
@@ -101,6 +152,7 @@ class CloudDriveQrLoginSheet extends StatefulWidget {
     required this.driveType,
     this.mode = CloudDriveLoginMode.nativeQr,
     this.gateway,
+    this.onLoginCompleted,
   });
 
   /// 目标网盘。
@@ -112,25 +164,72 @@ class CloudDriveQrLoginSheet extends StatefulWidget {
   /// 登录网关（测试注入；缺省「未接入」）。
   final CloudDriveLoginGateway? gateway;
 
+  /// 登录完成回调（成功即触发一次；P1-B：UC 原生扫码成功后宿主据此
+  /// 自动弹出 TV 授权，对齐 iOS `onUCLoginSuccess` 绑定）。
+  final void Function()? onLoginCompleted;
+
   @override
   State<CloudDriveQrLoginSheet> createState() => _CloudDriveQrLoginSheetState();
 }
 
 class _CloudDriveQrLoginSheetState extends State<CloudDriveQrLoginSheet> {
-  late final CloudDriveLoginController _controller;
+  /// 卡内 Segmented 覆盖的网盘（对齐 iOS：百度 `BaiduScanMode`、
+  /// 夸克 `QuarkScanMode`、UC `UCScanMode` 仅这三盘展示分段控件）。
+  static const Set<CloudDriveType> _segmentedTypes = <CloudDriveType>{
+    CloudDriveType.baidu,
+    CloudDriveType.quark,
+    CloudDriveType.uc,
+  };
+
+  late CloudDriveLoginController _controller;
+  bool _nodeMode = false;
+  bool _succeeded = false;
 
   @override
   void initState() {
     super.initState();
+    _nodeMode = widget.mode == CloudDriveLoginMode.nodeQr;
+    _buildController();
+  }
+
+  /// 当前生效类型（Node 模式 → Node 派生类型，凭据写 Node 常驻系统命名空间）。
+  CloudDriveType get _effectiveType => _nodeMode
+      ? _nodeTypeOf(widget.driveType)
+      : widget.driveType;
+
+  static CloudDriveType _nodeTypeOf(CloudDriveType type) => switch (type) {
+        CloudDriveType.baidu => CloudDriveType.baiduNode,
+        CloudDriveType.quark => CloudDriveType.quarkNode,
+        CloudDriveType.uc => CloudDriveType.ucNode,
+        _ => type,
+      };
+
+  void _buildController() {
+    final CloudDriveLoginMode mode = _nodeMode
+        ? CloudDriveLoginMode.nodeQr
+        : widget.mode;
     _controller = CloudDriveLoginController(
-      driveType: widget.driveType,
-      mode: widget.mode,
+      driveType: _effectiveType,
+      mode: mode,
       gateway: widget.gateway ??
-          defaultCloudDriveLoginGateway(widget.driveType, widget.mode),
+          defaultCloudDriveLoginGateway(_effectiveType, mode),
     )..addListener(_onChanged);
   }
 
+  /// Segmented 切换（对齐 iOS `scanMode` 变更：换 gateway 与类型重建会话）。
+  void _setNodeMode(bool node) {
+    if (_nodeMode == node) return;
+    _controller.removeListener(_onChanged);
+    _controller.dispose();
+    setState(() => _nodeMode = node);
+    _buildController();
+  }
+
   void _onChanged() {
+    if (_controller.phase == CloudDriveLoginPhase.success && !_succeeded) {
+      _succeeded = true;
+      widget.onLoginCompleted?.call();
+    }
     if (mounted) setState(() {});
   }
 
@@ -141,20 +240,42 @@ class _CloudDriveQrLoginSheetState extends State<CloudDriveQrLoginSheet> {
     super.dispose();
   }
 
-  /// 标题（对齐 iOS `"\(driveType.displayName) 原生扫码授权"`）。
-  String get _headline => switch (widget.mode) {
-        CloudDriveLoginMode.pgQr => '${widget.driveType.displayName} PG 扫码登录',
-        CloudDriveLoginMode.nodeQr => '${widget.driveType.displayName} Node 扫码登录',
-        CloudDriveLoginMode.nativeQr ||
-        CloudDriveLoginMode.nodeSms ||
-        CloudDriveLoginMode.nodeAccount ||
-        CloudDriveLoginMode.webFallback =>
-          '${widget.driveType.displayName} 原生扫码授权',
+  /// 标题（对齐 iOS `"\(driveType.displayName) 原生扫码授权"`；
+  /// Node 档对齐 `NodeScanQRLoginView` 的 `"\(displayName) 扫码登录"`）。
+  String get _headline => switch (widget.mode == CloudDriveLoginMode.nodeQr || _nodeMode) {
+        true => '${_effectiveType.displayName} 扫码登录',
+        false => switch (widget.mode) {
+            CloudDriveLoginMode.pgQr =>
+              '${widget.driveType.displayName} PG 扫码登录',
+            _ => '${widget.driveType.displayName} 原生扫码授权',
+          },
       };
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool showSegmented =
+        _segmentedTypes.contains(widget.driveType);
+    // P1-A：UC Node 模式 = 完整两步扫码（对齐 iOS `ucScanMode == .node`
+    // 直接渲染 `NodeUcTwoStepLoginView`；内嵌组件自带标题与步骤指示器）。
+    if (showSegmented && _nodeMode && widget.driveType == CloudDriveType.uc) {
+      return SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(VboxSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              _segmentedControl(scheme),
+              const SizedBox(height: VboxSpacing.md),
+              CloudDriveUcTwoStepQrSheet(
+                driveType: CloudDriveType.ucNode,
+                gateway: widget.gateway,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final CloudDriveLoginPhase phase = _controller.phase;
     return SafeArea(
       child: SingleChildScrollView(
@@ -163,6 +284,10 @@ class _CloudDriveQrLoginSheetState extends State<CloudDriveQrLoginSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             LoginSheetHeader(title: _headline),
+            if (showSegmented) ...<Widget>[
+              const SizedBox(height: VboxSpacing.md),
+              _segmentedControl(scheme),
+            ],
             const SizedBox(height: VboxSpacing.lg),
             _qrCard(scheme, phase),
             const SizedBox(height: VboxSpacing.lg),
@@ -175,7 +300,7 @@ class _CloudDriveQrLoginSheetState extends State<CloudDriveQrLoginSheet> {
             const SizedBox(height: VboxSpacing.md),
             LoginTipCard(
               text: _controller.tipText,
-              tint: cloudDriveBrandColor(widget.driveType),
+              tint: cloudDriveBrandColor(_effectiveType),
             ),
             const SizedBox(height: VboxSpacing.lg),
             if (phase.canCancel) ...<Widget>[
@@ -191,6 +316,35 @@ class _CloudDriveQrLoginSheetState extends State<CloudDriveQrLoginSheet> {
               onTap: _controller.generateQr,
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// 原生 / Node 分段控件（对齐 iOS `Picker(.segmented)`：原生档统一
+  /// 「原生扫码」；Node 档百度/夸克为「Node扫码」、UC 为「Node两步登录」）。
+  Widget _segmentedControl(ColorScheme scheme) {
+    final String nodeLabel = widget.driveType == CloudDriveType.uc
+        ? 'Node两步登录'
+        : 'Node扫码';
+    return SegmentedButton<bool>(
+      segments: <ButtonSegment<bool>>[
+        const ButtonSegment<bool>(value: false, label: Text('原生扫码')),
+        ButtonSegment<bool>(value: true, label: Text(nodeLabel)),
+      ],
+      selected: <bool>{_nodeMode},
+      onSelectionChanged: (Set<bool> selection) =>
+          _setNodeMode(selection.first),
+      style: ButtonStyle(
+        backgroundColor: WidgetStateProperty.resolveWith<Color>(
+          (Set<WidgetState> states) => states.contains(WidgetState.selected)
+              ? scheme.primary
+              : scheme.surfaceContainerHighest,
+        ),
+        foregroundColor: WidgetStateProperty.resolveWith<Color>(
+          (Set<WidgetState> states) => states.contains(WidgetState.selected)
+              ? scheme.onPrimary
+              : scheme.onSurfaceVariant,
         ),
       ),
     );
@@ -567,6 +721,311 @@ class _CloudDriveUcTwoStepQrSheetState
                           size: 88,
                           color: scheme.onSurfaceVariant.withValues(alpha: 0.45),
                         ),
+        ),
+      ),
+    );
+  }
+}
+
+/// UC TV 画质授权 Sheet（P1-B，对齐 iOS `UCTVAuthQRView`，
+/// `SettingsViews.swift:5173`）。
+///
+/// 由 [NativeCloudDriveLoginGateway] 直连三段链路（不经 Node 常驻系统）：
+/// `startUcTvAuth`（open-api-drive.uc.cn 二维码）→ `pollUcTvAuth`（2s 一次、
+/// 最多 120 次、网络错误重试 3 次）→ `exchangeUcTvToken`
+/// （api.extscreen.com 兑换并入 uc 凭据 extra）。授权失败/跳过不回滚
+/// 已保存的 Cookie 凭据（对齐 iOS 宽松语义）。
+class CloudDriveUcTvAuthSheet extends StatefulWidget {
+  /// 构造。
+  const CloudDriveUcTvAuthSheet({super.key, this.gateway});
+
+  /// 原生登录网关（测试注入；缺省自建）。
+  final NativeCloudDriveLoginGateway? gateway;
+
+  @override
+  State<CloudDriveUcTvAuthSheet> createState() =>
+      _CloudDriveUcTvAuthSheetState();
+}
+
+class _CloudDriveUcTvAuthSheetState extends State<CloudDriveUcTvAuthSheet> {
+  late final NativeCloudDriveLoginGateway _gateway;
+
+  /// 轮询上限（120 次 × 2s = 4 分钟，对齐 iOS `maxPoll`）。
+  static const int _maxPoll = 120;
+
+  String? _qrBase64;
+  String _statusText = '正在获取授权二维码...';
+  String _detailText = '请稍候...';
+  String? _error;
+  bool _isPolling = false;
+  int _pollCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _gateway = widget.gateway ?? NativeCloudDriveLoginGateway();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startAuth());
+  }
+
+  /// 启动授权（对齐 iOS `startAuth`）。
+  Future<void> _startAuth() async {
+    if (!mounted) return;
+    setState(() {
+      _error = null;
+      _statusText = '正在获取授权二维码...';
+      _detailText = '请稍候...';
+    });
+    try {
+      final CloudDriveQrTask task = await _gateway.startUcTvAuth();
+      if (!mounted) return;
+      setState(() {
+        _qrBase64 = task.qrDataUrl;
+        _statusText = '请使用 UC 浏览器扫码授权';
+        _detailText = '扫码后可解锁普画 2K 画质，提升播放速度';
+      });
+      await _pollTvCode(task.taskId);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = '$e';
+        _statusText = '获取二维码失败';
+        _detailText = '';
+      });
+    }
+  }
+
+  /// 轮询循环（对齐 iOS `pollTVCode`：2s 间隔、120 次上限、网络错误重试
+  /// 3 次、过期终止；拿到授权码后兑换失败**直接报错不重试**）。
+  Future<void> _pollTvCode(String taskId) async {
+    int netRetry = 0;
+    setState(() {
+      _isPolling = true;
+      _pollCount = 0;
+    });
+    for (int pollCount = 1; pollCount <= _maxPoll; pollCount++) {
+      if (!mounted || !_isPolling) return;
+      setState(() => _pollCount = pollCount);
+      String? code;
+      try {
+        code = await _gateway.pollUcTvAuth(taskId);
+      } catch (e) {
+        final String msg = '$e';
+        if (!mounted) return;
+        if (msg.contains('已过期')) {
+          setState(() {
+            _isPolling = false;
+            _error = msg;
+            _statusText = '二维码已过期';
+            _detailText = '请点击重新获取';
+          });
+          return;
+        }
+        netRetry += 1;
+        if (netRetry > 3) {
+          setState(() {
+            _isPolling = false;
+            _error = msg;
+            _statusText = '轮询失败';
+            _detailText = '';
+          });
+          return;
+        }
+        setState(() {
+          _statusText = '网络波动，重试中 ($netRetry/3)';
+          _detailText = msg;
+        });
+        await Future<void>.delayed(const Duration(seconds: 2));
+        continue;
+      }
+      if (!mounted || !_isPolling) return;
+      if (code != null) {
+        // 兑换失败直接报错不重试（对齐 iOS `Token 兑换失败` 分支）。
+        try {
+          setState(() {
+            _statusText = '授权成功，正在获取 TV Token...';
+            _detailText = '';
+          });
+          await _gateway.exchangeUcTvToken(taskId, code);
+        } catch (e) {
+          if (!mounted) return;
+          setState(() {
+            _isPolling = false;
+            _error = 'Token 兑换失败: $e';
+            _statusText = '授权失败';
+            _detailText = '';
+          });
+          return;
+        }
+        if (!mounted) return;
+        setState(() {
+          _isPolling = false;
+          _statusText = '✅ UC TV 授权成功';
+          _detailText = '已解锁普画 2K 画质，播放速度将大幅提升';
+        });
+        // 成功 1.5s 后自动关闭（对齐 iOS `asyncAfter 1.5 → dismiss`）。
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        if (mounted) Navigator.of(context).maybePop();
+        return;
+      }
+      setState(() {
+        _statusText = '等待扫码授权';
+        _detailText =
+            '请使用 UC 浏览器扫描二维码并确认授权（剩余 ${_maxPoll - pollCount} 次）';
+      });
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
+    if (mounted && _isPolling) {
+      setState(() {
+        _isPolling = false;
+        _statusText = '二维码已过期';
+        _detailText = '请点击重新获取';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final Uint8List? qrBytes = _qrBase64 == null
+        ? null
+        : () {
+            try {
+              return base64Decode(_qrBase64!);
+            } catch (_) {
+              return null;
+            }
+          }();
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(VboxSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const LoginSheetHeader(title: 'UC TV 画质授权'),
+            const SizedBox(height: VboxSpacing.lg),
+            // 二维码卡（对齐 iOS：base64 PNG 直渲；未就绪转圈 / 失败警告）。
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(VboxSpacing.lg),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(VboxRadii.r16),
+              ),
+              child: Center(
+                child: Container(
+                  width: 220,
+                  height: 220,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: scheme.surface,
+                    borderRadius: BorderRadius.circular(VboxRadii.r16),
+                  ),
+                  child: qrBytes != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(VboxRadii.r16),
+                          child: Image.memory(
+                            qrBytes,
+                            width: 220,
+                            height: 220,
+                            fit: BoxFit.contain,
+                            gaplessPlayback: true,
+                          ),
+                        )
+                      : (_error == null
+                          ? const SizedBox(
+                              width: 36,
+                              height: 36,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                              ),
+                            )
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 40,
+                                  color: scheme.error,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '获取失败',
+                                  style: TextStyle(
+                                    fontSize: VboxTypography.s12,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            )),
+                ),
+              ),
+            ),
+            const SizedBox(height: VboxSpacing.lg),
+            // 状态卡（对齐 iOS statusText / detailText / errorText 三行）。
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                horizontal: VboxSpacing.md,
+                vertical: 10,
+              ),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(VboxRadii.r10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    _statusText,
+                    style: TextStyle(
+                      fontSize: VboxTypography.s14,
+                      fontWeight: FontWeight.w600,
+                      color: _statusText.contains('成功')
+                          ? Colors.green.shade700
+                          : scheme.onSurface,
+                    ),
+                  ),
+                  if (_detailText.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Text(
+                      _detailText,
+                      style: TextStyle(
+                        fontSize: VboxTypography.s12,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                  if (_error != null) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        fontSize: VboxTypography.s12,
+                        color: scheme.error,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: VboxSpacing.md),
+            if (_isPolling)
+              Text(
+                '已轮询 $_pollCount 次',
+                style: TextStyle(
+                  fontSize: VboxTypography.s11,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            // 失败且非轮询中 → 重新获取（对齐 iOS「重新获取二维码」按钮）。
+            if (_error != null && !_isPolling) ...<Widget>[
+              const SizedBox(height: VboxSpacing.md),
+              LoginSecondaryButton(
+                label: '重新获取二维码',
+                onTap: _startAuth,
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -1094,7 +1553,8 @@ typedef CloudDriveWebCredentialSaver = Future<void> Function({
 ///
 /// 对齐 iOS `CloudDriveAuthManager.saveWebViewCookie(type:cookie:)`：仅落凭据 +
 /// 标记 `valid`（是否真正可用仍由授权中心的 `isAuthorized` 复审，百度需
-/// BDUSS+STOKEN 齐全）。
+/// BDUSS+STOKEN 齐全）。阿里特殊：提取值写入 `refreshToken` 字段而非
+/// cookie（对齐 iOS `saveWebViewCookie` ali 分支，`CloudDriveAuthManager.swift:2601`）。
 Future<void> saveWebCredentialToStore({
   required CloudDriveType type,
   required String secret,
@@ -1102,6 +1562,20 @@ Future<void> saveWebCredentialToStore({
   final CloudDriveCredentialStore store =
       CloudDriveCredentialStore(PrefsManager.instance);
   final DateTime now = DateTime.now();
+  if (type == CloudDriveType.ali) {
+    // OpenList 授权页展示的是 refresh_token（非 Cookie）。
+    await store.save(
+      CloudDriveCredential(
+        driveType: type.id,
+        authType: CloudDriveAuthType.webView,
+        refreshToken: secret,
+        updatedAt: now,
+        lastCheckedAt: now,
+        state: CloudDriveAuthState.valid,
+      ),
+    );
+    return;
+  }
   await store.save(
     CloudDriveCredential(
       driveType: type.id,

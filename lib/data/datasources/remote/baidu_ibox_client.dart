@@ -732,7 +732,18 @@ class BaiduIBoxClient {
   ///
   /// 私域接口（api/create / filemanager / api/list）必须用登录态 bdstoken；
   /// 分享页 yunData 里的 bdstoken 会被百度判越权（errno=-6）。
-  Future<String> fetchUserBdstoken({required String cookie}) async {
+  ///
+  /// - [savedBdstoken]：授权中心保存值（凭据 `extra["bdstoken"]`）。四层兜底
+  ///   （对齐 iOS `CloudDriveManager.swift:4726-4728`「本次未抓到新 bdstoken，
+  ///   临时回退授权中心保存值」）。
+  /// - [onFetched]：活取成功回调（来源 = gettemplatevariable / disk-main-html /
+  ///   webview），调用方据此回写凭据 extra（对齐 iOS `saveBdstokenCredential`，
+  ///   `CloudDriveManager.swift:4761`）。
+  Future<String> fetchUserBdstoken({
+    required String cookie,
+    String savedBdstoken = '',
+    void Function(String bdstoken, String source)? onFetched,
+  }) async {
     final _Resp tpl = await _request(
       'https://pan.baidu.com/api/gettemplatevariable'
       '?clienttype=0&app_id=250528&web=1'
@@ -747,7 +758,10 @@ class BaiduIBoxClient {
     final Map<String, Object?>? json = _decodeMap(tpl.text);
     if (json != null) {
       final String token = _deepString(json, <String>{'bdstoken'});
-      if (token.isNotEmpty) return token;
+      if (token.isNotEmpty) {
+        onFetched?.call(token, 'gettemplatevariable');
+        return token;
+      }
     }
     // 回退：直接抓 disk/main 页面里的用户态 bdstoken。
     final _Resp page = await _request(
@@ -756,10 +770,20 @@ class BaiduIBoxClient {
       timeout: 12,
     );
     final String fromHtml = extractBdstokenFromHTML(page.text) ?? '';
-    if (fromHtml.isNotEmpty) return fromHtml;
+    if (fromHtml.isNotEmpty) {
+      onFetched?.call(fromHtml, 'disk-main-html');
+      return fromHtml;
+    }
     // C3 回退：WKWebView 载入 disk/main 复用 CookieJar
     // （对齐 `baiduFetchUserBdstokenViaWebView`）。
-    return _webViewBdstoken(cookie);
+    final String fromWebView = await _webViewBdstoken(cookie);
+    if (fromWebView.isNotEmpty) {
+      onFetched?.call(fromWebView, 'webview');
+      return fromWebView;
+    }
+    // 第 4 层兜底：回退授权中心保存值（对齐 iOS `CloudDriveManager.swift:4726`）。
+    if (savedBdstoken.isNotEmpty) return savedBdstoken;
+    return '';
   }
 
   /// `/vbox` 转存目录是否可列举（对齐 iOS `baiduCanListTransferDir`）。
@@ -1140,11 +1164,16 @@ class BaiduIBoxClient {
   /// `wap/init → verify → 分享页/yunData → gettemplatevariable → share/list →
   /// api/create → api/list → share/transfer → api/list → locatedownload(→mediainfo)`。
   /// 不含 iOS 的 WebView 回退（C3）与 1 小时后清理调度（空间管理项）。
+  ///
+  /// - [savedBdstoken] / [onBdstokenFetched]：透传 [fetchUserBdstoken]
+  ///   （第 4 层保存值兜底 + 活取回写，对齐 iOS 四层链）。
   Future<BaiduPlayResult> resolvePlayURL({
     required String shareUrl,
     required String bduss,
     required String fsId,
     String pcsCookie = '',
+    String savedBdstoken = '',
+    void Function(String bdstoken, String source)? onBdstokenFetched,
   }) async {
     final ({String cookie, String bduss}) parsed = parseToken(bduss);
     final String webCookie = parsed.cookie;
@@ -1206,7 +1235,11 @@ class BaiduIBoxClient {
       returnAll: true,
     );
     // 分享页解析与 bdstoken 获取可并行（对齐 iOS [优化2]）。
-    final String userBdstoken = await fetchUserBdstoken(cookie: pureCookie);
+    final String userBdstoken = await fetchUserBdstoken(
+      cookie: pureCookie,
+      savedBdstoken: savedBdstoken,
+      onFetched: onBdstokenFetched,
+    );
     if (userBdstoken.isEmpty) {
       const String message = '百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录';
       await _cache.recordRouteDiagnostic(
@@ -1865,6 +1898,10 @@ class BaiduIBoxClient {
   }
 
   /// WebView 取用户态 bdstoken（对齐 iOS `baiduFetchUserBdstokenViaWebView`）。
+  ///
+  /// 第 3 层：页面上下文 JS 提取（`window.locals`/`window.context`，对齐
+  /// iOS `BaiduWebViewBridge.swift:147-152` 三重提取）优先，渲染后 HTML
+  /// 正则兜底——disk/main 的 bdstoken 由 JS 运行时注入，静态正则大概率空手。
   Future<String> _webViewBdstoken(String cookie) async {
     if (!_webView.isAvailable) return '';
     try {
@@ -1873,7 +1910,15 @@ class BaiduIBoxClient {
         userAgent: webUA,
         cookies: _cookieMap(cookie),
         timeout: const Duration(seconds: 18),
+        evaluateJs: '''
+(function(){
+  try { if (window.locals && window.locals.get) { var v = window.locals.get('bdstoken'); if (v) return v; } } catch(e){}
+  try { if (window.context && window.context.bdstoken) return window.context.bdstoken; } catch(e){}
+  return null;
+})()
+''',
       );
+      if (page.jsResult.isNotEmpty) return page.jsResult;
       return extractBdstokenFromHTML(page.html) ?? '';
     } on WebViewBridgeException {
       return '';

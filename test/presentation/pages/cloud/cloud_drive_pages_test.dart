@@ -129,11 +129,13 @@ void main() {
 
       expect(find.text('扫码授权'), findsOneWidget); // 百度
       expect(find.text('扫码登录'), findsOneWidget); // 夸克
-      expect(find.text('原生扫码'), findsNWidgets(2)); // UC / B站
-      expect(find.text('PG扫码登录'), findsOneWidget); // 阿里（C-盘1：extscreen 链路）
+      // P0-A2：阿里对齐 iOS「原生扫码」（OpenList 授权页），UC / B站 / 阿里各一枚。
+      expect(find.text('原生扫码'), findsNWidgets(3));
       expect(find.text('网页登录兜底'), findsNWidgets(2)); // 夸克 / UC
       expect(find.text('网页兜底'), findsNWidgets(6)); // 百度/115/123/139/189/迅雷
-      expect(find.text('Node扫码登录'), findsOneWidget); // 115
+      // P1-A：百度/夸克/UC 三张原生卡对齐 iOS 卡内 Segmented 的 Node 档
+      // （动作矩阵追加），加 115 原有的一枚 = 4。
+      expect(find.text('Node扫码登录'), findsNWidgets(4)); // 115/百度/夸克/UC
       expect(find.text('Node账号登录'), findsNWidgets(2)); // 123/189
       expect(find.text('Node验证码登录'), findsNWidgets(2)); // 139/迅雷
       expect(find.text('手机验证码登录'), findsOneWidget); // 光鸭

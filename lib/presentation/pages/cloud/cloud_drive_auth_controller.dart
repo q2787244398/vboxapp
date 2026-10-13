@@ -56,7 +56,8 @@ const Map<CloudDriveType, String> cloudDriveNotes = <CloudDriveType, String>{
       '验证后动态追加。点击「扫码授权」可在页内切换「原生扫码 / Node扫码」：原生写本地'
       '百度账号，Node 写入 Node 常驻系统（两条路链互不影响）。',
   CloudDriveType.quark: '支持原生/Node 双模式扫码登录（页内可切换）；也可使用网页登录兜底。',
-  CloudDriveType.ali: '阿里云盘使用官方网页扫码/登录获取 refresh_token，用于解析播放文件链接。',
+  CloudDriveType.ali: '阿里云盘通过 OpenList 授权页扫码获取 refresh_token（对齐 '
+      'iOS「原生扫码」），用于解析播放文件链接；也可网页兜底或手动粘贴 Token。',
   CloudDriveType.uc: '优先使用授权中心保存的 UC Cookie；支持原生/Node 双模式扫码登录'
       '（点击「原生扫码」页内可切换）；也可使用网页登录兜底。',
   CloudDriveType.one15: '115 使用官方网页扫码/登录回收完整 Cookie，手动 Cookie 继续保留。',

@@ -192,6 +192,8 @@ class CloudDriveWebLogin {
 
   /// 官方网页登录地址（逐档对齐 iOS `*LoginHelper` 的 URL 常量）。
   static const Map<CloudDriveType, String> urls = <CloudDriveType, String>{
+    CloudDriveType.ali: 'https://api.oplist.org/?driver=alicloud'
+        '&driver_txt=alicloud_qr&server_use=true&server_set=true',
     CloudDriveType.uc: 'https://drive.uc.cn/',
     CloudDriveType.ucNode: 'https://drive.uc.cn/',
     CloudDriveType.quark: 'https://pan.quark.cn/',
@@ -207,8 +209,9 @@ class CloudDriveWebLogin {
 
   /// 该网盘是否提供网页兜底入口。
   ///
-  /// 阿里（走 extscreen 原生扫码）与三张 Node 托管盘（光鸭 / 蜗牛 / B站）
-  /// 无网页兜底按钮，故不登记地址。
+  /// 三张 Node 托管盘（光鸭 / 蜗牛 / B站）无网页兜底按钮，不登记地址。
+  /// 阿里已补齐（对齐 iOS `TokenWebView` ali 分支：OpenList 授权页，
+  /// 提取值写入 refreshToken 字段）。
   static bool supports(CloudDriveType type) => urls.containsKey(type);
 
   /// 官方网页登录地址（不支持返回 null）。

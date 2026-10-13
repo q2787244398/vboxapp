@@ -37,9 +37,10 @@ class _FakeWebView implements WebViewBridge {
     String? userAgent,
     Map<String, String> cookies = const <String, String>{},
     Duration timeout = const Duration(seconds: 30),
+    String? evaluateJs,
   }) async {
     loaded.add(url);
-    return (html: html, url: url, cookie: '');
+    return (html: html, url: url, cookie: '', jsResult: '');
   }
 
   @override

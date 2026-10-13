@@ -34,7 +34,17 @@ class WebViewBridgeException implements Exception {
 }
 
 /// 页面加载结果（对齐 iOS `loadPanPageForBdstoken` 的三要素）。
-typedef WebViewPageResult = ({String html, String url, String cookie});
+///
+/// [jsResult] 为 `loadPage` 入参 `evaluateJs` 在页面上下文的执行结果
+/// （未执行时为空串）——百度 bdstoken 由 JS 运行时注入（`window.locals`/
+/// `window.context`），静态 HTML 正则抓不到，须以此结果为准
+/// （对齐 iOS `BaiduWebViewBridge.swift:147-152`）。
+typedef WebViewPageResult = ({
+  String html,
+  String url,
+  String cookie,
+  String jsResult,
+});
 
 /// 页面上下文 XHR 结果（对齐 iOS `BaiduWebViewBridge.request` 回传形状）。
 typedef WebViewXhrResult = ({
@@ -48,15 +58,20 @@ abstract interface class WebViewBridge {
   /// 是否可用（缺省实现恒 false；引入插件后为 true）。
   bool get isAvailable;
 
-  /// 加载页面并等待稳定，返回 `(html, 最终 url, cookie)`。
+  /// 加载页面并等待稳定，返回 `(html, 最终 url, cookie, jsResult)`。
   ///
   /// [cookies] 为预注入 Cookie（按 [WebAuthPolicy.cookieHosts] 域写入，
   /// 不能靠 `document.cookie`，HttpOnly 不可写读）。
+  ///
+  /// [evaluateJs] 非空时在页面加载完成后于页面上下文执行，返回值放
+  /// [WebViewPageResult.jsResult]（对齐 iOS `BaiduWebViewBridge` 的 JS
+  /// 注入提取语义；失败时 jsResult 为空串，不抛错）。
   Future<WebViewPageResult> loadPage({
     required String url,
     String? userAgent,
     Map<String, String> cookies = const <String, String>{},
     Duration timeout = const Duration(seconds: 30),
+    String? evaluateJs,
   });
 
   /// 在页面上下文发起 XHR（对齐 iOS 百度桥的 `XMLHttpRequest` 语义）。
@@ -94,6 +109,7 @@ class UnavailableWebViewBridge implements WebViewBridge {
     String? userAgent,
     Map<String, String> cookies = const <String, String>{},
     Duration timeout = const Duration(seconds: 30),
+    String? evaluateJs,
   }) async =>
       throw const WebViewBridgeException(_message);
 

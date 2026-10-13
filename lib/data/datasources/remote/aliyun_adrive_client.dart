@@ -147,10 +147,19 @@ class AliyunAdriveClient {
   ///
   /// [startCleanupWorker] 为 `false` 时不自动起 30s 定时器（测试用），
   /// 需显式调用 [processPendingCleanups]。
+  ///
+  /// [onTokenRefreshed]：刷新成功回调（对齐 iOS `refreshAliAccessTokenIfNeeded`
+  /// 全链落库语义，`CloudDriveAuthManager.swift:270-339`）——阿里 refresh_token
+  /// 有轮换语义（每次刷新返回新值），不落库会导致下次播放用旧值自毁凭据。
   AliyunAdriveClient({
     SpiderHttpTransport? transport,
     this.startCleanupWorker = true,
+    this.onTokenRefreshed,
   }) : _transport = transport ?? IoSpiderHttpTransport();
+
+  /// 刷新成功回调：参数为刷新后的 `accessToken` / `refreshToken`（轮换新值优先）。
+  final void Function(String accessToken, String refreshToken)?
+      onTokenRefreshed;
 
   /// 阿里 API 基址（对齐 iOS `aliApiBase` / `aliPdsApiBase`，两者同值）。
   static const String apiBase = 'https://api.alipan.com';
@@ -321,12 +330,14 @@ class AliyunAdriveClient {
     final ({String accessToken, String refreshToken})? official =
         await _refreshOfficial(refreshToken);
     if (official != null && await verifyAdriveToken(official.accessToken)) {
+      onTokenRefreshed?.call(official.accessToken, official.refreshToken);
       return official;
     }
     // 方案B：WebApp（不带 secret，双端点）。
     final ({String accessToken, String refreshToken})? webApp =
         await _refreshWebApp(refreshToken);
     if (webApp != null && await verifyAdriveToken(webApp.accessToken)) {
+      onTokenRefreshed?.call(webApp.accessToken, webApp.refreshToken);
       return webApp;
     }
     throw const AliyunAdriveException(

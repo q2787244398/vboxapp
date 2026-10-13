@@ -36,8 +36,9 @@ class _FakeViewBridge implements WebViewBridge {
     String? userAgent,
     Map<String, String> cookies = const <String, String>{},
     Duration timeout = const Duration(seconds: 30),
+    String? evaluateJs,
   }) async =>
-      (html: '', url: url, cookie: '');
+      (html: '', url: url, cookie: '', jsResult: '');
 
   @override
   Future<WebViewXhrResult> request({

@@ -27,6 +27,8 @@ library;
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart';
+
 import '../../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
@@ -42,6 +44,14 @@ class _UcQrTask {
   final String pollClientId;
 }
 
+/// UC TV 授权任务暂存（对齐 iOS `UCTVAuthQR`：qr_data / query_token / deviceId）。
+class _UcTvTask {
+  const _UcTvTask({required this.queryToken, required this.deviceId});
+
+  final String queryToken;
+  final String deviceId;
+}
+
 /// 百度扫码任务暂存（`sign` 为交换兜底参数）。
 class _BaiduQrTask {
   const _BaiduQrTask({
@@ -53,6 +63,18 @@ class _BaiduQrTask {
   final String sign;
   final String channelId;
   final String qrURL;
+}
+
+/// 百度 enrich 结果（对齐 iOS `baiduEnrichAccountCookie` 的返回：
+/// 补全后的 Cookie + extra 落库字段）。
+class _BaiduEnrichResult {
+  const _BaiduEnrichResult({
+    required this.cookie,
+    this.extra = const <String, String>{},
+  });
+
+  final String cookie;
+  final Map<String, String> extra;
 }
 
 /// 夸克扫码任务暂存。
@@ -108,7 +130,17 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   static const String _quarkQrClientId = '386';
   static const String _quarkPollClientId = '532';
 
+  // UC TV OAuth 常量（对齐 iOS `CloudDriveAuthManager.swift:906-910`）。
+  static const String _ucTvClientId = '5acf882d27b74502b7040b0c65519aa7';
+  static const String _ucTvSignKey = 'l3srvtd7p42l0d0x1u8d7yc8ye9kki4d';
+  static const String _ucTvAppVer = '1.6.8';
+  static const String _ucTvChannel = 'UCTVOFFICIALWEB';
+  static const String _ucTvUserAgent =
+      'Mozilla/5.0 (Linux; U; Android 13; zh-cn; M2004J7AC Build/UKQ1.231108.001) '
+      'AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1';
+
   final Map<String, _UcQrTask> _ucTasks = <String, _UcQrTask>{};
+  final Map<String, _UcTvTask> _ucTvTasks = <String, _UcTvTask>{};
   final Map<String, _BaiduQrTask> _baiduTasks = <String, _BaiduQrTask>{};
   final Map<String, _QuarkQrTask> _quarkTasks = <String, _QuarkQrTask>{};
 
@@ -160,6 +192,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   @override
   Future<void> cancelQrLogin(String taskId) async {
     _ucTasks.remove(taskId);
+    _ucTvTasks.remove(taskId);
     _baiduTasks.remove(taskId);
     _quarkTasks.remove(taskId);
   }
@@ -299,6 +332,236 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
         'uc_biz_str': 'S:custom|C:titlebar_fix',
       }).toString();
 
+  // ─────────────── UC TV 授权（P1-B，对齐 iOS `ucStartTVAuth` /
+  // `ucPollTVAuth` / `ucExchangeTVCode` / `ucSaveTVToken`）───────────────
+
+  /// x-pan-token 签名：`SHA256(method&pathname&timestamp&signKey)` hex
+  /// （对齐 iOS `ucTVGenerateSign`，`CloudDriveAuthManager.swift:913`）。
+  static String _ucTvGenerateSign(
+    String method,
+    String pathname,
+    String timestamp,
+  ) =>
+      sha256
+          .convert(utf8.encode('$method&$pathname&$timestamp&$_ucTvSignKey'))
+          .toString();
+
+  /// req_id：`MD5(deviceId+timestamp)` hex
+  /// （对齐 iOS `ucTVGenerateReqId`，`CloudDriveAuthManager.swift:920`）。
+  static String _ucTvGenerateReqId(String deviceId, String timestamp) =>
+      md5.convert(utf8.encode('$deviceId$timestamp')).toString();
+
+  /// UC TV 公共查询参数（对齐 iOS start/poll 两端点的共有字段）。
+  static Map<String, String> _ucTvCommonQuery({
+    required String deviceId,
+    required String reqId,
+    String? queryToken,
+  }) =>
+      <String, String>{
+        'access_token': '',
+        'activity_rect': '%7B%7D',
+        'app_ver': _ucTvAppVer,
+        'build_device': 'iPhone',
+        'build_product': 'iPhone',
+        'channel': _ucTvChannel,
+        'client_id': _ucTvClientId,
+        'device_brand': 'Apple',
+        'device_gpu': 'Apple',
+        'device_id': deviceId,
+        'device_model': 'iPhone',
+        'platform': 'tv',
+        if (queryToken != null) 'query_token': queryToken,
+        'req_id': reqId,
+        'scope': 'netdisk',
+      };
+
+  /// UC TV 公共请求头（对齐 iOS `x-pan-client-id` / `x-pan-tm` / `x-pan-token`）。
+  static Map<String, String> _ucTvHeaders(String pathname, String timestamp) =>
+      <String, String>{
+        'User-Agent': _ucTvUserAgent,
+        'Accept': 'application/json, text/plain, */*',
+        'x-pan-client-id': _ucTvClientId,
+        'x-pan-tm': timestamp,
+        'x-pan-token': _ucTvGenerateSign('GET', pathname, timestamp),
+      };
+
+  /// 启动 UC TV 授权：返回任务句柄 + base64 PNG 二维码
+  /// （对齐 iOS `ucStartTVAuth`，`GET open-api-drive.uc.cn/oauth/authorize`）。
+  Future<CloudDriveQrTask> startUcTvAuth() async {
+    final String deviceId = _randomHex(32).toLowerCase();
+    final String timestamp = '${_nowMs()}';
+    const String pathname = '/oauth/authorize';
+    final String reqId = _ucTvGenerateReqId(deviceId, timestamp);
+    final Uri url = Uri.parse('https://open-api-drive.uc.cn$pathname')
+        .replace(queryParameters: _ucTvCommonQuery(
+      deviceId: deviceId,
+      reqId: reqId,
+    )..['qrcode'] = '1'
+          ..['qr_width'] = '460'
+          ..['qr_height'] = '460'
+          ..['auth_type'] = 'code');
+    final SpiderHttpResult res = await _bridge.request(
+      url.toString(),
+      options: SpiderHttpOptions(headers: _ucTvHeaders(pathname, timestamp)),
+    );
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    final int status = _pickInt(json, <String>['status']) ?? -1;
+    final String qrData = _pickString(json, <String>['qr_data']);
+    final String queryToken = _pickString(json, <String>['query_token']);
+    if (status != 0 || qrData.isEmpty || queryToken.isEmpty) {
+      throw CloudDriveLoginException(
+        _apiMessage(json, 'UC TV 授权：无法获取二维码'),
+      );
+    }
+    final String taskId = 'ucTv_${_randomHex(16)}';
+    _ucTvTasks[taskId] = _UcTvTask(queryToken: queryToken, deviceId: deviceId);
+    // qr_data 为 base64 PNG（对齐 iOS `UIImage(data:)` 直解）。
+    return (taskId: taskId, qrDataUrl: qrData);
+  }
+
+  /// 轮询 UC TV 授权状态：返回 32 位 hex 授权码，未确认为 null；过期抛错
+  /// （对齐 iOS `ucPollTVAuth`：errno 11003=继续、10002=过期）。
+  Future<String?> pollUcTvAuth(String taskId) async {
+    final _UcTvTask? task = _ucTvTasks[taskId];
+    if (task == null) {
+      throw const CloudDriveLoginException('TV 授权任务已失效，请重新获取二维码');
+    }
+    final String timestamp = '${_nowMs()}';
+    const String pathname = '/oauth/code';
+    final String reqId = _ucTvGenerateReqId(task.deviceId, timestamp);
+    final Uri url = Uri.parse('https://open-api-drive.uc.cn$pathname')
+        .replace(queryParameters: _ucTvCommonQuery(
+      deviceId: task.deviceId,
+      reqId: reqId,
+      queryToken: task.queryToken,
+    ));
+    final SpiderHttpResult res = await _bridge.request(
+      url.toString(),
+      options: SpiderHttpOptions(headers: _ucTvHeaders(pathname, timestamp)),
+    );
+    final Map<String, Object?>? json = _decodeMap(res.content);
+    // errno：11003=用户未确认（继续轮询）；10002=二维码过期；其他非零=错误。
+    final int errno = _pickInt(json, <String>['errno']) ?? 0;
+    if (errno == 11003) return null;
+    if (errno == 10002) {
+      _ucTvTasks.remove(taskId);
+      throw const CloudDriveLoginException('二维码已过期，请重新获取');
+    }
+    if (errno != 0) {
+      throw CloudDriveLoginException(
+        _apiMessage(json, 'UC TV 授权错误 errno=$errno'),
+      );
+    }
+    if ((_pickInt(json, <String>['status']) ?? 0) == -1) {
+      throw CloudDriveLoginException(_apiMessage(json, 'UC TV 授权错误'));
+    }
+    // 成功：status=0 且 code 为 32 位 hex（对齐 iOS hexPattern 校验）。
+    final RegExp hex32 = RegExp(r'^[0-9a-f]{32}$');
+    final Map<String, Object?>? data = _asMap(json?['data']);
+    final String code = _pickString(json, <String>['code']);
+    final String nested = _pickString(data, <String>['code']);
+    for (final String candidate in <String>[code, nested]) {
+      if (candidate.isNotEmpty && hex32.hasMatch(candidate)) return candidate;
+    }
+    return null;
+  }
+
+  /// 用授权码兑换 TV Token 并并入 uc 凭据
+  /// （对齐 iOS `ucExchangeTVCode` + `ucSaveTVToken`：
+  /// `api.extscreen.com/ucdrive/token` POST，https 失败回退 http；
+  /// extra 写 `uc_tv_token` / `uc_tv_refresh_token`，保留 Cookie）。
+  Future<void> exchangeUcTvToken(String taskId, String code) async {
+    final _UcTvTask? task = _ucTvTasks[taskId];
+    if (task == null) {
+      throw const CloudDriveLoginException('TV 授权任务已失效，请重新获取二维码');
+    }
+    final String timestamp = '${_nowMs()}';
+    final String reqId = _ucTvGenerateReqId(task.deviceId, timestamp);
+    final Map<String, Object?> body = <String, Object?>{
+      'req_id': reqId,
+      'app_ver': _ucTvAppVer,
+      'device_id': task.deviceId,
+      'device_brand': 'Apple',
+      'platform': 'tv',
+      'device_name': 'iPhone',
+      'device_model': 'iPhone',
+      'build_device': 'iPhone',
+      'build_product': 'iPhone',
+      'device_gpu': 'Apple',
+      'activity_rect': '{}',
+      'channel': _ucTvChannel,
+      'code': code,
+    };
+    const List<String> endpoints = <String>[
+      'https://api.extscreen.com/ucdrive/token',
+      'http://api.extscreen.com/ucdrive/token',
+    ];
+    Object? lastError;
+    for (final String endpoint in endpoints) {
+      try {
+        final SpiderHttpResult res = await _bridge.request(
+          endpoint,
+          options: SpiderHttpOptions(
+            method: 'POST',
+            headers: <String, String>{
+              'Content-Type': 'application/json',
+              'User-Agent': _ucTvUserAgent,
+            },
+            data: jsonEncode(body),
+          ),
+        );
+        final Map<String, Object?>? json = _decodeMap(res.content);
+        final int respCode = _pickInt(json, <String>['code']) ?? 200;
+        if (respCode != 200) {
+          throw CloudDriveLoginException(
+            _apiMessage(json, 'UC TV Token 兑换失败 code=$respCode'),
+          );
+        }
+        final Map<String, Object?> dataObj =
+            _asMap(json?['data']) ?? json ?? const <String, Object?>{};
+        final String accessToken = _pickString(dataObj, <String>['access_token']);
+        if (accessToken.isEmpty) {
+          throw const CloudDriveLoginException('UC TV Token 返回为空');
+        }
+        final String refreshToken =
+            _pickString(dataObj, <String>['refresh_token']);
+        await _mergeUcTvToken(
+          accessToken: accessToken,
+          refreshToken: refreshToken,
+        );
+        _ucTvTasks.remove(taskId);
+        return;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw lastError ??
+        const CloudDriveLoginException('UC TV Token 兑换失败');
+  }
+
+  /// TV Token 并入 uc 凭据（对齐 iOS `ucSaveTVToken`：extra 追加、保留
+  /// Cookie 等既有字段；凭据不存在时静默返回不报错——对齐 iOS 宽松语义，
+  /// 不回滚已保存的扫码结果）。
+  Future<void> _mergeUcTvToken({
+    required String accessToken,
+    required String refreshToken,
+  }) async {
+    final CloudDriveCredential? existing =
+        await _store.credential(CloudDriveType.uc);
+    if (existing == null) {
+      // 对齐 iOS：仅记录警告，不抛错（扫码 Cookie 已正常保存）。
+      return;
+    }
+    final Map<String, String> extra = Map<String, String>.of(existing.extra);
+    extra['uc_tv_token'] = accessToken;
+    if (refreshToken.isNotEmpty) extra['uc_tv_refresh_token'] = refreshToken;
+    await _store.save(existing.copyWith(
+      extra: extra,
+      statusMessage: 'UC 已授权 TV（高速通道已就绪）',
+      updatedAt: DateTime.now(),
+    ));
+  }
+
   // ─────────────── 百度 ───────────────
 
   Future<CloudDriveQrTask> _baiduStart() async {
@@ -414,12 +677,72 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     if (!_isBaiduAccountCookie(cookie)) {
       throw const CloudDriveLoginException('百度扫码未返回完整 BDUSS/STOKEN');
     }
+    // 对齐 iOS `baiduEnrichAccountCookie`（`CloudDriveAuthManager.swift:1262`）：
+    // 扫码成功后补全 BFESS 系 Cookie，并把用户态 bdstoken/uk/username 落 extra
+    // （播放链「保存值兜底」的数据源，对齐 iOS `saveBdstokenCredential`，
+    // `CloudDriveManager.swift:4761`）。
+    final _BaiduEnrichResult enriched = await _enrichBaiduAccount(cookie);
     await _persist(
       CloudDriveType.baidu,
-      cookie: cookie,
+      cookie: enriched.cookie,
       statusMessage: '百度扫码登录成功，已保存 BDUSS/STOKEN',
-      extra: <String, String>{'cookie_mode': 'BDUSS_STOKEN'},
+      extra: <String, String>{
+        'cookie_mode': 'BDUSS_STOKEN',
+        ...enriched.extra,
+      },
     );
+  }
+
+  /// 百度扫码 Cookie 补全（对齐 iOS `baiduEnrichAccountCookie`，
+  /// `CloudDriveAuthManager.swift:1262-1316`）。
+  ///
+  /// 扫码完成后串行访问五条「只读、不改账号、不写网盘」端点，让百度服务端
+  /// 通过 Set-Cookie 补齐 BFESS 系字段（BAIDUID/STOKEN_BFESS/BDUSS_BFESS 等），
+  /// 并从 gettemplatevariable 取回用户态 bdstoken/uk/username。全部 GET、
+  /// 单次串行、失败静默回退，不会改账号资料、不触发风控、不阻断登录。
+  Future<_BaiduEnrichResult> _enrichBaiduAccount(String cookie) async {
+    final Map<String, String> merged = _cookieStringToMap(cookie);
+    final Map<String, String> extra = <String, String>{};
+    void putField(String key, Object? value) {
+      final String? text =
+          value is String ? value : (value is num ? '$value' : null);
+      if (text != null && text.isNotEmpty) extra[key] = text;
+    }
+
+    const List<String> endpoints = <String>[
+      'https://www.baidu.com/',
+      'https://passport.baidu.com/center',
+      'https://pan.baidu.com/disk/main',
+      'https://pan.baidu.com/api/gettemplatevariable?clienttype=0&app_id=250528'
+          '&web=1&fields=[%22bdstoken%22,%22uk%22,%22username%22]',
+      'https://pan.baidu.com/api/getuinfo?clienttype=0&app_id=250528&web=1',
+    ];
+    for (final String urlString in endpoints) {
+      try {
+        final SpiderHttpResult res = await _bridge.request(
+          urlString,
+          options: SpiderHttpOptions(
+            headers: <String, String>{
+              'Cookie': joinCookies(merged),
+              'User-Agent': _baiduUserAgent,
+              'Referer': 'https://pan.baidu.com/',
+            },
+            timeout: const Duration(seconds: 12),
+          ),
+        );
+        merged.addAll(_filteredCookiesFromHeaders(res.headers));
+        if (urlString.contains('gettemplatevariable')) {
+          final Map<String, Object?>? json = _decodeMap(res.content);
+          final Map<String, Object?>? result = _asMap(json?['result']);
+          putField('bdstoken', result?['bdstoken'] ?? json?['bdstoken']);
+          putField('uk', result?['uk'] ?? json?['uk']);
+          putField('username', result?['username'] ?? json?['username']);
+        }
+      } catch (_) {
+        continue; // 单点失败静默回退（对齐 iOS continue 语义）。
+      }
+    }
+    return _BaiduEnrichResult(cookie: joinCookies(merged), extra: extra);
   }
 
   /// 百度 `bduss` 参数归一（对齐 iOS `normalizeBaiduQrBDUSSParam`）。
@@ -702,6 +1025,44 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   static String joinCookies(Map<String, String> cookies) => cookies.entries
       .map((MapEntry<String, String> e) => '${e.key}=${e.value}')
       .join('; ');
+
+  /// Cookie 属性名黑名单（对齐 iOS `mergeCookieStrings` 的 ignored 集合）。
+  static const Set<String> _cookieAttrNames = <String>{
+    'path', 'domain', 'expires', 'max-age', 'secure', 'httponly', 'samesite',
+  };
+
+  /// cookie 字符串 → 键值表（过滤 Path/Expires 等属性段）。
+  static Map<String, String> _cookieStringToMap(String cookie) {
+    final Map<String, String> out = <String, String>{};
+    for (final String part in cookie.split(';')) {
+      final String item = part.trim();
+      final int eq = item.indexOf('=');
+      if (eq <= 0) continue;
+      final String name = item.substring(0, eq).trim();
+      final String value = item.substring(eq + 1).trim();
+      if (name.isEmpty ||
+          value.isEmpty ||
+          _cookieAttrNames.contains(name.toLowerCase())) {
+        continue;
+      }
+      out[name] = value;
+    }
+    return out;
+  }
+
+  /// 从响应头收集 `Set-Cookie` 并过滤属性名
+  /// （对齐 iOS `mergeCookieStrings` 的 ignored 语义）。
+  static Map<String, String> _filteredCookiesFromHeaders(
+    Map<String, String> headers,
+  ) {
+    final Map<String, String> raw = _cookiesFromHeaders(headers);
+    return Map<String, String>.fromEntries(
+      raw.entries.where(
+        (MapEntry<String, String> e) =>
+            !_cookieAttrNames.contains(e.key.toLowerCase()),
+      ),
+    );
+  }
 
   static int _nowMs() => DateTime.now().millisecondsSinceEpoch;
 

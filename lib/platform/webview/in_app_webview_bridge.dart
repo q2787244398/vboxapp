@@ -49,6 +49,7 @@ class InAppWebViewBridge implements WebViewBridge {
     String? userAgent,
     Map<String, String> cookies = const <String, String>{},
     Duration timeout = const Duration(seconds: 30),
+    String? evaluateJs,
   }) async {
     _ensureAvailable();
     final WebUri uri = WebUri(url);
@@ -75,6 +76,19 @@ class InAppWebViewBridge implements WebViewBridge {
           final Object? html = await controller.evaluateJavascript(
             source: 'document.documentElement.outerHTML',
           );
+          // evaluateJs：页面上下文提取（对齐 iOS `BaiduWebViewBridge` 的
+          // JS 注入语义，如 `window.locals.get('bdstoken')`）；失败静默为空。
+          String jsResult = '';
+          if (evaluateJs != null && evaluateJs.isNotEmpty) {
+            try {
+              final Object? js = await controller.evaluateJavascript(
+                source: evaluateJs,
+              );
+              jsResult = _normalizeJsResult(js);
+            } catch (_) {
+              jsResult = '';
+            }
+          }
           final List<Cookie> cs = await cookieManager.getCookies(url: uri);
           final String cookieStr =
               cs.map((Cookie c) => '${c.name}=${c.value}').join('; ');
@@ -83,6 +97,7 @@ class InAppWebViewBridge implements WebViewBridge {
               html: '${html ?? ''}',
               url: '${loaded ?? uri}',
               cookie: cookieStr,
+              jsResult: jsResult,
             ));
           }
         } catch (e) {
@@ -111,6 +126,15 @@ class InAppWebViewBridge implements WebViewBridge {
     } finally {
       await headless.dispose();
     }
+  }
+
+  /// `evaluateJavascript` 返回值归一为字符串
+  /// （null / 字面量 `null` / `undefined` 归空串，其余转字符串）。
+  static String _normalizeJsResult(Object? js) {
+    if (js == null) return '';
+    final String s = '$js';
+    if (s == 'null' || s == 'undefined' || s == '<null>') return '';
+    return s;
   }
 
   @override

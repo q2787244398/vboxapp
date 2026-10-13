@@ -42,20 +42,28 @@ IconData cloudDriveIcon(CloudDriveType type) => switch (type) {
 /// `PushPlayDetailPage`（E-12 收敛），故此处不再追加该动作。
 List<(String, IconData)> cloudDriveAuthActions(CloudDriveType type) {
   return switch (type) {
+      // 阿里：对齐 iOS `providerAccountCard` ali 分支「原生扫码」
+      // （OpenList 授权页扫码，`CloudDriveAuthManager.swift:2244`）；
+      // PG 扫码在 iOS 已隐藏（`AliyunPgQrLoginView` 无实例化点），不暴露。
       CloudDriveType.ali => <(String, IconData)>[
-          ('PG扫码登录', Icons.qr_code_2),
+          ('原生扫码', Icons.qr_code_2),
         ],
-      // 原生盘：走原生链（非 Node）。
+      // 原生盘：走原生链（非 Node）；「Node扫码登录」对齐 iOS 卡内 Segmented
+      // 的 Node 档（百度/夸克 `NodeScanQRLoginView(provider:)`、UC
+      // `NodeUcTwoStepLoginView`），登录态写 Node 常驻系统（独立命名空间）。
       CloudDriveType.uc => <(String, IconData)>[
           ('原生扫码', Icons.qr_code_2),
+          ('Node扫码登录', Icons.phone_iphone),
           ('网页登录兜底', Icons.language),
         ],
       CloudDriveType.baidu => <(String, IconData)>[
           ('扫码授权', Icons.qr_code_2),
+          ('Node扫码登录', Icons.phone_iphone),
           ('网页兜底', Icons.language),
         ],
       CloudDriveType.quark => <(String, IconData)>[
           ('扫码登录', Icons.qr_code_2),
+          ('Node扫码登录', Icons.phone_iphone),
           ('网页登录兜底', Icons.language),
         ],
       // Node 托管派生卡：动作须落到 Node 模式（F-P16）。
