@@ -427,5 +427,21 @@ void main() {
       await controller.load();
       expect(notified, greaterThanOrEqualTo(2));
     });
+
+    test('P2-4：removeCredential 删除本地凭据（Node 侧级联失败不阻断）', () async {
+      // 测试环境 Node 常驻系统不可达 → deleteNodeCredential 抛错被吞，
+      // 本地凭据仍必须删掉（对齐 iOS「本地必须删、Node 失败只记日志」）。
+      await store.save(_cred(CloudDriveType.uc, cookie: 'k=v'));
+      final CloudDriveAuthController controller =
+          CloudDriveAuthController(credentialStore: store);
+      await controller.load();
+      int notified = 0;
+      controller.addListener(() => notified++);
+
+      await controller.removeCredential(CloudDriveType.uc);
+
+      expect(await store.credential(CloudDriveType.uc), isNull);
+      expect(notified, greaterThanOrEqualTo(1));
+    });
   });
 }

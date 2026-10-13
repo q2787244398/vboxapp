@@ -168,6 +168,79 @@ void main() {
       expect(r.refreshToken, 'rt2');
     });
 
+    test('P2-6：方案A/B 全失败 → OpenList renewapi GET 兜底成功', () async {
+      int getCalls = 0;
+      final _FakeTransport t = _FakeTransport((SpiderTransportRequest r) {
+        final String url = r.url.toString();
+        if (url.contains('oplist.org/alicloud/renewapi')) {
+          getCalls++;
+          expect(r.method, 'GET');
+          expect(url, contains('driver_txt=alicloud_qr'));
+          expect(url, contains('refresh_ui=rt0'));
+          expect(url, contains('server_use=true'));
+          return _json('{"access_token":"ol-at","refresh_token":"ol-rt"}');
+        }
+        return _json('{}', status: 500); // 方案A/B 与 verify 全失败。
+      });
+      final AliyunAdriveClient c = _client(t);
+      final ({String accessToken, String refreshToken}) r =
+          await c.refreshAccessToken(refreshToken: 'rt0');
+      expect(getCalls, 1);
+      expect(r.accessToken, 'ol-at');
+      expect(r.refreshToken, 'ol-rt');
+    });
+
+    test('P2-6：OpenList GET 报「已失效」→ POST 兜底成功', () async {
+      final _FakeTransport t = _FakeTransport((SpiderTransportRequest r) {
+        final String url = r.url.toString();
+        if (url.contains('oplist.org/alicloud/renewapi')) {
+          if (r.method == 'POST') {
+            final String contentType = r.headers.entries
+                .firstWhere(
+                  (MapEntry<String, String> e) =>
+                      e.key.toLowerCase() == 'content-type',
+                  orElse: () => const MapEntry<String, String>('', ''),
+                )
+                .value;
+            expect(
+              contentType,
+              contains('application/x-www-form-urlencoded'),
+            );
+            expect(r.body, contains('driver_txt=alicloud_qr'));
+            return _json('{"access_token":"p-at","refresh_token":"p-rt"}');
+          }
+          // GET 命中 OpenList 错误格式（invalid/expired/过期 → 已失效文案）。
+          return _json('{"text":"refresh token expired"}');
+        }
+        return _json('{}', status: 500);
+      });
+      final AliyunAdriveClient c = _client(t);
+      final ({String accessToken, String refreshToken}) r =
+          await c.refreshAccessToken(refreshToken: 'rt0');
+      expect(r.accessToken, 'p-at');
+      expect(r.refreshToken, 'p-rt');
+    });
+
+    test('P2-6：OpenList GET/POST 全失败 → 抛统一刷新失败文案', () async {
+      final _FakeTransport t = _FakeTransport((SpiderTransportRequest r) {
+        if (r.url.toString().contains('oplist.org/alicloud/renewapi')) {
+          return _json('{"text":"invalid"}');
+        }
+        return _json('{}', status: 500);
+      });
+      final AliyunAdriveClient c = _client(t);
+      await expectLater(
+        c.refreshAccessToken(refreshToken: 'rt0'),
+        throwsA(
+          isA<AliyunAdriveException>().having(
+            (AliyunAdriveException e) => e.message,
+            'message',
+            'PG Token 刷新失败：无法获取兼容分享操作的 ADrive token',
+          ),
+        ),
+      );
+    });
+
     test('listPlayableFiles：递归子目录 + 过滤 + 按名升序', () async {
       final AliyunAdriveClient c = _client(_FakeTransport(_route));
       final List<AliyunShareFile> files = await c.listPlayableFiles(

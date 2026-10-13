@@ -206,6 +206,24 @@ void main() {
       );
       expect(task.qrDataUrl, '');
     });
+
+    test('P2-3：qrImage 缺失但 qrUrl 存在 → 标记 qr_data: 本地编码兜底', () async {
+      final NodeCloudDriveLoginGateway gateway = gatewayWith((_, __) =>
+          <String, dynamic>{
+            'code': 0,
+            'taskId': 'T-3',
+            'qrUrl': 'https://passport.baidu.com/v2/api/qrcode?sign=xyz',
+          });
+      final CloudDriveQrTask task = await gateway.startQrLogin(
+        type: CloudDriveType.bilibili,
+        mode: CloudDriveLoginMode.nativeQr,
+      );
+      expect(task.taskId, 'T-3');
+      expect(
+        task.qrDataUrl,
+        '${kQrDataContentPrefix}https://passport.baidu.com/v2/api/qrcode?sign=xyz',
+      );
+    });
   });
 
   group('pollQrLogin', () {

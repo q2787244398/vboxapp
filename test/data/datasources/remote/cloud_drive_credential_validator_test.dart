@@ -9,8 +9,11 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vbox/data/datasources/local/prefs_manager.dart';
 import 'package:vbox/data/datasources/remote/cloud_drive_credential_validator.dart';
 import 'package:vbox/domain/entities/cloud/cloud_drive.dart';
 
@@ -53,6 +56,20 @@ CloudDriveCredential _cred(
     );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  final PrefsManager pm = PrefsManager.instance;
+
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    FlutterSecureStorage.setMockInitialValues(<String, String>{});
+    await pm.init();
+  });
+
+  setUp(() async {
+    await pm.clearAll();
+  });
+
   group('阿里（字段校验，与 iOS 差异已登记）', () {
     test('refreshToken / accessToken 任一非空 → 通过', () async {
       final _FakeClient client = _FakeClient((_) async {
@@ -259,6 +276,62 @@ void main() {
       );
       expect(result.valid, isFalse);
       expect(result.message, '百度登录态校验失败（响应非 JSON）');
+    });
+
+    test('P2-5：校验失败记 10 分钟冷却，冷却内跳过远程校验', () async {
+      int calls = 0;
+      final _FakeClient client = _FakeClient((http.BaseRequest request) async {
+        calls++;
+        return http.Response('{"errno":-6,"errmsg":"acct_err"}', 200);
+      });
+      final CloudDriveCredentialValidator validator =
+          CloudDriveCredentialValidator(client: client, prefs: pm);
+      final CloudDriveCredential cred =
+          _cred(CloudDriveType.baidu, cookie: 'BDUSS=abc; STOKEN=st1');
+
+      // 首次：远程校验失败 → 记冷却。
+      final CredentialValidationResult first =
+          await validator.validate(CloudDriveType.baidu, cred);
+      expect(first.valid, isFalse);
+      expect(first.skipped, isFalse);
+      expect(calls, 1);
+
+      // 冷却期内：直接 skipped，不再发远程请求。
+      final CredentialValidationResult second =
+          await validator.validate(CloudDriveType.baidu, cred);
+      expect(second.skipped, isTrue);
+      expect(second.valid, isFalse);
+      expect(second.message, contains('冷却'));
+      expect(calls, 1);
+      // 冷却已持久化到 prefs（契约键 baidu_verify_cooldowns_v1）。
+      final Object? raw = await pm.get('baidu_verify_cooldowns_v1');
+      expect(raw, isA<String>());
+      expect(raw as String, contains('bduss:abc'));
+    });
+
+    test('P2-5：冷却 key 优先 BDUSS（同账号新 Cookie 命中，异账号不受影响）', () async {
+      final _FakeClient client = _FakeClient(
+        (_) async => http.Response('{"errno":-6,"errmsg":"acct_err"}', 200),
+      );
+      final CloudDriveCredentialValidator validator =
+          CloudDriveCredentialValidator(client: client, prefs: pm);
+      await validator.validate(
+        CloudDriveType.baidu,
+        _cred(CloudDriveType.baidu, cookie: 'BDUSS=same; STOKEN=old'),
+      );
+      // 同 BDUSS、不同 STOKEN → 仍命中冷却。
+      final CredentialValidationResult hit = await validator.validate(
+        CloudDriveType.baidu,
+        _cred(CloudDriveType.baidu, cookie: 'BDUSS=same; STOKEN=new'),
+      );
+      expect(hit.skipped, isTrue);
+      // 不同 BDUSS → 正常发起远程校验（失败但不 skipped）。
+      final CredentialValidationResult miss = await validator.validate(
+        CloudDriveType.baidu,
+        _cred(CloudDriveType.baidu, cookie: 'BDUSS=other; STOKEN=x'),
+      );
+      expect(miss.skipped, isFalse);
+      expect(miss.valid, isFalse);
     });
   });
 
