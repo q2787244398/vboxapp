@@ -10,8 +10,8 @@
 ///
 /// **落地范围（如实登记）**：本轮落地「皮肤（B4 组件 + 跟随系统）」「显示模式（I-04）」
 /// 「播放设置」「切片资源（Wave D）」「站源管理（Wave D）」「TG 搜索」「订阅配置」
-/// 「工具入口（远程源 / 网盘管理；书架已按 iOS 移除；备份还原仅在个人中心
-/// 登录态，对齐 iOS）」
+/// 「工具入口（网盘管理；书架已按 iOS 移除；备份还原仅在个人中心
+/// 登录态，对齐 iOS；远程源独立页已按唯一真相源移除）」
 /// 「TMDB（G-06）」「存储管理」「日志调试」「关于」十三个分区；
 /// iOS 侧其余域分区（福利 / 账号等）在 Flutter 侧对应域功能尚未实现。
 library;
@@ -36,7 +36,6 @@ import '../../../domain/usecases/detail_playback_usecases.dart';
 import '../../../domain/usecases/source_governance_usecases.dart';
 import '../../../platform/network/dns_cache.dart';
 import '../../../platform/update/update.dart';
-import '../../phone/remote_source_page.dart';
 import '../../theme/theme.dart';
 import '../../ui_mode/ui_mode.dart';
 import '../../widgets/log_viewer_page.dart';
@@ -474,21 +473,18 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  /// 工具入口（书架 / 远程源 / 网盘管理）。
+  /// 工具入口（网盘管理）。
   ///
   /// 差异登记（对齐 iOS）：iOS 设置页**没有**「备份还原」入口——其唯一入口
   /// 在个人中心功能宫格且**仅登录态显示**（`ProfileView` L464-L466）；Flutter
   /// 侧个人中心已同款实现，此处不再重复提供入口（原 G 系列曾从个人中心
-  /// 迁入，现按 iOS 真相源移除）。
+  /// 迁入，现按 iOS 真相源移除）。「远程源」独立页无 iOS 对应——订阅管理走
+  /// 上方「管理订阅源」（`SubscribeConfigPage`）、源发现走首页站点态覆盖层、
+  /// 远程默认源开关走订阅配置内联区块，独立页及本入口已按唯一真相源移除。
   Widget _toolsSection() {
     return VboxSettingsSection(
       title: '工具',
       children: <Widget>[
-        VboxSettingsRow.navigation(
-          title: '远程源',
-          icon: Icons.cloud_sync,
-          onTap: () => _push(const RemoteSourcePage()),
-        ),
         VboxSettingsRow.navigation(
           title: '网盘管理',
           icon: Icons.folder,

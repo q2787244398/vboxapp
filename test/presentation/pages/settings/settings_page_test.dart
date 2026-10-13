@@ -284,7 +284,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
   });
 
-  testWidgets('I-03：工具分区三个入口（备份还原仅在个人中心登录态，对齐 iOS）',
+  testWidgets('I-03：工具分区仅网盘管理（远程源页已收敛，对齐 iOS）',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(390, 2400);
     tester.view.devicePixelRatio = 1.0;
@@ -293,11 +293,13 @@ void main() {
     await tester.pumpWidget(_page(UiFormController()));
     await tester.pumpAndSettle();
 
-    // 对齐 iOS：设置页工具区 = 远程源 / 网盘管理（书架已按 iOS 真相源移除，
-    // iOS 设置页无书架入口）；无「备份还原」（其唯一入口在个人中心功能宫格
-    // 且仅登录态显示，ProfileView L464-466）。
+    // 对齐 iOS：设置页工具区 = 网盘管理（书架已按 iOS 真相源移除）；
+    // 「远程源」独立页无 iOS 对应（订阅管理走上方「管理订阅源」、源发现走
+    // 首页站点态覆盖层、远程默认源开关走订阅配置内联区块），入口已移除；
+    // 无「备份还原」（其唯一入口在个人中心功能宫格且仅登录态显示，
+    // ProfileView L464-466）。
     expect(find.text('书架'), findsNothing);
-    expect(find.text('远程源'), findsOneWidget);
+    expect(find.text('远程源'), findsNothing);
     expect(find.text('网盘管理'), findsOneWidget);
     expect(find.text('备份还原'), findsNothing);
   });
