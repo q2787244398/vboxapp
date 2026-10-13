@@ -8,8 +8,6 @@
 ///   **JSC 不可用 → 自动降级 QuickJS 且降级可观测（onLog 事件）**
 library;
 
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vbox/domain/entities/spider/engine_type.dart';
 import 'package:vbox/domain/entities/spider/spider_engine.dart';
@@ -93,16 +91,14 @@ class _UnavailableBridge implements QuickJsNativeBridge, JsCoreNativeBridge {
 
 /// 记录请求并返回预设响应的 fake 客户端（复用 Node 桥测试的响应结构）。
 class _FakeNodeClient implements NodeHttpClient {
-  final List<Map<String, Object?>> _responses;
+  final List<NodeHttpResponse> _responses;
   int _index = 0;
 
   _FakeNodeClient(this._responses);
 
   @override
-  Future<String> postJson(String path, String body) async {
-    final Map<String, Object?> r = _responses[_index++];
-    return jsonEncode(r);
-  }
+  Future<NodeHttpResponse> post(String path, String body) async =>
+      _responses[_index++];
 
   @override
   Future<void> close() async {}
@@ -233,23 +229,18 @@ void main() {
       expect(engine.engineType, SpiderEngineType.javaScriptCore);
     });
 
-    test('注入 fake 客户端：node 引擎 register + homeContent 走 ABI', () async {
-      final _FakeNodeClient client = _FakeNodeClient(<Map<String, Object?>>[
-        <String, Object?>{
-          'ok': true,
-          'data': <String, Object?>{
-            'class': <Map<String, Object?>>[
-              <String, Object?>{'type_id': '1', 'type_name': '电影'},
-            ],
-            'list': <Map<String, Object?>>[],
-          },
-        },
+    test('注入 fake 客户端：node 引擎 register + homeContent 走 /spider/{key}/3/home', () async {
+      final _FakeNodeClient client = _FakeNodeClient(<NodeHttpResponse>[
+        const NodeHttpResponse(
+          statusCode: 200,
+          body: '{"class":[{"type_id":"1","type_name":"电影"}],"list":[]}',
+        ),
       ]);
       final SpiderEngine engine = factory.create(
         SpiderEngineType.node,
         nodeClient: client,
-        siteKey: 'js_剧迷',
-        baseUrl: 'https://example.com/js/jumi.js',
+        siteKey: 'nodejs_hanxiaoquan',
+        baseUrl: '',
         requestId: 'req-factory-1',
       );
       expect(engine, isA<NodeBridgeEngine>());
