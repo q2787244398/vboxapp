@@ -240,7 +240,9 @@ jobs:
           echo "version=${VER}" >> "$GITHUB_OUTPUT"
           echo "注入安装包版本号: ${VER}"
 
-      - name: Compile installer with Inno Setup
+      # 路线 A ①：编译「静默安装内核」——复用既有 installer.iss，安装逻辑零改动，
+      # 仅新增进度上报钩子；产物改名 vbox-installer-core.exe，作为壳的内嵌资源。
+      - name: Compile installer core (Inno Setup)
         shell: pwsh
         env:
           VBOX_VERSION: ${{ steps.version.outputs.version }}
@@ -248,11 +250,38 @@ jobs:
           choco install innosetup -y --no-progress
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           & $iscc "/DMyAppVersion=$env:VBOX_VERSION" "windows/installer/installer.iss"
+          if (-not (Test-Path "windows/installer/Output/vbox-installer-core.exe")) {
+            throw "❌ 未生成安装内核 windows/installer/Output/vbox-installer-core.exe"
+          }
 
+      # 路线 A ②：构建 UI 壳（.NET 8 WPF + WebView2），把 core + 定稿 HTML/素材内嵌进单文件。
+      # 交付物仍是 S.7 命名 vbox-setup.exe（双击即壳，无任何 Inno 原生向导窗口）。
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build setup shell
+        shell: pwsh
+        env:
+          VBOX_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          dotnet publish windows/setup-shell/VboxSetupShell.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeAllContentForSelfExtract=true `
+            -p:InstallerVersion=$env:VBOX_VERSION `
+            -p:CoreExe=..\installer\Output\vbox-installer-core.exe `
+            -o windows/setup-shell/out
+          if (-not (Test-Path "windows/setup-shell/out/VboxSetupShell.exe")) {
+            throw "❌ 未生成安装壳 windows/setup-shell/out/VboxSetupShell.exe"
+          }
+
+      # 路线 A ③：产物改名，保持 S.7 命名（vbox-setup.exe 归壳所有）
       - name: Rename to S.7 name (vbox-setup.exe)
         shell: bash
         run: |
-          mv windows/installer/Output/vbox-setup.exe vbox-setup.exe
+          mv windows/setup-shell/out/VboxSetupShell.exe vbox-setup.exe
           ls -lh vbox-setup.exe
 
       - uses: actions/upload-artifact@v4

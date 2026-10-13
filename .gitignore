@@ -36,3 +36,9 @@ vbox/Resources/noderuntime/.startup.ack
 vbox/Resources/noderuntime/.relisten
 vbox/Resources/noderuntime/.relisten.ack
 .uploads/
+
+# Windows 安装包构建产物（路线 A：Inno 静默内核 + .NET 壳）
+windows/installer/Output/
+windows/setup-shell/bin/
+windows/setup-shell/obj/
+windows/setup-shell/out/

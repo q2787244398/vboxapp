@@ -1,7 +1,15 @@
-; vbox Windows 侧载安装包（S.7 命名：vbox-setup.exe）
+; vbox Windows 侧载安装包 —— 「静默安装内核」（路线 A 的 core）
+;
+; 路线 A 说明（见 docs/网盘登录11问题_对齐修复清单_v1.3.md 第 8 章）：
+;   最终交付物 vbox-setup.exe 是 .NET 壳（windows/setup-shell），本脚本编译产物
+;   vbox-installer-core.exe 作为「内嵌资源」被壳释放并以静默模式执行，负责真正的
+;   安装动作；所有既有安装逻辑（含常驻进程查杀）保持不变，仅新增进度上报钩子，
+;   供壳轮询后驱动自绘 UI。
+;
 ; 编译方式：ISCC.exe windows/installer/installer.iss
 ;   （GitHub Actions 工作流 .github/workflows/build-release-assets.yml 自动执行）
 ; 可选注入版本号：ISCC /DMyAppVersion=X.Y.Z windows/installer/installer.iss
+; 无壳时单独调试 core（原生向导模式）：直接双击 vbox-installer-core.exe
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
@@ -25,7 +33,11 @@ UninstallDisplayIcon={app}\app_icon.ico
 Compression=lzma2
 SolidCompression=yes
 OutputDir=Output
-OutputBaseFilename=vbox-setup
+; 路线 A：本产物是「静默安装内核」，由 .NET 壳内嵌；最终交付名 vbox-setup.exe
+; 归壳所有（避免与外层同名冲突）。
+OutputBaseFilename=vbox-installer-core
+; 静默模式不需要向导配色；保留 modern 便于无壳时单独调试 core 的原生向导。
+WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
@@ -66,6 +78,49 @@ Filename: "{app}\{#MyAppExeName}"; Description: "启动 vbox"; Flags: nowait pos
 ;   - node.exe 只按完整路径杀安装目录内的实例，不误伤系统其他 Node 应用；
 ;   - 杀完等 800ms 让句柄释放，再由 ignoreversion 覆盖文件。
 [Code]
+; ══════════════════════════════════════════════════════════════════
+;  进度上报通道（路线 A 新增 · 供 .NET 壳轮询读取，驱动自绘 UI）
+;  ──────────────────────────────────────────────────────────────
+;  路径由壳通过自定义参数 /VBOXPROG="<path>" 注入（Inno 6 支持
+;  {param:VBOXPROG} 常量）；未注入时退化到临时目录下的固定文件名。
+;  写入内容为单行 JSON：
+;    · 阶段事件： {"stage":"解压程序文件","cur":-1,"max":-1}
+;    · 字节进度： {"stage":"","cur":<n>,"max":<m>}   （CurInstallProgressChanged）
+;  壳解析后补上 "type":"progress" 再推给页面。
+; ══════════════════════════════════════════════════════════════════
+var
+  { 是否已真正进入「已安装完成」状态；用于避免用户取消安装时误报“安装完成”。 }
+  gInstallDone: Boolean;
+
+function ProgPath(): String;
+begin
+  Result := ExpandConstant('{param:VBOXPROG}');
+  if Result = '' then
+    Result := ExpandConstant('{tmp}\vbox-setup-progress.json');
+end;
+
+procedure WriteProgress(const Json: String);
+begin
+  { Append=False：整文件覆写，保证壳每次读到的是最新一条快照。
+    单行小文件写入足够快，无需额外的原子替换。 }
+  SaveStringToFile(ProgPath(), Json, False);
+end;
+
+{ 上报「阶段」——与定稿 UI 的 5 张步骤卡片对应（每步的基准百分比由壳/页面侧换算）。 }
+procedure ReportStage(const Stage: String);
+begin
+  WriteProgress('{"stage":"' + Stage + '","cur":-1,"max":-1}');
+end;
+
+{ 上报「真实字节进度」——Inno 官方事件；静默（/VERYSILENT）模式下同样会被调用。
+  若个别环境不触发，页面侧会退化为「按阶段推进的估算进度」（见 installer.html）。 }
+procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);
+begin
+  WriteProgress('{"stage":"","cur":' + IntToStr(CurProgress) +
+                ',"max":' + IntToStr(MaxProgress) + '}');
+end;
+
+; ── 既有逻辑：升级 / 卸载前结束旧版进程（保持不变） ──────────────
 procedure KillVboxProcesses();
 var
   AppDir: String;
@@ -84,8 +139,29 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  ReportStage('准备安装');
   Result := '';
   KillVboxProcesses();
+end;
+
+{ 阶段推进：ssInstall = 开始复制文件（含 Node 引擎，页面侧用字节进度切「部署 Node 引擎」）；
+  ssPostInstall = 文件复制完成、开始写快捷方式 / 运行项。 }
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssInstall then
+    ReportStage('解压程序文件');
+  if CurStep = ssPostInstall then
+  begin
+    ReportStage('创建快捷方式');
+    gInstallDone := True;
+  end;
+end;
+
+procedure DeinitializeSetup();
+begin
+  { 仅在真正安装完成后上报，避免用户中途取消时误报。 }
+  if gInstallDone then
+    ReportStage('安装完成');
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
