@@ -216,6 +216,9 @@ class WelfareSpiderLoader {
     return <Uri>[
       Uri.parse('https://ghfast.top/$original'),
       Uri.parse('https://gh-proxy.com/$original'),
+      // 2026-10 实测：ghfast / gh-proxy 已不再代理 *.github.io（403/404），
+      // 追加 ghproxy.link（对 github.io 仍可用），与 RemoteSourceStrategy 对齐。
+      Uri.parse('https://ghproxy.link/$original'),
       url,
     ];
   }

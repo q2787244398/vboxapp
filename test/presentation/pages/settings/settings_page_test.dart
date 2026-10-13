@@ -36,6 +36,7 @@ Widget _page(
   UiFormController form, {
   ContentBrowseUseCases? browse,
   SourceGovernanceUseCases? governance,
+  InMemoryRemoteSourceRepository? remote,
 }) {
   return MultiProvider(
     providers: [
@@ -59,7 +60,10 @@ Widget _page(
         value: browse ?? buildContentBrowseUseCases(),
       ),
       Provider<RemoteSourceUseCases>.value(
-        value: RemoteSourceUseCases(InMemoryRemoteSourceRepository()),
+        value: RemoteSourceUseCases(
+          // 可注入 fake 仓储（远程源区块交互用例），默认全新内存仓储。
+          remote ?? InMemoryRemoteSourceRepository(),
+        ),
       ),
       // Wave D：源治理用例（切片资源页远程默认源 / 站源管理页清单）。
       if (governance != null)
@@ -420,5 +424,86 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(await prefs.getBool('enable_dual_mode'), isFalse);
+  });
+
+  // ---- 远程默认源区块交互用例（原 remote_source_page_test.dart 迁入：入口
+  // ---- 收敛后区块仅在设置页提供，对齐 iOS `SettingsViews.subscriptionSection`）。
+
+  testWidgets('G-09：清单刷新：强制拉取并展示远程版本', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final InMemoryRemoteSourceRepository remote =
+        InMemoryRemoteSourceRepository()..fetchResult = buildManifest();
+    await tester.pumpWidget(_page(UiFormController(), remote: remote));
+    await tester.pumpAndSettle();
+
+    // idle 态副标题。
+    expect(find.text('未同步'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('刷新远程源'));
+    await tester.tap(find.text('刷新远程源'));
+    await tester.pumpAndSettle();
+
+    expect(remote.fetchCount, 1);
+    expect(
+      find.textContaining('配置版本：远程配置 2026.09.29.1'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('G-09：刷新失败：区块副标题显示失败信息', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    // 未设置 fetchResult → fake 返回 UnknownFailure。
+    final InMemoryRemoteSourceRepository remote =
+        InMemoryRemoteSourceRepository();
+    await tester.pumpWidget(_page(UiFormController(), remote: remote));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('刷新远程源'));
+    await tester.tap(find.text('刷新远程源'));
+    await tester.pumpAndSettle();
+
+    expect(remote.fetchCount, 1);
+    expect(find.textContaining('失败：'), findsOneWidget);
+  });
+
+  testWidgets('G-09：清缓存 → 触发仓储 clearCache，版本回退为「无」',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final InMemoryRemoteSourceRepository remote =
+        InMemoryRemoteSourceRepository()
+          ..cached = buildManifest()
+          ..cachedAt = 1700000000
+          ..settingsValue = const RemoteSourceSettings(
+            enabled: true,
+            manifestUrl: 'https://example.com/m.json',
+            lastConfigVersion: '2026.09.29.1',
+            lastSyncTimeSeconds: 1700000000,
+          );
+    await tester.pumpWidget(_page(UiFormController(), remote: remote));
+    await tester.pumpAndSettle();
+
+    // 对齐 iOS `SettingsViews` 远程源区块：开关 + 默认源地址 + 版本/时间信息行。
+    expect(find.text('启用远程默认源'), findsOneWidget);
+    expect(find.text('默认源地址'), findsOneWidget);
+    expect(find.text('https://example.com/m.json'), findsOneWidget);
+    expect(find.textContaining('配置版本：2026.09.29.1'), findsOneWidget);
+    expect(find.textContaining('同步时间：'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('清缓存'));
+    await tester.tap(find.text('清缓存'));
+    await tester.pumpAndSettle();
+
+    expect(remote.clearCacheCount, 1);
+    expect(find.textContaining('已清空远程源缓存'), findsOneWidget);
+    expect(find.textContaining('配置版本：无'), findsOneWidget);
   });
 }

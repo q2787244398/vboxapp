@@ -126,13 +126,19 @@ class RemoteSourceStrategy {
   static const String defaultManifestUrl =
       'https://vbox-ai.github.io/api/sources/manifest.json';
 
-  /// 代理降级链：主代理 → 备用代理 → 直连（对齐 iOS `proxyHosts`）。
+  /// 代理降级链：主代理 → 备用代理 → 第三镜像 → 直连（对齐 iOS `proxyHosts`）。
   ///
   /// B-02：以构造/参数注入实现「可配置常量」——调用方（如
   /// `RemoteSourceConfigManager`）可按环境覆盖；缺省对齐 iOS。
+  ///
+  /// 2026-10 实测：ghfast / gh-proxy 已不再代理 `*.github.io`（分别返回
+  /// 403/404），导致 manifest 拉取在无代理网络下只剩直连兜底（不可达）。
+  /// 追加 `ghproxy.link`（实测对 github.io 仍可用，307 跟随后 200）作为
+  /// 第三镜像；iOS 端 `proxyHosts` 依赖系统代理直连成功，按 D1 零改动。
   static const List<ProxyHost> proxyHosts = <ProxyHost>[
     ProxyHost(name: 'ghfast', host: 'https://ghfast.top'),
     ProxyHost(name: 'gh-proxy', host: 'https://gh-proxy.com'),
+    ProxyHost(name: 'ghproxy-link', host: 'https://ghproxy.link'),
   ];
 
   /// 是否为 GitHub 域名（对齐 iOS `isGitHubDomain`）：

@@ -434,11 +434,12 @@ void main() {
       );
     });
 
-    test('candidates：GitHub → [主代理, 备代理, 直连]；非 GitHub → [直连]；可配置常量注入空链 → 直连', () {
+    test('candidates：GitHub → [主代理, 备代理, 第三镜像, 直连]；非 GitHub → [直连]；可配置常量注入空链 → 直连', () {
       const String gh = 'https://raw.githubusercontent.com/x/y.json';
       expect(RemoteSourceStrategy.candidates(gh), <String>[
         'https://ghfast.top/$gh',
         'https://gh-proxy.com/$gh',
+        'https://ghproxy.link/$gh',
         gh,
       ]);
       expect(RemoteSourceStrategy.isGithubHost('vbox-ai.github.io'), isTrue);

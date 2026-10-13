@@ -26,14 +26,22 @@ class DoubanDatasource {
   /// chart 排行榜 API（对齐 iOS `DoubanChartService`）。
   static const String chartBase = 'https://movie.douban.com/j/chart/top_list';
 
-  /// rexxar 请求头（对齐 iOS：Referer + Accept JSON）。
+  /// rexxar 请求头（对齐 iOS `DoubanService.swift` L220：iPhone UA + Referer；
+  /// iOS `URLSession` 会注入系统 UA，此处显式声明同值）。
   static const Map<String, String> _rexxarHeaders = <String, String>{
+    'user-agent':
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15',
     'Referer': 'https://movie.douban.com',
     'Accept': 'application/json',
   };
 
-  /// chart 请求头（对齐 iOS：UA 由 HttpClient 注入，此处只补 Referer/Accept）。
+  /// chart 请求头（对齐 iOS `DoubanChartService.swift` L90/L93：**桌面版** Chrome
+  /// UA + Referer。豆瓣 chart API 是桌面网页 XHR，国内 WAF 对移动 UA 直接 400，
+  /// 故不能用 `NetConstants.defaultUserAgent` 的 Android 移动 UA）。
   static const Map<String, String> _chartHeaders = <String, String>{
+    'user-agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'application/json',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
     'Referer': 'https://movie.douban.com/chart',

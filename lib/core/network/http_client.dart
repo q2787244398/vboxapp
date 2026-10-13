@@ -253,9 +253,16 @@ class HttpClient {
     Map<String, String>? form,
     String? body,
   ) {
+    // 等效键覆盖：HTTP 头名大小写不敏感，但 Dart Map 大小写敏感——
+    // 调用方传 `Accept: application/json`（与默认 `accept: */*` 仅大小写不同）
+    // 时会发出**两个** Accept 头，部分服务端（豆瓣 WAF 等）对畸形重复头
+    // 直接拒绝。故先按忽略大小写检测调用方是否已提供同名头，已提供则
+    // 不再注入默认值（调用方键保持原样，与既有测试断言兼容）。
+    bool hasHeader(String name) =>
+        headers?.keys.any((String k) => k.toLowerCase() == name) ?? false;
     final Map<String, String> h = <String, String>{
-      'user-agent': userAgent,
-      'accept': '*/*',
+      if (!hasHeader('user-agent')) 'user-agent': userAgent,
+      if (!hasHeader('accept')) 'accept': '*/*',
       ...?headers,
     };
     switch (method.toUpperCase()) {

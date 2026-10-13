@@ -2,7 +2,8 @@
 ///
 /// 对齐 iOS `SettingsViews.subscriptionSection` 的远程默认源内联编辑区——
 /// iOS 无需进入子页即可在设置页直接查看与设置，Flutter 侧同款内联；
-/// 设置页（`_subscribeSection`）与「远程源」页（订阅源标签顶部）共用。
+/// 仅在设置页（`_subscribeSection`）提供（原「远程源」页顶部同款区块
+/// 已随入口收敛移除，对齐 iOS 唯一入口）。
 /// 区块内容：
 ///   · 「启用远程默认源」开关（`remote_default_source_enabled`）+
 ///     装载状态副标题（`LoadState.displayText`）；

@@ -1,9 +1,9 @@
-/// phone 形态：远程源（远程默认源设置 + 订阅管理）。
+/// phone 形态：远程源（订阅管理 + 源发现）。
 ///
-/// 直连 [SubscriptionUseCases]（D21 轻量路线）；订阅源标签顶部为
-/// 「远程默认源」设置区块——G-09 起与设置页订阅配置区块**共用**
-/// [RemoteDefaultSourceSection]（对齐 iOS：设置页内联编辑 + 独立页同款区块），
-/// 本页自身只承载订阅列表（添加 / 删除）与「源发现」标签。
+/// 直连 [SubscriptionUseCases]（D21 轻量路线）；本页只承载订阅列表
+/// （添加 / 删除）与「源发现」标签。「远程默认源」设置区块仅在设置页
+/// 订阅配置区块提供（对齐 iOS：iOS 无独立远程源页，设置页内联编辑
+/// `SettingsViews.subscriptionSection` 为唯一入口，原此处同款区块已移除）。
 /// G-01 phone 形态第二块（登记见 VBOX_PLAN 附录 C）。
 library;
 
@@ -15,7 +15,6 @@ import '../../core/utils/result.dart';
 import '../../core/utils/time_utils.dart';
 import '../../domain/entities/library/library.dart';
 import '../../domain/usecases/usecases.dart';
-import '../widgets/settings/remote_default_source_section.dart';
 import '../widgets/source_discovery_view.dart';
 
 /// 远程源页面。
@@ -127,20 +126,8 @@ class _RemoteSourcePageState extends State<RemoteSourcePage>
     );
   }
 
-  /// 订阅源标签：远程默认源设置区块（与设置页共用）+ 订阅列表。
-  Widget _buildSubscriptionsTab() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 14, 16, 10),
-          child: RemoteDefaultSourceSection(),
-        ),
-        const Divider(height: 1),
-        Expanded(child: _buildSubscriptions()),
-      ],
-    );
-  }
+  /// 订阅源标签：订阅列表（远程默认源设置区块在设置页提供）。
+  Widget _buildSubscriptionsTab() => _buildSubscriptions();
 
   Widget _buildSubscriptions() {
     if (!_loaded) {
