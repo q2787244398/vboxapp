@@ -377,7 +377,9 @@ void main() {
     expect(find.byType(PlayerPage), findsOneWidget);
     expect(player.calls, isEmpty);
     expect(find.text('加载失败'), findsOneWidget);
-    expect(find.textContaining('解析失败'), findsOneWidget);
+    // 错误提示同时以「原因文案」与「调试日志（加载失败：<原因>）」两处出现，
+    // 故按精确文案断言（textContaining 会同时命中日志行，得到 2 个 widget）。
+    expect(find.text('解析失败，请重试'), findsOneWidget);
     expect(find.text('返回'), findsOneWidget);
 
     // 排空播放页控制层自动隐藏计时器（避免测试结束仍有 pending timer）。
