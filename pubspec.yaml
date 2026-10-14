@@ -1,7 +1,7 @@
 name: vbox
 description: VBox 多端聚合视频播放器（Android / Android TV / Windows / macOS）
 publish_to: 'none'
-version: 3.1829.0+1829
+version: 3.1830.0+1830
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
