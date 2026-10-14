@@ -36,7 +36,7 @@ DYLIB="$DYLIB_DIR/libvbox_quickjs.dylib"
 if [[ -z "$APP" ]]; then
   APP="$(ls -d "$ROOT"/build/macos/Build/Products/"$CONFIG"/*.app 2>/dev/null | head -1 || true)"
   if [[ -z "$APP" ]]; then
-    echo "❌ 未找到 $CONFIG 产物 .app（先 flutter build macos --$CONFIG，或用 --app 指定）"
+    echo "❌ 未找到 $CONFIG 产物 .app（先 flutter build macos --${CONFIG}，或用 --app 指定）"
     exit 1
   fi
 fi

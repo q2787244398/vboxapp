@@ -44,7 +44,7 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-echo "⬇️  下载 jsc-android@$VERSION（npm pack）"
+echo "⬇️  下载 jsc-android@${VERSION}（npm pack）"
 TARBALL="$WORK/jsc-android.tgz"
 curl -fSL --retry 3 "$REGISTRY/jsc-android/-/jsc-android-$VERSION.tgz" -o "$TARBALL"
 

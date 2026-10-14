@@ -8,6 +8,7 @@
 ///  - 批次 C · C-06：降级可观测（[onBackendFallback] 事件 + debugPrint 日志）
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -71,10 +72,12 @@ class PlayerController {
             if (picked != null) return picked;
           }
         }
-        // 直播 FLV / 复杂封装（MKV/FLV/TS…）需全格式后端 → MDK 优先（统一内核），
-        // 其次 libVLC / libmpv（复杂封装回退预留，M4 收口再定去留）。
+        // 直播 FLV / 复杂封装（MKV/FLV/TS…）需全格式后端 → libVLC 优先（复杂封装
+        // 回退）；网盘 / Node 代理流 URL 无扩展名，故以真实标题（[source.title]）
+        // 补判，避免 4K HEVC MKV 被误投 Media3（open 成功但解码失败）。
         final bool needsFullFormat =
-            PlayerBackendSelector.needsFallback(source.url) ||
+            PlayerBackendSelector.needsFallback(source.url,
+                    resourceName: source.title) ||
                 (route == PlaybackRoute.live && _isFlv(source.url));
         return PlayerBackendSelector.initialBackend(
           chain: chain,
@@ -91,6 +94,12 @@ class PlayerController {
   PlayerState? _state;
   PlaybackRoute? _route;
   PlayerSource? _lastSource;
+
+  /// 当前生效的后端降级链（运行期错误降级据此定位「下一个后端」）。
+  List<PlayerBackend>? _activeChain;
+
+  /// 运行期降级进行中（防止 error 回调重入触发二次降级）。
+  bool _fallbackInProgress = false;
 
   /// 当前播放器（未 open 为 null）。
   Player? get player => _player;
@@ -138,8 +147,9 @@ class PlayerController {
 
   set onError(void Function(String message, {required bool fatal})? handler) {
     _onError = handler;
-    // 已 attach 的播放器同步新处理器（open 之后再设置也生效）。
-    _player?.onError = handler;
+    // 已 attach 的播放器同步新处理器（open 之后再设置也生效）。统一走内部
+    // [_handleRuntimeError]，以保留「运行期解码失败 → 内核降级」拦截。
+    _player?.onError = _handleRuntimeError;
   }
 
   // ─────────────── 控制面 ───────────────
@@ -205,6 +215,7 @@ class PlayerController {
   ) async {
     await _disposePlayer();
     _route = resolved;
+    _activeChain = chain;
     PlayerOpenException? last;
     PlayerBackend? previous;
     for (final PlayerBackend backend in chain) {
@@ -279,6 +290,7 @@ class PlayerController {
   Future<void> dispose() async {
     await _disposePlayer();
     _route = null;
+    _activeChain = null;
     await _bridge.dispose();
   }
 
@@ -305,7 +317,94 @@ class PlayerController {
       if (width <= 0 || height <= 0) return;
       onVideoSize?.call(width, height);
     };
-    p.onError = _onError;
+    p.onError = _handleRuntimeError;
+  }
+
+  /// 运行期错误统一入口（C-06 + 内核降级）。
+  ///
+  /// 契约：Media3 **open 成功但解码失败**（如 4K HEVC HDR10 超硬解能力、
+  /// `ERROR_CODE_DECODING_FAILED`）时，必须触发内核降级（Media3 → libVLC）；
+  /// 此类错误在 open 阶段不可见，只能在运行期 error 事件里拦截。
+  ///
+  /// 命中且链上仍有后续后端时**暂缓上报**（由降级链接管，避免 UI 先弹错误态；
+  /// 降级耗尽再补报）；否则按原语义直接转发 [_onError]。
+  void _handleRuntimeError(String message, {bool fatal = false}) {
+    if (fatal && _isRuntimeFallbackError(message) && _hasNextBackend()) {
+      debugPrint('[PlayerController] 运行期解码错误 → 尝试内核降级：$message');
+      unawaited(_retryNextBackend(message));
+      return;
+    }
+    _onError?.call(message, fatal: fatal);
+  }
+
+  /// 当前后端之后是否仍有可降级后端。
+  bool _hasNextBackend() {
+    final List<PlayerBackend>? chain = _activeChain;
+    final PlayerBackend? from = _player?.backend;
+    if (chain == null || from == null) return false;
+    final int idx = chain.indexOf(from);
+    return idx >= 0 && idx < chain.length - 1;
+  }
+
+  /// 运行期错误降级：以当前源在当前链的**剩余后端**上重开。
+  Future<void> _retryNextBackend(String reason) async {
+    if (_fallbackInProgress) return;
+    final List<PlayerBackend>? chain = _activeChain;
+    final PlayerBackend? from = _player?.backend;
+    final PlayerSource? source = _lastSource;
+    if (chain == null || from == null || source == null) {
+      _onError?.call(reason, fatal: true);
+      return;
+    }
+    final int idx = chain.indexOf(from);
+    if (idx < 0 || idx >= chain.length - 1) {
+      _onError?.call(reason, fatal: true);
+      return;
+    }
+    final List<PlayerBackend> rest = chain.sublist(idx + 1);
+    final PlayerBackend to = rest.first;
+    _fallbackInProgress = true;
+    try {
+      debugPrint(
+        '[PlayerController] 内核降级（运行期）：${from.name} → ${to.name}'
+        '（route=${_route?.name}，$reason）',
+      );
+      onBackendFallback?.call(from, to, reason);
+      await _openWithChain(
+        source,
+        _route ?? PlaybackRouteResolver.resolve(source),
+        rest,
+      );
+    } catch (e) {
+      debugPrint('[PlayerController] 内核降级失败：$e');
+      _onError?.call(reason, fatal: true);
+    } finally {
+      _fallbackInProgress = false;
+    }
+  }
+
+  /// 判定错误是否为「解码 / 格式」类（应触发内核降级）。
+  ///
+  /// 覆盖 Media3 原生错误码名（`errorCodeName` 会随事件消息下发，如
+  /// `ERROR_CODE_DECODING_FAILED` / `NO_EXCEEDS_CAPABILITIES`）与中文兜底文案。
+  static bool _isRuntimeFallbackError(String message) {
+    final String m = message.toLowerCase();
+    const List<String> tokens = <String>[
+      'decoding_failed',
+      'decoder',
+      'decode',
+      'no_exceeds_capabilities',
+      'exceeds_capabilities',
+      'format_supported',
+      'unsupported',
+      '解码',
+      '格式不支持',
+      '不支持的格式',
+    ];
+    for (final String t in tokens) {
+      if (m.contains(t)) return true;
+    }
+    return false;
   }
 
   Future<void> _disposePlayer() async {

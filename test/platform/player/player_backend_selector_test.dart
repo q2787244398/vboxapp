@@ -26,12 +26,11 @@ void main() {
       );
     });
 
-    test('android → media3 主 + MDK + libVLC 回退', () {
+    test('android → media3 主 + libVLC 回退（MDK 无原生实现，不入链）', () {
       expect(
         PlayerBackendSelector.chainFor('android'),
         const <PlayerBackend>[
           PlayerBackend.media3,
-          PlayerBackend.mdk,
           PlayerBackend.libVLC,
         ],
       );
@@ -86,14 +85,13 @@ void main() {
   group('PlayerBackendSelector.initialBackend（M1 · 初始后端选择）', () {
     const List<PlayerBackend> android = <PlayerBackend>[
       PlayerBackend.media3,
-      PlayerBackend.mdk,
       PlayerBackend.libVLC,
     ];
     const List<PlayerBackend> desktop = <PlayerBackend>[
       PlayerBackend.libmpv,
     ];
 
-    test('常规媒体 → 链首主后端（默认路径不经过 MDK）', () {
+    test('常规媒体 → 链首主后端（默认路径不经过复杂封装分支）', () {
       expect(
         PlayerBackendSelector.initialBackend(
           chain: android,
@@ -110,13 +108,13 @@ void main() {
       );
     });
 
-    test('需全格式：Android 链含 MDK → MDK；桌面链无 MDK → libmpv 兜底', () {
+    test('需全格式：Android 链无 MDK → libVLC；桌面链无 MDK → libmpv 兜底', () {
       expect(
         PlayerBackendSelector.initialBackend(
           chain: android,
           needsFullFormat: true,
         ),
-        PlayerBackend.mdk,
+        PlayerBackend.libVLC,
       );
       expect(
         PlayerBackendSelector.initialBackend(
@@ -172,6 +170,23 @@ void main() {
       );
       expect(
         PlayerBackendSelector.needsFallback('https://x/a.m3u8'),
+        isFalse,
+      );
+    });
+
+    test('无扩展名代理 URL → 以真实文件名补判（修复②）', () {
+      const String proxy = 'http://127.0.0.1:58080/spider/push/4/proxy/115/x';
+      // 仅凭 URL 无法判定封装 → 不回退（原缺陷：4K HEVC MKV 被误投 Media3）。
+      expect(PlayerBackendSelector.needsFallback(proxy), isFalse);
+      // 真实文件名命中复杂封装 → 回退。
+      expect(
+        PlayerBackendSelector.needsFallback(proxy,
+            resourceName: 'Movie.hevc.mkv'),
+        isTrue,
+      );
+      // 真实文件名普通容器 → 不回退。
+      expect(
+        PlayerBackendSelector.needsFallback(proxy, resourceName: 'Movie.mp4'),
         isFalse,
       );
     });
@@ -456,7 +471,6 @@ void main() {
     group('pickDriveBackend（平台可用性交集，等价 isXXXBuildAvailable）', () {
       const List<PlayerBackend> android = <PlayerBackend>[
         PlayerBackend.media3,
-        PlayerBackend.mdk,
         PlayerBackend.libVLC,
       ];
       const List<PlayerBackend> desktop = <PlayerBackend>[
@@ -464,7 +478,7 @@ void main() {
       ];
 
       test('按盘链序取首个平台可用后端', () {
-        // mdk 在 Android 可用 → 首位。
+        // mdk 无原生实现（不在 Android 可用链）→ 跳过，取 libVLC。
         expect(
           PlayerBackendSelector.pickDriveBackend(
             driveChain: const <PlayerBackend>[
@@ -473,7 +487,7 @@ void main() {
             ],
             available: android,
           ),
-          PlayerBackend.mdk,
+          PlayerBackend.libVLC,
         );
         // mdk / libVLC 不在桌面链 → 顺延到 libmpv。
         expect(

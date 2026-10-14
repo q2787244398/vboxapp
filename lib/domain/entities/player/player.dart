@@ -293,21 +293,22 @@ class PlayerBackendSelector {
 
   /// 按平台返回后端降级链。
   ///
-  /// - Android：Media3 → MDK → libVLC
+  /// - Android：Media3 → libVLC（原生仅实现 media3 / libVLC 两个内核；MDK 是
+  ///   iOS 侧内核，Flutter 端**无原生实现**——若留在链中，`open(backend=mdk)`
+  ///   必抛 `E_BACKEND_UNAVAILABLE：未知后端：mdk`，白白多一跳且打断降级序）
   /// - Windows/macOS：libmpv（原生插件仅实现 libmpv，桌面端 MDK/libVLC 未接线，
   ///   故链中不含 MDK —— 否则 `open` 失败回退到 MDK 会直接抛
   ///   `E_BACKEND_UNAVAILABLE：该插件仅实现 libmpv 后端`）
   /// - iOS：nativeiOS（不迁移）
   ///
-  /// 链首为**默认主后端**（默认路径不经过 MDK，保持既有行为）；复杂封装 /
-  /// 直播 FLV 等需全格式时由 [PlayerBackendSelector] / `PlayerController` 改投
-  /// **MDK 优先**（统一内核），失败再依次回退（仅 Android 生效）。
+  /// 链首为**默认主后端**（默认路径不经过复杂封装分支）；复杂封装 / 直播 FLV
+  /// 等需全格式时由 [PlayerBackendSelector] / `PlayerController` 改投
+  /// **libVLC 优先**，失败再依次回退（仅 Android 生效）。
   static List<PlayerBackend> chainFor(String platform) {
     switch (platform.toLowerCase()) {
       case 'android':
         return const <PlayerBackend>[
           PlayerBackend.media3,
-          PlayerBackend.mdk,
           PlayerBackend.libVLC,
         ];
       case 'windows':
@@ -342,13 +343,19 @@ class PlayerBackendSelector {
   /// 判断某 URL 是否需要回退到全格式播放器（libVLC）。
   ///
   /// 契约（计划书 1092 行）：MKV 等复杂封装 → libVLC 回退。
-  static bool needsFallback(String url) {
+  ///
+  /// [resourceName] 为**真实文件名 / 标题**（可选）：网盘 / Node 代理流的 URL
+  /// 常为无扩展名的本地回环代理（`http://127.0.0.1:58080/spider/push/...`），
+  /// 仅凭 URL 无法判定封装；此时以真实文件名补判，避免 4K HEVC MKV 等被误投
+  /// Media3（open 成功但解码失败）。对齐 iOS「只认真实文件名」的判定口径。
+  static bool needsFallback(String url, {String? resourceName}) {
     final String u = url.toLowerCase();
+    final String r = (resourceName ?? '').toLowerCase();
     const List<String> complexContainers = <String>[
       '.mkv', '.flv', '.ts', '.rmvb', '.avi', '.wmv', '.m2ts',
     ];
     for (final String ext in complexContainers) {
-      if (u.contains(ext)) return true;
+      if (u.contains(ext) || r.contains(ext)) return true;
     }
     return false;
   }

@@ -47,7 +47,7 @@ if [[ ! -f "$TARBALL" ]]; then
   curl -fsSL "https://nodejs.org/dist/$NODE_VERSION/node-$NODE_VERSION-$DIST.tar.gz" -o "$TARBALL"
 fi
 ACTUAL="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
-[[ "$ACTUAL" == "$EXPECTED" ]] || { echo "❌ sha256 校验失败：期望 $EXPECTED，实际 $ACTUAL"; exit 1; }
+[[ "$ACTUAL" == "$EXPECTED" ]] || { echo "❌ sha256 校验失败：期望 ${EXPECTED}，实际 $ACTUAL"; exit 1; }
 echo "✅ sha256 校验通过: $ACTUAL"
 
 # ── 解出 node 二进制 ──
@@ -61,7 +61,7 @@ NODE_BIN="$EXTRACT/node-$NODE_VERSION-$DIST/bin/node"
 if [[ -z "$APP" ]]; then
   APP="$(ls -d "$ROOT"/build/macos/Build/Products/"$CONFIG"/*.app 2>/dev/null | head -1 || true)"
   if [[ -z "$APP" ]]; then
-    echo "❌ 未找到 $CONFIG 产物 .app（先 flutter build macos --$CONFIG，或用 --app 指定）"
+    echo "❌ 未找到 $CONFIG 产物 .app（先 flutter build macos --${CONFIG}，或用 --app 指定）"
     exit 1
   fi
 fi

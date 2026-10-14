@@ -40,16 +40,16 @@ ASSET="cpython-$PYTHON_VERSION+$PBS_TAG-$PBS_TARGET-install_only.tar.gz"
 CACHE="$ROOT/.python-cache"; mkdir -p "$CACHE"
 TARBALL="$CACHE/$ASSET"
 if [[ ! -f "$TARBALL" ]]; then
-  echo "⬇️  下载 https://github.com/astral-sh/python-build-standalone/releases/download/$PBS_TAG/$ASSET（内置 CPython，ND-02-desktop）"
+  echo "⬇️  下载 https://github.com/astral-sh/python-build-standalone/releases/download/$PBS_TAG/${ASSET}（内置 CPython，ND-02-desktop）"
   curl -fsSL "https://github.com/astral-sh/python-build-standalone/releases/download/$PBS_TAG/$ASSET" -o "$TARBALL"
 fi
 ACTUAL="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
-[[ "$ACTUAL" == "$EXPECTED" ]] || { echo "❌ sha256 校验失败：期望 $EXPECTED，实际 $ACTUAL"; exit 1; }
+[[ "$ACTUAL" == "$EXPECTED" ]] || { echo "❌ sha256 校验失败：期望 ${EXPECTED}，实际 $ACTUAL"; exit 1; }
 echo "✅ sha256 校验通过: $ACTUAL"
 
 if [[ -z "$APP" ]]; then
   APP="$(ls -d "$ROOT"/build/macos/Build/Products/"$CONFIG"/*.app 2>/dev/null | head -1 || true)"
-  if [[ -z "$APP" ]]; then echo "❌ 未找到 $CONFIG 产物 .app（先 flutter build macos --$CONFIG，或用 --app 指定）"; exit 1; fi
+  if [[ -z "$APP" ]]; then echo "❌ 未找到 $CONFIG 产物 .app（先 flutter build macos --${CONFIG}，或用 --app 指定）"; exit 1; fi
 fi
 [[ -d "$APP" ]] || { echo "❌ .app 不存在：$APP"; exit 1; }
 
@@ -67,7 +67,7 @@ echo "📦 pip 安装 lxml==$LXML_VERSION"
 "$PYTHON_BIN" -m pip install --no-cache-dir --no-warn-script-location --disable-pip-version-check --only-binary=:all: "lxml==$LXML_VERSION"
 
 STDLIB_SRC="$ROOT/assets/python-stdlib"
-[[ -d "$STDLIB_SRC" ]] || { echo "❌ 未找到 $STDLIB_SRC（先落盘 assets/python-stdlib）"; exit 1; }
+[[ -d "$STDLIB_SRC" ]] || { echo "❌ 未找到 ${STDLIB_SRC}（先落盘 assets/python-stdlib）"; exit 1; }
 STDLIB_DST="$RUNTIME_DIR/python-stdlib"
 cp -R "$STDLIB_SRC" "$STDLIB_DST"
 
@@ -88,7 +88,7 @@ find "$RUNTIME_DIR" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) 
 
 SMOKE="$("$PYTHON_BIN" -c "import sys, lxml.etree; print('PYOK', sys.version_info[:3])")"
 [[ "$SMOKE" == PYOK* ]] || { echo "❌ python 冒烟失败：$SMOKE"; exit 1; }
-echo "✅ python 冒烟通过（$SMOKE）"
+echo "✅ python 冒烟通过（${SMOKE}）"
 SMOKE2="$(PYTHONPATH="$STDLIB_DST" "$PYTHON_BIN" -c "import base.spider; print('BASEOK')")"
 [[ "$SMOKE2" == "BASEOK" ]] || { echo "❌ base.spider 冒烟失败：$SMOKE2"; exit 1; }
 echo "✅ base.spider 冒烟通过（PYTHONPATH=pyruntime/python-stdlib）"

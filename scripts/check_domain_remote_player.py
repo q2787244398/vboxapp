@@ -9,7 +9,7 @@
   5. LoadState displayText 5 态
 
 播放器（对齐 D6 · M1 MDK 接入后）：
-  6. 后端降级链：Android=Media3→MDK→libVLC；桌面=libmpv；iOS=nativeiOS
+  6. 后端降级链：Android=Media3→libVLC；桌面=libmpv；iOS=nativeiOS
   7. MKV 等复杂封装触发回退
   8. PlayMode 解析
 """
@@ -133,7 +133,9 @@ def main() -> int:
         return []
 
     for plat, want_chain in [
-        ("android", ["media3", "mdk", "libVLC"]),
+        # Android 原生仅实现 media3 / libVLC 两个内核（MDK 为 iOS 侧内核，
+        # Flutter 端无原生实现），故链中不含 MDK。
+        ("android", ["media3", "libVLC"]),
         # 桌面端原生插件仅实现 libmpv（windows/runner/player_plugin.cpp 收到
         # backend≠libmpv 直接 E_BACKEND_UNAVAILABLE），故链中不含 MDK。
         ("windows", ["libmpv"]),

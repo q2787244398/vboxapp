@@ -97,7 +97,7 @@ case "$LIBMPV_DEPS_OS" in
         ASSET_NAME="libmpv-${LIBMPV_DEPS_OS}-${LIBMPV_DEPS_ARCH}-${LIBMPV_DEPS_VERSION}.dll"
         IS_TARBALL=0
         ;;
-    *) echo "不支持的 os: $LIBMPV_DEPS_OS（仅 macos / windows）" >&2; exit 1 ;;
+    *) echo "不支持的 os: ${LIBMPV_DEPS_OS}（仅 macos / windows）" >&2; exit 1 ;;
 esac
 
 DEST_DIR="${LIBMPV_DEPS_CACHE_DIR}"

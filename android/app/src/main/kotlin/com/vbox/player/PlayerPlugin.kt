@@ -249,10 +249,12 @@ class PlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChanne
         val headers = (args["headers"] as? Map<String, String>) ?: emptyMap()
         val backend = args["backend"]?.toString() ?: "media3"
         val isLive = args["isLive"] as? Boolean ?: false
+        // 真实文件名 / 标题：网盘 / Node 代理流 URL 无扩展名，能力探测需据此补判。
+        val resourceName = args["title"]?.toString()
 
         // A21.5：复杂封装 / HEVC 无硬解 → libVLC。Dart 主后端仍投 media3 时上报
         // E_BACKEND_UNAVAILABLE，由 PlayerController 降级链改投 libVLC（可观测）。
-        val needed = CodecCapability.selectBackend(url)
+        val needed = CodecCapability.selectBackend(url, resourceName)
         if (backend == "media3" && needed == PlayerBackend.LIBVLC) {
             result.error(
                 "E_BACKEND_UNAVAILABLE",

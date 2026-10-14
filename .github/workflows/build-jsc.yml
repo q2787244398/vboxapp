@@ -126,7 +126,7 @@ jobs:
             # 3) 无符号泄漏：除 vj_* 外不得有其他 default 导出
             EXTRA="$("$LLVM/llvm-nm" -D --defined-only "$SO" | grep ' T ' | grep -v ' T vj_' || true)"
             [ -z "$EXTRA" ] || { echo "❌ $ABI 泄漏非 vj_* 符号: $EXTRA"; exit 1; }
-            echo "✅ $ABI：NEEDED/libjsc.so ✓ vj_* 六符号 ✓ 无泄漏"
+            echo "✅ ${ABI}：NEEDED/libjsc.so ✓ vj_* 六符号 ✓ 无泄漏"
           done
           echo "✅ 四 ABI 符号级 smoke 全部通过（真机加载由 APK 构建产物验证，"
           echo "   运行时失败走 D6 降级 QuickJS 兜底）"

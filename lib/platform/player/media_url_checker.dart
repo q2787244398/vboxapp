@@ -170,7 +170,9 @@ class MpvBackendMatrix {
         if (hasMedia3) return PlayerBackend.media3;
         return chain.first;
       case MpvBackendPreference.auto:
-        if (PlayerBackendSelector.needsFallback(source.url) && hasMpv) {
+        if (PlayerBackendSelector.needsFallback(source.url,
+                resourceName: source.title) &&
+            hasMpv) {
           return PlayerBackend.libmpv;
         }
         return hasMedia3 ? PlayerBackend.media3 : chain.first;
