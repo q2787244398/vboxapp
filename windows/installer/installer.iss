@@ -87,12 +87,19 @@ Filename: "{app}\{#MyAppExeName}"; Description: "启动 vbox"; Flags: nowait pos
 //  未注入时退化到临时目录下的固定文件名。
 //  写入内容为单行 JSON：
 //    · 阶段事件： {"stage":"解压程序文件","cur":-1,"max":-1}
-//    · 字节进度： {"stage":"","cur":<n>,"max":<m>}   （CurInstallProgressChanged）
+//    · 字节进度： {"stage":"<当前阶段>","cur":<n>,"max":<m>}（CurInstallProgressChanged，
+//      阶段名粘性携带，避免覆写成空串导致页面不切卡）
 //  壳解析后补上 "type":"progress" 再推给页面。
 // ══════════════════════════════════════════════════════════════════
 var
   { 是否已真正进入「已安装完成」状态；用于避免用户取消安装时误报“安装完成”。 }
   gInstallDone: Boolean;
+  { 当前阶段名（粘性）。
+    原因：Inno 的 CurInstallProgressChanged 在复制文件期间高频触发，每次都覆写
+    同一份进度快照；若快照里 stage 留空，壳 150ms 轮询到的大概率是「字节进度」
+    快照，页面就会永远停在上一阶段（实测卡在「准备安装」的 8% 上限）。
+    因此把最近一次阶段名记住，每条快照都带上它。 }
+  gStage: String;
 
 function ProgPath(): String;
 begin
@@ -111,6 +118,7 @@ end;
 { 上报「阶段」——与定稿 UI 的 5 张步骤卡片对应（每步的基准百分比由壳/页面侧换算）。 }
 procedure ReportStage(const Stage: String);
 begin
+  gStage := Stage; { 粘住当前阶段，供后续字节进度快照一并带上 }
   WriteProgress('{"stage":"' + Stage + '","cur":-1,"max":-1}');
 end;
 
@@ -118,7 +126,8 @@ end;
   若个别环境不触发，页面侧会退化为「按阶段推进的估算进度」（见 installer.html）。 }
 procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);
 begin
-  WriteProgress('{"stage":"","cur":' + IntToStr(CurProgress) +
+  { 关键：带上 gStage，否则本快照会把阶段事件的 stage 覆盖成空串，页面永远不切卡。 }
+  WriteProgress('{"stage":"' + gStage + '","cur":' + IntToStr(CurProgress) +
                 ',"max":' + IntToStr(MaxProgress) + '}');
 end;
 

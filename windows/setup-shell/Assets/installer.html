@@ -60,14 +60,7 @@
   .logo-wrap-box{position:relative;display:flex;align-items:center;justify-content:center;
     margin:12px auto 2px;height:150px;flex:0 0 auto}
 
-  .logo-glow{
-    position:absolute;left:50%;top:50%;width:320px;height:210px;margin:-105px 0 0 -160px;
-    border-radius:50%;pointer-events:none;
-    background:radial-gradient(ellipse at center,
-      rgba(225,29,72,.20) 0%, rgba(225,29,72,.09) 40%, rgba(225,29,72,0) 72%);
-    opacity:0;animation:roseGlowIn 1s ease-out .70s both;
-  }
-  @keyframes roseGlowIn{from{opacity:0}to{opacity:1}}
+  /* 注：原「玫瑰色光晕」(.logo-glow 径向渐晕) 已按需求移除。 */
 
   .tilt{position:relative;z-index:1;transform:rotate(-8deg)}
   .floatw{animation:floaty 3.0s ease-in-out 1s infinite alternate both}
@@ -219,7 +212,6 @@
     <section class="stage active" id="pg-dir">
       <!-- 页头 Logo（静态终态，同一套视觉） -->
       <div class="logo-wrap-box" style="height:132px;margin-top:2px">
-        <div class="logo-glow" style="height:180px;margin:-90px 0 0 -160px;opacity:1;animation:none"></div>
         <span class="fallback-wordmark" style="font-size:44px">vbox</span>
         <div class="tilt">
           <div class="breath" style="animation:none">
@@ -269,7 +261,6 @@
     <!-- ═══════════ ② 安装中（进度页） ═══════════ -->
     <section class="stage" id="pg-install">
       <div class="logo-wrap-box" id="logoStage">
-        <div class="logo-glow"></div>
         <span class="fallback-wordmark">vbox</span>
         <div class="tilt">
           <div class="floatw">
