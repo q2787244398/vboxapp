@@ -83,10 +83,11 @@
   @keyframes roseGlowIn{from{opacity:0}to{opacity:1}}
 
   .tilt{position:relative;z-index:1;transform:rotate(-8deg)}
+  /* 呼吸 / 浮动幅度：加大，让 1.00s 起的循环动效更明显（缩放 1→1.08、浮动 ±13px） */
   .floatw{animation:floaty 3.0s ease-in-out 1s infinite alternate both}
-  @keyframes floaty{from{transform:translateY(-6px)}to{transform:translateY(6px)}}
+  @keyframes floaty{from{transform:translateY(-13px)}to{transform:translateY(13px)}}
   .breath{animation:breathe 2.4s ease-in-out 1s infinite alternate both}
-  @keyframes breathe{from{transform:scale(1)}to{transform:scale(1.045)}}
+  @keyframes breathe{from{transform:scale(1)}to{transform:scale(1.08)}}
 
   /* 原始比例（scale 1.0） */
   .canvas{position:relative;width:182.2px;height:100px;transform:scale(1.0);overflow:visible}

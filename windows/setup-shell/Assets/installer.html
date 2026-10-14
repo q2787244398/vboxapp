@@ -63,10 +63,12 @@
   /* 注：原「玫瑰色光晕」(.logo-glow 径向渐晕) 已按需求移除。 */
 
   .tilt{position:relative;z-index:1;transform:rotate(-8deg)}
+  /* 呼吸 / 浮动幅度：在 1:1 复刻版基础上加大，让 1.00s 起的循环动效更明显。
+     缩放 1 → 1.08（原 1.045）、浮动 ±13px（原 ±6px）；周期与延时保持不变。 */
   .floatw{animation:floaty 3.0s ease-in-out 1s infinite alternate both}
-  @keyframes floaty{from{transform:translateY(-6px)}to{transform:translateY(6px)}}
+  @keyframes floaty{from{transform:translateY(-13px)}to{transform:translateY(13px)}}
   .breath{animation:breathe 2.4s ease-in-out 1s infinite alternate both}
-  @keyframes breathe{from{transform:scale(1)}to{transform:scale(1.045)}}
+  @keyframes breathe{from{transform:scale(1)}to{transform:scale(1.08)}}
 
   .canvas{position:relative;width:182.2px;height:100px;transform:scale(1.0);overflow:visible}
 
