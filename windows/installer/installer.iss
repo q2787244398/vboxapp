@@ -70,12 +70,14 @@ Name: "{autodesktop}\vbox"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{a
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 vbox"; Flags: nowait postinstall skipifsilent
 
 ; ── 升级 / 卸载前结束旧版进程 ──────────────────────────────────────
-; 常驻 node.exe（ND-02 Node 引擎内置 + Node 常驻系统）在 vbox.exe 退出后
-; 仍按设计驻留后台。Inno 覆盖 {app}\noderuntime\node.exe 时，Windows 拒绝
-; 删除正在运行的 exe → 「DeleteFile 失败；错误代码 5。拒绝访问」。
+; 常驻 node.exe（ND-02 Node 引擎内置 + Node 常驻系统）与内置 python.exe
+; （ND-02-desktop CPython 子进程）在 vbox.exe 退出后仍按设计驻留后台。
+; Inno 覆盖 {app}\noderuntime\node.exe、{app}\pyruntime\python.exe 时，Windows
+; 拒绝删除正在运行的 exe → 「DeleteFile 失败；错误代码 5。拒绝访问」。
 ; 此处在复制文件前显式查杀：
 ;   - vbox.exe 按映像名连进程树强杀（/t 连带其子进程）；
-;   - node.exe 只按完整路径杀安装目录内的实例，不误伤系统其他 Node 应用；
+;   - node.exe / python.exe 只按完整路径杀安装目录内的实例，不误伤系统其他
+;     Node / Python 应用；
 ;   - 杀完等 800ms 让句柄释放，再由 ignoreversion 覆盖文件。
 [Code]
 // ══════════════════════════════════════════════════════════════════
@@ -131,7 +133,7 @@ begin
                 ',"max":' + IntToStr(MaxProgress) + '}');
 end;
 
-// ── 既有逻辑：升级 / 卸载前结束旧版进程（保持不变） ──────────────
+// ── 升级 / 卸载前结束旧版进程（含 ND-02-desktop 内置 python.exe） ──────
 procedure KillVboxProcesses();
 var
   AppDir: String;
@@ -142,7 +144,7 @@ begin
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec('powershell.exe',
        '-NoProfile -ExecutionPolicy Bypass -Command ' +
-       'Get-Process node -ErrorAction SilentlyContinue | ' +
+       'Get-Process node,python,pythonw -ErrorAction SilentlyContinue | ' +
        'Where-Object { $_.Path -like "' + AppDir + '\*" } | ' +
        'Stop-Process -Force; Start-Sleep -Milliseconds 800',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

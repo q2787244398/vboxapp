@@ -3,11 +3,12 @@
 /// 对齐 iOS `PythonSpiderEngine` 的脚本执行语义：`loadScript` 载入脚本后，宿主逐行写
 /// ABI 请求、逐行读 ABI 响应（`contract/docs/abi_v1.md` §7）。**宿主**由 [PythonRuntime]
 /// 抽象承载，按平台分派（Wave G · RT-运1）：
-///  - 桌面 / 测试 → `python3 -u <script>` 常驻子进程（stdio）；
+///  - 桌面 / 测试 → `python3 -u <bridge> <script>` 常驻子进程（stdio）；`<bridge>`
+///    为桥接垫片（S1/S3），负责 `exec` 用户脚本并以对象调用驱动（对齐 iOS/Android）；
 ///  - Android → Chaquopy 进程内解释器（Android 无 `python3` 可执行文件）。
 ///
-/// 测试：使用 `conformance/fixtures/python_echo_spider.py`（真实 python3 子进程），
-/// 不可用时（环境无 python3）跳过，不破坏门禁全绿。
+/// 测试：使用 `conformance/fixtures/python_spider_class.py`（真实 `Spider` 类脚本，
+/// 真实 python3 子进程），不可用时（环境无 python3）跳过，不破坏门禁全绿。
 library;
 
 import 'dart:convert';

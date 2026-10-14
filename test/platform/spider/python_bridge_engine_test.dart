@@ -1,7 +1,9 @@
 /// 平台层单测：Python 桥接引擎（真实 python3 子进程 + stdio ABI）。
 ///
-/// 使用 `conformance/fixtures/python_echo_spider.py` 作为常驻脚本：
-/// 脚本输出 `READY` 行后进入 ABI 循环，宿主经 stdin 写请求行、stdout 读响应行
+/// 使用 `conformance/fixtures/python_spider_class.py` 作为常驻脚本：这是**真实
+/// TVBox py 源**的形态（只定义 `Spider` 类、无 ABI 循环）。桌面运行时（S3）
+/// 以 `python -u <bridge> <script>` 启动，桥接垫片 `exec` 脚本后以**对象调用**
+/// 驱动，并向宿主输出 `READY`；宿主经 stdin 写请求行、stdout 读响应行
 /// （对齐 `contract/docs/abi_v1.md` §7「ABI 消息示例」）。
 ///
 /// 环境无 python3 时整组跳过（`skip`），不破坏门禁全绿。
@@ -25,9 +27,9 @@ bool _pythonAvailable() {
   }
 }
 
-/// 读取回显脚本内容（fixtures 常驻脚本）。
-String _echoScript() =>
-    File('conformance/fixtures/python_echo_spider.py').readAsStringSync();
+/// 读取真实 Spider 类脚本内容（fixtures 常驻脚本）。
+String _spiderScript() =>
+    File('conformance/fixtures/python_spider_class.py').readAsStringSync();
 
 /// 断网传输层 fake：任何请求抛 [SocketException]（模拟离线）。
 class _FailingTransport implements SpiderHttpTransport {
@@ -46,7 +48,7 @@ void main() {
     test('loadScript：等待 READY + homeContent 往返', () async {
       final PythonBridgeEngine engine = PythonBridgeEngine();
       try {
-        await engine.loadScript(_echoScript());
+        await engine.loadScript(_spiderScript());
         await engine.registerSpider();
         expect(engine.isSpiderReady, isTrue);
 
@@ -64,7 +66,7 @@ void main() {
     test('searchContent：keyword 透传脚本（脚本拼「影片」后缀）', () async {
       final PythonBridgeEngine engine = PythonBridgeEngine();
       try {
-        await engine.loadScript(_echoScript());
+        await engine.loadScript(_spiderScript());
         await engine.registerSpider();
 
         final SearchContentResult r = await engine.callSearchContent('庆余年', 1);
@@ -80,7 +82,7 @@ void main() {
     test('剩余 3 个操作：category/detail/player 全链路', () async {
       final PythonBridgeEngine engine = PythonBridgeEngine();
       try {
-        await engine.loadScript(_echoScript());
+        await engine.loadScript(_spiderScript());
         await engine.registerSpider();
 
         final CategoryContentResult c =
@@ -144,7 +146,7 @@ void main() {
       }
     }, skip: skip);
 
-    test('脚本语法错误（无 READY 输出）→ scriptLoad 错误（超时分支）', () async {
+    test('脚本语法错误（桥接层 exec 失败，首行 E_SCRIPT_EXEC）→ scriptLoad 错误', () async {
       final PythonBridgeEngine engine =
           PythonBridgeEngine(timeout: const Duration(seconds: 2));
       try {

@@ -84,6 +84,27 @@ flutter:
     - assets/noderuntime/
     - assets/noderuntime/lx/
     - assets/noderuntime/bundles/
+    # ND-02-desktop：桌面端内置 CPython 的纯 py 依赖（运行时经 PYTHONPATH 注入）。
+    # 含 base/（base.spider 兼容层）+ requests 栈（requests/urllib3/idna/certifi/
+    # charset_normalizer）+ pyaes + Crypto/（AES 兼容层）；桥接脚本已内嵌 Dart，不含 pythonbridge。
+    # 注意：Flutter assets 目录条目**不递归**，每个含文件的子目录都需单列一行。
+    - assets/python-stdlib/
+    - assets/python-stdlib/base/
+    - assets/python-stdlib/Crypto/
+    - assets/python-stdlib/Crypto/Cipher/
+    - assets/python-stdlib/Crypto/PublicKey/
+    - assets/python-stdlib/Crypto/Util/
+    - assets/python-stdlib/certifi/
+    - assets/python-stdlib/charset_normalizer/
+    - assets/python-stdlib/charset_normalizer/cli/
+    - assets/python-stdlib/idna/
+    - assets/python-stdlib/pyaes/
+    - assets/python-stdlib/requests/
+    - assets/python-stdlib/urllib3/
+    - assets/python-stdlib/urllib3/contrib/
+    - assets/python-stdlib/urllib3/contrib/emscripten/
+    - assets/python-stdlib/urllib3/http2/
+    - assets/python-stdlib/urllib3/util/
   fonts:
     # 品牌字体（A-13）：启动页字母图 + 品牌字标用；正文走系统字体（令牌口径「字体族不强制」）。
     - family: VboxBrand

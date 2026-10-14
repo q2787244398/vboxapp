@@ -3,8 +3,10 @@
 /// 蜘蛛脚本一律按 `contract/docs/abi_v1.md` §7 的 **stdio ABI** 编写：脚本先
 /// `print('READY')`，随后逐行读请求、逐行写响应。运行该脚本的「宿主」有两类：
 ///
-///  - [StdioPythonRuntime]：桌面 / 测试 —— `python3 -u <script>` 常驻**子进程**，
-///    宿主经 stdin/stdout 交换行（本仓库原有实现）；
+///  - [StdioPythonRuntime]：桌面 / 测试 —— `python3 -u <bridge> <script>`
+///    常驻**子进程**，宿主经 stdin/stdout 交换行；`<bridge>` 为
+///    [vboxPythonBridgeScript] 落盘的桥接垫片，负责 `exec` 用户脚本并以
+///    **对象调用**提供服务（对齐 iOS `PythonBridge.m` / Android 桥，见 S1/S3）；
 ///  - [ChannelPythonRuntime]：Android —— Android 无 `python3` 可执行文件，
 ///    改由 Chaquopy 把 CPython 解释器随 APK 打包，经平台通道
 ///    `com.vbox.python/python` 在**进程内**运行同一份脚本（RT-运1）。
@@ -18,8 +20,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 
 import '../../domain/entities/spider/spider_engine.dart';
+import 'python_bridge_script.dart';
 
 /// Windows Python 可执行名探测缓存（批次 E · E5-1；首次调用后进程级缓存，
 /// 避免每次启动重复探测）。
@@ -56,31 +60,194 @@ List<String> _probeWindowsPythonCommand() {
   return const <String>['python3'];
 }
 
+/// Python 可执行文件解析结果（镜像 `NodeExecutableLocation`）。
+class PythonExecutableLocation {
+  /// 构造。
+  const PythonExecutableLocation({
+    required this.resolved,
+    required this.probed,
+    this.extraArgs = const <String>[],
+  });
+
+  /// 命中的绝对路径 / 裸名；全部落空为 null。
+  final String? resolved;
+
+  /// 本次探测过的候选位置（失败文案用）。
+  final List<String> probed;
+
+  /// 可执行名之后的附加参数（Windows `py -3` 场景为 `['-3']`）。
+  final List<String> extraArgs;
+}
+
 /// 蜘蛛脚本运行时（常驻 + 逐行 JSON ABI）。
 abstract class PythonRuntime {
   /// 按平台选择运行时：Android 走 Chaquopy 进程内（[ChannelPythonRuntime]），
-  /// 其余平台走 `python3` 子进程（[StdioPythonRuntime]）；Windows 额外按
-  /// E5-1 探测 `python3` → `python` → `py -3`（探测一次缓存）。
+  /// 其余平台走子进程（[StdioPythonRuntime]）。
+  ///
+  /// 桌面端按 [locatePython] 的「**内置优先 → 系统回退**」四段式解析解释器
+  /// （镜像 [ProcessNodeHost.locate]）；[pythonExecutable] 显式传入非缺省名时
+  /// 直接采用、不探测（测试 / 自定义打包可覆盖）。
   factory PythonRuntime.forCurrentPlatform({
     String pythonExecutable = 'python3',
     Duration timeout = const Duration(seconds: 15),
   }) {
     if (Platform.isAndroid) return ChannelPythonRuntime(timeout: timeout);
-    if (Platform.isWindows) {
-      final List<String> command = _probeWindowsPythonCommand();
-      // 探测命中非缺省名 → 覆盖注入（缺省名保持调用方注入，测试可覆盖）。
-      if (command.first != pythonExecutable) {
-        return StdioPythonRuntime(
-          pythonExecutable: command.first,
-          extraArgs: command.sublist(1),
-          timeout: timeout,
-        );
+    if (pythonExecutable != 'python3') {
+      return StdioPythonRuntime(
+        pythonExecutable: pythonExecutable,
+        timeout: timeout,
+      );
+    }
+    final PythonExecutableLocation located = locatePython();
+    return StdioPythonRuntime(
+      pythonExecutable: located.resolved ?? 'python3',
+      extraArgs: located.extraArgs,
+      timeout: timeout,
+      pythonPath: _resolvePythonStdlibDir(),
+      probedCandidates: located.probed,
+    );
+  }
+
+  /// 解析桌面端 Python 可执行文件：命中返回绝对路径 / 裸名，全部落空返回 null。
+  ///
+  /// 探测顺序（逐字镜像 `ProcessNodeHost.locate` 四段式）：
+  ///   ① 随包内置 `<exeDir>/pyruntime/python(.exe)`（Windows）·
+  ///      `<exeDir>/pyruntime/bin/python3`（macOS）；
+  ///   ② 平台常见安装位置（Windows：LOCALAPPDATA\Programs\Python、
+  ///      Program Files、Program Files(x86)、系统盘根下的 `Python3xx`；
+  ///      macOS：Homebrew arm64 / x86、/usr/local、/usr/bin）；
+  ///   ③ PATH 兜底；
+  ///   ④ 裸名兜底（Windows 再按 `python3 → python → py -3` 探测，其余 `python3`）。
+  static PythonExecutableLocation locatePython() {
+    final List<String> candidates = <String>[
+      ..._bundledCandidates(),
+      ..._installCandidates(),
+    ];
+    for (final String candidate in candidates) {
+      if (File(candidate).existsSync()) {
+        return PythonExecutableLocation(resolved: candidate, probed: candidates);
       }
     }
-    return StdioPythonRuntime(
-      pythonExecutable: pythonExecutable,
-      timeout: timeout,
-    );
+    final String? fromPath =
+        _fromPath(Platform.isWindows ? 'python.exe' : 'python3');
+    if (fromPath != null) {
+      return PythonExecutableLocation(resolved: fromPath, probed: candidates);
+    }
+    if (Platform.isWindows) {
+      final List<String> command = _probeWindowsPythonCommand();
+      return PythonExecutableLocation(
+        resolved: command.first,
+        extraArgs: command.sublist(1),
+        probed: candidates,
+      );
+    }
+    return PythonExecutableLocation(resolved: 'python3', probed: candidates);
+  }
+
+  /// 随包内置候选（新增档，对齐 Node `<exeDir>/noderuntime`）。
+  static List<String> _bundledCandidates() {
+    final String exeDir = File(Platform.resolvedExecutable).parent.path;
+    if (Platform.isWindows) {
+      return <String>[
+        p.join(exeDir, 'pyruntime', 'python.exe'),
+        p.join(exeDir, 'python.exe'),
+      ];
+    }
+    return <String>[
+      p.join(exeDir, 'pyruntime', 'bin', 'python3'),
+      p.join(exeDir, 'python3'),
+    ];
+  }
+
+  /// 平台常见安装位置候选。
+  static List<String> _installCandidates() {
+    if (Platform.isWindows) {
+      final Map<String, String> env = Platform.environment;
+      final List<String> out = <String>[];
+      final String? localAppData = env['LOCALAPPDATA'];
+      if (localAppData != null) {
+        // `%LOCALAPPDATA%\Programs\Python\Python3xx\python.exe`。
+        out.addAll(_subdirFiles(
+          p.join(localAppData, 'Programs', 'Python'),
+          'python.exe',
+          dirPrefix: 'Python3',
+        ));
+      }
+      final String programFiles = env['ProgramFiles'] ?? r'C:\Program Files';
+      final String programFilesX86 =
+          env['ProgramFiles(x86)'] ?? r'C:\Program Files (x86)';
+      out.addAll(_subdirFiles(programFiles, 'python.exe', dirPrefix: 'Python3'));
+      out.addAll(
+          _subdirFiles(programFilesX86, 'python.exe', dirPrefix: 'Python3'));
+      // 盘根安装：`<SystemDrive>:\Python3xx\python.exe`（安装器「所有用户」默认）。
+      final String systemDrive = env['SystemDrive'] ?? 'C:';
+      out.addAll(
+          _subdirFiles('$systemDrive\\', 'python.exe', dirPrefix: 'Python3'));
+      return out;
+    }
+    return <String>[
+      '/opt/homebrew/bin/python3',
+      '/usr/local/bin/python3',
+      '/usr/bin/python3',
+    ];
+  }
+
+  /// 列出 [root] 下一级子目录（可加 [dirPrefix] 前缀过滤）中存在的 [fileName]
+  /// 绝对路径（容错：目录不存在 / 不可读返回空）。
+  static List<String> _subdirFiles(
+    String root,
+    String fileName, {
+    String? dirPrefix,
+  }) {
+    final Directory dir = Directory(root);
+    if (!dir.existsSync()) return const <String>[];
+    final List<String> out = <String>[];
+    try {
+      for (final FileSystemEntity entity in dir.listSync()) {
+        if (entity is! Directory) continue;
+        if (dirPrefix != null &&
+            !p.basename(entity.path).startsWith(dirPrefix)) {
+          continue;
+        }
+        final String candidate = p.join(entity.path, fileName);
+        if (File(candidate).existsSync()) out.add(candidate);
+      }
+    } on FileSystemException {
+      // 目录不可读 → 视为无候选。
+    }
+    return out;
+  }
+
+  /// PATH 兜底探测（返回绝对路径；未命中返回 null）。
+  static String? _fromPath(String fileName) {
+    final String? raw = Platform.environment['PATH'];
+    if (raw == null || raw.isEmpty) return null;
+    final String separator = Platform.isWindows ? ';' : ':';
+    for (final String dir in raw.split(separator)) {
+      final String trimmed = dir.trim();
+      if (trimmed.isEmpty) continue;
+      final String candidate = p.join(trimmed, fileName);
+      if (File(candidate).existsSync()) return candidate;
+    }
+    return null;
+  }
+
+  /// 解析内置纯 py 依赖目录（`base/` + requests 栈），供 `PYTHONPATH` 注入。
+  ///
+  /// 依赖以 `assets/python-stdlib` 随包分发（S4/S5 落盘）；此处按候选位置探测，
+  /// 找不到返回 null（此时仅注入 no-user-site / no-bytecode，脚本 import base
+  /// 会自行报错，便于定位）。
+  static String? _resolvePythonStdlibDir() {
+    final String exeDir = File(Platform.resolvedExecutable).parent.path;
+    final List<String> candidates = <String>[
+      p.join(exeDir, 'pyruntime', 'python-stdlib'),
+      p.join(exeDir, 'python-stdlib'),
+      p.join(exeDir, 'data', 'flutter_assets', 'assets', 'python-stdlib'),
+    ];
+    for (final String candidate in candidates) {
+      if (Directory(candidate).existsSync()) return candidate;
+    }
+    return null;
   }
 
   /// 运行时日志（含降级事件）。
@@ -99,24 +266,45 @@ abstract class PythonRuntime {
   Future<void> shutdown();
 }
 
-/// 子进程运行时（`python3 -u <script>` + stdio ABI；桌面 / 测试）。
+/// 子进程运行时（`python3 -u <bridge> <script>` + stdio ABI；桌面 / 测试）。
+///
+/// **桥接层（S3）**：桌面端不再直接把用户脚本当 ABI 脚本跑，而是把
+/// [vboxPythonBridgeScript] 落盘为垫片、以 `python -u <bridge> <scriptPath>`
+/// 启动，由桥接层 `exec` 用户脚本并以**对象调用**提供服务（对齐 iOS
+/// `PythonBridge.m` / Android 桥）。**Dart↔宿主 ABI 形态不变**（仍是 JSON 行）。
 class StdioPythonRuntime implements PythonRuntime {
   /// [pythonExecutable] 可注入（测试用 `python3`）。
   ///
   /// [extraArgs] 为可执行名之后的附加参数（E5-1：Windows 探测命中 `py` 时
   /// 传 `['-3']` 指定 Python3）。
+  ///
+  /// [bridgeScript] 为桥接垫片源码（缺省 [vboxPythonBridgeScript]，测试可覆盖）。
+  /// [pythonPath] 命中内置纯 py 依赖目录时注入 `PYTHONPATH`（见 §3.9）。
+  /// [probedCandidates] 供启动失败文案列出已探测位置（对齐 Node）。
   StdioPythonRuntime({
     this.pythonExecutable = 'python3',
     this.extraArgs = const <String>[],
     this.timeout = const Duration(seconds: 15),
+    this.bridgeScript = vboxPythonBridgeScript,
+    this.pythonPath,
+    this.probedCandidates = const <String>[],
   });
 
   final String pythonExecutable;
 
-  /// 启动参数前缀（插在 `-u` 与脚本路径之前）。
+  /// 启动参数前缀（插在 `-u` 与桥接垫片路径之前）。
   final List<String> extraArgs;
 
   final Duration timeout;
+
+  /// 桥接垫片源码（落盘后作为 `argv[0]` 位置的脚本执行）。
+  final String bridgeScript;
+
+  /// `PYTHONPATH` 注入值（内置纯 py 依赖目录）；null → 不注入。
+  final String? pythonPath;
+
+  /// 本次探测过的候选位置（失败文案用）。
+  final List<String> probedCandidates;
 
   Process? _process;
   StreamSubscription<String>? _sub;
@@ -128,18 +316,59 @@ class StdioPythonRuntime implements PythonRuntime {
   @override
   String get runtimeLabel => '子进程 $pythonExecutable';
 
+  /// 注入子进程环境变量（§3.9，对齐 Android / 避免污染）：
+  /// `PYTHONNOUSERSITE=1`（不读用户 site-packages）、
+  /// `PYTHONDONTWRITEBYTECODE=1`（只读目录不写 pyc）、
+  /// 命中内置依赖目录时注入 `PYTHONPATH`。
+  Map<String, String> _buildEnvironment() {
+    return <String, String>{
+      'PYTHONNOUSERSITE': '1',
+      'PYTHONDONTWRITEBYTECODE': '1',
+      if (pythonPath != null && pythonPath!.isNotEmpty) 'PYTHONPATH': pythonPath!,
+    };
+  }
+
+  /// 启动失败文案（可操作）：列出全部已探测位置与两条修复路径。
+  String _launchFailureMessage(ProcessException e) {
+    final StringBuffer buffer = StringBuffer()
+      ..writeln('Python 运行时启动失败：未找到可执行文件「$pythonExecutable」（${e.message}）');
+    if (probedCandidates.isNotEmpty) {
+      buffer.writeln('已探测以下位置（均不存在）：');
+      for (final String candidate in probedCandidates) {
+        buffer.writeln('  · $candidate');
+      }
+      buffer.writeln('  · PATH 环境变量中的 python3 / python.exe');
+    }
+    buffer
+      ..writeln('请任选其一：')
+      ..writeln('  ① 安装 Python 3 并确认已加入 PATH；')
+      ..writeln('  ② 或使用内置运行时（把 CPython 放到 <exeDir>/pyruntime/ 后重启）。');
+    return buffer.toString();
+  }
+
   @override
   Future<void> launch(String script) async {
     await shutdown();
-    final File tmp = File(
-      '${Directory.systemTemp.path}/vbox_py_spider_'
-      '${DateTime.now().microsecondsSinceEpoch}.py',
-    );
-    await tmp.writeAsString(script);
-    final Process p = await Process.start(
-      pythonExecutable,
-      <String>[...extraArgs, '-u', tmp.path],
-    );
+    // ① 桥接垫片落盘（每次启动独立临时文件，避免并发串扰）。
+    // ② 用户脚本落盘，经 argv[1] 交给桥接层读取（对齐 Android v2）。
+    final String stamp = DateTime.now().microsecondsSinceEpoch.toString();
+    final Directory tmpDir = Directory.systemTemp;
+    final File bridgeTmp = File('${tmpDir.path}/vbox_py_bridge_$stamp.py');
+    await bridgeTmp.writeAsString(bridgeScript);
+    final File scriptTmp = File('${tmpDir.path}/vbox_py_spider_$stamp.py');
+    await scriptTmp.writeAsString(script);
+
+    final Process p;
+    try {
+      p = await Process.start(
+        pythonExecutable,
+        <String>[...extraArgs, '-u', bridgeTmp.path, scriptTmp.path],
+        environment: _buildEnvironment(),
+        includeParentEnvironment: true,
+      );
+    } on ProcessException catch (e) {
+      throw SpiderException(SpiderErrorCode.scriptLoad, _launchFailureMessage(e));
+    }
     _process = p;
     _sub = p.stdout
         .transform(utf8.decoder)

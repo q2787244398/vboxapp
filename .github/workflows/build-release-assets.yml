@@ -210,6 +210,14 @@ jobs:
         shell: pwsh
         run: .\scripts\bundle-node-windows.ps1 -Config Release
 
+      # ND-02-desktop：内置 CPython 随 release 目录分发（<exeDir>/pyruntime/python.exe
+      # + python-stdlib，StdioPythonRuntime 探测链 ① 命中）——让桌面端 `.py` 源免装
+      # 系统 Python 即可用（对齐 iOS「引擎随包内置」）。须在 Inno Setup 编译前就位：
+      # installer.iss 递归打包 Release\*，pyruntime/ 由此自动携带。
+      - name: Bundle Python runtime into release dir (ND-02-desktop)
+        shell: pwsh
+        run: .\scripts\bundle-python-windows.ps1 -Config Release
+
       # G-03-B：QuickJS JS 引擎随 release 目录分发。域层 `_effectiveEngineType`
       # 将 JS 站点（javaScriptCore）映射为 quickJS（见 content_browse_usecases.dart），
       # 故桌面端 JS 蜘蛛依赖 libvbox_quickjs；此前从未随包分发 → 切源分类无数据、
@@ -344,6 +352,13 @@ jobs:
       - name: Bundle Node engine into app (ND-02)
         run: bash scripts/bundle-node-macos.sh --config Release
 
+      # ND-02-desktop：内置 CPython 随 App 分发（Contents/MacOS/pyruntime/bin/python3
+      # + python-stdlib，StdioPythonRuntime 探测链 ① 命中）。须在统一 re-sign 之前：
+      # 脚本已对 pyruntime 内嵌套 Mach-O（python3 / *.dylib / *.so）递归 ad-hoc 签名，
+      # 末段 re-sign 再统一覆盖（与 Node/QuickJS 同约束）。
+      - name: Bundle Python runtime into app (ND-02-desktop)
+        run: bash scripts/bundle-python-macos.sh --config Release
+
       # G-03-B：QuickJS JS 引擎随 App 分发（Contents/Frameworks，rpath 解析）。
       # 域层将 JS 站点映射为 quickJS，桌面端 JS 蜘蛛依赖 libvbox_quickjs。
       # 须在统一 re-sign 之前（本步自签 dylib+App，末段 re-sign 再统一覆盖）。
@@ -355,6 +370,11 @@ jobs:
           APP="$(ls -d build/macos/Build/Products/Release/*.app | head -1)"
           # 向 Frameworks 追加 dylib 会使 Flutter 的 ad-hoc 签名失效 → 先签嵌套 dylib 再签 App 本体。
           codesign --force --sign - "$APP/Contents/Frameworks/"*.dylib
+          # ND-02-desktop：pyruntime 内含大量嵌套 Mach-O（bin/python3、*.dylib、*.so），
+          # 须在 App 本体签名前递归 ad-hoc 签名，否则嵌套二进制未签会被 Gatekeeper 拦截。
+          # 打包脚本已签过一遍，此处幂等覆盖，确保与 App 本体签名一致。
+          find "$APP/Contents/MacOS/pyruntime" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) -print0 2>/dev/null \
+            | while IFS= read -r -d '' f; do codesign --force --sign - "$f" >/dev/null 2>&1 || true; done
           codesign --force --sign - --entitlements macos/Runner/Release.entitlements "$APP"
           codesign --verify --verbose=2 "$APP"
 
