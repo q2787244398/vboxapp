@@ -12,7 +12,7 @@
 ///   （对齐 iOS `window.webkit.messageHandlers.aliTokenHandler.postMessage`）；
 /// - UA / 注入时机 / 提取规则 / 状态文案 / 落库字段均逐项对齐 iOS。
 ///
-/// 平台可用性：与 [InAppWebViewBridge] 一致（Android / iOS / macOS）；
+/// 平台可用性：与 [InAppWebViewBridge] 一致（Android / iOS / macOS / Windows）；
 /// 不支持平台展示引导文案（回退「网页登录兜底」）。
 library;
 

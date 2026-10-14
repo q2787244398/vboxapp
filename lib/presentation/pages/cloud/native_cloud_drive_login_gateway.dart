@@ -79,10 +79,9 @@ class _BaiduEnrichResult {
 
 /// 夸克扫码任务暂存。
 class _QuarkQrTask {
-  const _QuarkQrTask({required this.token, required this.pollClientId});
+  const _QuarkQrTask({required this.token});
 
   final String token;
-  final String pollClientId;
 }
 
 /// 天翼 189 扫码任务暂存（对齐 iOS `Pan189QrLoginToken`：uuid / ticket）。
@@ -138,8 +137,10 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   static const String _quarkUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36';
+  /// 夸克二维码 / 轮询统一 `client_id`（对齐 Node `startQuark`/`pollQuark`：
+  /// 全程 386）。此前二维码与轮询误用 532、与铸造 token 的 386 不一致，导致
+  /// 夸克 App 确认登录时被服务端判「登录请求已过期」（问题 1）。
   static const String _quarkQrClientId = '386';
-  static const String _quarkPollClientId = '532';
   /// 天翼 189 桌面 Chrome UA（对齐 iOS `pan189UserAgent`，
   /// `CloudDriveAuthManager.swift:453`）。
   static const String _pan189UserAgent =
@@ -862,7 +863,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
         .replace(queryParameters: <String, String>{
       'pr': 'ucpro',
       'fr': 'pc',
-      'sys': 'darwin',
+      'sys': 'win32',
       'client_id': _quarkQrClientId,
       'v': '1.2',
       'request_id': _randomUuid(),
@@ -885,12 +886,11 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       throw CloudDriveLoginException(_apiMessage(json, '夸克扫码 token 接口异常'));
     }
     final String taskId = 'quark_${_randomHex(16)}';
-    _quarkTasks[taskId] =
-        _QuarkQrTask(token: token, pollClientId: _quarkPollClientId);
+    _quarkTasks[taskId] = _QuarkQrTask(token: token);
     return (
       taskId: taskId,
       qrDataUrl:
-          '$kQrDataContentPrefix${_quarkQrPayload(token, _quarkPollClientId)}',
+          '$kQrDataContentPrefix${_quarkQrPayload(token, _quarkQrClientId)}',
     );
   }
 
@@ -902,7 +902,10 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     final Uri url =
         Uri.parse('https://uop.quark.cn/cas/ajax/getServiceTicketByQrcodeToken')
             .replace(queryParameters: <String, String>{
-      'client_id': task.pollClientId,
+      'pr': 'ucpro',
+      'fr': 'pc',
+      'sys': 'win32',
+      'client_id': _quarkQrClientId,
       'v': '1.2',
       'request_id': _randomUuid(),
       'token': task.token,
@@ -985,11 +988,14 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     );
   }
 
-  /// 夸克二维码内容（对齐 iOS `quarkQRCodePayload`：`su.quark.cn` 授权链接）。
+  /// 夸克二维码内容（对齐 Node `startQuark` 的 `qrUrl`：`su.quark.cn` 授权链接，
+  /// 全程 `client_id=386`，并补齐 `sch`/`sve` 渠道参数）。
   static String _quarkQrPayload(String token, String clientId) =>
       Uri.parse('https://su.quark.cn/4_eMHBJ').replace(queryParameters: <String, String>{
         'token': token,
         'client_id': clientId,
+        'sch': 'pckk@other_ch',
+        'sve': '3.1.8',
         'ssb': 'weblogin',
         'uc_param_str': '',
         'uc_biz_str': 'S:custom|OPT:SAREA@0|OPT:IMMERSIVE@1|OPT:BACK_BTN_STYLE@0',

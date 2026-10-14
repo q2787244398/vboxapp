@@ -42,6 +42,10 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # 否则链接期报 LNK2019（PluginRegistrar/PluginRegistrarManager 未解析）。
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app flutter_wrapper_plugin)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+# 问题 5：桌面 render context 改走 OpenGL(GPU) 后端，player_plugin.cpp 用到
+# ChoosePixelFormat / SetPixelFormat / GetDC / ReleaseDC（gdi32）。opengl32.dll
+# 与 WGL 入口仍走运行期 LoadLibraryW/GetProcAddress 动态解析，无需链接导入库。
+target_link_libraries(${BINARY_NAME} PRIVATE "gdi32.lib")
 # 批次 D · D3：SMTC 走 C++/WinRT（music_media_plugin.cpp），需链接 Windows 运行时
 # 伞形导入库，否则 LNK2019（RoGetActivationFactory / RoOriginateLanguageException）。
 target_link_libraries(${BINARY_NAME} PRIVATE "windowsapp.lib")

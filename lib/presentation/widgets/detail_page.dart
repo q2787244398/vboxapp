@@ -392,40 +392,22 @@ class _DetailPageState extends State<DetailPage> {
 
     setState(() => _playing = true);
     try {
-      final Result<PlayerContentResult> result =
-          await _uc.resolvePlayUrl(detail: d, episode: episode);
-      if (!mounted) return;
-      final Failure? failure = result.failureOrNull;
-      if (failure != null) {
-        _toast('解析失败：$failure');
-        return;
-      }
-      final PlayerContentResult? pc = result.valueOrNull;
-      final String? url = _firstUrl(pc);
-      if (url == null || url.isEmpty) {
-        _toast('未解析到播放地址');
-        return;
-      }
-
       // 播放开始即写入观看记录（对齐 iOS 播放启动落库）。
       unawaited(_recordHistory());
 
       if (!mounted) return;
-      // Wave A · R-渲2：解析成功后进入全屏播放页（播放生命周期由播放页持有）。
+      // 问题4：先 push 播放器（立即呈现，含加载态），解析下沉到播放器内
+      // （对齐 iOS 先 present 后 resolve），消除可感知的等待空窗。
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (BuildContext context) => PlayerPage(
-            source: PlayerSource(
-              url: url,
-              title: d.vod.vodName,
-              headers: pc?.header ?? const <String, String>{},
-            ),
             title: d.vod.vodName,
             subtitle: episode.name,
             vodId: d.vod.vodId,
             episodes: visible,
             initialEpisodeIndex: _episodeIndex.clamp(0, visible.length - 1),
             onResolveEpisode: _resolveEpisodeSource,
+            onResolveInitialSource: () => _resolveEpisodeSource(episode),
             onProgress: _onPlaybackProgress,
           ),
         ),
@@ -969,36 +951,37 @@ class _DetailPageState extends State<DetailPage> {
     if (_playing) return;
     setState(() => _playing = true);
     try {
-      final CloudPlayItem item = await _pan.prepare(
-        type: type,
-        shareUrl: split.baseUrl,
-        entry: NodePanEntry(
-          playID: split.params.locateValue.isEmpty
-              ? link.name
-              : split.params.locateValue,
-          name: link.name,
-        ),
-      );
-      if (!mounted) return;
-      if (!item.hasPlayURL) {
-        _toast('播放地址为空');
-        return;
-      }
-      // 统一播放源落地（对齐 iOS 播放器取链后交引擎）：HLS 经 Go 代理注册 +
-      // 携带 F21 兜底线路（原画 403 / 断连 / 首帧超时回落 m3u8）。
-      final PlayerSource source =
-          await _pan.sourceFor(item, title: d.vod.vodName);
-      if (!mounted) return;
+      // 播放开始即写入观看记录（对齐 iOS 播放启动落库）。
       unawaited(_recordHistory());
+      if (!mounted) return;
+      // 问题4：先 push 播放器（立即呈现，含加载态），取链下沉到播放器内
+      // （对齐 iOS 先 present 后 resolve），消除可感知的等待空窗。
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (BuildContext context) => PlayerPage(
-            source: source,
             // 直链特征无法自证 pan 路由，显式传入（对齐 F-08）。
             route: PlaybackRoute.pan,
             title: d.vod.vodName,
             subtitle: link.name,
             vodId: d.vod.vodId,
+            // 统一播放源落地（对齐 iOS 播放器取链后交引擎）：HLS 经 Go 代理注册 +
+            // 携带 F21 兜底线路（原画 403 / 断连 / 首帧超时回落 m3u8）。
+            onResolveInitialSource: () async {
+              final CloudPlayItem item = await _pan.prepare(
+                type: type,
+                shareUrl: split.baseUrl,
+                entry: NodePanEntry(
+                  playID: split.params.locateValue.isEmpty
+                      ? link.name
+                      : split.params.locateValue,
+                  name: link.name,
+                ),
+              );
+              if (!item.hasPlayURL) {
+                throw const PanPlayException('播放地址为空');
+              }
+              return _pan.sourceFor(item, title: d.vod.vodName);
+            },
             // UI-F16：网盘路径同样落库观看进度（此前缺失）。
             onProgress: _onPlaybackProgress,
           ),

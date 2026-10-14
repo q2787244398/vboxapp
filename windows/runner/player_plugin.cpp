@@ -72,6 +72,21 @@ std::string JoinHeaders(const flutter::EncodableMap& map) {
   return joined;
 }
 
+// ─────────────── OpenGL 常量（手动声明子集，避免引入 GL/gl.h）───────────────
+
+constexpr GlEnum kGlTexture2D = 0x0DE1;
+constexpr GlEnum kGlTextureMinFilter = 0x2801;
+constexpr GlEnum kGlTextureMagFilter = 0x2800;
+constexpr GlInt kGlLinear = 0x2601;
+constexpr GlInt kGlRgba8 = 0x8058;
+constexpr GlEnum kGlRgba = 0x1908;
+constexpr GlEnum kGlUnsignedByte = 0x1401;
+constexpr GlEnum kGlFramebuffer = 0x8D40;
+constexpr GlEnum kGlColorAttachment0 = 0x8CE0;
+constexpr GlEnum kGlFramebufferComplete = 0x8CD5;
+constexpr GlEnum kGlBgra = 0x80E1;
+constexpr GlEnum kGlPackAlignment = 0x0D05;
+
 }  // namespace
 
 // ─────────────── MpvApi：动态加载 mpv-2.dll ───────────────
@@ -400,6 +415,12 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
   // 否则默认 vo 会在 Windows 弹出独立 mpv 渲染窗口，破坏无窗口契约。
   const bool can_render = api_.render_context_create != nullptr;
   api_.set_option_string(handle, "vo", can_render ? "libmpv" : "null");
+  if (can_render) {
+    // 问题 5：桌面 render context 改走 OpenGL(GPU) 后端，让 mpv 在 GPU 上跑
+    // 完整色彩管线（primaries/gamma/HDR tone-mapping），对齐 iOS 的 GPU 路径，
+    // 消除 SW 软渲染（仅 YUV→RGB 矩阵、缺色彩管理）导致的泛黄偏色。
+    api_.set_option_string(handle, "gpu-api", "opengl");
+  }
   if (api_.initialize(handle) < 0) {
     api_.terminate_destroy(handle);
     return false;
@@ -429,13 +450,16 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
 }
 
 void PlayerPlugin::ShutdownMpv() {
-  // 先停渲染线程（避免释放 render_context 时仍在渲染）。
+  // 先停渲染线程：GL 上下文（WGL 线程亲和）与 render_context 均在渲染线程
+  // 内创建/释放（RunRenderLoop 退出前 DestroyGlRenderContext 完成），此处 join
+  // 等待其收尾，避免释放 mpv_ 时仍有渲染。
   if (render_thread_ != nullptr) {
     render_running_ = false;
     render_cv_.notify_all();
     render_thread_->join();
     render_thread_.reset();
   }
+  // 兜底：渲染线程异常早退（未走到 DestroyGlRenderContext）时补释放。
   if (render_ctx_ != nullptr) {
     api_.render_context_set_update_callback(render_ctx_, nullptr, nullptr);
     api_.render_context_free(render_ctx_);
@@ -470,9 +494,103 @@ bool PlayerPlugin::SetupRenderContext() {
   if (api_.render_context_create == nullptr || mpv_ == nullptr) {
     return false;
   }
-  const char* api_type = kRenderApiSw;
+  // 问题 5：桌面 render context 改走 OpenGL(GPU) 后端（kRenderApiGl），对齐
+  // iOS 的 GPU 渲染路径，让 mpv 在 GPU 上执行完整色彩管线（primaries/gamma/
+  // HDR tone-mapping），消除 SW 软渲染（仅 YUV→RGB 矩阵）导致的泛黄偏色。
+  // WGL 上下文具线程亲和性：创建/渲染/销毁全部收敛到渲染线程（RunRenderLoop
+  // → CreateGlRenderContext / DestroyGlRenderContext）。
+  render_running_ = true;
+  render_thread_ =
+      std::make_unique<std::thread>(&PlayerPlugin::RunRenderLoop, this);
+  return true;
+}
+
+// 渲染线程内：建隐藏窗口 + WGL 上下文 + mpv OpenGL render_context。
+bool PlayerPlugin::CreateGlRenderContext() {
+  if (api_.render_context_create == nullptr || mpv_ == nullptr) {
+    return false;
+  }
+  // 1) opengl32.dll：GL 1.1 入口 + WGL（系统组件，恒存在）。
+  opengl32_ = ::LoadLibraryW(L"opengl32.dll");
+  if (opengl32_ == nullptr) {
+    return false;
+  }
+  wgl_.create_context = reinterpret_cast<decltype(wgl_.create_context)>(
+      ::GetProcAddress(opengl32_, "wglCreateContext"));
+  wgl_.make_current = reinterpret_cast<decltype(wgl_.make_current)>(
+      ::GetProcAddress(opengl32_, "wglMakeCurrent"));
+  wgl_.delete_context = reinterpret_cast<decltype(wgl_.delete_context)>(
+      ::GetProcAddress(opengl32_, "wglDeleteContext"));
+  wgl_.get_proc_address = reinterpret_cast<decltype(wgl_.get_proc_address)>(
+      ::GetProcAddress(opengl32_, "wglGetProcAddress"));
+  if (wgl_.create_context == nullptr || wgl_.make_current == nullptr ||
+      wgl_.delete_context == nullptr || wgl_.get_proc_address == nullptr) {
+    return false;
+  }
+
+  // 2) 隐藏窗口 + 像素格式（wglCreateContext 需已设像素格式的 HDC）。
+  static const wchar_t kClassName[] = L"VboxMpvGlHiddenWnd";
+  static bool class_registered = false;
+  HINSTANCE instance = ::GetModuleHandleW(nullptr);
+  if (!class_registered) {
+    WNDCLASSW wc{};
+    wc.style = CS_OWNDC;
+    wc.lpfnWndProc = ::DefWindowProcW;
+    wc.hInstance = instance;
+    wc.lpszClassName = kClassName;
+    if (::RegisterClassW(&wc) == 0 &&
+        ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+      return false;
+    }
+    class_registered = true;
+  }
+  render_hwnd_ = ::CreateWindowExW(0, kClassName, L"", WS_OVERLAPPED, 0, 0, 1, 1,
+                                   nullptr, nullptr, instance, nullptr);
+  if (render_hwnd_ == nullptr) {
+    return false;
+  }
+  render_hdc_ = ::GetDC(render_hwnd_);
+  if (render_hdc_ == nullptr) {
+    return false;
+  }
+  PIXELFORMATDESCRIPTOR pfd{};
+  pfd.nSize = sizeof(pfd);
+  pfd.nVersion = 1;
+  pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+  pfd.iPixelType = PFD_TYPE_RGBA;
+  pfd.cColorBits = 32;
+  pfd.cAlphaBits = 8;
+  pfd.iLayerType = PFD_MAIN_PLANE;
+  const int pf = ::ChoosePixelFormat(render_hdc_, &pfd);
+  if (pf == 0 || !::SetPixelFormat(render_hdc_, pf, &pfd)) {
+    return false;
+  }
+
+  // 3) WGL 上下文并置为当前（仅本渲染线程调用，满足线程亲和）。
+  render_glrc_ = wgl_.create_context(render_hdc_);
+  if (render_glrc_ == nullptr) {
+    return false;
+  }
+  if (!wgl_.make_current(render_hdc_, render_glrc_)) {
+    return false;
+  }
+
+  // 4) 解析 GL 入口（须在当前上下文绑定后）。
+  if (!LoadGlSymbols()) {
+    return false;
+  }
+
+  // 5) mpv render_context（OpenGL 后端）+ 高级控制（HDR/色彩管理，对齐 iOS）。
+  mpv_opengl_init_params gl_init{};
+  gl_init.get_proc_address = [](void* ctx, const char* name) -> void* {
+    return static_cast<PlayerPlugin*>(ctx)->wgl_.get_proc_address(name);
+  };
+  gl_init.get_proc_address_ctx = this;
+  int advanced_control = 1;
   mpv_render_param params[] = {
-      {MPV_RENDER_PARAM_API_TYPE, const_cast<char*>(api_type)},
+      {MPV_RENDER_PARAM_API_TYPE, const_cast<char*>(kRenderApiGl)},
+      {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init},
+      {MPV_RENDER_PARAM_ADVANCED_CONTROL, &advanced_control},
       {MPV_RENDER_PARAM_INVALID, nullptr},
   };
   mpv_render_context* ctx = nullptr;
@@ -484,9 +602,124 @@ bool PlayerPlugin::SetupRenderContext() {
   api_.render_context_set_update_callback(render_ctx_, &PlayerPlugin::OnRenderUpdate,
                                           this);
   RegisterTexture();
-  render_running_ = true;
-  render_thread_ =
-      std::make_unique<std::thread>(&PlayerPlugin::RunRenderLoop, this);
+  return true;
+}
+
+// 渲染线程内：释放 render_context 与 GL 资源（保持 WGL 上下文当前）。
+void PlayerPlugin::DestroyGlRenderContext() {
+  // mpv OpenGL 后端要求释放 render_context 时 GL 上下文仍为当前。
+  if (render_ctx_ != nullptr) {
+    api_.render_context_set_update_callback(render_ctx_, nullptr, nullptr);
+    api_.render_context_free(render_ctx_);
+    render_ctx_ = nullptr;
+  }
+  if (render_fbo_ != 0 && gl_.delete_framebuffers != nullptr) {
+    gl_.delete_framebuffers(1, &render_fbo_);
+  }
+  render_fbo_ = 0;
+  if (render_tex_ != 0 && gl_.delete_textures != nullptr) {
+    gl_.delete_textures(1, &render_tex_);
+  }
+  render_tex_ = 0;
+  fbo_width_ = 0;
+  fbo_height_ = 0;
+  if (render_glrc_ != nullptr && wgl_.delete_context != nullptr) {
+    wgl_.make_current(nullptr, nullptr);
+    wgl_.delete_context(render_glrc_);
+    render_glrc_ = nullptr;
+  }
+  if (render_hdc_ != nullptr && render_hwnd_ != nullptr) {
+    ::ReleaseDC(render_hwnd_, render_hdc_);
+    render_hdc_ = nullptr;
+  }
+  if (render_hwnd_ != nullptr) {
+    ::DestroyWindow(render_hwnd_);
+    render_hwnd_ = nullptr;
+  }
+  if (opengl32_ != nullptr) {
+    ::FreeLibrary(opengl32_);
+    opengl32_ = nullptr;
+  }
+}
+
+// 渲染线程内：解析 GL 入口（GL 1.1 走 opengl32 导出；FBO 扩展走 wglGetProcAddress）。
+bool PlayerPlugin::LoadGlSymbols() {
+  gl_.gen_textures = reinterpret_cast<decltype(gl_.gen_textures)>(
+      ::GetProcAddress(opengl32_, "glGenTextures"));
+  gl_.delete_textures = reinterpret_cast<decltype(gl_.delete_textures)>(
+      ::GetProcAddress(opengl32_, "glDeleteTextures"));
+  gl_.bind_texture = reinterpret_cast<decltype(gl_.bind_texture)>(
+      ::GetProcAddress(opengl32_, "glBindTexture"));
+  gl_.tex_image_2d = reinterpret_cast<decltype(gl_.tex_image_2d)>(
+      ::GetProcAddress(opengl32_, "glTexImage2D"));
+  gl_.tex_parameter_i = reinterpret_cast<decltype(gl_.tex_parameter_i)>(
+      ::GetProcAddress(opengl32_, "glTexParameteri"));
+  gl_.pixel_store_i = reinterpret_cast<decltype(gl_.pixel_store_i)>(
+      ::GetProcAddress(opengl32_, "glPixelStorei"));
+  gl_.viewport = reinterpret_cast<decltype(gl_.viewport)>(
+      ::GetProcAddress(opengl32_, "glViewport"));
+  gl_.read_pixels = reinterpret_cast<decltype(gl_.read_pixels)>(
+      ::GetProcAddress(opengl32_, "glReadPixels"));
+  // FBO 属扩展入口（ARB_framebuffer_object / GL 3.0），须经 wglGetProcAddress。
+  gl_.gen_framebuffers = reinterpret_cast<decltype(gl_.gen_framebuffers)>(
+      wgl_.get_proc_address("glGenFramebuffers"));
+  gl_.delete_framebuffers = reinterpret_cast<decltype(gl_.delete_framebuffers)>(
+      wgl_.get_proc_address("glDeleteFramebuffers"));
+  gl_.bind_framebuffer = reinterpret_cast<decltype(gl_.bind_framebuffer)>(
+      wgl_.get_proc_address("glBindFramebuffer"));
+  gl_.framebuffer_texture_2d =
+      reinterpret_cast<decltype(gl_.framebuffer_texture_2d)>(
+          wgl_.get_proc_address("glFramebufferTexture2D"));
+  gl_.check_framebuffer_status =
+      reinterpret_cast<decltype(gl_.check_framebuffer_status)>(
+          wgl_.get_proc_address("glCheckFramebufferStatus"));
+  return gl_.gen_textures != nullptr && gl_.delete_textures != nullptr &&
+         gl_.bind_texture != nullptr && gl_.tex_image_2d != nullptr &&
+         gl_.tex_parameter_i != nullptr && gl_.pixel_store_i != nullptr &&
+         gl_.viewport != nullptr && gl_.read_pixels != nullptr &&
+         gl_.gen_framebuffers != nullptr && gl_.delete_framebuffers != nullptr &&
+         gl_.bind_framebuffer != nullptr &&
+         gl_.framebuffer_texture_2d != nullptr &&
+         gl_.check_framebuffer_status != nullptr;
+}
+
+// 渲染线程内：按视频尺寸（懒）建/复用离屏 FBO + 颜色纹理。
+bool PlayerPlugin::EnsureFbo(int width, int height) {
+  if (width <= 0 || height <= 0) {
+    return false;
+  }
+  if (render_fbo_ != 0 && render_tex_ != 0 && width == fbo_width_ &&
+      height == fbo_height_) {
+    return true;
+  }
+  // 尺寸变化：重建纹理 + FBO。
+  if (render_fbo_ != 0) {
+    gl_.delete_framebuffers(1, &render_fbo_);
+    render_fbo_ = 0;
+  }
+  if (render_tex_ != 0) {
+    gl_.delete_textures(1, &render_tex_);
+    render_tex_ = 0;
+  }
+  gl_.gen_textures(1, &render_tex_);
+  gl_.bind_texture(kGlTexture2D, render_tex_);
+  gl_.tex_image_2d(kGlTexture2D, 0, kGlRgba8, width, height, 0, kGlRgba,
+                   kGlUnsignedByte, nullptr);
+  gl_.tex_parameter_i(kGlTexture2D, kGlTextureMinFilter, kGlLinear);
+  gl_.tex_parameter_i(kGlTexture2D, kGlTextureMagFilter, kGlLinear);
+  gl_.bind_texture(kGlTexture2D, 0);
+
+  gl_.gen_framebuffers(1, &render_fbo_);
+  gl_.bind_framebuffer(kGlFramebuffer, render_fbo_);
+  gl_.framebuffer_texture_2d(kGlFramebuffer, kGlColorAttachment0, kGlTexture2D,
+                             render_tex_, 0);
+  const GlEnum status = gl_.check_framebuffer_status(kGlFramebuffer);
+  gl_.bind_framebuffer(kGlFramebuffer, 0);
+  if (status != kGlFramebufferComplete) {
+    return false;
+  }
+  fbo_width_ = width;
+  fbo_height_ = height;
   return true;
 }
 
@@ -519,6 +752,12 @@ void PlayerPlugin::OnRenderUpdate(void* callback_ctx) {
 }
 
 void PlayerPlugin::RunRenderLoop() {
+  // 渲染线程内建 GL 上下文 + render_context（WGL 线程亲和）。
+  if (!CreateGlRenderContext()) {
+    // 无纹理输出：Dart 侧深色占位，控制面不受影响。兜底清理半初始化资源。
+    DestroyGlRenderContext();
+    return;
+  }
   while (render_running_.load()) {
     {
       std::unique_lock<std::mutex> lock(render_mutex_);
@@ -537,6 +776,8 @@ void PlayerPlugin::RunRenderLoop() {
     api_.render_context_update(render_ctx_);
     RenderFrame();
   }
+  // 渲染线程内释放（保持 GL 上下文当前，满足 mpv OpenGL 后端释放契约）。
+  DestroyGlRenderContext();
 }
 
 void PlayerPlugin::RenderFrame() {
@@ -553,25 +794,37 @@ void PlayerPlugin::RenderFrame() {
       return;  // 尚未解出视频轨（纯音频 / 加载中）。
     }
   }
+  const int pixel_width = static_cast<int>(width);
+  const int pixel_height = static_cast<int>(height);
+  if (!EnsureFbo(pixel_width, pixel_height)) {
+    return;
+  }
 
-  const size_t pixel_width = static_cast<size_t>(width);
-  const size_t pixel_height = static_cast<size_t>(height);
-  // mpv SW 渲染参数 data 域为 void*（非 const），故 stride 需为可变左值。
-  int stride = static_cast<int>(pixel_width * 4);
-  std::vector<uint8_t> scratch(pixel_width * pixel_height * 4);
-
-  int size[2] = {static_cast<int>(pixel_width), static_cast<int>(pixel_height)};
-  const char* format = "bgra";
+  // 问题 5：OpenGL 离屏渲染到 FBO（internal_format=0 由 mpv 选择），
+  // mpv 在 GPU 上完成完整色彩管线（primaries/gamma/HDR tone-mapping）。
+  mpv_opengl_fbo fbo{};
+  fbo.fbo = static_cast<int>(render_fbo_);
+  fbo.w = pixel_width;
+  fbo.h = pixel_height;
+  fbo.internal_format = 0;
+  int flip_y = 1;
   mpv_render_param params[] = {
-      {MPV_RENDER_PARAM_SW_SIZE, size},
-      {MPV_RENDER_PARAM_SW_FORMAT, const_cast<char*>(format)},
-      {MPV_RENDER_PARAM_SW_STRIDE, &stride},
-      {MPV_RENDER_PARAM_SW_POINTER, scratch.data()},
+      {MPV_RENDER_PARAM_OPENGL_FBO, &fbo},
+      {MPV_RENDER_PARAM_FLIP_Y, &flip_y},
       {MPV_RENDER_PARAM_INVALID, nullptr},
   };
   if (api_.render_context_render(render_ctx_, params) < 0) {
     return;
   }
+
+  // 回读 BGRA 到引擎前缓冲（纹理上屏管线与旧 SW 路径一致，Dart 侧零改动）。
+  const size_t row_bytes = static_cast<size_t>(pixel_width) * 4;
+  std::vector<uint8_t> scratch(row_bytes * static_cast<size_t>(pixel_height));
+  gl_.pixel_store_i(kGlPackAlignment, 1);
+  gl_.bind_framebuffer(kGlFramebuffer, render_fbo_);
+  gl_.read_pixels(0, 0, pixel_width, pixel_height, kGlBgra, kGlUnsignedByte,
+                  scratch.data());
+  gl_.bind_framebuffer(kGlFramebuffer, 0);
 
   {
     std::lock_guard<std::mutex> lock(frame_mutex_);
@@ -579,8 +832,8 @@ void PlayerPlugin::RenderFrame() {
       return;  // 引擎正采样前缓冲，丢弃本帧（下一帧回调再补）。
     }
     frame_buffer_.swap(scratch);
-    frame_width_ = static_cast<int>(pixel_width);
-    frame_height_ = static_cast<int>(pixel_height);
+    frame_width_ = pixel_width;
+    frame_height_ = pixel_height;
   }
 
   if (texture_registrar_ != nullptr && texture_id_ >= 0) {
@@ -588,12 +841,10 @@ void PlayerPlugin::RenderFrame() {
   }
 
   // 视频尺寸变更上报（Dart 侧输出面纵横比自适应；去重避免抖动）。
-  const int vw = static_cast<int>(pixel_width);
-  const int vh = static_cast<int>(pixel_height);
-  if (vw != last_video_width_ || vh != last_video_height_) {
-    last_video_width_ = vw;
-    last_video_height_ = vh;
-    EmitVideoSize(vw, vh);
+  if (pixel_width != last_video_width_ || pixel_height != last_video_height_) {
+    last_video_width_ = pixel_width;
+    last_video_height_ = pixel_height;
+    EmitVideoSize(pixel_width, pixel_height);
   }
 }
 

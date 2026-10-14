@@ -60,7 +60,7 @@ void main() {
     WidgetTester tester,
   ) async {
     // ① main() 入口：桌面端初始化 sqflite FFI 并 runApp(VBoxApp)。
-    entry.main();
+    await entry.main();
 
     // 首帧：依赖尚未就绪 → 铺品牌渐变底色（杜绝冷启动白屏）。
     await tester.pump();

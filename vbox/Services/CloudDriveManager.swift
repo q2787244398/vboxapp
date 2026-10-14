@@ -4284,8 +4284,7 @@ class CloudDriveManager: ObservableObject {
 
     struct QuarkQrLoginToken {
         let token: String
-        let clientId: String   // 生成 token 时使用 386；轮询时 PC 抓包用 532，这里都保留
-        let pollClientId: String
+        let clientId: String    // 二维码 / 轮询统一 386，对齐 Node startQuark/pollQuark（问题 1）
         let qrPayload: String   // 真实二维码内容，抓包为 su.quark.cn 跳转链接，不是 token 原文
     }
 
@@ -4305,12 +4304,12 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 第一步：生成扫码登录 token，并拼出抓包里的二维码跳转链接。
-    func quarkCreateQrToken(clientId: String = "386", pollClientId: String = "532") async throws -> QuarkQrLoginToken {
+    func quarkCreateQrToken(clientId: String = "386") async throws -> QuarkQrLoginToken {
         var components = URLComponents(string: "https://uop.quark.cn/cas/ajax/getTokenForQrcodeLogin")!
         components.queryItems = [
             URLQueryItem(name: "pr", value: "ucpro"),
             URLQueryItem(name: "fr", value: "pc"),
-            URLQueryItem(name: "sys", value: "darwin"),
+            URLQueryItem(name: "sys", value: "win32"),
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "v", value: "1.2"),
             URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased())
@@ -4337,8 +4336,8 @@ class CloudDriveManager: ObservableObject {
             let message = (json["message"] as? String) ?? "夸克扫码 token 接口异常"
             throw DriveError.noPlayURL("夸克: \(message)")
         }
-        let qrPayload = quarkQRCodePayload(token: token, clientId: pollClientId)
-        return QuarkQrLoginToken(token: token, clientId: clientId, pollClientId: pollClientId, qrPayload: qrPayload)
+        let qrPayload = quarkQRCodePayload(token: token, clientId: clientId)
+        return QuarkQrLoginToken(token: token, clientId: clientId, qrPayload: qrPayload)
     }
 
     private func quarkQRCodePayload(token: String, clientId: String) -> String {
@@ -4346,6 +4345,8 @@ class CloudDriveManager: ObservableObject {
         components.queryItems = [
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "sch", value: "pckk@other_ch"),
+            URLQueryItem(name: "sve", value: "3.1.8"),
             URLQueryItem(name: "ssb", value: "weblogin"),
             URLQueryItem(name: "uc_param_str", value: ""),
             URLQueryItem(name: "uc_biz_str", value: "S:custom|OPT:SAREA@0|OPT:IMMERSIVE@1|OPT:BACK_BTN_STYLE@0")
@@ -4357,7 +4358,10 @@ class CloudDriveManager: ObservableObject {
     func quarkPollQrStatus(token: QuarkQrLoginToken) async throws -> QuarkQrPollResult {
         var components = URLComponents(string: "https://uop.quark.cn/cas/ajax/getServiceTicketByQrcodeToken")!
         components.queryItems = [
-            URLQueryItem(name: "client_id", value: token.pollClientId),
+            URLQueryItem(name: "pr", value: "ucpro"),
+            URLQueryItem(name: "fr", value: "pc"),
+            URLQueryItem(name: "sys", value: "win32"),
+            URLQueryItem(name: "client_id", value: token.clientId),
             URLQueryItem(name: "v", value: "1.2"),
             URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased()),
             URLQueryItem(name: "token", value: token.token)

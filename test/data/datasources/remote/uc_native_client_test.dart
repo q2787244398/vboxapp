@@ -124,7 +124,7 @@ void main() {
     test('ensureFolder：命中已存在 vbox 目录', () async {
       final UcNativeClient c =
           _client(_FakeTransport((SpiderTransportRequest r) => _routeUc(r)));
-      expect(await c.ensureFolder(cookie: 'k=v'), 'vf');
+      expect((await c.ensureFolder(cookie: 'k=v')).fid, 'vf');
     });
 
     test('ensureFolder：不存在 → 创建 → 重试命中', () async {
@@ -146,7 +146,19 @@ void main() {
         return _json('{"code":0,"data":{}}');
       });
       final UcNativeClient c = _client(t);
-      expect(await c.ensureFolder(cookie: 'k=v'), 'vf');
+      expect((await c.ensureFolder(cookie: 'k=v')).fid, 'vf');
+    });
+
+    test('mergeSetCookie：服务端刷新值覆盖 + 忽略属性名', () {
+      final String merged = UcNativeClient.mergeSetCookie(
+        'a=1; b=2',
+        <String>['a=9; Path=/; HttpOnly', 'c=3'],
+      );
+      expect(merged, contains('a=9'));
+      expect(merged, contains('b=2'));
+      expect(merged, contains('c=3'));
+      expect(merged.contains('Path'), isFalse);
+      expect(merged.contains('HttpOnly'), isFalse);
     });
 
     test('resolvePlayUrl：vbox 命中 → save → v2/play 取链', () async {

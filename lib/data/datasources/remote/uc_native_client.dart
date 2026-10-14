@@ -23,9 +23,11 @@
 ///   · **空间清理**（`ucDeleteFiles` L8903）——`POST /1/clouddrive/file/delete`
 ///     删除转存文件；转存链路按 iOS `resolveUCPlayResult` 登记 1 小时延迟清理。
 ///
-/// 说明：**Set-Cookie 合并**由 HTTP 桥 `SpiderHttpBridge` 的 cookie jar
-/// （`storeFromResponse` + 每请求自动附加）等价覆盖 iOS `quarkMergeSetCookie`，
-/// 与夸克客户端同一口径。
+/// 说明：**Set-Cookie 合并**分两层——HTTP 桥 `SpiderHttpBridge` 的 cookie jar
+/// （`storeFromResponse` + 每请求按 `SpiderCookieMode.merge` 回带）负责跨请求保持；
+/// `ensureFolder` 额外把响应 `Set-Cookie` 合并回写登录 Cookie（[mergeSetCookie]，
+/// 服务端刷新值优先），对齐 iOS `quarkMergeSetCookie` / `ucEnsureFolderWithCookie`。
+/// 历史缺陷：桥层曾无条件用 jar 覆盖显式 Cookie（问题 2），现已按合并策略修正。
 ///
 /// ⚠️ 差异登记（TV Token 设备指纹）：iOS 用 `UIDevice.identifierForVendor`；
 /// Flutter 无设备信息插件，本层用**每客户端实例稳定**的随机 32 位 hex
@@ -256,6 +258,51 @@ class UcNativeClient {
 
   static int _nowMs() => DateTime.now().millisecondsSinceEpoch;
 
+  /// Cookie 属性名黑名单（对齐 iOS `quarkMergeSetCookie` 的字典合并语义）。
+  static const Set<String> _cookieAttributes = <String>{
+    'expires', 'path', 'domain', 'max-age', 'secure', 'httponly', 'samesite',
+  };
+
+  /// 合并响应 `Set-Cookie` 到当前 Cookie（服务端值覆盖，对齐 iOS `quarkMergeSetCookie`）。
+  ///
+  /// 问题 2 修复 B：补齐 iOS 已有的 Cookie 刷新回写能力。`Set-Cookie` 可能以
+  /// `, ` 连接多值，先归一为 `;` 再逐项合并；属性名忽略，后到覆盖。
+  static String mergeSetCookie(String cookie, List<String> setCookies) {
+    if (setCookies.isEmpty) return cookie;
+    final List<String> keys = <String>[];
+    final Map<String, (String, String)> values = <String, (String, String)>{};
+    void ingest(String raw) {
+      if (raw.isEmpty) return;
+      final String normalized = raw
+          .replaceAllMapped(
+            RegExp(r',\s*([A-Za-z_][A-Za-z0-9_\-]*)='),
+            (Match m) => ';\n${m.group(1)}=',
+          )
+          .replaceAll('\n', ';');
+      for (final String part in normalized.split(';')) {
+        final String item = part.trim();
+        final int eq = item.indexOf('=');
+        if (eq <= 0) continue;
+        final String name = item.substring(0, eq).trim();
+        final String value = item.substring(eq + 1).trim();
+        if (name.isEmpty || value.isEmpty) continue;
+        final String key = name.toLowerCase();
+        if (_cookieAttributes.contains(key)) continue;
+        if (!values.containsKey(key)) keys.add(key);
+        values[key] = (name, value);
+      }
+    }
+
+    ingest(cookie);
+    for (final String sc in setCookies) {
+      ingest(sc);
+    }
+    return keys
+        .where(values.containsKey)
+        .map((String k) => '${values[k]!.$1}=${values[k]!.$2}')
+        .join('; ');
+  }
+
   // ─────────────── 分享 token / 文件列表 ───────────────
 
   /// 获取分享 `stoken`（对齐 iOS `ucGetShareToken`）。
@@ -428,15 +475,16 @@ class UcNativeClient {
       throw const UcNativeException('无法识别的分享链接');
     }
     // 第一层：刷新 Cookie（失败则用原始 Cookie 继续）。
+    String authCookie = cookie;
     try {
-      await ensureFolder(cookie: cookie);
+      authCookie = (await ensureFolder(cookie: cookie)).mergedCookie;
     } on UcNativeException {
       // 忽略（对齐 iOS：ensureFolder 失败仍继续尝试）。
     }
     final String stoken = await getShareToken(
       pwdId: info.pwdId,
       passcode: info.passcode,
-      cookie: cookie,
+      cookie: authCookie,
     );
     // 第二层：stoken 失效刷新重试；第三层：TV Token 兜底 → 明确报错。
     try {
@@ -444,7 +492,7 @@ class UcNativeClient {
         pwdId: info.pwdId,
         passcode: info.passcode,
         stoken: stoken,
-        cookie: cookie,
+        cookie: authCookie,
       );
     } on UcNativeException {
       if (tvToken == null || tvToken.isEmpty) rethrow;
@@ -494,8 +542,13 @@ class UcNativeClient {
 
   // ─────────────── 转存（vbox 目录 + 去重 + save）───────────────
 
-  /// 确保根目录 `vbox` 存在，返回其 fid（对齐 iOS `ucEnsureFolderWithCookie`）。
-  Future<String> ensureFolder({required String cookie}) async {
+  /// 确保根目录 `vbox` 存在，返回 `(fid, mergedCookie)`（对齐 iOS `ucEnsureFolderWithCookie`）。
+  ///
+  /// 返回的 `mergedCookie` 已把各响应 `Set-Cookie` 合并回写（服务端刷新值优先），
+  /// 供后续请求复用——补齐 iOS 已有的 Cookie 刷新回写能力（问题 2 修复 B）。
+  Future<({String fid, String mergedCookie})> ensureFolder({
+    required String cookie,
+  }) async {
     final List<(String, String)> sortQuery = <(String, String)>[
       ('pdir_fid', '0'),
       ('_sort', 'file_type:asc,file_name:asc'),
@@ -503,20 +556,20 @@ class UcNativeClient {
       ('_size', '100'),
       ('_fetch_total', '1'),
     ];
-    final Map<String, Object?>? listJson = await _fileSort(
-      cookie: cookie,
-      query: sortQuery,
-    );
-    _throwIfInvalidCookie(listJson, 'list');
-    final String? found = _findVboxFid(listJson);
-    if (found != null) return found;
+    String currentCookie = cookie;
+    final ({Map<String, Object?>? json, List<String> setCookies}) listRaw =
+        await _fileSortRaw(cookie: currentCookie, query: sortQuery);
+    currentCookie = mergeSetCookie(currentCookie, listRaw.setCookies);
+    _throwIfInvalidCookie(listRaw.json, 'list');
+    final String? found = _findVboxFid(listRaw.json);
+    if (found != null) return (fid: found, mergedCookie: currentCookie);
 
     // 创建 vbox
     final SpiderHttpResult createRes = await _bridge.request(
       apiUrl('/1/clouddrive/file').toString(),
       options: SpiderHttpOptions(
         method: 'POST',
-        headers: _commonHeaders(cookie),
+        headers: _commonHeaders(currentCookie),
         data: jsonEncode(<String, Object?>{
           'pdir_fid': '0',
           'file_name': 'vbox',
@@ -525,13 +578,14 @@ class UcNativeClient {
         }),
       ),
     );
+    currentCookie = mergeSetCookie(currentCookie, createRes.setCookies);
     final Map<String, Object?>? createJson = _decodeMap(createRes.content);
     if (createJson != null) {
       final int code = _asInt(createJson['code']) ?? 0;
       if (code == 0) {
         final String fid =
             _asString(_asMap(createJson['data'])?['fid']) ?? '';
-        if (fid.isNotEmpty) return fid;
+        if (fid.isNotEmpty) return (fid: fid, mergedCookie: currentCookie);
       } else if (code != 23008) {
         throw UcNativeException(
           'UC: Cookie 可能已失效，请重新登录 (create code=$code '
@@ -541,17 +595,23 @@ class UcNativeClient {
     }
 
     // 已存在（code=23008）→ 重新 list
-    final Map<String, Object?>? reJson = await _fileSort(
-      cookie: cookie,
-      query: sortQuery,
-    );
-    _throwIfInvalidCookie(reJson, 're-list');
-    final String? reFound = _findVboxFid(reJson);
-    if (reFound != null) return reFound;
+    final ({Map<String, Object?>? json, List<String> setCookies}) reRaw =
+        await _fileSortRaw(cookie: currentCookie, query: sortQuery);
+    currentCookie = mergeSetCookie(currentCookie, reRaw.setCookies);
+    _throwIfInvalidCookie(reRaw.json, 're-list');
+    final String? reFound = _findVboxFid(reRaw.json);
+    if (reFound != null) return (fid: reFound, mergedCookie: currentCookie);
     throw const UcNativeException('UC: 无法找到或创建 vbox 文件夹');
   }
 
   Future<Map<String, Object?>?> _fileSort({
+    required String cookie,
+    required List<(String, String)> query,
+  }) async =>
+      (await _fileSortRaw(cookie: cookie, query: query)).json;
+
+  /// 文件列表请求，附带响应 `Set-Cookie`（供 Cookie 刷新回写，问题 2 修复 B）。
+  Future<({Map<String, Object?>? json, List<String> setCookies})> _fileSortRaw({
     required String cookie,
     required List<(String, String)> query,
   }) async {
@@ -559,7 +619,7 @@ class UcNativeClient {
       apiUrl('/1/clouddrive/file/sort', extra: query).toString(),
       options: SpiderHttpOptions(headers: _commonHeaders(cookie)),
     );
-    return _decodeMap(res.content);
+    return (json: _decodeMap(res.content), setCookies: res.setCookies);
   }
 
   void _throwIfInvalidCookie(Map<String, Object?>? json, String stage) {
@@ -994,11 +1054,14 @@ class UcNativeClient {
     if (info.pwdId.isEmpty) {
       throw const UcNativeException('无法识别的分享链接');
     }
-    final String folderId = await ensureFolder(cookie: cookie);
+    final ({String fid, String mergedCookie}) folder =
+        await ensureFolder(cookie: cookie);
+    final String folderId = folder.fid;
+    final String authCookie = folder.mergedCookie;
     final String stoken = await getShareToken(
       pwdId: info.pwdId,
       passcode: info.passcode,
-      cookie: cookie,
+      cookie: authCookie,
     );
 
     // 选集：正常路径失败 → TV Token 兜底（对齐 iOS `ucResolveUCShareFile`）。
@@ -1008,7 +1071,7 @@ class UcNativeClient {
         pwdId: info.pwdId,
         passcode: info.passcode,
         stoken: stoken,
-        cookie: cookie,
+        cookie: authCookie,
       );
     } on UcNativeException {
       if (tvToken == null || tvToken.isEmpty) rethrow;
@@ -1032,7 +1095,7 @@ class UcNativeClient {
     final String? existing = await findExistingFileInVBox(
       fileName: source.fileName,
       folderId: folderId,
-      cookie: cookie,
+      cookie: authCookie,
     );
     final List<String> savedFids;
     if (existing != null) {
@@ -1043,20 +1106,20 @@ class UcNativeClient {
         stoken: stoken,
         file: source,
         folderId: folderId,
-        cookie: cookie,
+        cookie: authCookie,
       );
     }
     final String fileId = savedFids.first;
 
     String transcode = '';
     try {
-      transcode = await getPlayUrl(fileId: fileId, cookie: cookie);
+      transcode = await getPlayUrl(fileId: fileId, cookie: authCookie);
     } on UcNativeException {
       // 忽略，继续降级。
     }
     String download = '';
     try {
-      download = await getDownloadUrl(fileId: fileId, cookie: cookie);
+      download = await getDownloadUrl(fileId: fileId, cookie: authCookie);
     } on UcNativeException {
       // 忽略，可能 v2/play 已可用。
     }
@@ -1097,7 +1160,7 @@ class UcNativeClient {
     // Range）；v2/play 与 download_url 需 UC Cookie 头。
     final Map<String, String> headers = sourceTag == 'uc_tv_token'
         ? const <String, String>{}
-        : playbackHeaders(cookie);
+        : playbackHeaders(authCookie);
     // 兜底线路派生（对齐 iOS `resolveUCPlayResult` 的 switch 拓扑）：
     //   · uc_tv_token → 优先转码 v2-play，其次 download_url；
     //   · v2-play     → download_url；
@@ -1113,7 +1176,7 @@ class UcNativeClient {
         fallbackUrl = download;
         fallbackSource = 'download_url';
       }
-      if (fallbackUrl != null) fallbackHeaders = playbackHeaders(cookie);
+      if (fallbackUrl != null) fallbackHeaders = playbackHeaders(authCookie);
     } else if (sourceTag == 'v2-play') {
       if (download.isNotEmpty) {
         fallbackUrl = download;

@@ -36,6 +36,7 @@ import '../../domain/entities/cloud/cloud_play_item.dart';
 import '../../domain/entities/cloud/node_pan.dart';
 import '../../domain/entities/cloud/pg_auto.dart';
 import '../../domain/entities/player/player.dart';
+import '../webview/in_app_webview_bridge.dart';
 import 'drive_error.dart';
 import 'pan_fallback_chain.dart';
 import 'playback_route.dart';
@@ -94,7 +95,14 @@ class PanPlayer {
             CloudPlayItemCacheStore(PrefsManager.instance),
         _controller = controller,
         _quark = quarkClient ?? QuarkNativeClient(),
-        _baiduIBox = baiduIBoxClient ?? BaiduIBoxClient(),
+        // 问题 3（P0）：注入真实 WebView 桥，使 bdstoken 四层兜底的第 3 层
+        //（WKWebView/HeadlessWebView 载入 disk/main 复用 CookieJar 取用户态
+        // bdstoken）生效（对齐 iOS `baiduFetchUserBdstokenViaWebView`）。Android
+        // /iOS/macOS/Windows 均可用；仅 Linux 无 WebView 实现时
+        // `isAvailable=false`，`_webViewBdstoken` 自动退回空串、继续走第 4 层
+        // 保存值兜底，行为与接线前一致。
+        _baiduIBox = baiduIBoxClient ??
+            BaiduIBoxClient(webView: InAppWebViewBridge()),
         _uc = ucClient ?? UcNativeClient(),
         _aliyun = aliyunClient ??
             AliyunAdriveClient(

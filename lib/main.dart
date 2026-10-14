@@ -6,8 +6,9 @@
 /// 本文件仅负责：
 ///  1. 绑定 Flutter 引擎
 ///  2. 桌面端 sqflite FFI 初始化
-///  3. 批次 E 全局装配（崩溃标记钩子 / 启动版本登记）
-///  4. 启动 [VBoxApp]
+///  3. Windows WebView2 环境引导
+///  4. 批次 E 全局装配（崩溃标记钩子 / 启动版本登记）
+///  5. 启动 [VBoxApp]
 ///
 /// ⚠️ iOS 不迁移（D1），Flutter 仅负责 Android / TV / Windows / macOS 四端。
 library;
@@ -24,8 +25,9 @@ import 'app.dart';
 import 'core/constants/app_constants.dart';
 import 'core/utils/logger.dart';
 import 'data/datasources/local/prefs_manager.dart';
+import 'platform/webview/in_app_webview_bridge.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // 桌面端（Windows / macOS / Linux）需初始化 sqflite FFI 后端
@@ -33,6 +35,11 @@ void main() {
       (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+  }
+
+  // Windows 专用：WebView2 环境引导（自定义数据目录；须在 runApp 前完成）。
+  if (!kIsWeb && Platform.isWindows) {
+    await InAppWebViewBridge.initialize();
   }
 
   // 批次 E · E3-3：未捕获异常钩子写崩溃标记（对齐 iOS `AppLogStore.swift:259`），

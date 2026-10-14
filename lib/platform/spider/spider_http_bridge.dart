@@ -185,6 +185,22 @@ class SpiderCookieStore {
 
 // ─────────────── 请求选项 / 结果（iOS options 字典 → 结果字典） ───────────────
 
+/// 显式 `Cookie` 头与 cookie jar 的合并策略（问题 2 修复 A）。
+///
+/// 历史缺陷：请求组装时 jar 结果**无条件覆盖**调用方显式传入的 `Cookie`
+/// （如 UC `_commonHeaders(cookie)` 携带的登录态），导致 create 请求以 guest
+/// 身份发出 → `code=31001 require login [guest]`。
+enum SpiderCookieMode {
+  /// 显式优先、jar 补充显式 Cookie 中缺失的键（默认）。
+  merge,
+
+  /// 显式 Cookie 完全优先；仅在调用方未提供 `Cookie` 时才回带 jar。
+  explicitWins,
+
+  /// jar 完全覆盖显式 Cookie（旧行为，仅为兼容保留）。
+  jarWins,
+}
+
 /// HTTP 请求选项（契约 §4.1：headers/method/data/timeout；iOS 补 referer）。
 class SpiderHttpOptions {
   const SpiderHttpOptions({
@@ -194,6 +210,7 @@ class SpiderHttpOptions {
     this.timeout = const Duration(seconds: 15),
     this.referer,
     this.followRedirects = true,
+    this.cookieMode = SpiderCookieMode.merge,
   });
 
   /// HTTP 方法（GET / POST，小写传入自动归一大写）。
@@ -216,6 +233,9 @@ class SpiderHttpOptions {
   /// 原生登录（百度 `qrbdusslogin` 等）需**手动**逐跳跟随以收集各跳
   /// `Set-Cookie`，故置 `false` 并读取响应头 `location`。
   final bool followRedirects;
+
+  /// 显式 `Cookie` 头与 cookie jar 的合并策略（默认 [SpiderCookieMode.merge]）。
+  final SpiderCookieMode cookieMode;
 
   /// 从 JS `options` 对象构造（B-05a `normalizeHttpOptions` 的 Map 归一输出）。
   ///
@@ -250,6 +270,7 @@ class SpiderHttpResult {
     required this.content,
     required this.url,
     this.headers = const <String, String>{},
+    this.setCookies = const <String>[],
   });
 
   /// 2xx 语义（对齐 iOS `status >= 200 && status < 300`）。
@@ -266,6 +287,10 @@ class SpiderHttpResult {
 
   /// 响应头（小写键，多值以 `,` 连接）。
   final Map<String, String> headers;
+
+  /// 原始响应 `Set-Cookie` 值（未拆属性），供业务层刷新回写
+  /// （对齐 iOS `quarkMergeSetCookie`，问题 2 修复 B）。
+  final List<String> setCookies;
 
   /// 超时 / 网络失败构造（对齐 iOS 超时分支的固定形状）。
   factory SpiderHttpResult.failure(String url, String message) =>
@@ -437,9 +462,24 @@ class SpiderHttpBridge {
     if (opt.referer != null) {
       headers['Referer'] = opt.referer!;
     }
-    final String? cookie = _cookieStore.cookieHeaderFor(uri);
-    if (cookie != null) {
-      headers[HttpHeaders.cookieHeader] = cookie;
+    // Cookie 组装（问题 2 修复 A）：HTTP 头大小写不敏感，先归一提取调用方
+    // 显式 `Cookie`（可能来自 defaultHeaders 或 opt.headers），移除原键，
+    // 再按 cookieMode 与 jar 合并，最终只写回单个 `Cookie` 键。
+    // 历史缺陷：jar 无条件覆盖显式 Cookie → UC create 以 guest 发出 → 31001。
+    String? explicitCookie;
+    headers.removeWhere((String k, String v) {
+      if (k.toLowerCase() == HttpHeaders.cookieHeader) {
+        explicitCookie =
+            explicitCookie == null ? v : '$explicitCookie; $v';
+        return true;
+      }
+      return false;
+    });
+    final String? jarCookie = _cookieStore.cookieHeaderFor(uri);
+    final String? mergedCookie =
+        _resolveCookie(opt.cookieMode, explicitCookie, jarCookie);
+    if (mergedCookie != null && mergedCookie.isNotEmpty) {
+      headers[HttpHeaders.cookieHeader] = mergedCookie;
     }
 
     // 超时：契约默认 15s（iOS 资源超时 +5s 缓冲在 transport 内实现）
@@ -467,6 +507,7 @@ class SpiderHttpBridge {
         content: content,
         url: url,
         headers: res.headers,
+        setCookies: res.setCookies,
       );
     } on TimeoutException {
       // 对齐 iOS 超时分支：ok=false / status=0 / content="请求超时"
@@ -480,5 +521,48 @@ class SpiderHttpBridge {
     } on HttpException catch (e) {
       return SpiderHttpResult.failure(url, e.message);
     }
+  }
+
+  /// 按 [mode] 合并显式 Cookie 与 jar（问题 2 修复 A）。
+  static String? _resolveCookie(
+    SpiderCookieMode mode,
+    String? explicit,
+    String? jar,
+  ) {
+    final bool hasExplicit = explicit != null && explicit.trim().isNotEmpty;
+    final bool hasJar = jar != null && jar.trim().isNotEmpty;
+    switch (mode) {
+      case SpiderCookieMode.jarWins:
+        return hasJar ? jar : explicit;
+      case SpiderCookieMode.explicitWins:
+        return hasExplicit ? explicit : jar;
+      case SpiderCookieMode.merge:
+        if (!hasExplicit) return jar;
+        if (!hasJar) return explicit;
+        return _mergeCookieHeaders(explicit, jar);
+    }
+  }
+
+  /// 合并两段 Cookie 串：显式优先，jar 仅补充显式中缺失的键。
+  static String _mergeCookieHeaders(String explicit, String jar) {
+    final Map<String, String> merged = <String, String>{};
+    void ingest(String raw) {
+      for (final String pair in raw.split(';')) {
+        final String p = pair.trim();
+        if (p.isEmpty) continue;
+        final int eq = p.indexOf('=');
+        if (eq <= 0) continue;
+        merged.putIfAbsent(
+          p.substring(0, eq).trim(),
+          () => p.substring(eq + 1).trim(),
+        );
+      }
+    }
+
+    ingest(explicit);
+    ingest(jar);
+    return merged.entries
+        .map((MapEntry<String, String> e) => '${e.key}=${e.value}')
+        .join('; ');
   }
 }

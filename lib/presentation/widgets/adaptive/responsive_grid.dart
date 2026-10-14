@@ -1,7 +1,7 @@
 /// 自适应框架 · 响应式网格（批次 A · A-07）。
 ///
 /// 唯一真相源：`docs/第2轮开发计划_功能补全_v2.6.md` §3.3（内容列数）：
-///   竖屏 2–3 列 · 横屏 5–8 列。
+///   竖屏 3 列 · 横屏 5–8 列。
 ///
 /// 列数只依赖「形态 + 可用宽度」，是纯函数 [ResponsiveGrid.columnsFor]，
 /// 便于单测穷举；渲染层用 [LayoutBuilder] 注入真实宽度，避免写死断点魔数。
@@ -43,18 +43,15 @@ class ResponsiveGrid extends StatelessWidget {
   /// 网格内边距。
   final EdgeInsets padding;
 
-  /// 竖屏列数：窄屏 2 列、常规 3 列。
-  static const double portraitWideBreakpoint = 480;
-
   /// 横屏列数档位（升序断点 → 列数）。
   static const double landscapeBreakpoint6 = 960;
   static const double landscapeBreakpoint7 = 1200;
   static const double landscapeBreakpoint8 = 1600;
 
-  /// 按形态 + 可用宽度推导列数（§3.3：竖屏 2–3，横屏 5–8）。
+  /// 按形态 + 可用宽度推导列数（§3.3：竖屏 3，横屏 5–8）。
   static int columnsFor({required UiForm form, required double width}) {
     if (form.isPortrait) {
-      return width >= portraitWideBreakpoint ? 3 : 2;
+      return 3;
     }
     if (width >= landscapeBreakpoint8) return 8;
     if (width >= landscapeBreakpoint7) return 7;

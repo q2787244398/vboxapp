@@ -21,12 +21,15 @@
 //  不依赖第三方导入库（对齐 Windows `player_plugin.cpp` 的 `LoadLibraryW` 模式，故
 //  无需改 Xcode 链接配置）。
 //
-//  渲染口径（R-渲1）：`vo=libmpv` + `mpv_render_context`（`MPV_RENDER_API_TYPE_SW`）
-//  把每帧软渲染为 BGRA，装入 `CVPixelBuffer` 经 FlutterTexture 上屏；`open` 返回
-//  `textureId` 交 Dart `Texture(textureId:)` 承载（UI 层与 iOS 一致，无 PlatformView）。
+//  渲染口径（R-渲1）：`vo=libmpv` + `gpu-api=opengl` + `mpv_render_context`
+//  （`MPV_RENDER_API_TYPE_OPENGL`）：mpv 在 GPU 上跑完整色彩管线
+//  （primaries / gamma / HDR tone-mapping，对齐 iOS）渲染到离屏 FBO，再 `glReadPixels`
+//  回读 BGRA 装入 `CVPixelBuffer` 经 FlutterTexture 上屏；`open` 返回 `textureId`
+//  交 Dart `Texture(textureId:)` 承载（UI 层与 iOS 一致，无 PlatformView）。
 //
 
 import AVFoundation
+import AppKit
 import CoreVideo
 import Darwin
 import FlutterMacOS
@@ -54,11 +57,11 @@ private let mpvEndFileReasonEOF: Int32 = 0
 private let mpvEndFileReasonError: Int32 = 4
 
 private let mpvRenderParamAPIType: Int32 = 1
+private let mpvRenderParamOpenGLInitParams: Int32 = 2
+private let mpvRenderParamOpenGLFbo: Int32 = 3
+private let mpvRenderParamFlipY: Int32 = 4
+private let mpvRenderParamAdvancedControl: Int32 = 10
 private let mpvRenderParamInvalid: Int32 = 0
-private let mpvRenderParamSWSize: Int32 = 17
-private let mpvRenderParamSWFormat: Int32 = 18
-private let mpvRenderParamSWStride: Int32 = 19
-private let mpvRenderParamSWPointer: Int32 = 20
 
 /// mpv C 句柄（`mpv_handle*`）。
 private typealias MpvHandle = OpaquePointer
@@ -93,6 +96,83 @@ private struct MpvEventEndFile {
 private struct MpvRenderParam {
   var type: Int32
   var data: UnsafeMutableRawPointer?
+}
+
+// ── OpenGL(GPU) render context ABI（render_gl.h；问题 5 桌面色彩管理对齐 iOS）──
+
+/// `mpv_opengl_init_params`（render_gl.h）。
+private typealias MpvGetProcAddressFn =
+  @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> UnsafeMutableRawPointer?
+
+private struct MpvOpenGLInitParams {
+  var getProcAddress: MpvGetProcAddressFn?
+  var getProcAddressCtx: UnsafeMutableRawPointer?
+}
+
+/// `mpv_opengl_fbo`（render_gl.h）。
+private struct MpvOpenGLFbo {
+  var fbo: Int32
+  var width: Int32
+  var height: Int32
+  var internalFormat: Int32
+}
+
+// OpenGL 常量（gl.h / gl3.h 子集）。
+private let glTexture2D: UInt32 = 0x0DE1
+private let glTextureMinFilter: UInt32 = 0x2801
+private let glTextureMagFilter: UInt32 = 0x2800
+private let glLinear: Int32 = 0x2601
+private let glRgba8: Int32 = 0x8058
+private let glRgba: UInt32 = 0x1908
+private let glUnsignedByte: UInt32 = 0x1401
+private let glFramebuffer: UInt32 = 0x8D40
+private let glColorAttachment0: UInt32 = 0x8CE0
+private let glFramebufferComplete: UInt32 = 0x8CD5
+private let glBgra: UInt32 = 0x80E1
+private let glPackAlignment: UInt32 = 0x0D05
+
+// OpenGL 入口函数指针（dlsym 运行期解析；构建期不链接 OpenGL.framework）。
+private typealias FnGlReadPixels =
+  @convention(c) (Int32, Int32, Int32, Int32, UInt32, UInt32, UnsafeMutableRawPointer?) -> Void
+private typealias FnGlPixelStorei = @convention(c) (UInt32, Int32) -> Void
+private typealias FnGlGenFramebuffers =
+  @convention(c) (Int32, UnsafeMutablePointer<UInt32>?) -> Void
+private typealias FnGlBindFramebuffer = @convention(c) (UInt32, UInt32) -> Void
+private typealias FnGlFramebufferTexture2D =
+  @convention(c) (UInt32, UInt32, UInt32, UInt32, Int32) -> Void
+private typealias FnGlCheckFramebufferStatus = @convention(c) (UInt32) -> UInt32
+private typealias FnGlDeleteFramebuffers =
+  @convention(c) (Int32, UnsafePointer<UInt32>?) -> Void
+private typealias FnGlGenTextures = @convention(c) (Int32, UnsafeMutablePointer<UInt32>?) -> Void
+private typealias FnGlBindTexture = @convention(c) (UInt32, UInt32) -> Void
+private typealias FnGlTexImage2D =
+  @convention(c) (UInt32, Int32, Int32, Int32, Int32, Int32, UInt32, UInt32, UnsafeRawPointer?) -> Void
+private typealias FnGlTexParameteri = @convention(c) (UInt32, UInt32, Int32) -> Void
+private typealias FnGlDeleteTextures = @convention(c) (Int32, UnsafePointer<UInt32>?) -> Void
+
+/// OpenGL 运行期符号表（`dlopen` + `dlsym` 解析）。
+private struct MacGlApi {
+  var readPixels: FnGlReadPixels?
+  var pixelStorei: FnGlPixelStorei?
+  var genFramebuffers: FnGlGenFramebuffers?
+  var bindFramebuffer: FnGlBindFramebuffer?
+  var framebufferTexture2D: FnGlFramebufferTexture2D?
+  var checkFramebufferStatus: FnGlCheckFramebufferStatus?
+  var deleteFramebuffers: FnGlDeleteFramebuffers?
+  var genTextures: FnGlGenTextures?
+  var bindTexture: FnGlBindTexture?
+  var texImage2D: FnGlTexImage2D?
+  var texParameteri: FnGlTexParameteri?
+  var deleteTextures: FnGlDeleteTextures?
+}
+
+/// mpv OpenGL render context 的 `get_proc_address` 回调（`RTLD_DEFAULT` = -2）。
+private func mpvGlGetProcAddress(
+  _ ctx: UnsafeMutableRawPointer?,
+  _ name: UnsafePointer<CChar>?
+) -> UnsafeMutableRawPointer? {
+  guard let name = name else { return nil }
+  return dlsym(UnsafeMutableRawPointer(bitPattern: -2), name)
 }
 
 // libmpv C API 函数指针签名（与官方头一一对应；仅收录本插件用到的符号）。
@@ -203,6 +283,14 @@ public class PlayerPlugin: NSObject, FlutterPlugin {
   private var mpvState = "idle"
   private var mpvLastVideoWidth = 0
   private var mpvLastVideoHeight = 0
+
+  // R-渲1 · GPU：OpenGL 上下文（渲染线程亲和）+ 离屏 FBO（mpv 渲染目标）。
+  private var glContext: NSOpenGLContext?
+  private var glApi: MacGlApi?
+  private var renderFbo: UInt32 = 0
+  private var renderTexture: UInt32 = 0
+  private var fboWidth = 0
+  private var fboHeight = 0
 
   private static let methodChannelName = "com.vbox.player/player"
   private static let eventChannelName = "com.vbox.player/player/events"
@@ -619,6 +707,11 @@ extension PlayerPlugin {
     _ = canRender
       ? api.setOptionString?(handle, "vo", "libmpv")
       : api.setOptionString?(handle, "vo", "null")
+    // 问题 5：render context 走 OpenGL(GPU) 后端，mpv 在 GPU 上跑完整色彩管线
+    // （primaries / gamma / HDR tone-mapping，对齐 iOS）；macOS 用桌面 GL，不设 opengl-es。
+    if canRender {
+      _ = api.setOptionString?(handle, "gpu-api", "opengl")
+    }
 
     if (api.initialize?(handle) ?? -1) < 0 {
       api.terminateDestroy?(handle)
@@ -833,39 +926,16 @@ extension PlayerPlugin {
     DispatchQueue.main.async { [weak self] in self?.eventSink?(payload) }
   }
 
-  // MARK: - 渲染输出面（R-渲1：SW 软渲染 → CVPixelBuffer → FlutterTexture）
+  // MARK: - 渲染输出面（R-渲1 · GPU：OpenGL render context → 离屏 FBO → glReadPixels → CVPixelBuffer）
 
+  /// 建立纹理输出面并拉起渲染线程；GL 上下文 / render_context 在渲染线程内创建
+  /// （NSOpenGL 上下文有线程亲和，必须与 render 调用同线程）。
   private func setupMpvRenderContext() {
-    guard let api = mpvApi, let handle = mpvHandle,
-          let create = api.renderCreate else { return }
-
-    let renderContext: MpvRenderContext? = "sw".withCString { apiType -> MpvRenderContext? in
-      var context: MpvRenderContext?
-      var params = [
-        MpvRenderParam(type: mpvRenderParamAPIType,
-                       data: UnsafeMutableRawPointer(mutating: apiType)),
-        MpvRenderParam(type: mpvRenderParamInvalid, data: nil),
-      ]
-      let rc: Int32 = withUnsafeMutablePointer(to: &context) { contextPtr in
-        params.withUnsafeMutableBufferPointer { buffer in
-          create(UnsafeMutableRawPointer(contextPtr), handle,
-                 UnsafeMutableRawPointer(buffer.baseAddress))
-        }
-      }
-      return rc < 0 ? nil : context
-    }
-    guard let ctx = renderContext else {
-      // 无纹理输出：Dart 侧深色占位，控制面（播放 / 进度）不受影响。
-      return
-    }
-    mpvRenderContext = ctx
+    guard let api = mpvApi, api.renderCreate != nil else { return }
 
     if let id = textureRegistry?.register(self) {
       mpvTextureId = id
     }
-
-    api.renderSetUpdate?(
-      ctx, mpvRenderUpdateCallback, Unmanaged.passUnretained(self).toOpaque())
 
     mpvRenderRunning = true
     let runtime = self
@@ -875,7 +945,171 @@ extension PlayerPlugin {
     }
   }
 
+  /// 渲染线程内建 NSOpenGL 上下文 + mpv render_context（OpenGL/GPU 后端）。
+  private func createGlRenderContext() -> Bool {
+    guard let api = mpvApi, let handle = mpvHandle,
+          let create = api.renderCreate else { return false }
+    guard loadGlApi() else { return false }
+
+    let attributes: [NSOpenGLPixelFormatAttribute] = [
+      NSOpenGLPixelFormatAttribute(NSOpenGLPFAAccelerated),
+      NSOpenGLPixelFormatAttribute(NSOpenGLPFADoubleBuffer),
+      NSOpenGLPixelFormatAttribute(NSOpenGLPFAColorSize), 24,
+      NSOpenGLPixelFormatAttribute(NSOpenGLPFAAlphaSize), 8,
+      NSOpenGLPixelFormatAttribute(NSOpenGLPFADepthSize), 0,
+      NSOpenGLPixelFormatAttribute(NSOpenGLPFAOpenGLProfile),
+      NSOpenGLPixelFormatAttribute(NSOpenGLProfileVersion3_2Core),
+      0,
+    ]
+    guard let format = NSOpenGLPixelFormat(attributes: attributes),
+          let context = NSOpenGLContext(format: format, share: nil) else { return false }
+    context.makeCurrentContext()
+    glContext = context
+
+    var initParams = MpvOpenGLInitParams(
+      getProcAddress: mpvGlGetProcAddress, getProcAddressCtx: nil)
+    var advancedControl: Int32 = 1
+    var created: MpvRenderContext?
+
+    let rc: Int32 = "opengl".withCString { apiType -> Int32 in
+      withUnsafeMutablePointer(to: &initParams) { initPtr -> Int32 in
+        withUnsafeMutablePointer(to: &advancedControl) { advPtr -> Int32 in
+          withUnsafeMutablePointer(to: &created) { ctxPtr -> Int32 in
+            var params = [
+              MpvRenderParam(type: mpvRenderParamAPIType,
+                             data: UnsafeMutableRawPointer(mutating: apiType)),
+              MpvRenderParam(type: mpvRenderParamOpenGLInitParams,
+                             data: UnsafeMutableRawPointer(initPtr)),
+              MpvRenderParam(type: mpvRenderParamAdvancedControl,
+                             data: UnsafeMutableRawPointer(advPtr)),
+              MpvRenderParam(type: mpvRenderParamInvalid, data: nil),
+            ]
+            return params.withUnsafeMutableBufferPointer { buffer in
+              create(UnsafeMutableRawPointer(ctxPtr), handle,
+                     UnsafeMutableRawPointer(buffer.baseAddress))
+            }
+          }
+        }
+      }
+    }
+    guard rc >= 0, let ctx = created else {
+      destroyGlRenderContext()
+      return false
+    }
+    mpvRenderContext = ctx
+    api.renderSetUpdate?(
+      ctx, mpvRenderUpdateCallback, Unmanaged.passUnretained(self).toOpaque())
+    return true
+  }
+
+  /// 渲染线程内释放 render_context（GL 上下文需 current）+ 离屏 FBO/纹理 + 销毁 GL 上下文。
+  private func destroyGlRenderContext() {
+    if let ctx = mpvRenderContext {
+      mpvApi?.renderSetUpdate?(ctx, nil, nil)
+      glContext?.makeCurrentContext()
+      mpvApi?.renderFree?(ctx)
+      mpvRenderContext = nil
+    }
+    if let gl = glApi {
+      if renderFbo != 0 {
+        var fbo = renderFbo
+        gl.deleteFramebuffers?(1, &fbo)
+      }
+      if renderTexture != 0 {
+        var texture = renderTexture
+        gl.deleteTextures?(1, &texture)
+      }
+    }
+    renderFbo = 0
+    renderTexture = 0
+    fboWidth = 0
+    fboHeight = 0
+    NSOpenGLContext.clearCurrentContext()
+    glContext = nil
+  }
+
+  /// 渲染线程内解析 OpenGL 入口（OpenGL.framework 运行期 dlopen + dlsym）。
+  private func loadGlApi() -> Bool {
+    guard let module = dlopen(
+      "/System/Library/Frameworks/OpenGL.framework/OpenGL",
+      RTLD_LAZY | RTLD_GLOBAL) else { return false }
+    func symbol<T>(_ name: String) -> T? {
+      guard let pointer = dlsym(module, name) else { return nil }
+      return unsafeBitCast(pointer, to: T.self)
+    }
+    var api = MacGlApi()
+    api.readPixels = symbol("glReadPixels")
+    api.pixelStorei = symbol("glPixelStorei")
+    api.genFramebuffers = symbol("glGenFramebuffers")
+    api.bindFramebuffer = symbol("glBindFramebuffer")
+    api.framebufferTexture2D = symbol("glFramebufferTexture2D")
+    api.checkFramebufferStatus = symbol("glCheckFramebufferStatus")
+    api.deleteFramebuffers = symbol("glDeleteFramebuffers")
+    api.genTextures = symbol("glGenTextures")
+    api.bindTexture = symbol("glBindTexture")
+    api.texImage2D = symbol("glTexImage2D")
+    api.texParameteri = symbol("glTexParameteri")
+    api.deleteTextures = symbol("glDeleteTextures")
+    guard api.readPixels != nil, api.pixelStorei != nil,
+          api.genFramebuffers != nil, api.bindFramebuffer != nil,
+          api.framebufferTexture2D != nil, api.checkFramebufferStatus != nil,
+          api.deleteFramebuffers != nil, api.genTextures != nil,
+          api.bindTexture != nil, api.texImage2D != nil,
+          api.texParameteri != nil, api.deleteTextures != nil else { return false }
+    glApi = api
+    return true
+  }
+
+  /// 按视频尺寸（懒）建离屏 FBO + 颜色纹理（RGBA8）。
+  private func ensureFbo(width: Int, height: Int) -> Bool {
+    guard let gl = glApi else { return false }
+    if renderFbo != 0 && width == fboWidth && height == fboHeight { return true }
+    if renderFbo != 0 {
+      var fbo = renderFbo
+      gl.deleteFramebuffers?(1, &fbo)
+      renderFbo = 0
+    }
+    if renderTexture != 0 {
+      var texture = renderTexture
+      gl.deleteTextures?(1, &texture)
+      renderTexture = 0
+    }
+
+    var texture: UInt32 = 0
+    gl.genTextures?(1, &texture)
+    gl.bindTexture?(glTexture2D, texture)
+    gl.texParameteri?(glTexture2D, glTextureMinFilter, glLinear)
+    gl.texParameteri?(glTexture2D, glTextureMagFilter, glLinear)
+    gl.texImage2D?(
+      glTexture2D, 0, glRgba8, Int32(width), Int32(height), 0,
+      glRgba, glUnsignedByte, nil)
+
+    var fbo: UInt32 = 0
+    gl.genFramebuffers?(1, &fbo)
+    gl.bindFramebuffer?(glFramebuffer, fbo)
+    gl.framebufferTexture2D?(glFramebuffer, glColorAttachment0, glTexture2D, texture, 0)
+    let status = gl.checkFramebufferStatus?(glFramebuffer) ?? 0
+    gl.bindFramebuffer?(glFramebuffer, 0)
+    guard status == glFramebufferComplete else {
+      var discardFbo = fbo
+      gl.deleteFramebuffers?(1, &discardFbo)
+      var discardTexture = texture
+      gl.deleteTextures?(1, &discardTexture)
+      return false
+    }
+    renderFbo = fbo
+    renderTexture = texture
+    fboWidth = width
+    fboHeight = height
+    return true
+  }
+
   private func mpvRenderLoop() {
+    // 渲染线程内建 GL 上下文 + render_context（NSOpenGL 上下文有线程亲和）。
+    guard createGlRenderContext() else {
+      destroyGlRenderContext()
+      return
+    }
     while mpvRenderRunning {
       _ = mpvRenderWake.wait(timeout: .now() + 0.1)
       if !mpvRenderRunning { break }
@@ -883,6 +1117,8 @@ extension PlayerPlugin {
       _ = api.renderUpdate?(ctx)
       renderMpvFrame()
     }
+    // 渲染线程内释放（保持 GL 上下文 current，满足 mpv OpenGL 后端释放契约）。
+    destroyGlRenderContext()
   }
 
   private func renderMpvFrame() {
@@ -900,39 +1136,41 @@ extension PlayerPlugin {
     let pixelWidth = Int(width)
     let pixelHeight = Int(height)
     let sourceStride = pixelWidth * 4
-    var scratch = [UInt8](repeating: 0, count: sourceStride * pixelHeight)
+    guard ensureFbo(width: pixelWidth, height: pixelHeight) else { return }
 
-    var stride = Int32(sourceStride)
-    var size = [Int32(pixelWidth), Int32(pixelHeight)]
-    var format = Array("bgra".utf8CString)
+    // mpv 在 GPU 上渲染到离屏 FBO（含完整色彩管理），随后 glReadPixels 回读 BGRA。
+    var fbo = MpvOpenGLFbo(
+      fbo: Int32(renderFbo), width: Int32(pixelWidth),
+      height: Int32(pixelHeight), internalFormat: 0)
+    var flipY: Int32 = 1
 
-    let renderResult: Int32 = withUnsafeMutablePointer(to: &stride) { stridePointer -> Int32 in
-      size.withUnsafeMutableBufferPointer { sizeBuffer -> Int32 in
-        format.withUnsafeMutableBufferPointer { formatBuffer -> Int32 in
-          scratch.withUnsafeMutableBytes { scratchBuffer -> Int32 in
-            var params = [
-              MpvRenderParam(
-                type: mpvRenderParamSWSize,
-                data: UnsafeMutableRawPointer(sizeBuffer.baseAddress)),
-              MpvRenderParam(
-                type: mpvRenderParamSWFormat,
-                data: UnsafeMutableRawPointer(formatBuffer.baseAddress)),
-              MpvRenderParam(
-                type: mpvRenderParamSWStride,
-                data: UnsafeMutableRawPointer(stridePointer)),
-              MpvRenderParam(
-                type: mpvRenderParamSWPointer,
-                data: scratchBuffer.baseAddress),
-              MpvRenderParam(type: mpvRenderParamInvalid, data: nil),
-            ]
-            return params.withUnsafeMutableBufferPointer { buffer in
-              api.render?(ctx, UnsafeMutableRawPointer(buffer.baseAddress)) ?? -1
-            }
-          }
+    let renderResult: Int32 = withUnsafeMutablePointer(to: &fbo) { fboPointer -> Int32 in
+      withUnsafeMutablePointer(to: &flipY) { flipPointer -> Int32 in
+        var params = [
+          MpvRenderParam(
+            type: mpvRenderParamOpenGLFbo,
+            data: UnsafeMutableRawPointer(fboPointer)),
+          MpvRenderParam(
+            type: mpvRenderParamFlipY,
+            data: UnsafeMutableRawPointer(flipPointer)),
+          MpvRenderParam(type: mpvRenderParamInvalid, data: nil),
+        ]
+        return params.withUnsafeMutableBufferPointer { buffer in
+          api.render?(ctx, UnsafeMutableRawPointer(buffer.baseAddress)) ?? -1
         }
       }
     }
-    guard renderResult >= 0 else { return }
+    guard renderResult >= 0, let gl = glApi else { return }
+
+    var scratch = [UInt8](repeating: 0, count: sourceStride * pixelHeight)
+    gl.pixelStorei?(glPackAlignment, 1)
+    gl.bindFramebuffer?(glFramebuffer, renderFbo)
+    scratch.withUnsafeMutableBytes { scratchBuffer in
+      gl.readPixels?(
+        0, 0, Int32(pixelWidth), Int32(pixelHeight),
+        glBgra, glUnsignedByte, scratchBuffer.baseAddress)
+    }
+    gl.bindFramebuffer?(glFramebuffer, 0)
 
     guard let pixelBuffer = Self.makePixelBuffer(
       from: scratch, width: pixelWidth, height: pixelHeight, sourceStride: sourceStride)
@@ -993,12 +1231,13 @@ extension PlayerPlugin {
   // MARK: - libmpv 释放
 
   private func shutdownMpv() {
-    // 1. 停渲染线程（避免释放 render_context 时仍在渲染）。
+    // 1. 停渲染线程（渲染线程退出时会释放 render_context + GL 上下文）。
     if mpvRenderRunning {
       mpvRenderRunning = false
       mpvRenderWake.signal()
       _ = mpvRenderExited.wait(timeout: .now() + 2)
     }
+    // 兜底：渲染线程异常提前退出时 render_context 仍可能残留（正常路径已置 nil）。
     if let ctx = mpvRenderContext {
       mpvApi?.renderSetUpdate?(ctx, nil, nil)
       mpvApi?.renderFree?(ctx)

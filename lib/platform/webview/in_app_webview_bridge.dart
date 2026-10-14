@@ -9,9 +9,16 @@
 ///     返回 `status/body/headers`（对齐 iOS `BaiduWebViewBridge.request`）；
 ///   · [currentCookieString]：`CookieManager.getCookies` 拼串。
 ///
-/// 平台可用性：[isAvailable] 仅在 Android / iOS / macOS 为 true；
-/// Windows/Linux 无 `flutter_inappwebview` 实现，返回 false（消费点回退
-/// 「系统浏览器 + 粘贴」兜底），不影响构建。
+/// 平台可用性：[isAvailable] 在 Android / iOS / macOS / Windows 为 true。
+/// Windows 由 `flutter_inappwebview_windows`（Microsoft.Web.WebView2 承载）
+/// 提供 `HeadlessInAppWebView` / `CookieManager` / `InAppWebView`，与
+/// Android/iOS/macOS 走同一套 API；Linux 无 `flutter_inappwebview` 实现，
+/// 返回 false（消费点回退「系统浏览器 + 粘贴」兜底），不影响构建。
+///
+/// Windows 引导：[initialize] 须在 `runApp` 前调用一次，创建**自定义数据目录**
+/// 的 `WebViewEnvironment`（WebView2 默认数据目录在 exe 同级，安装到只读目录
+/// 时会崩溃），并探测 WebView2 Runtime 是否存在；缺失或创建失败时
+/// [isAvailable] 在 Windows 返回 false，消费点自动回退第 4 层保存值兜底。
 ///
 /// 说明：本文件按 `flutter_inappwebview` 6.x 稳定 API 编写；因交付沙箱无
 /// Flutter/Dart SDK，具体类/方法签名未经本地编译验证，若 CI 报错需按插件
@@ -20,12 +27,15 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show Directory, Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
+import '../../core/utils/logger.dart';
 import 'webview_bridge.dart';
 
 /// 基于 `flutter_inappwebview` 的 WebView 桥实现。
@@ -33,9 +43,60 @@ class InAppWebViewBridge implements WebViewBridge {
   /// 构造。
   InAppWebViewBridge();
 
+  /// Windows 平台 WebView2 环境（自定义数据目录；非 Windows 恒为 null）。
+  ///
+  /// 由 [initialize] 在启动时创建，供 `CookieManager` / `HeadlessInAppWebView`
+  /// / `InAppWebView` 共用（保证 CookieJar 同源）。
+  static WebViewEnvironment? _windowsEnvironment;
+
+  /// Windows 平台 WebView2 Runtime 是否可用（其余平台恒 true）。
+  ///
+  /// 缺省 true（未探测时按可用处理，保持既有行为）；[initialize] 探测到
+  /// Runtime 缺失 / 创建失败时置 false，令 Windows 上的 [isAvailable] 返回
+  /// false，消费点回退第 4 层保存值兜底。
+  static bool _windowsAvailable = true;
+
+  /// 是否已执行 [initialize]（幂等保护，避免重复创建环境）。
+  static bool _windowsInitialized = false;
+
+  /// Windows 专用引导：创建**自定义数据目录**的 `WebViewEnvironment`。
+  ///
+  /// 须在 `runApp` 前调用一次（`main()` 内）。依据官方要求，WebView2 默认
+  /// 数据目录位于 exe 同级（只读安装目录下会崩溃），改用应用支持目录下
+  /// `webview2/` 规避；同时探测 WebView2 Runtime 是否存在。非 Windows 为空
+  /// 操作；Runtime 缺失或创建失败时静默降级（仅告警，不阻断启动）。
+  static Future<void> initialize() async {
+    if (kIsWeb || !Platform.isWindows) return;
+    if (_windowsInitialized) return;
+    _windowsInitialized = true;
+    try {
+      final String? version = await WebViewEnvironment.getAvailableVersion();
+      if (version == null) {
+        _windowsAvailable = false;
+        AppLog.warn('webview', '未检测到 WebView2 Runtime，Windows 内嵌 WebView 兜底不可用');
+        return;
+      }
+      final Directory base = await getApplicationSupportDirectory();
+      final Directory dir = Directory(p.join(base.path, 'webview2'));
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      _windowsEnvironment = await WebViewEnvironment.create(
+        settings: WebViewEnvironmentSettings(userDataFolder: dir.path),
+      );
+    } catch (e) {
+      _windowsAvailable = false;
+      AppLog.warn('webview', 'Windows WebView2 环境初始化失败: $e');
+    }
+  }
+
   @override
   bool get isAvailable =>
-      !kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS);
+      !kIsWeb &&
+      (Platform.isAndroid ||
+          Platform.isIOS ||
+          Platform.isMacOS ||
+          (Platform.isWindows && _windowsAvailable));
 
   void _ensureAvailable() {
     if (!isAvailable) {
@@ -53,7 +114,8 @@ class InAppWebViewBridge implements WebViewBridge {
   }) async {
     _ensureAvailable();
     final WebUri uri = WebUri(url);
-    final CookieManager cookieManager = CookieManager.instance();
+    final CookieManager cookieManager =
+        CookieManager.instance(webViewEnvironment: _windowsEnvironment);
     // 预注入 Cookie：HttpOnly 只能经 CookieManager 写入（不能靠 document.cookie）。
     for (final MapEntry<String, String> e in cookies.entries) {
       await cookieManager.setCookie(
@@ -67,6 +129,7 @@ class InAppWebViewBridge implements WebViewBridge {
         Completer<WebViewPageResult>();
     final HeadlessInAppWebView headless = HeadlessInAppWebView(
       initialUrlRequest: URLRequest(url: uri),
+      webViewEnvironment: _windowsEnvironment,
       initialSettings: InAppWebViewSettings(
         userAgent: userAgent,
         javaScriptEnabled: true,
@@ -150,6 +213,7 @@ class InAppWebViewBridge implements WebViewBridge {
     final String host = hostUrl ?? _originOf(url);
     final HeadlessInAppWebView page = HeadlessInAppWebView(
       initialUrlRequest: URLRequest(url: WebUri(host)),
+      webViewEnvironment: _windowsEnvironment,
       initialSettings: InAppWebViewSettings(javaScriptEnabled: true),
     );
     await page.run();
@@ -195,7 +259,8 @@ class InAppWebViewBridge implements WebViewBridge {
   @override
   Future<String> currentCookieString({String? domain}) async {
     _ensureAvailable();
-    final CookieManager cookieManager = CookieManager.instance();
+    final CookieManager cookieManager =
+        CookieManager.instance(webViewEnvironment: _windowsEnvironment);
     final List<Cookie> cs = domain == null || domain.isEmpty
         ? await cookieManager.getAllCookies()
         : await cookieManager.getCookies(
@@ -209,6 +274,7 @@ class InAppWebViewBridge implements WebViewBridge {
     if (!isAvailable) return null;
     return InAppWebView(
       initialUrlRequest: URLRequest(url: WebUri(url)),
+      webViewEnvironment: _windowsEnvironment,
       initialSettings: InAppWebViewSettings(
         userAgent: userAgent,
         javaScriptEnabled: true,

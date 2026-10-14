@@ -356,7 +356,8 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
   });
 
-  testWidgets('解析失败：SnackBar 提示', (WidgetTester tester) async {
+  testWidgets('解析失败：先进入播放器，播放器内给出错误提示（可返回）',
+      (WidgetTester tester) async {
     final _FakeDetailUseCases uc = _FakeDetailUseCases(
       detailResult: () async => Success<PlaybackDetail>(detail()),
       playerResult: () async =>
@@ -366,10 +367,21 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('立即播放'));
-    await tester.pumpAndSettle();
+    // 问题4：先 push 播放器（立即呈现），解析下沉到播放器内；失败后收起加载层
+    // 并在播放器内给出错误提示（对齐 iOS 先 present 后 resolve）。
+    // 播放页进入后有常驻加载层动画，不能用 pumpAndSettle（永不 settle）。
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
+    // 已进入播放器，但解析失败 → 未 open/play。
+    expect(find.byType(PlayerPage), findsOneWidget);
     expect(player.calls, isEmpty);
+    expect(find.text('加载失败'), findsOneWidget);
     expect(find.textContaining('解析失败'), findsOneWidget);
+    expect(find.text('返回'), findsOneWidget);
+
+    // 排空播放页控制层自动隐藏计时器（避免测试结束仍有 pending timer）。
+    await tester.pump(const Duration(seconds: 4));
   });
 
   testWidgets('无剧集：播放按钮禁用', (WidgetTester tester) async {

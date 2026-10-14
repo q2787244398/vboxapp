@@ -34,6 +34,7 @@ import '../../../platform/player/danmaku/danmaku_item.dart';
 import '../../../platform/player/danmaku/danmaku_lane_engine.dart';
 import '../../../platform/player/danmaku/danmaku_service.dart';
 import '../../../platform/player/danmaku/danmaku_settings.dart';
+import '../../../platform/player/drive_error_mapper.dart';
 import '../../../platform/player/floating/floating.dart';
 import '../../../platform/player/gesture/gesture_control.dart';
 import '../../../platform/player/gesture/screen_controls.dart';
@@ -69,12 +70,15 @@ typedef EpisodeSourceResolver = Future<PlayerSource?> Function(
   PlaybackEpisode episode,
 );
 
+/// 首个播放源解析器（详情页「先 push 后 resolve」用；返回 null 表示解析失败）。
+typedef InitialSourceResolver = Future<PlayerSource?> Function();
+
 /// 全屏播放页。
 class PlayerPage extends StatefulWidget {
   /// 构造。
   const PlayerPage({
     super.key,
-    required this.source,
+    this.source,
     required this.title,
     this.subtitle,
     this.subtitleUrl,
@@ -83,16 +87,23 @@ class PlayerPage extends StatefulWidget {
     this.initialEpisodeIndex = 0,
     this.qualities = const <String>[],
     this.onResolveEpisode,
+    this.onResolveInitialSource,
     this.onProgress,
     this.route,
     this.controller,
     this.danmakuService,
     this.castService,
     this.wakeLock,
-  });
+  }) : assert(
+          source != null || onResolveInitialSource != null,
+          '必须提供 source 或 onResolveInitialSource',
+        );
 
   /// 首个播放源（详情页已解析好的直链 + 鉴权头）。
-  final PlayerSource source;
+  ///
+  /// 与 [onResolveInitialSource] 二选一：详情页「先 push 后 resolve」路径传 null，
+  /// 由播放器进入后自行解析（对齐 iOS 先 present 后 resolve）。
+  final PlayerSource? source;
 
   /// 主标题（剧名）。
   final String title;
@@ -119,6 +130,13 @@ class PlayerPage extends StatefulWidget {
 
   /// 选集重开解析器（null 时选集只切 UI 不换源 → 面板禁用）。
   final EpisodeSourceResolver? onResolveEpisode;
+
+  /// 首个播放源解析器（详情页「先 push 后 resolve」用）。
+  ///
+  /// 与 [source] 二选一：非 null 时播放器进入后先调用它解析初始源再打开；
+  /// 解析失败（返回 null）或抛错时播放器内给出错误提示，可返回
+  /// （对齐 iOS 先 present 后 resolve）。
+  final InitialSourceResolver? onResolveInitialSource;
 
   /// 播放进度回调（详情页用于写入观看记录，对齐 iOS 进度落库）。
   final void Function(PlaybackProgress progress)? onProgress;
@@ -311,10 +329,15 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 是否处于 `open` 调用中（用于区分「打开期后端降级」与「运行期播放错误」）。
   bool _openingInFlight = false;
 
+  /// 当前播放源（`widget.source` 为空时由 [PlayerPage.onResolveInitialSource]
+  /// 解析后填充；对齐 iOS 先 present 后 resolve）。
+  PlayerSource? _source;
+
   @override
   void initState() {
     super.initState();
     _player = widget.controller ?? PlayerController.instance;
+    _source = widget.source;
     // UI-D2：屏幕常亮（对齐 iOS isIdleTimerDisabled；播放中开启，暂停/退出恢复）。
     _wakeLock = widget.wakeLock ?? const WakelockPlusController();
     _castService = widget.castService ?? DlnaCastService();
@@ -348,7 +371,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
           : widget.qualities
       // R-04：按播放地址探测初始清晰度档（对齐 iOS `detectVideoQuality`）。
       ..selectedQuality =
-          PlayerControlsController.detectQualityIndex(widget.source.url) ?? 0
+          PlayerControlsController.detectQualityIndex(_source?.url ?? '') ?? 0
       ..backends = _player.availableBackends
       ..hasDanmaku = true
       ..showDanmaku = _danmaku.enabled
@@ -562,9 +585,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 当前待投送媒体（对齐 iOS 投屏的媒体投影）。
   CastMedia _currentCastMedia() => CastMedia(
-        url: widget.source.url,
+        url: _source?.url ?? '',
         title: widget.title,
-        headers: widget.source.headers,
+        headers: _source?.headers ?? const <String, String>{},
         isLive: _controls.isLive,
         positionMs: _controls.positionMs,
       );
@@ -902,8 +925,44 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
     // UI-F16：进度读取与起播**并行**（续播在首帧就绪时才应用，无需阻塞起播）。
     unawaited(_loadResumePosition());
-    await _openSource(widget.source);
+    await _resolveAndOpen();
     _scheduleHide();
+  }
+
+  /// 解析初始源（如未提供）后打开并起播（对齐 iOS 先 present 后 resolve）。
+  ///
+  /// [PlayerPage.source] 非空时直接用；为空时经
+  /// [PlayerPage.onResolveInitialSource] 解析（进入后自行解析，详情页不再阻塞）。
+  /// 解析失败（返回 null）或抛错 → 收起加载层并在播放页内展示错误提示，可返回。
+  Future<void> _resolveAndOpen() async {
+    PlayerSource? source = _source ?? widget.source;
+    if (source == null) {
+      final InitialSourceResolver? resolver = widget.onResolveInitialSource;
+      if (resolver == null) {
+        _controls.hideLoading();
+        _showError('解析失败，请重试');
+        return;
+      }
+      try {
+        source = await resolver();
+      } catch (e) {
+        if (!mounted) return;
+        _controls.hideLoading();
+        _showError(DriveErrorMapper.messageOf(e));
+        return;
+      }
+      if (!mounted) return;
+      if (source == null) {
+        _controls.hideLoading();
+        _showError('解析失败，请重试');
+        return;
+      }
+    }
+    _source = source;
+    // R-04：解析得到地址后按地址探测清晰度档（延迟解析路径下 initState 无从取值）。
+    _controls.selectedQuality =
+        PlayerControlsController.detectQualityIndex(source.url) ?? 0;
+    await _openSource(source);
   }
 
   // ─────────────── 进度续播（UI-F16 + F-P15 按集独立）───────────────
@@ -1422,7 +1481,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     final PlayerSource fallbackSource = await resolvePanPlaybackLine(
       line,
       title: widget.title,
-      provider: widget.source.provider,
+      provider: _source?.provider,
     );
     if (!mounted) return true;
     // 重开兜底源（不重置兜底链，保持 `attempted = true` 防重复切换）。
@@ -1448,7 +1507,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       '导出时间: ${now.year}-${two(now.month)}-${two(now.day)} '
           '${two(now.hour)}:${two(now.minute)}:${two(now.second)}',
       '标题: ${widget.title}${widget.subtitle == null ? '' : ' · ${widget.subtitle}'}',
-      '播放源: ${widget.source.url}',
+      '播放源: ${_source?.url ?? ''}',
       '───── 日志（最近 ${_playerLogs.length} 条）─────',
       ..._playerLogs,
     ].join('\n');
@@ -1482,7 +1541,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() => _errorMessage = null);
     _showControls();
-    await _openSource(widget.source);
+    await _resolveAndOpen();
   }
 
   /// 复杂封装 → 转封装候选（C-07）。

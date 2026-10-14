@@ -1,7 +1,7 @@
 /// 自适应框架单测（批次 A · A-07）。
 ///
 /// 验收：`docs/第2轮开发计划_功能补全_v2.6.md` §3.3 ——
-///   [ResponsiveGrid] 列数（竖屏 2–3 / 横屏 5–8）·
+///   [ResponsiveGrid] 列数（竖屏 3 / 横屏 5–8）·
 ///   [AdaptiveScaffold] 导航（全端统一底部胶囊 TabBar，A8 起横竖屏不再分叉）·
 ///   [ContentPanel] 分栏（竖屏全屏列表 / 横屏列表 + 详情）·
 ///   [AdaptiveDialog] 锚点（竖屏居中 / 横屏右侧抽屉）。
@@ -32,9 +32,9 @@ const List<VboxNavItem> _items = <VboxNavItem>[
 
 void main() {
   group('ResponsiveGrid.columnsFor', () {
-    test('竖屏：窄屏 2 列 / 常规 3 列', () {
-      expect(ResponsiveGrid.columnsFor(form: UiForm.portrait, width: 360), 2);
-      expect(ResponsiveGrid.columnsFor(form: UiForm.portrait, width: 479), 2);
+    test('竖屏：恒 3 列（对齐 iOS）', () {
+      expect(ResponsiveGrid.columnsFor(form: UiForm.portrait, width: 360), 3);
+      expect(ResponsiveGrid.columnsFor(form: UiForm.portrait, width: 479), 3);
       expect(ResponsiveGrid.columnsFor(form: UiForm.portrait, width: 480), 3);
       expect(ResponsiveGrid.columnsFor(form: UiForm.portrait, width: 1024), 3);
     });

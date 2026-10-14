@@ -16,11 +16,13 @@
 //  从 GitHub Release 资产拉取并改名 mpv-2.dll 拷入 runner 目录），插件运行期
 //  LoadLibraryW + GetProcAddress 动态解析，构建期不依赖第三方导入库。
 //
-//  渲染口径（R-渲1）：`vo=libmpv`（render API 前置）+ `mpv_render_context`（SW
-//  后端，`MPV_RENDER_API_TYPE_SW`）把每帧软渲染为 BGRA 像素，经 Flutter
-//  `TextureRegistrar`（[PixelBufferTexture]）上屏；`open` 返回 `textureId` 交
-//  Dart `Texture(textureId:)` 承载。视频尺寸经 `videoSize` 事件上报，Dart 侧按
-//  纵横比自适应（对齐 iOS `videoGravity = .resizeAspect`）。
+//  渲染口径（R-渲1 · 问题 5）：`vo=libmpv`（render API 前置）+ `gpu-api=opengl`
+//  + `mpv_render_context`（OpenGL/GPU 后端，`MPV_RENDER_API_TYPE_OPENGL`）：mpv
+//  在 GPU 上跑完整色彩管线（primaries/gamma/HDR tone-mapping，对齐 iOS）渲染到
+//  离屏 FBO，再 `glReadPixels` 回读 BGRA，经 Flutter `TextureRegistrar`
+//  （[PixelBufferTexture]）上屏；`open` 返回 `textureId` 交 Dart `Texture(textureId:)`
+//  承载。视频尺寸经 `videoSize` 事件上报，Dart 侧按纵横比自适应（对齐 iOS
+//  `videoGravity = .resizeAspect`）。
 //
 //  事件面实现：专属事件线程轮询 mpv_wait_event，事件经 EventSink 上抛；
 //  进度与状态由 mpv_observe_property 属性变更驱动（对齐契约 §2.5 能力矩阵）。
@@ -44,14 +46,16 @@
 #include <thread>
 #include <vector>
 
+#include <windows.h>
+
 #include "libmpv/client.h"
 
 namespace vbox {
 
-// ─────────────── libmpv render API（SW 后端）───────────────
+// ─────────────── libmpv render API（OpenGL/GPU 后端）───────────────
 //
 // `libmpv/render.h` 未随仓库分发（仅 client.h），此处按 mpv ABI 手动声明本插件
-// 用到的 SW 渲染子集；枚举值与 mpv 官方 render.h 一一对应（0~20），不得改动顺序。
+// 用到的渲染子集；枚举值与 mpv 官方 render.h 一一对应（0~20），不得改动顺序。
 struct mpv_render_context;
 typedef void (*mpv_render_update_fn)(void* callback_ctx);
 typedef uint64_t mpv_render_update_flag;
@@ -85,10 +89,63 @@ struct mpv_render_param {
   void* data;
 };
 
-// SW 渲染 api type 字符串（MPV_RENDER_API_TYPE_SW）。
-constexpr const char* kRenderApiSw = "sw";
+// `mpv_opengl_init_params`（render.h）：OpenGL render context 初始化参数。
+// `get_proc_address` 供 mpv 解析 GL 入口（Windows 下用 wglGetProcAddress 包装）。
+struct mpv_opengl_init_params {
+  void* (*get_proc_address)(void* ctx, const char* name);
+  void* get_proc_address_ctx;
+};
+
+// `mpv_opengl_fbo`（render.h）：OpenGL 离屏渲染目标。
+struct mpv_opengl_fbo {
+  int fbo;
+  int w;
+  int h;
+  int internal_format;
+};
+
+// 渲染 api type 字符串（MPV_RENDER_API_TYPE_OPENGL）。问题 5：桌面改走 GPU
+// render context，让 mpv 在 GPU 上跑完整色彩管线（primaries/gamma/HDR
+// tone-mapping），对齐 iOS 的 GPU 渲染路径，消除 SW 软渲染的泛黄偏色。
+constexpr const char* kRenderApiGl = "opengl";
 // mpv_render_context_update 返回标志：有新帧可渲染。
 constexpr mpv_render_update_flag kRenderUpdateFrame = 1;
+
+// ─────────────── OpenGL / WGL 运行期符号（R-渲1 · GPU）───────────────
+//
+// 不引入 GL/gl.h：手动声明本插件用到的 GL 子集，运行期经 wglGetProcAddress
+// （扩展入口）或 GetProcAddress(opengl32.dll)（GL 1.1 入口）解析。
+using GlEnum = unsigned int;
+using GlUint = unsigned int;
+using GlInt = int;
+using GlSizei = int;
+
+struct GlApi {
+  void (*gen_textures)(GlSizei, GlUint*) = nullptr;
+  void (*delete_textures)(GlSizei, const GlUint*) = nullptr;
+  void (*bind_texture)(GlEnum, GlUint) = nullptr;
+  void (*tex_image_2d)(GlEnum, GlInt, GlInt, GlSizei, GlSizei, GlInt, GlEnum,
+                       GlEnum, const void*) = nullptr;
+  void (*tex_parameter_i)(GlEnum, GlEnum, GlInt) = nullptr;
+  void (*pixel_store_i)(GlEnum, GlInt) = nullptr;
+  void (*gen_framebuffers)(GlSizei, GlUint*) = nullptr;
+  void (*delete_framebuffers)(GlSizei, const GlUint*) = nullptr;
+  void (*bind_framebuffer)(GlEnum, GlUint) = nullptr;
+  void (*framebuffer_texture_2d)(GlEnum, GlEnum, GlEnum, GlUint, GlInt) =
+      nullptr;
+  GlEnum (*check_framebuffer_status)(GlEnum) = nullptr;
+  void (*viewport)(GlInt, GlInt, GlSizei, GlSizei) = nullptr;
+  void (*read_pixels)(GlInt, GlInt, GlSizei, GlSizei, GlEnum, GlEnum,
+                      void*) = nullptr;
+};
+
+// WGL 入口（opengl32.dll；渲染线程内 wglMakeCurrent 绑定，线程亲和）。
+struct WglApi {
+  HGLRC (*create_context)(HDC) = nullptr;
+  BOOL (*make_current)(HDC, HGLRC) = nullptr;
+  BOOL (*delete_context)(HGLRC) = nullptr;
+  void* (*get_proc_address)(const char*) = nullptr;
+};
 
 // libmpv C API 函数指针表（mpv-2.dll 运行期动态解析）。
 // 仅收录本插件用到的符号；签名与 libmpv/client.h / render.h 一一对应。
@@ -219,6 +276,18 @@ class PlayerPlugin : public flutter::Plugin {
   std::mutex render_mutex_;
   std::condition_variable render_cv_;
 
+  // ── OpenGL / WGL 渲染上下文（R-渲1 · GPU；渲染线程亲和）──
+  GlApi gl_;
+  WglApi wgl_;
+  HMODULE opengl32_ = nullptr;   // opengl32.dll（GL 1.1 入口 + WGL）
+  HWND render_hwnd_ = nullptr;   // 隐藏窗口（仅承载 WGL 上下文）
+  HDC render_hdc_ = nullptr;
+  HGLRC render_glrc_ = nullptr;
+  GlUint render_fbo_ = 0;        // 离屏 FBO（mpv 渲染目标）
+  GlUint render_tex_ = 0;        // FBO 颜色纹理
+  int fbo_width_ = 0;
+  int fbo_height_ = 0;
+
   // ── 状态 ──
   std::string state_ = "idle";
 
@@ -248,12 +317,19 @@ class PlayerPlugin : public flutter::Plugin {
   void RunEventLoop();
   void HandleMpvEvent(const mpv_event* event);
 
-  // ── 渲染输出面内部（R-渲1）──
+  // ── 渲染输出面内部（R-渲1 · GPU/OpenGL）──
   static void OnRenderUpdate(void* callback_ctx);
   static void OnPixelBufferReleased(void* release_context);
   bool SetupRenderContext();
   void RunRenderLoop();
   void RenderFrame();
+  // 渲染线程内建/销毁 WGL 上下文 + mpv render_context（WGL 线程亲和）。
+  bool CreateGlRenderContext();
+  void DestroyGlRenderContext();
+  // 渲染线程内解析 opengl32 GL 入口（GL 1.1 + FBO 扩展）。
+  bool LoadGlSymbols();
+  // 渲染线程内按视频尺寸（懒）建离屏 FBO + 颜色纹理。
+  bool EnsureFbo(int width, int height);
   const FlutterDesktopPixelBuffer* CopyPixelBuffer(size_t width, size_t height);
   void RegisterTexture();
   void UnregisterTexture();
