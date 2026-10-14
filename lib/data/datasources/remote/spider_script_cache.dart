@@ -213,10 +213,19 @@ class SpiderScriptCache {
     return cleaned;
   }
 
-  /// 解析主脚本地址（对齐 iOS `downloadAndCacheSpiderJS` 的 `resolvedURL` 分支）。
+  /// 解析主脚本地址（**逐字对齐 iOS `resolveSpiderURL`**，SpiderManager.swift L1338-L1352）。
+  ///
+  /// 条件与 iOS 完全一致：`./` 前缀，或「非 http 且以 `.js` / `.py` 结尾」。
+  ///
+  /// ★ `.py` 必须在此命中（本轮修复）：iOS 端注释明确记录过同一处 bug ——
+  ///   「旧实现仅 .js 走缓存，.py 直接跳过导致 py 源不显示」。Flutter 端此前
+  ///   仍只认 `.js`，于是裸相对路径的 py 主脚本**永不落盘** → 运行时 cache miss，
+  ///   只能回退联网 + 依赖订阅源基址；基址为空（本地/内置源清单）或离线即
+  ///   「暂无数据」。这正是「只有后缀 py 的源加载不出分类数据」的直接原因。
   static String? _resolveScriptUrl(String api, String baseURL) {
     final bool isHttp = api.startsWith('http://') || api.startsWith('https://');
-    if (api.startsWith('./') || (!isHttp && api.endsWith('.js'))) {
+    if (api.startsWith('./') ||
+        (!isHttp && (api.endsWith('.js') || api.endsWith('.py')))) {
       final String clean = api.startsWith('./') ? api.substring(2) : api;
       if (baseURL.isEmpty) return null;
       return '$baseURL/$clean';

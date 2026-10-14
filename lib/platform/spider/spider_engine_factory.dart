@@ -55,7 +55,7 @@ class SpiderEngineFactory {
           requestId: requestId,
         );
       case SpiderEngineType.python:
-        return PythonBridgeEngine();
+        return _createPython(onLog);
       case SpiderEngineType.quickJS:
         return _createQuickJs(
           quickJsBridge: quickJsBridge,
@@ -99,6 +99,16 @@ class SpiderEngineFactory {
         requestId: requestId,
         onLog: onLog,
       );
+
+  PythonBridgeEngine _createPython(void Function(String)? onLog) {
+    final PythonBridgeEngine engine = PythonBridgeEngine();
+    // ★ 对齐 iOS `PythonSpiderEngine.onLog`（SpiderManager.swift L1473-L1475：
+    //   引擎日志写入 AppLogStore）。此前工厂未接 onLog → Python 桥的脚本
+    //   traceback、桥启动异常、ABI 响应里的 logs 全部丢弃，日志页看不到
+    //   py 源失败原因（诊断盲区）。
+    engine.onLog = onLog;
+    return engine;
+  }
 
   QuickJSBridgeEngine _createQuickJs({
     required QuickJsNativeBridge? quickJsBridge,

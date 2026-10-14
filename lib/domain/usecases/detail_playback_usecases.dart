@@ -1034,7 +1034,11 @@ class DetailPlaybackUseCases {
       await engine.loadScriptFromURL(ext);
       return;
     }
-    if (ext.startsWith('./') || ext.endsWith('.js') || ext.endsWith('.py')) {
+    // ★ ext 只认「`./` 前缀」与「`.js` 结尾」——**逐字对齐 iOS**
+    //   （SpiderManager.swift L1531）。此前多认的 `.py` 会让 Python 引擎
+    //   经 `loadScriptFromURL` 重新 launch，从而顶掉已加载的主蜘蛛脚本
+    //   （详见 content_browse_usecases.dart 同处注释），故与 iOS 一致地排除。
+    if (ext.startsWith('./') || ext.endsWith('.js')) {
       await engine.loadScriptFromURL(_resolveScriptUrl(ext, site));
       return;
     }

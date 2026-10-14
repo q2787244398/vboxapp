@@ -12,6 +12,7 @@
 library;
 
 import '../../core/errors/failures.dart';
+import '../../core/utils/logger.dart';
 import '../../core/utils/result.dart';
 import '../../data/datasources/local/tg_search_config_store.dart';
 import '../../data/datasources/remote/all_sources_datasource.dart';
@@ -546,6 +547,11 @@ class ContentBrowseUseCases {
           baseUrl: site.api,
           nodeClient: _nodeClient,
           quickJsBridge: _quickJsBridge,
+          // ★ 引擎日志接入 AppLog（对齐 iOS：`SpiderManager` L1473-L1475 给
+          //   `PythonSpiderEngine.onLog` 挂了 `AppLogStore.shared.info(.spider, …)`）。
+          //   此前 Flutter 端未挂 onLog，Python 桥的脚本 traceback、桥异常、
+          //   节点降级事件全部丢弃 → 日志页看不到任何蜘蛛侧内容（诊断盲区）。
+          onLog: (String message) => AppLog.info('spider', '[${site.key}] $message'),
         );
         _engineCache[site.key] = engine;
       }
@@ -553,11 +559,21 @@ class ContentBrowseUseCases {
       return Success<T>(await call(engine));
     } catch (e) {
       // 失败即弃（引擎状态不可信）：剔除缓存，下次请求重建。
+      final Failure failure = _asFailure(e);
+      // ★ 显式补蜘蛛失败日志（对齐 iOS `SpiderManager` 每个阶段都写 AppLogStore）：
+      //   `_asFailure` 直接 `const SpiderFailure(...)`，而全仓错误日志的唯一汇聚点
+      //   是 `Failure.from`（failures.dart L34-L41）——不经它就没有任何日志，
+      //   这正是「切源失败时日志页一片空白」的根因。此处显式补一条 error 级日志。
+      AppLog.error(
+        'spider',
+        '站点「${site.name}」(${site.key}) ${engineType.name} 调用失败：${failure.message}',
+        error: e,
+      );
       final SpiderEngine? broken = _engineCache.remove(site.key);
       if (broken != null) {
         await broken.dispose();
       }
-      return Err<T>(_asFailure(e));
+      return Err<T>(failure);
     }
   }
 
@@ -619,6 +635,11 @@ class ContentBrowseUseCases {
       //   的根因修复：iOS 端同样先读 `cachedSpiderJSContent(forKey:)`。
       final String? cachedScript = _scriptCache?.read(key);
       if (cachedScript != null) {
+        // ★ 诊断日志（对齐 iOS `loadSinglePythonSpider` 的「📁 从本地缓存加载」）。
+        AppLog.info(
+          'spider',
+          '站点「${site.name}」($key) 脚本命中本地缓存（${cachedScript.length} 字符）',
+        );
         await engine.loadScript(cachedScript);
       } else {
         final String? api = site.api;
@@ -632,7 +653,13 @@ class ContentBrowseUseCases {
           // 相对路径脚本（`./x.js` / `x.js` / `x.py`）：以 allSources 清单 URL 为
           // base 解析绝对地址，对齐 iOS `SpiderManager` 订阅源 subBaseURL 分支
           // （`URL(string:).deletingLastPathComponent().appendingPathComponent(api)`）。
-          await engine.loadScriptFromURL(_resolveScriptUrl(trimmed, site));
+          final String resolvedUrl = _resolveScriptUrl(trimmed, site);
+          AppLog.info(
+            'spider',
+            '站点「${site.name}」($key) 缓存缺失，按订阅源基址解析相对路径：'
+            '「$trimmed」→ $resolvedUrl',
+          );
+          await engine.loadScriptFromURL(resolvedUrl);
         } else {
           // G-04：TG 搜索蜘蛛注入用户配置——对齐 iOS `SpiderManager` L1391-L1400
           // 在主脚本前 prepend `var __TG_CONFIG__ = {...};` 的语义；Flutter 以
@@ -644,6 +671,10 @@ class ContentBrowseUseCases {
               await engine.loadLibrary(configJs);
             }
           }
+          AppLog.info(
+            'spider',
+            '站点「${site.name}」($key) 缓存缺失，从绝对地址下载脚本：$trimmed',
+          );
           await engine.loadScriptFromURL(trimmed);
         }
       }
@@ -653,12 +684,22 @@ class ContentBrowseUseCases {
       //   → 分类数据恒为空。ext 加载失败不影响主框架（iOS 同语义）。
       try {
         await _loadSpiderExt(engine, site, key);
-      } catch (_) {}
+      } catch (e) {
+        // 对齐 iOS：ext 失败不阻断主框架，但**必须留日志**（iOS 打印
+        // 「远程蜘蛛 ext 加载失败: …」）。此前此处静默吞异常 → 类似
+        // 「ext 把 Python 主脚本顶掉」这类事故在日志里完全不可见。
+        AppLog.warn('spider', '站点「${site.name}」($key) ext 加载失败（不阻断主框架）：$e');
+      }
     }
     await engine.registerSpider();
     if (!engine.isSpiderReady) {
       throw const SpiderFailure('蜘蛛注册失败（未找到 __JS_SPIDER__）');
     }
+    // ★ 就绪日志（对齐 iOS 各加载分支的「✅ 加载成功」轨迹）。
+    AppLog.info(
+      'spider',
+      '站点「${site.name}」(${site.key}) 引擎已就绪：${engine.engineType.name}',
+    );
   }
 
   /// 加载蜘蛛 ext（对齐 iOS `loadSpiderExt`，SpiderManager.swift L1507-L1557）：
@@ -683,7 +724,14 @@ class ContentBrowseUseCases {
       await engine.loadScriptFromURL(ext);
       return;
     }
-    if (ext.startsWith('./') || ext.endsWith('.js') || ext.endsWith('.py')) {
+    // ★ ext 只认「`./` 前缀」与「`.js` 结尾」——**逐字对齐 iOS**
+    //   （SpiderManager.swift L1531：`extTrimmed.hasPrefix("./") || extTrimmed.hasSuffix(".js")`）。
+    //   此前 Flutter 端多认了一个 `.py`，后果严重：Python 引擎的
+    //   `loadScriptFromURL` 内部会 shutdown + 重新 launch（见 python_bridge_engine.dart
+    //   L74-L107），等于把刚加载好的 py 主蜘蛛**顶替成 ext 内容**；而随后
+    //   `registerSpider()` 对 Python 引擎是无条件置就绪 → 引擎「假就绪」，
+    //   取分类时脚本里已无 `Spider` 类 → 分类胶囊与数据全空。故与 iOS 一致地排除 `.py`。
+    if (ext.startsWith('./') || ext.endsWith('.js')) {
       await engine.loadScriptFromURL(_resolveScriptUrl(ext, site));
       return;
     }
