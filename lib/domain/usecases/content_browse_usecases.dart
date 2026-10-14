@@ -143,6 +143,11 @@ class ContentBrowseUseCases {
       case SiteMode.pythonSpider:
         return _spiderHome(site);
       case SiteMode.unsupported:
+        AppLog.error(
+          'spider',
+          '站点「${site.name}」(${site.key}) 模式不支持（type=${site.type}，'
+          'api=${site.api}）→ 首页无数据',
+        );
         return Err<HomeContentResult>(
           UnsupportedFailure('站点「${site.name}」模式不支持'),
         );
@@ -177,6 +182,11 @@ class ContentBrowseUseCases {
       case SiteMode.pythonSpider:
         return _spiderCategory(site, tid, page);
       case SiteMode.unsupported:
+        AppLog.error(
+          'spider',
+          '站点「${site.name}」(${site.key}) 模式不支持（type=${site.type}，'
+          'api=${site.api}）→ 分类内容无数据',
+        );
         return Err<CategoryContentResult>(
           UnsupportedFailure('站点「${site.name}」模式不支持'),
         );
@@ -203,6 +213,11 @@ class ContentBrowseUseCases {
       case SiteMode.pythonSpider:
         return _spiderCategories(site);
       case SiteMode.unsupported:
+        AppLog.error(
+          'spider',
+          '站点「${site.name}」(${site.key}) 模式不支持（type=${site.type}，'
+          'api=${site.api}）→ 分类列表为空',
+        );
         return Err<List<VodCategory>>(
           UnsupportedFailure('站点「${site.name}」模式不支持'),
         );
@@ -236,6 +251,11 @@ class ContentBrowseUseCases {
       case SiteMode.pythonSpider:
         return _spiderSearch(site, keyword, page);
       case SiteMode.unsupported:
+        AppLog.error(
+          'spider',
+          '站点「${site.name}」(${site.key}) 模式不支持（type=${site.type}，'
+          'api=${site.api}）→ 搜索无数据',
+        );
         return Err<SearchContentResult>(
           UnsupportedFailure('站点「${site.name}」模式不支持'),
         );
@@ -250,7 +270,16 @@ class ContentBrowseUseCases {
 
     final Result<AllSourcesContainer> sourcesResult = await loadAllSources();
     final Failure? sourcesFailure = sourcesResult.failureOrNull;
-    if (sourcesFailure != null) return _ResolvedSite.error(sourcesFailure);
+    if (sourcesFailure != null) {
+      // ★ 诊断日志：此前该早退路径**完全静默**——源清单拉取失败（网络/解析）
+      //   时日志页一片空白，无法区分「清单失败」与「站点未找到」。
+      AppLog.error(
+        'spider',
+        '站点解析失败：加载源清单出错 — ${sourcesFailure.message}',
+        error: sourcesFailure,
+      );
+      return _ResolvedSite.error(sourcesFailure);
+    }
     final AllSourcesContainer? container = sourcesResult.valueOrNull;
     SiteConfig? site = container == null
         ? null
@@ -267,6 +296,7 @@ class ContentBrowseUseCases {
       }
     }
     if (site == null) {
+      AppLog.error('spider', '站点解析失败：未找到站点 key=$key（源清单已加载）');
       return _ResolvedSite.error(ValidationFailure('未找到站点：$key'));
     }
     return _ResolvedSite(site);

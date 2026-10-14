@@ -22,6 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/utils/logger.dart';
 import '../../../core/utils/result.dart';
 import '../../../data/datasources/local/baidu_playback_cache_store.dart';
 import '../../../data/datasources/local/cloud_play_item_cache_store.dart';
@@ -596,6 +597,9 @@ class _SettingsPageState extends State<SettingsPage> {
           onChanged: (bool value) async {
             setState(() => _logEnabled = value);
             await prefs.set('app_log_enabled', value);
+            // ★ 即时生效（此前只在启动时读一次契约键 → 用户打开开关后
+            //   本次运行仍不记录、必须重启 App，是「开了开关日志仍空白」的根因）。
+            AppLog.configure(enabled: value);
           },
         ),
         VboxSettingsRow.navigation(
