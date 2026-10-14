@@ -227,9 +227,14 @@ if (!globalThis.local) {
     };
 }
 
-// 防止未捕获的 Promise 错误崩溃 spider
-process.on('unhandledRejection', () => {});
-process.on('uncaughtException', () => {});
+// 防止未捕获的 Promise 错误崩溃 spider：保留吞掉语义（不 exit），
+// 但必须记录，否则致命错误被静默掩盖，排查时无迹可寻。
+process.on('unhandledRejection', (reason) => {
+    console.error('[NodeBridge] unhandledRejection:', reason);
+});
+process.on('uncaughtException', (error) => {
+    console.error('[NodeBridge] uncaughtException:', error);
+});
 
 // macOS runs Node.js as a signed child process. Exit promptly if the Flutter
 // parent is killed without receiving applicationWillTerminate.
@@ -247,7 +252,13 @@ if (Number.isInteger(parentPid) && parentPid > 0) {
     parentWatchdog.unref();
 }
 
-process.chdir(process.env.NODE_PATH);
+// NODE_PATH 未设置时 process.chdir 会抛 TypeError，导致后续服务端启动代码
+// 整段不执行（被 uncaughtException 吞掉后模块不再继续）。显式保护 + 记录。
+if (process.env.NODE_PATH) {
+    process.chdir(process.env.NODE_PATH);
+} else {
+    console.error('[NodeBridge] NODE_PATH 未设置，跳过 chdir（工作目录保持不变）');
+}
 
 // Ensure db.json exists with required structure
 const fs = require('fs');

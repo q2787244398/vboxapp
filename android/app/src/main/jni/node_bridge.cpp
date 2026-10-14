@@ -38,13 +38,22 @@ Java_com_vbox_player_NodeBridge_nativeStartNodeWithArguments(
   // 2) 参数写入连续内存 + 组装 argv
   char *buffer = static_cast<char *>(calloc(totalSize > 0 ? totalSize : 1, sizeof(char)));
   char **argv = static_cast<char **>(calloc(argumentCount > 0 ? argumentCount : 1, sizeof(char *)));
+  // 分配失败必须提前返回：node::Start 收到 nullptr argv 会 SIGSEGV 杀进程
+  // （native 崩溃 Kotlin catch(Throwable) 接不住）。
+  if (buffer == nullptr || argv == nullptr) {
+    free(argv);
+    free(buffer);
+    return -1;
+  }
   char *cursor = buffer;
   for (jsize i = 0; i < argumentCount; i++) {
     jstring element = static_cast<jstring>(env->GetObjectArrayElement(arguments, i));
     const char *arg = env->GetStringUTFChars(element, nullptr);
-    strncpy(cursor, arg, strlen(arg));
+    const size_t len = strlen(arg);
+    memcpy(cursor, arg, len);
+    cursor[len] = '\0';  // 显式结尾，不依赖 calloc 清零（防御性）
     argv[i] = cursor;
-    cursor += strlen(arg) + 1;
+    cursor += len + 1;
     env->ReleaseStringUTFChars(element, arg);
     env->DeleteLocalRef(element);
   }

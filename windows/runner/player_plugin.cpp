@@ -316,10 +316,13 @@ void PlayerPlugin::Open(
   EmitState("opening");
   // R-渲1：把纹理句柄交回 Dart（`Texture(textureId:)` 承载画面）。
   // 无渲染输出面（render API 缺失）时返回空 map → Dart textureId=null → 深色占位。
+  // 注意：纹理由渲染线程懒注册，此刻通常尚未就绪（texture_id_ == -1）。
+  // 注册完成后经 `EmitTextureReady` 事件补发句柄，Dart 侧据此挂载纹理。
+  const int64_t texture_id = texture_id_.load();
   flutter::EncodableMap payload;
-  if (texture_id_ >= 0) {
+  if (texture_id >= 0) {
     payload[flutter::EncodableValue("textureId")] =
-        flutter::EncodableValue(texture_id_);
+        flutter::EncodableValue(texture_id);
   }
   result->Success(flutter::EncodableValue(payload));
 }
@@ -731,14 +734,20 @@ void PlayerPlugin::RegisterTexture() {
       [this](size_t width, size_t height) -> const FlutterDesktopPixelBuffer* {
         return CopyPixelBuffer(width, height);
       }));
-  texture_id_ = texture_registrar_->RegisterTexture(texture_.get());
+  const int64_t texture_id = texture_registrar_->RegisterTexture(texture_.get());
+  texture_id_.store(texture_id);
+  // 渲染线程在 Open() 返回后才注册纹理 → 平台线程已提前返回空 payload。
+  // 补发事件，让 Dart 侧挂载 `Texture(textureId:)`（否则无画面）。
+  if (texture_id >= 0) {
+    EmitTextureReady(texture_id);
+  }
 }
 
 void PlayerPlugin::UnregisterTexture() {
-  if (texture_registrar_ != nullptr && texture_id_ >= 0) {
-    texture_registrar_->UnregisterTexture(texture_id_);
+  const int64_t texture_id = texture_id_.exchange(-1);
+  if (texture_registrar_ != nullptr && texture_id >= 0) {
+    texture_registrar_->UnregisterTexture(texture_id);
   }
-  texture_id_ = -1;
   texture_.reset();
 }
 
@@ -836,8 +845,9 @@ void PlayerPlugin::RenderFrame() {
     frame_height_ = pixel_height;
   }
 
-  if (texture_registrar_ != nullptr && texture_id_ >= 0) {
-    texture_registrar_->MarkTextureFrameAvailable(texture_id_);
+  const int64_t texture_id = texture_id_.load();
+  if (texture_registrar_ != nullptr && texture_id >= 0) {
+    texture_registrar_->MarkTextureFrameAvailable(texture_id);
   }
 
   // 视频尺寸变更上报（Dart 侧输出面纵横比自适应；去重避免抖动）。
@@ -1039,6 +1049,20 @@ void PlayerPlugin::EmitError(const std::string& message, bool fatal) {
        flutter::EncodableValue(message)},
       {flutter::EncodableValue(std::string("fatal")),
        flutter::EncodableValue(fatal)},
+  }));
+}
+
+void PlayerPlugin::EmitTextureReady(int64_t texture_id) {
+  std::shared_ptr<flutter::EventSink<flutter::EncodableValue>> sink =
+      SinkSnapshot();
+  if (sink == nullptr) {
+    return;
+  }
+  sink->Success(flutter::EncodableValue(flutter::EncodableMap{
+      {flutter::EncodableValue(std::string("type")),
+       flutter::EncodableValue(std::string("textureReady"))},
+      {flutter::EncodableValue(std::string("textureId")),
+       flutter::EncodableValue(texture_id)},
   }));
 }
 

@@ -243,6 +243,11 @@ class PlayerController {
         last = e;
         onError?.call('后端 ${backend.name} 打开失败：${e.message}', fatal: true);
         await _disposePlayer();
+      } catch (e) {
+        // 兜底：任何非预期异常都收敛为可回退的打开失败，绝不裸抛中断后端链。
+        last = PlayerOpenException('E_OPEN', '后端 ${backend.name} 打开异常：$e');
+        onError?.call('后端 ${backend.name} 打开异常：$e', fatal: true);
+        await _disposePlayer();
       }
       previous = backend;
     }
@@ -316,6 +321,10 @@ class PlayerController {
     p.onVideoSize = (int width, int height) {
       if (width <= 0 || height <= 0) return;
       onVideoSize?.call(width, height);
+    };
+    // R-渲1 补发：原生纹理懒注册，open 返回时多为 null；就绪后经此事件挂载。
+    p.onTextureReady = (int textureId) {
+      onSurfaceChanged?.call(textureId);
     };
     p.onError = _handleRuntimeError;
   }

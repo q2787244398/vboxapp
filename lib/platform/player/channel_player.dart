@@ -61,6 +61,10 @@ class ChannelPlayer implements Player {
   @override
   void Function(int width, int height)? onVideoSize;
 
+  /// 纹理注册就绪（R-渲1 补发）：原生渲染线程懒注册纹理，`open` 返回时通常
+  /// 尚未就绪，句柄随后经 `textureReady` 事件补发，宿主据此挂载输出面。
+  void Function(int textureId)? onTextureReady;
+
   @override
   void Function(String message, {required bool fatal})? onError;
 
@@ -73,12 +77,26 @@ class ChannelPlayer implements Player {
         ...source.toJson(),
         'backend': backendWireValue(backend),
       });
-      _textureId = _parseTextureId(r);
+      // 仅在解析出句柄时写入：纹理懒注册时 open 多返回空 map，而 `textureReady`
+      // 事件可能已先于 open 返回并设好 _textureId，此处不得用 null 覆盖。
+      final int? id = _parseTextureId(r);
+      if (id != null) {
+        _textureId = id;
+      }
     } on PlatformException catch (e) {
       throw PlayerOpenException(
         e.code,
         e.message ?? '播放器打开失败（${backend.name}）',
       );
+    } on MissingPluginException {
+      throw PlayerOpenException(
+        'E_BACKEND_UNAVAILABLE',
+        '平台通道未注册（${backend.name}）',
+      );
+    } catch (e) {
+      // 原生通道异常/解码（ArgumentError 等）统一收敛为可回退的打开失败，
+      // 避免上抛裸异常中断后端链并连带崩溃上层。
+      throw PlayerOpenException('E_OPEN', '播放器打开失败（${backend.name}）：$e');
     }
   }
 
@@ -151,6 +169,12 @@ class ChannelPlayer implements Player {
           (e['width'] as num?)?.toInt() ?? 0,
           (e['height'] as num?)?.toInt() ?? 0,
         );
+      case 'textureReady':
+        final int? id = (e['textureId'] as num?)?.toInt();
+        if (id != null && id >= 0) {
+          _textureId = id;
+          onTextureReady?.call(id);
+        }
     }
   }
 

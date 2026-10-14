@@ -318,7 +318,15 @@ class PanPlayer {
     await _ensureTokens(type);
     switch (channelFor(type)) {
       case PanPlayChannel.nodePan:
-        return _client.resolveShare(shareUrl);
+        try {
+          return await _client.resolveShare(shareUrl);
+        } on NodePanException catch (e) {
+          throw PanPlayException(e.displayMessage);
+        } catch (e) {
+          // P0-D（问题 4）：扩大捕获面，非 NodePanException 也收敛为播放异常，
+          // 避免冒泡到 UI 触发 App 闪退。
+          throw PanPlayException('Node 网盘分享解析异常：$e');
+        }
       case PanPlayChannel.native:
         if (type == CloudDriveType.quark) {
           final String cookie = await _cookie(type);
@@ -439,8 +447,18 @@ class PanPlayer {
       case PanPlayChannel.nodePan:
         // F-P26：fragment 携带的 playID 可能已过期（Node 每次 detail 重签
         // playToken）→ 先重取本次文件列表三级匹配，再用新 playID 取链。
-        final NodePanEntry matched = await _matchNodeEntry(shareUrl, entry);
-        final NodePanPlayData data = await _client.resolvePlay(matched.playID);
+        final NodePanEntry matched;
+        final NodePanPlayData data;
+        try {
+          matched = await _matchNodeEntry(shareUrl, entry);
+          data = await _client.resolvePlay(matched.playID);
+        } on NodePanException catch (e) {
+          throw PanPlayException(e.displayMessage);
+        } catch (e) {
+          // P0-D（问题 4）：扩大异常捕获面 —— NodePanException 之外的异常
+          //（空指针 / 通道异常等）也统一收敛，绝不允许冒泡触发 App 闪退。
+          throw PanPlayException('Node 网盘播放解析异常：$e');
+        }
         playURL = data.url;
         fileName = matched.name.isEmpty ? entry.name : matched.name;
         headers = data.headers;

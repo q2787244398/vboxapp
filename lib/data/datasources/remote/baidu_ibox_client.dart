@@ -1899,9 +1899,12 @@ class BaiduIBoxClient {
 
   /// WebView 取用户态 bdstoken（对齐 iOS `baiduFetchUserBdstokenViaWebView`）。
   ///
-  /// 第 3 层：页面上下文 JS 提取（`window.locals`/`window.context`，对齐
-  /// iOS `BaiduWebViewBridge.swift:147-152` 三重提取）优先，渲染后 HTML
+  /// 第 3 层：页面上下文 JS 提取（`window.locals`/`window.yunData`/`window.context`，
+  /// 对齐 iOS `BaiduWebViewBridge.swift:147-152` 三重提取）优先，渲染后 HTML
   /// 正则兜底——disk/main 的 bdstoken 由 JS 运行时注入，静态正则大概率空手。
+  ///
+  /// 三源顺序与 iOS 严格一致：`locals` → `yunData.MYBDSTOKEN` → `context`。
+  /// 早期版本漏了 `yunData` 一层，导致 WebView 兜底整条链空手返回。
   Future<String> _webViewBdstoken(String cookie) async {
     if (!_webView.isAvailable) return '';
     try {
@@ -1913,6 +1916,7 @@ class BaiduIBoxClient {
         evaluateJs: '''
 (function(){
   try { if (window.locals && window.locals.get) { var v = window.locals.get('bdstoken'); if (v) return v; } } catch(e){}
+  try { if (window.yunData && window.yunData.MYBDSTOKEN) return window.yunData.MYBDSTOKEN; } catch(e){}
   try { if (window.context && window.context.bdstoken) return window.context.bdstoken; } catch(e){}
   return null;
 })()

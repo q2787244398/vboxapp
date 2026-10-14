@@ -290,34 +290,46 @@ class PlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChanne
             return
         }
 
-        val producer = registry.createSurfaceProducer()
-        producer.setCallback(surfaceCallback)
+        // 与 openVlc 同口径：Media3/ExoPlayer 构建、纹理创建、prepare 任一环节
+        // 抛 JVM 异常都必须收敛为 result.error，否则 result 永不回调 →
+        // Dart 侧 await open 永久挂起（表现为播放链卡死/闪退）。
+        try {
+            val producer = registry.createSurfaceProducer()
+            producer.setCallback(surfaceCallback)
 
-        // 对齐 iOS AVPlayer 的网络行为：允许 http↔https 跨协议重定向
-        // （源站常见 http→https 跳转，Media3 默认禁止，会直接报建连失败）。
-        val dataSourceFactory = DefaultHttpDataSource.Factory()
-            .setDefaultRequestProperties(headers)
-            .setAllowCrossProtocolRedirects(true)
-        val p = ExoPlayer.Builder(context)
-            .setMediaSourceFactory(
-                DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory)
+            // 对齐 iOS AVPlayer 的网络行为：允许 http↔https 跨协议重定向
+            // （源站常见 http→https 跳转，Media3 默认禁止，会直接报建连失败）。
+            val dataSourceFactory = DefaultHttpDataSource.Factory()
+                .setDefaultRequestProperties(headers)
+                .setAllowCrossProtocolRedirects(true)
+            val p = ExoPlayer.Builder(context)
+                .setMediaSourceFactory(
+                    DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory)
+                )
+                .build()
+            p.setVideoSurface(producer.surface)
+            p.setMediaItem(MediaItem.fromUri(Uri.parse(url)))
+            p.prepare()
+            p.addListener(listener)
+            if (isLive) {
+                // 直播流：直接起播（无 duration 边界）
+                p.play()
+            }
+            exoPlayer = p
+            surfaceProducer = producer
+            currentBackend = "media3"
+            emitState("opening")
+            handler.post(progressTick)
+            // R-渲1：返回纹理句柄（Dart 侧解析为 textureId → Texture(textureId:)）。
+            result.success(mapOf("textureId" to producer.id()))
+        } catch (t: Throwable) {
+            teardown()
+            result.error(
+                "E_BACKEND_UNAVAILABLE",
+                "Media3 后端初始化失败（$url）：${t.message}",
+                null,
             )
-            .build()
-        p.setVideoSurface(producer.surface)
-        p.setMediaItem(MediaItem.fromUri(Uri.parse(url)))
-        p.prepare()
-        p.addListener(listener)
-        if (isLive) {
-            // 直播流：直接起播（无 duration 边界）
-            p.play()
         }
-        exoPlayer = p
-        surfaceProducer = producer
-        currentBackend = "media3"
-        emitState("opening")
-        handler.post(progressTick)
-        // R-渲1：返回纹理句柄（Dart 侧解析为 textureId → Texture(textureId:)）。
-        result.success(mapOf("textureId" to producer.id()))
     }
 
     /**

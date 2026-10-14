@@ -355,21 +355,26 @@
   // 与 core 上报的阶段一一对应；base/span 为该阶段在总进度上的占位。
   // 「解压程序文件」内含「部署 Node 引擎」（node.exe 随 release 目录复制），
   // 故用该阶段内的真实字节进度在 70% 处切到第 3 张卡片。
+  //
+  // 键必须是纯 ASCII：core 用 Inno 的 SaveStringToFile（AnsiString 参数）写出，
+  // 中文会按系统 ANSI 代码页（GBK）落盘，而 .NET 壳按 UTF-8 读取 → 乱码 →
+  // 匹配失败 → 进度被压进「准备安装」区间封顶 8%。ASCII 键无编码歧义，
+  // 中文显示文案由 STATUS_TEXT 映射。
   const STAGE_DEF = {
-    '准备安装':     { step: 0, base: 0,   span: 8  },
-    '解压程序文件': { step: 1, base: 8,   span: 54, nodeSplit: 0.70 },
-    '创建快捷方式': { step: 3, base: 86,  span: 12 },
-    '安装完成':     { step: 4, base: 100, span: 0  }
+    prepare:  { step: 0, base: 0,   span: 8  },
+    extract:  { step: 1, base: 8,   span: 54, nodeSplit: 0.70 },
+    shortcut: { step: 3, base: 86,  span: 12 },
+    done:     { step: 4, base: 100, span: 0  }
   };
   const STATUS_TEXT = {
-    '准备安装':     '正在准备安装…',
-    '解压程序文件': '正在写入 vbox.exe 及依赖…',
-    '创建快捷方式': '正在创建桌面快捷方式…',
-    '安装完成':     '安装完成，正在启动 vbox…'
+    prepare:  '正在准备安装…',
+    extract:  '正在写入 vbox.exe 及依赖…',
+    shortcut: '正在创建桌面快捷方式…',
+    done:     '安装完成，正在启动 vbox…'
   };
   const STEP_NAMES = ['准备安装', '解压程序文件', '部署 Node 引擎', '创建快捷方式', '安装完成'];
 
-  let curStage = '准备安装';
+  let curStage = 'prepare';
   let lastPercent = 0;
   let finished = false;
 
@@ -399,7 +404,7 @@
   }
 
   function applyProgress(cur, max) {
-    const def = STAGE_DEF[curStage] || STAGE_DEF['准备安装'];
+    const def = STAGE_DEF[curStage] || STAGE_DEF['prepare'];
     let local = (max > 0) ? (cur / max) : 0;
     local = Math.max(0, Math.min(1, local));
     let step = def.step;
@@ -408,7 +413,7 @@
   }
 
   function resetProgress() {
-    finished = false; curStage = '准备安装'; lastPercent = 0;
+    finished = false; curStage = 'prepare'; lastPercent = 0;
     const f = fillEl();
     if (f) { f.style.transition = 'none'; f.style.width = '0%'; void document.body.offsetWidth; f.style.transition = ''; }
     const p = pctEl(); if (p) p.textContent = '0%';
@@ -445,10 +450,10 @@
   // ── 预览模式（无宿主，直接用浏览器打开）：按真实阶段表跑一遍示意动画 ──
   // 仅用于设计走查，与宿主驱动使用同一套 applyStage/applyProgress，视觉一致。
   const DEMO_PLAN = [
-    { name: '准备安装',     from: 0.00, to: 0.06 },
-    { name: '解压程序文件', from: 0.06, to: 0.90 },
-    { name: '创建快捷方式', from: 0.90, to: 0.97 },
-    { name: '安装完成',     from: 0.97, to: 1.00 },
+    { name: 'prepare',  from: 0.00, to: 0.06 },
+    { name: 'extract',  from: 0.06, to: 0.90 },
+    { name: 'shortcut', from: 0.90, to: 0.97 },
+    { name: 'done',     from: 0.97, to: 1.00 },
   ];
   let demoRaf = 0;
   function runDemoInstall() {

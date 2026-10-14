@@ -88,15 +88,22 @@ Filename: "{app}\{#MyAppExeName}"; Description: "启动 vbox"; Flags: nowait pos
 //  避免无壳调试时 ExpandConstant 因参数不存在而抛异常）。
 //  未注入时退化到临时目录下的固定文件名。
 //  写入内容为单行 JSON：
-//    · 阶段事件： {"stage":"解压程序文件","cur":-1,"max":-1}
-//    · 字节进度： {"stage":"<当前阶段>","cur":<n>,"max":<m>}（CurInstallProgressChanged，
-//      阶段名粘性携带，避免覆写成空串导致页面不切卡）
+//    · 阶段事件： {"stage":"extract","cur":-1,"max":-1}
+//    · 字节进度： {"stage":"<当前阶段键>","cur":<n>,"max":<m>}（CurInstallProgressChanged，
+//      阶段键粘性携带，避免覆写成空串导致页面不切卡）
 //  壳解析后补上 "type":"progress" 再推给页面。
+//
+//  ⚠ 阶段键必须是纯 ASCII（prepare/extract/shortcut/done）：
+//  Inno 的 SaveStringToFile 第二参数是 AnsiString，中文会按「系统 ANSI 代码页」
+//  （中文 Windows = GBK）写出；而 .NET 壳用 File.ReadAllText 按 UTF-8 读取 →
+//  中文阶段名变乱码 → 页面 STAGE_DEF 匹配失败 → 进度被压进「准备安装」的
+//  0~8% 区间并封顶（实测卡 8%、卡片停在「1 准备安装」）。纯 ASCII 无编码歧义。
+//  中文显示文案由 installer.html 内的映射表负责。
 // ══════════════════════════════════════════════════════════════════
 var
   { 是否已真正进入「已安装完成」状态；用于避免用户取消安装时误报“安装完成”。 }
   gInstallDone: Boolean;
-  { 当前阶段名（粘性）。
+  { 当前阶段键（粘性，纯 ASCII）。
     原因：Inno 的 CurInstallProgressChanged 在复制文件期间高频触发，每次都覆写
     同一份进度快照；若快照里 stage 留空，壳 150ms 轮询到的大概率是「字节进度」
     快照，页面就会永远停在上一阶段（实测卡在「准备安装」的 8% 上限）。
@@ -117,7 +124,8 @@ begin
   SaveStringToFile(ProgPath(), Json, False);
 end;
 
-{ 上报「阶段」——与定稿 UI 的 5 张步骤卡片对应（每步的基准百分比由壳/页面侧换算）。 }
+{ 上报「阶段」——与定稿 UI 的 5 张步骤卡片对应（每步的基准百分比由壳/页面侧换算）。
+  参数为纯 ASCII 阶段键（prepare/extract/shortcut/done），中文显示文案由页面映射。 }
 procedure ReportStage(const Stage: String);
 begin
   gStage := Stage; { 粘住当前阶段，供后续字节进度快照一并带上 }
@@ -152,7 +160,7 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
-  ReportStage('准备安装');
+  ReportStage('prepare');
   Result := '';
   KillVboxProcesses();
 end;
@@ -162,10 +170,10 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
-    ReportStage('解压程序文件');
+    ReportStage('extract');
   if CurStep = ssPostInstall then
   begin
-    ReportStage('创建快捷方式');
+    ReportStage('shortcut');
     gInstallDone := True;
   end;
 end;
@@ -174,7 +182,7 @@ procedure DeinitializeSetup();
 begin
   { 仅在真正安装完成后上报，避免用户中途取消时误报。 }
   if gInstallDone then
-    ReportStage('安装完成');
+    ReportStage('done');
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

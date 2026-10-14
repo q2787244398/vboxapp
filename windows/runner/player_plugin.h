@@ -252,7 +252,8 @@ class PlayerPlugin : public flutter::Plugin {
   // ── Flutter 纹理输出面（R-渲1）──
   flutter::TextureRegistrar* texture_registrar_ = nullptr;
   std::unique_ptr<flutter::TextureVariant> texture_;
-  int64_t texture_id_ = -1;
+  // 纹理句柄由渲染线程注册、平台线程读取/注销，跨线程 → 必须原子。
+  std::atomic<int64_t> texture_id_{-1};
   FlutterDesktopPixelBuffer pixel_buffer_{};
   std::mutex frame_mutex_;
   std::vector<uint8_t> frame_buffer_;  // BGRA8888（引擎读取的前缓冲）
@@ -340,6 +341,8 @@ class PlayerPlugin : public flutter::Plugin {
   void EmitProgress();
   void EmitVideoSize(int width, int height);
   void EmitError(const std::string& message, bool fatal);
+  // 纹理注册完成后回传句柄（渲染线程注册 → 平台线程 Open 已提前返回的场景）。
+  void EmitTextureReady(int64_t texture_id);
 
   // 读属性辅助（返回值 <0 表示不可用）。
   bool GetDoubleProperty(const char* name, double* out);
