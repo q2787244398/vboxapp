@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # ND-02-desktop：把内置 CPython（python-build-standalone）+ lxml + 纯 py 依赖
-# 随 macOS .app 分发（<App>/Contents/MacOS/pyruntime），让桌面端 `.py` 源可用。
+# 随 macOS .app 分发（<App>/Contents/Resources/pyruntime），让桌面端 `.py` 源可用。
+#   **落点必须是 Contents/Resources（数据区）**：codesign 把 Contents/MacOS 下整棵
+#   子树视为代码，`python-stdlib/**/*.py` 会被判为「未签名的嵌套代码」而令 App
+#   重签失败（Node 仅单个 Mach-O，故放 MacOS 无碍）。
 #   1. 下载固定版本 pbs install_only（.python-cache 缓存 + sha256 校验）；
-#   2. 解压 python/ → <App>/Contents/MacOS/pyruntime/（bin/python3 + lib/）；
+#   2. 解压 python/ → <App>/Contents/Resources/pyruntime/（bin/python3 + lib/）；
 #   3. pip 安装 lxml（官方 cp314 wheel，免编译）；
 #   4. 拷 assets/python-stdlib → pyruntime/python-stdlib；
 #   5. 裁剪 tkinter/idlelib/turtledemo/ensurepip/tcl/__pycache__ 减小体积；
@@ -58,8 +61,9 @@ tar -xzf "$TARBALL" -C "$EXTRACT"
 PYTHON_SRC="$EXTRACT/python"
 [[ -f "$PYTHON_SRC/bin/python3" ]] || { echo "❌ tar 包内未找到 python/bin/python3"; exit 1; }
 
-RUNTIME_DIR="$APP/Contents/MacOS/pyruntime"
+RUNTIME_DIR="$APP/Contents/Resources/pyruntime"
 rm -rf "$RUNTIME_DIR"
+mkdir -p "$APP/Contents/Resources"
 cp -R "$PYTHON_SRC" "$RUNTIME_DIR"
 PYTHON_BIN="$RUNTIME_DIR/bin/python3"
 
@@ -94,4 +98,4 @@ SMOKE2="$(PYTHONPATH="$STDLIB_DST" "$PYTHON_BIN" -c "import base.spider; print('
 echo "✅ base.spider 冒烟通过（PYTHONPATH=pyruntime/python-stdlib）"
 
 SIZE="$(du -sm "$RUNTIME_DIR" | awk '{print $1}')"
-echo "✅ 内置 CPython 已随 App 分发：Contents/MacOS/pyruntime/（${SIZE} MB）"
+echo "✅ 内置 CPython 已随 App 分发：Contents/Resources/pyruntime/（${SIZE} MB）"

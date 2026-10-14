@@ -112,7 +112,8 @@ abstract class PythonRuntime {
   ///
   /// 探测顺序（逐字镜像 `ProcessNodeHost.locate` 四段式）：
   ///   ① 随包内置 `<exeDir>/pyruntime/python(.exe)`（Windows）·
-  ///      `<exeDir>/pyruntime/bin/python3`（macOS）；
+  ///      `<App>/Contents/Resources/pyruntime/bin/python3`（macOS，Resources 为
+  ///      数据区，避开 codesign 对 `Contents/MacOS` 子树的嵌套代码校验）；
   ///   ② 平台常见安装位置（Windows：LOCALAPPDATA\Programs\Python、
   ///      Program Files、Program Files(x86)、系统盘根下的 `Python3xx`；
   ///      macOS：Homebrew arm64 / x86、/usr/local、/usr/bin）；
@@ -145,6 +146,10 @@ abstract class PythonRuntime {
   }
 
   /// 随包内置候选（新增档，对齐 Node `<exeDir>/noderuntime`）。
+  ///
+  /// macOS 落点须为 `<App>/Contents/Resources/pyruntime`（**非** `Contents/MacOS`）：
+  /// codesign 把 `Contents/MacOS` 下整棵子树视为代码，`python-stdlib/**/*.py` 会被
+  /// 判为「未签名的嵌套代码」而令 App 重签失败（Node 仅单个 Mach-O，故不受影响）。
   static List<String> _bundledCandidates() {
     final String exeDir = File(Platform.resolvedExecutable).parent.path;
     if (Platform.isWindows) {
@@ -154,10 +159,15 @@ abstract class PythonRuntime {
       ];
     }
     return <String>[
+      p.join(_macResourcesDir(exeDir), 'pyruntime', 'bin', 'python3'),
       p.join(exeDir, 'pyruntime', 'bin', 'python3'),
       p.join(exeDir, 'python3'),
     ];
   }
+
+  /// macOS 专属：`<App>/Contents/Resources`（`exeDir` 为 `Contents/MacOS`）。
+  static String _macResourcesDir(String exeDir) =>
+      p.normalize(p.join(exeDir, '..', 'Resources'));
 
   /// 平台常见安装位置候选。
   static List<String> _installCandidates() {
@@ -240,6 +250,7 @@ abstract class PythonRuntime {
   static String? _resolvePythonStdlibDir() {
     final String exeDir = File(Platform.resolvedExecutable).parent.path;
     final List<String> candidates = <String>[
+      p.join(_macResourcesDir(exeDir), 'pyruntime', 'python-stdlib'),
       p.join(exeDir, 'pyruntime', 'python-stdlib'),
       p.join(exeDir, 'python-stdlib'),
       p.join(exeDir, 'data', 'flutter_assets', 'assets', 'python-stdlib'),

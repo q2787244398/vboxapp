@@ -3,7 +3,8 @@
 /// 与 `python_bridge_engine_test.dart`（引擎层）互补，本文件聚焦**运行时层**，
 /// 覆盖落地方案 S2/S3/S7 的桌面一致性验收点：
 ///  1. `PythonRuntime.locatePython()` 探测链「**内置优先 → 系统回退**」四段式，
-///     镜像 `ProcessNodeHost.locate`（`probed` 首项必为随包 `<exeDir>/pyruntime/...`）；
+///     镜像 `ProcessNodeHost.locate`（`probed` 首项必为随包 `<...>/pyruntime/...`，
+///     macOS 落点 `Contents/Resources/pyruntime`）；
 ///  2. `StdioPythonRuntime` 启动失败文案可操作：列出已探测位置 + 两条修复路径
 ///     （对应验收标准 ③「未装系统 Python 不报『启动超时』」）；
 ///  3. **冒烟**：真实 TVBox `Spider` 类脚本（`python_spider_class.py`）经桌面
@@ -84,7 +85,7 @@ void main() {
         pythonExecutable: 'vbox-no-such-python-xyz',
         probedCandidates: const <String>[
           r'C:\app\pyruntime\python.exe',
-          '/Applications/vbox.app/Contents/MacOS/pyruntime/bin/python3',
+          '/Applications/vbox.app/Contents/Resources/pyruntime/bin/python3',
         ],
       );
       try {

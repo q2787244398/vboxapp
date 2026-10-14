@@ -352,9 +352,11 @@ jobs:
       - name: Bundle Node engine into app (ND-02)
         run: bash scripts/bundle-node-macos.sh --config Release
 
-      # ND-02-desktop：内置 CPython 随 App 分发（Contents/MacOS/pyruntime/bin/python3
-      # + python-stdlib，StdioPythonRuntime 探测链 ① 命中）。须在统一 re-sign 之前：
-      # 脚本已对 pyruntime 内嵌套 Mach-O（python3 / *.dylib / *.so）递归 ad-hoc 签名，
+      # ND-02-desktop：内置 CPython 随 App 分发（Contents/Resources/pyruntime/bin/python3
+      # + python-stdlib，StdioPythonRuntime 探测链 ① 命中）。**落点是 Resources 数据区**：
+      # codesign 把 Contents/MacOS 下整棵子树视为代码，python-stdlib 的 *.py 会被判为
+      # 「未签名的嵌套代码」而令 App 重签失败。须在统一 re-sign 之前：脚本已对
+      # pyruntime 内嵌套 Mach-O（python3 / *.dylib / *.so）递归 ad-hoc 签名，
       # 末段 re-sign 再统一覆盖（与 Node/QuickJS 同约束）。
       - name: Bundle Python runtime into app (ND-02-desktop)
         run: bash scripts/bundle-python-macos.sh --config Release
@@ -373,7 +375,7 @@ jobs:
           # ND-02-desktop：pyruntime 内含大量嵌套 Mach-O（bin/python3、*.dylib、*.so），
           # 须在 App 本体签名前递归 ad-hoc 签名，否则嵌套二进制未签会被 Gatekeeper 拦截。
           # 打包脚本已签过一遍，此处幂等覆盖，确保与 App 本体签名一致。
-          find "$APP/Contents/MacOS/pyruntime" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) -print0 2>/dev/null \
+          find "$APP/Contents/Resources/pyruntime" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) -print0 2>/dev/null \
             | while IFS= read -r -d '' f; do codesign --force --sign - "$f" >/dev/null 2>&1 || true; done
           codesign --force --sign - --entitlements macos/Runner/Release.entitlements "$APP"
           codesign --verify --verbose=2 "$APP"

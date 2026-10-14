@@ -101,7 +101,7 @@
 
 | 用途 | Windows | macOS | 读写 |
 |---|---|---|---|
-| 内置解释器 | `<exeDir>/pyruntime/`（`python.exe` + `Lib/` + `DLLs/`） | `<App>/Contents/MacOS/pyruntime/`（`bin/python3` + `lib/`） | 只读，随包 |
+| 内置解释器 | `<exeDir>/pyruntime/`（`python.exe` + `Lib/` + `DLLs/`） | `<App>/Contents/Resources/pyruntime/`（`bin/python3` + `lib/`） | 只读，随包 |
 | 依赖（纯 py） | 随 `assets/python-stdlib/`，运行时经 `PYTHONPATH` 注入 | 同左 | 只读，随包 |
 | 原生 lxml | 内置到 `pyruntime/.../site-packages/` | 同左 | 只读，随包 |
 | 桥接脚本 | 随 `assets/pythonbridge/` | 同左 | 只读，随包 |
@@ -114,7 +114,9 @@
 
 1. **随包候选**（新增档，当前完全没有）
    - Windows：`<exeDir>/pyruntime/python.exe`
-   - macOS：`<exeDir>/pyruntime/bin/python3`
+   - macOS：`<App>/Contents/Resources/pyruntime/bin/python3`（**必须放 Resources 数据区**：
+     codesign 视 `Contents/MacOS` 下整棵子树为代码，`python-stdlib/**/*.py` 会被判为
+     「未签名的嵌套代码」而令 App 重签失败；Node 仅单个 Mach-O 故放 MacOS 无碍）
 2. **平台安装位置**（补全现有 PATH 名探测）
    - Windows：`%LOCALAPPDATA%\Programs\Python\Python314\python.exe`、`%ProgramFiles%\Python314\python.exe`、`py -3`
    - macOS：`/opt/homebrew/bin/python3`、`/usr/local/bin/python3`、`/usr/bin/python3`
@@ -153,7 +155,7 @@
 | 新增脚本 | 落点 | 职责 |
 |---|---|---|
 | `scripts/bundle-python-windows.ps1` | `build/windows/x64/runner/Release/pyruntime/` | 下载 pbs → 解压 → pip 装 lxml → 拷 `assets/python-stdlib`、`assets/pythonbridge` → 裁剪 |
-| `scripts/bundle-python-macos.sh` | `<App>/Contents/MacOS/pyruntime/` | 同上（universal2） |
+| `scripts/bundle-python-macos.sh` | `<App>/Contents/Resources/pyruntime/` | 同上（universal2） |
 
 参照 [bundle-node-windows.ps1](file:///workspace/vboxapp/scripts/bundle-node-windows.ps1#L52-L64)、[bundle-node-macos.sh](file:///workspace/vboxapp/scripts/bundle-node-macos.sh#L70-L77)。
 
@@ -165,7 +167,7 @@
 
 ### 3.8 签名 / 公证 / 安装器
 
-- **macOS**：现有 re-sign 只签 `Contents/Frameworks/*.dylib` + App 本体（[L353-L359](file:///workspace/vboxapp/.github/workflows/build-release-assets.yml#L353-L359)）。`Contents/MacOS/pyruntime/**` 内含大量 Mach-O（`python3`、`*.dylib`、`*.so`），**需在 App 本体签名前递归 ad-hoc 签名**（否则嵌套二进制未签，可能被系统拦截）。建议追加一步 `find ... -type f -perm +111 -exec codesign --force --sign - {} \;` 或对 `pyruntime` 目录整体 `--deep` 签名。仍维持「未公证（S.6 侧载）」现状。
+- **macOS**：现有 re-sign 只签 `Contents/Frameworks/*.dylib` + App 本体（[L353-L359](file:///workspace/vboxapp/.github/workflows/build-release-assets.yml#L353-L359)）。`Contents/Resources/pyruntime/**` 内含大量 Mach-O（`python3`、`*.dylib`、`*.so`），**需在 App 本体签名前递归 ad-hoc 签名**（否则嵌套二进制未签，可能被系统拦截）。运行时**必须落在 `Contents/Resources`**：codesign 视 `Contents/MacOS` 下整棵子树为代码，纯 py 的 `python-stdlib/**/*.py` 会被判为「未签名的嵌套代码」而令 App 重签失败（`code object is not signed at all / In subcomponent: ...python-stdlib/.../__init__.py`）；Resources 为数据区，仅按哈希封存，不含此约束。仍维持「未公证（S.6 侧载）」现状。
 - **Windows**：`installer.iss` 已递归打包 `Release\*`（`noderuntime` 即由此携带），**`pyruntime/` 会自动包含**；但升级安装需把 `python.exe` 加入「安装前 kill 列表」（与 `node.exe` 同处理），避免子进程占用导致覆盖失败。
 - **体积**：预计 **+35~45 MB / 平台**（解释器 20~30 MB + lxml 10~15 MB，裁剪后）。
 
