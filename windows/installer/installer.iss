@@ -188,7 +188,8 @@ begin
 end;
 
 { 阶段推进：ssInstall = 开始复制文件（含 Node 引擎，页面侧用字节进度切「部署 Node 引擎」）；
-  ssPostInstall = 文件复制完成、开始写快捷方式 / 运行项。 }
+  ssPostInstall = 文件复制完成、开始写快捷方式 / 运行项；
+  ssDone = 安装流程全部收尾（进入完成态）。 }
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
@@ -198,6 +199,12 @@ begin
     ReportStage('shortcut');
     gInstallDone := True;
   end;
+  { ssDone 提前写 done 快照：原实现仅在 DeinitializeSetup（进程退出前最后一刻）
+    写 done，壳的 150ms 轮询可能最后一次只读到上一阶段快照（实测停在 62%），
+    配合壳侧渲染窗口过短，用户看到「62% → 安装窗口直接关闭」。此处提前到
+    ssDone 事件写，给轮询留出至少一个完整 tick 的可见窗口。 }
+  if CurStep = ssDone then
+    ReportStage('done');
 end;
 
 procedure DeinitializeSetup();

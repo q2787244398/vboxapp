@@ -307,11 +307,18 @@ public partial class MainWindow : Window
 
         if (exitCode == 0)
         {
+            // 收尾竞态兜底：内核在进程退出前一刻才落盘 done 快照，最后一次
+            // 轮询可能只读到上一阶段快照（实测停在 62%）；且 done 消息的页面
+            // 渲染窗口只有 0.9s，vbox.exe 启动抢占 CPU 时页面来不及画 100%，
+            // 表现为「62% → 窗口直接关闭」（安装本身已完整成功）。
+            // 此处无论最后读到什么，都强制补发 done 阶段，并加长停留时间，
+            // 保证「安装完成 100%」必然渲染后再关窗。
+            SendJson(new { type = "progress", stage = "done", cur = -1, max = -1 });
             SendJson(new { type = "done" });
 
+            await Task.Delay(1200);
+            await LaunchVboxAsync(_installDir);
             await Task.Delay(900);
-            LaunchVbox(_installDir);
-            await Task.Delay(700);
             Close();
         }
         else
@@ -321,16 +328,24 @@ public partial class MainWindow : Window
     }
 
     /// <summary>安装成功后启动 <c>{dir}\vbox.exe</c>（core 的 [Run] 使用 skipifsilent，
-    /// 静默模式下不会自启，故由壳代劳）。</summary>
-    private static void LaunchVbox(string dir)
+    /// 静默模式下不会自启，故由壳代劳）。vbox.exe 由内核收尾阶段落盘，个别环境
+    /// （杀软扫描 / 索引器占用）会有短暂延迟，最多重试 3 次 × 600ms。</summary>
+    private static async Task LaunchVboxAsync(string dir)
     {
-        try
+        var exe = Path.Combine(dir, "vbox.exe");
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            var exe = Path.Combine(dir, "vbox.exe");
-            if (File.Exists(exe))
-                Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+            try
+            {
+                if (File.Exists(exe))
+                {
+                    Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+                    return;
+                }
+            }
+            catch { /* 启动失败不影响安装结果 */ }
+            await Task.Delay(600);
         }
-        catch { /* 启动失败不影响安装结果 */ }
     }
 
     /// <summary>从 core 的 /LOG 尾部截取可读信息，构造失败文案。</summary>
