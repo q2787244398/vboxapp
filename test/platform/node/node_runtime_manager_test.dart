@@ -68,11 +68,15 @@ class _FakeNodeHost implements NodeHost {
 class _FakeHttp implements NodeHttpTransport {
   bool healthy = true;
   bool lxHealthy = true;
+
+  /// 强制返回 null 的 URL 片段（模拟特定端点失联，如主端口被坏进程占位）。
+  final Set<String> deadUrls = <String>{};
   final Map<String, String> texts = <String, String>{};
   final Map<String, List<int>> blobs = <String, List<int>>{};
 
   @override
   Future<int?> statusCode(String url, {Duration? timeout}) async {
+    if (deadUrls.any(url.contains)) return null;
     if (url.contains('${NodePorts.lxHealth}')) return lxHealthy ? 200 : null;
     return healthy ? 200 : null;
   }
@@ -421,11 +425,27 @@ void main() {
     expect(m.isSystemReady, isTrue);
   });
 
-  test('探活顶包校验：健康响应 pid 与本宿主子进程不一致 → 启动失败并给出可操作文案', () async {
+  test('启动收编：常驻引擎健康 → 直接收编不重新拉起（回归：重启 App 不再报未就绪）', () async {
     final NodeRuntimeManager m = build();
     addTearDown(m.stop);
-    host.pidValue = 111; // 本宿主子进程
-    http.healthy = true; // 端口有东西应答（旧版僵尸进程）
+    host.pidValue = 111;
+    http.healthy = true; // 健康端点 + 主端口都有应答（上次常驻引擎）
+    http.texts['http://127.0.0.1:${NodePorts.health}/health'] =
+        '{"status":"ok","pid":9999,"uptime":12345}'; // 常驻 pid ≠ 本次子进程
+
+    await m.start();
+
+    expect(m.isSystemReady, isTrue);
+    expect(m.statusInfo, 'node-ready(58080)');
+    expect(host.startCalls, 0, reason: '健康常驻引擎应被收编，而不是误判顶包失败');
+  });
+
+  test('启动收编拒绝：常驻引擎主端口失联 → 拉起后探活检出外来 pid 并给出可操作文案', () async {
+    final NodeRuntimeManager m = build();
+    addTearDown(m.stop);
+    host.pidValue = 111;
+    http.healthy = true; // 健康端点应答，但主端口已死（半死占位进程）
+    http.deadUrls.add('${NodePorts.main}/website/api/status');
     http.texts['http://127.0.0.1:${NodePorts.health}/health'] =
         '{"status":"ok","pid":9999,"uptime":12345}';
 
@@ -438,16 +458,13 @@ void main() {
     expect(m.lastError, contains('重启电脑'));
   });
 
-  test('探活顶包校验：健康响应 pid 与本宿主一致 → 正常就绪（不误伤）', () async {
+  test('探活顶包校验：健康响应 pid 与本宿主一致 → 不误伤', () async {
     final NodeRuntimeManager m = build();
-    addTearDown(m.stop);
     host.pidValue = 111;
+    http.healthy = true;
     http.texts['http://127.0.0.1:${NodePorts.health}/health'] =
         '{"status":"ok","pid":111,"uptime":0.5}';
 
-    await m.start();
-
-    expect(m.isSystemReady, isTrue);
-    expect(m.statusInfo, 'node-ready(58080)');
+    expect(await m.probeHealth(), isTrue);
   });
 }

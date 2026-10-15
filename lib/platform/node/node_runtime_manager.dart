@@ -325,6 +325,24 @@ class NodeRuntimeManager {
       // 2) bundle 完整性校验（MD5 manifest，损坏回退内置资源）
       await verifyBundleIntegrity();
 
+      // 2.5) 收编常驻引擎：Node 常驻设计下，上次 App 运行留下的 node.exe 仍
+      // 占住端口。若其健康端点正常响应（同部署可复用的常驻引擎），直接收编、
+      // 不再拉起新子进程 —— 否则新子进程必然 EADDRINUSE，顶包校验还会把
+      // 「上次常驻」误判为「外来顶包」，导致每次重启 App 都报「Node 未就绪」
+      // （3.1842 实测回归）。健康端点无响应 / 冒名进程占位时才走拉起流程。
+      final String? adopted = await _tryAdoptResidentNode();
+      if (adopted != null) {
+        _log('♻️ 收编常驻 Node 引擎（$adopted），跳过重新拉起');
+        _isSystemReady = true;
+        _isCrashed = false;
+        _lastError = null;
+        _consecutiveHealthFailures = 0;
+        _setStatus(NodeRuntimeStatus.ready);
+        startHealthMonitor();
+        startLXHealthMonitor();
+        return;
+      }
+
       // 3) 拉起 Node 引擎（端口矩阵经环境变量注入）
       await _host.start(_buildHostConfig());
 
@@ -542,6 +560,44 @@ class NodeRuntimeManager {
   }
 
   // ─────────────── 宿主启动参数（对齐 iOS `launchNodeEngine`） ───────────────
+
+  /// 尝试收编常驻 Node 引擎（健康时复用，不重新拉起）。
+  ///
+  /// 判定标准（两条都过才收编）：健康端点返回含 pid 的 JSON + 主端口状态端点
+  /// 2xx。任一不满足（无进程 / 非 Node 的冒名服务 / 半死引擎）→ 返回 null，
+  /// 走常规拉起流程（顶包校验保留兜底）。
+  ///
+  /// 说明：收编后 [_host.pid] 为 null，[probeHealth] 的顶包校验自动跳过
+  /// （仅 ownPid != null 时执行），心跳退化为状态码判定；收编引擎若后续
+  /// 死亡，走既有心跳失败 → 崩溃 → 重启路径，重启会重新拉起子进程。
+  Future<String?> _tryAdoptResidentNode() async {
+    try {
+      final String? body = await _http.getText(
+        'http://127.0.0.1:${NodePorts.health}/health',
+        timeout: const Duration(seconds: 2),
+      );
+      int? residentPid;
+      if (body != null && body.isNotEmpty) {
+        try {
+          final Object? json = jsonDecode(body);
+          if (json is Map && json['pid'] is int) {
+            residentPid = json['pid'] as int;
+          }
+        } catch (_) {
+          return null; // 非 JSON（冒名服务占位）→ 不收编
+        }
+      }
+      if (residentPid == null) return null;
+      final int? code = await _http.statusCode(
+        'http://127.0.0.1:$activePort/website/api/status',
+        timeout: const Duration(seconds: 2),
+      );
+      if (code == null || code < 200 || code >= 300) return null;
+      return 'pid=$residentPid';
+    } catch (_) {
+      return null; // 探测异常 → 按无常驻处理
+    }
+  }
 
   /// 构造宿主启动参数（环境变量矩阵与 iOS `setenv` 1:1）。
   NodeHostConfig _buildHostConfig() => NodeHostConfig(
