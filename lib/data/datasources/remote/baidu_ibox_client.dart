@@ -811,24 +811,6 @@ class BaiduIBoxClient {
         category: LogCategory.cloud,
       );
     }
-    // ── 浏览器栈层（Windows 专属增强，iOS 无此层）：WebView2 XHR 直取 ──
-    // 背景（iOS 端同代码一直正常的关键差异）：iOS 经 URLSession 发请求，Apple
-    // TLS 指纹被百度信任；Windows 端 Dart HttpClient 的 TLS/请求指纹可能被
-    // 风控（ errno=-6 / 非 JSON 风控页），此时同一 Cookie 换真实 Edge 网络栈
-    // （WebView2）即可通过。账号 Cookie 先经 CookieManager 种入 WebView2 持久化
-    // Jar，页面上下文 XHR 自动携带（XHR 手动设 Cookie 头会被浏览器剥离）；
-    // Jar 中服务端新种的指纹 Cookie 随返回值带回。复刻 iOS URLSession 信任度。
-    final ({String token, String cookie}) viaBrowser =
-        await _webViewXhrBdstoken(cookie);
-    if (viaBrowser.token.isNotEmpty) {
-      AppLog.debug(
-        'baidu-local',
-        '浏览器栈 XHR（原始 Cookie）取得用户态 bdstoken',
-        category: LogCategory.cloud,
-      );
-      onFetched?.call(viaBrowser.token, 'webview-xhr-templatevariable', viaBrowser.cookie);
-      return viaBrowser.token;
-    }
     // ── 第 1.5 层（新增）：Cookie 补全 + 重试（对齐 iOS `baiduEnrichAccountCookie`）──
     // 背景（实测四层兜底在「登录态正常」下全空的主因）：凭据 Cookie 缺
     // `BAIDUID` 等指纹字段（旧版本登录 / 登录补全被风控）时，gettemplatevariable
@@ -837,6 +819,11 @@ class BaiduIBoxClient {
     // 逐跳 Set-Cookie 补齐指纹后再取 bdstoken；补全后的完整 Cookie 经
     // onFetched 回写凭据（pan_player `_saveBaiduBdstoken` 合并落库），
     // 下次播放第 1 层可直接命中。
+    //
+    // 顺序说明（3.1839 闪退修复）：本层是**纯 Dart** HTTP，不依赖 WebView2，
+    // 必须排在浏览器栈层之前——Windows 无头 WebView2 有原生崩溃风险
+    // （见 `InAppWebViewBridge.windowsHeadlessEnabled` 崩溃保护），3.1839 把
+    // 浏览器栈放在补全之前，导致补全层从未获得执行机会、每次播放必崩。
     final ({String token, String cookie}) enriched = await _enrichBdstoken(cookie);
     if (enriched.token.isNotEmpty) {
       AppLog.debug(
@@ -852,24 +839,32 @@ class BaiduIBoxClient {
       '第 1.5 层 Cookie 补全仍未取得 bdstoken（继续浏览器栈 / HTML / WebView / 保存值兜底）',
       category: LogCategory.cloud,
     );
-    // Cookie 补全改变了输入（合并了服务端指纹字段）时，浏览器栈再试一次，
-    // 覆盖「Cookie 缺指纹 + 请求指纹风控」叠加场景（输入未变则跳过，避免重复）。
-    if (enriched.cookie.isNotEmpty && enriched.cookie != cookie) {
-      final ({String token, String cookie}) viaBrowserEnriched =
-          await _webViewXhrBdstoken(enriched.cookie);
-      if (viaBrowserEnriched.token.isNotEmpty) {
-        AppLog.debug(
-          'baidu-local',
-          '浏览器栈 XHR（补全 Cookie）取得用户态 bdstoken',
-          category: LogCategory.cloud,
-        );
-        onFetched?.call(
-          viaBrowserEnriched.token,
-          'webview-xhr-templatevariable',
-          viaBrowserEnriched.cookie,
-        );
-        return viaBrowserEnriched.token;
-      }
+    // ── 浏览器栈层（Windows 专属增强，iOS 无此层）：WebView2 XHR 直取 ──
+    // 背景（iOS 端同代码一直正常的关键差异）：iOS 经 URLSession 发请求，Apple
+    // TLS 指纹被百度信任；Windows 端 Dart HttpClient 的 TLS/请求指纹可能被
+    // 风控（ errno=-6 / 非 JSON 风控页），此时同一 Cookie 换真实 Edge 网络栈
+    // （WebView2）即可通过。账号 Cookie 先经 CookieManager 种入 WebView2 持久化
+    // Jar，页面上下文 XHR 自动携带（XHR 手动设 Cookie 头会被浏览器剥离）；
+    // Jar 中服务端新种的指纹 Cookie 随返回值带回。复刻 iOS URLSession 信任度。
+    //
+    // 只调用一次，取补全后的最优 Cookie（补全合并了服务端指纹字段则用补全
+    // 结果，否则用原始），覆盖「Cookie 缺指纹 + 请求指纹风控」叠加场景；
+    // Windows 上无头 WebView2 默认被崩溃保护禁用（抛 WebViewBridgeException，
+    // 本层 try/catch 优雅跳过，见 `_webViewXhrBdstoken`）。
+    final String browserCookie =
+        (enriched.cookie.isNotEmpty && enriched.cookie != cookie)
+            ? enriched.cookie
+            : cookie;
+    final ({String token, String cookie}) viaBrowser =
+        await _webViewXhrBdstoken(browserCookie);
+    if (viaBrowser.token.isNotEmpty) {
+      AppLog.debug(
+        'baidu-local',
+        '浏览器栈 XHR 取得用户态 bdstoken',
+        category: LogCategory.cloud,
+      );
+      onFetched?.call(viaBrowser.token, 'webview-xhr-templatevariable', viaBrowser.cookie);
+      return viaBrowser.token;
     }
     // 回退：直接抓 disk/main 页面里的用户态 bdstoken。
     final _Resp page = await _request(

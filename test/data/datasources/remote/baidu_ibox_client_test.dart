@@ -420,7 +420,7 @@ void main() {
       );
     });
 
-    test('fetchUserBdstoken：浏览器栈（原始 Cookie）失败 + 补全改变输入 → 补全 Cookie 再过浏览器栈', () async {
+    test('fetchUserBdstoken：补全改变输入 → 浏览器栈用补全后的最优 Cookie 一次通过', () async {
       final _FakeTransport t = _FakeTransport((SpiderTransportRequest r) {
         // Dart 直发永远被风控（覆盖「Cookie + 请求指纹」叠加场景）。
         if (r.url.toString().contains('/api/gettemplatevariable')) {
@@ -433,10 +433,10 @@ void main() {
         return _res('<html></html>');
       });
       final _FakeWebViewBridge web = _FakeWebViewBridge(
-        xhrSequence: <String>[
-          '{"errno":-6}', // 原始 Cookie → 浏览器栈仍被风控。
-          '{"errno":0,"result":{"bdstoken":"browser-tok2"}}', // 补全 Cookie → 放行。
-        ],
+        xhr: <String, String>{
+          '/api/gettemplatevariable':
+              '{"errno":0,"result":{"bdstoken":"browser-tok2"}}', // 补全 Cookie → 放行。
+        },
       );
       final BaiduIBoxClient c =
           BaiduIBoxClient(transport: t, prefs: prefs, webView: web);
@@ -445,8 +445,9 @@ void main() {
         web.requested
             .where((String u) => u.contains('/api/gettemplatevariable'))
             .length,
-        2,
-        reason: '原始 Cookie 一次 + 补全 Cookie 一次',
+        1,
+        reason: '浏览器栈在补全之后只调用一次（用补全后的最优 Cookie），'
+            '避免重复触发 Windows 无头 WebView2（崩溃保护对象）',
       );
     });
 

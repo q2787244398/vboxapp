@@ -59,6 +59,20 @@ class InAppWebViewBridge implements WebViewBridge {
   /// 是否已执行 [initialize]（幂等保护，避免重复创建环境）。
   static bool _windowsInitialized = false;
 
+  /// Windows 无头 WebView2 是否允许（`loadPage` / XHR `request`）。
+  ///
+  /// 默认 **false**（原生崩溃保护）：3.1839 实测 `flutter_inappwebview_windows`
+  /// （6.2.0-beta.3）的 `HeadlessInAppWebView` 在部分 Windows 机器上触发原生
+  /// abort（WER 现场：异常代码 c0000409、故障模块 flutter_windows.dll，模块
+  /// 清单含 WebView2Loader.dll + flutter_inappwebview_windows_plugin.dll），
+  /// 进程闪退且 Dart 层无法捕获；复现路径为百度解析链每次必经的无头兜底层。
+  /// 故无头操作默认整体跳过（首次留痕日志）；**可见 WebView 不受影响**
+  /// （授权中心登录页走 [buildView]，无需无头）。插件升级后再恢复默认开启。
+  static bool windowsHeadlessEnabled = false;
+
+  /// 「无头已禁用」告警只打一次。
+  static bool _windowsHeadlessWarned = false;
+
   /// Windows 专用引导：创建**自定义数据目录**的 `WebViewEnvironment`。
   ///
   /// 须在 `runApp` 前调用一次（`main()` 内）。依据官方要求，WebView2 默认
@@ -104,6 +118,26 @@ class InAppWebViewBridge implements WebViewBridge {
     }
   }
 
+  /// 无头操作闸门（`loadPage` / `request` 专用）。
+  ///
+  /// Windows 上默认禁用（见 [windowsHeadlessEnabled]），避免 beta 插件无头
+  /// 模式的原生 abort 闪退；首次触发留痕日志。抛 [WebViewBridgeException]，
+  /// 消费点（百度解析链各兜底层）均有 try/catch，会优雅跳过该层。
+  void _ensureHeadlessAllowed() {
+    _ensureAvailable();
+    if (Platform.isWindows && !windowsHeadlessEnabled) {
+      if (!_windowsHeadlessWarned) {
+        _windowsHeadlessWarned = true;
+        AppLog.warn(
+          'webview',
+          'Windows 无头 WebView2 已禁用（原生崩溃保护）——无头兜底层全部跳过；'
+          '如需启用请设置 InAppWebViewBridge.windowsHeadlessEnabled = true',
+        );
+      }
+      throw const WebViewBridgeException('Windows 无头 WebView2 已禁用（崩溃保护）');
+    }
+  }
+
   @override
   Future<WebViewPageResult> loadPage({
     required String url,
@@ -112,7 +146,7 @@ class InAppWebViewBridge implements WebViewBridge {
     Duration timeout = const Duration(seconds: 30),
     String? evaluateJs,
   }) async {
-    _ensureAvailable();
+    _ensureHeadlessAllowed();
     final WebUri uri = WebUri(url);
     final CookieManager cookieManager =
         CookieManager.instance(webViewEnvironment: _windowsEnvironment);
@@ -209,7 +243,7 @@ class InAppWebViewBridge implements WebViewBridge {
     String? hostUrl,
     Duration timeout = const Duration(seconds: 15),
   }) async {
-    _ensureAvailable();
+    _ensureHeadlessAllowed();
     final String host = hostUrl ?? _originOf(url);
     final HeadlessInAppWebView page = HeadlessInAppWebView(
       initialUrlRequest: URLRequest(url: WebUri(host)),
