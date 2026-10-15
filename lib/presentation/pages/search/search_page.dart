@@ -587,6 +587,9 @@ class _SearchPageState extends State<SearchPage> {
 
   /// 导出搜索调试日志（对齐 iOS `exportSearchLogs` L1759-L1781）：汇总搜索
   /// 信息 + 全部日志写入临时文件走系统分享面板；写文件失败退化为剪贴板。
+  ///
+  /// Windows 特例（与 player_page 同口径）：未打包桌面应用调用系统共享面板
+  /// 必然失败，改为写入「下载」目录并在资源管理器中定位。
   Future<void> _exportDebugLogs() async {
     final DateTime now = DateTime.now();
     String two(int v) => v.toString().padLeft(2, '0');
@@ -599,6 +602,23 @@ class _SearchPageState extends State<SearchPage> {
       '───── 日志（最近 ${_debugLogs.length} 条）─────',
       ..._debugLogs,
     ].join('\n');
+    if (Platform.isWindows) {
+      try {
+        final Directory downloads =
+            Directory('${Platform.environment['USERPROFILE']}\\Downloads');
+        final String dir =
+            downloads.existsSync() ? downloads.path : Directory.systemTemp.path;
+        final File file = File('$dir\\vbox_search_debug_'
+            '${now.year}${two(now.month)}${two(now.day)}_'
+            '${two(now.hour)}${two(now.minute)}${two(now.second)}.txt');
+        await file.writeAsString(text, flush: true);
+        await Process.run('explorer.exe', <String>['/select,', file.path]);
+        return;
+      } catch (_) {
+        await Clipboard.setData(ClipboardData(text: text));
+        return;
+      }
+    }
     try {
       final File file = File(
         '${Directory.systemTemp.path}'

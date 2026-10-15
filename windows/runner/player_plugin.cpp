@@ -453,6 +453,31 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
     // 注：OpenGL 不可用时会自动退到 SW（见 RunRenderLoop），不受此选项影响。
     api_.set_option_string(handle, "gpu-api", "opengl");
   }
+  // 画质档位（修复「有画面但画质发虚/不是原视频画质」）：mpv 默认
+  // scale/cscale=bilinear 且未开 correct-downscaling，窗口化播放时 1080p
+  // 视频缩小显示的缩放质量明显劣于 iOS AVPlayer（VideoToolbox 高质量缩放），
+  // 用户实测表现为「所有资源画质都不对，iOS 无此现象」——与取链无关，纯属
+  // 渲染档位。优先启用 mpv 官方高质量画像（ewa_lanczossharp 缩放 + sigmoid
+  // 上采样 + 色彩管理），旧版 libmpv 无 `high-quality` 时回退 `gpu-hq`
+  // （spline36 档）；再显式钉住缩小保真/上采样两项，画像未生效时也不退回
+  // bilinear 默认。渲染 API 缺失（vo=null 纯控制面）时无需设置。
+  // 注：macOS PlayerPlugin.swift 走同一 mpv 管线，后续可同步同参。
+  if (has_render_api) {
+    const char* quality_profile = "high-quality";
+    if (api_.set_option_string(handle, "profile", quality_profile) < 0) {
+      quality_profile = "gpu-hq";
+      if (api_.set_option_string(handle, "profile", quality_profile) < 0) {
+        quality_profile = nullptr;
+        EmitLog("warn", "mpv 高质量画像不可用（mpv-2.dll 过旧），按显式参数兜底");
+      }
+    }
+    api_.set_option_string(handle, "correct-downscaling", "yes");
+    api_.set_option_string(handle, "linear-downscaling", "no");
+    api_.set_option_string(handle, "sigmoid-upscaling", "yes");
+    if (quality_profile != nullptr) {
+      EmitLog("info", std::string("mpv 画质画像：") + quality_profile);
+    }
+  }
   if (api_.initialize(handle) < 0) {
     api_.terminate_destroy(handle);
     EmitLog("error", "mpv_initialize 失败");

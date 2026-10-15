@@ -14,7 +14,7 @@
 library;
 
 import 'dart:async';
-import 'dart:io' show Directory, File, Platform;
+import 'dart:io' show Directory, File, Platform, Process;
 import 'dart:ui' as ui show Image, ImageByteFormat;
 
 import 'package:flutter/material.dart';
@@ -1499,6 +1499,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   /// 导出播放器调试日志（对齐 iOS `exportDebugLogs`）：汇总播放信息 + 全部
   /// 日志写入临时文件走系统分享面板；写文件失败退化为剪贴板。
+  ///
+  /// Windows 特例：未打包桌面应用调用系统共享面板必然失败（实测弹
+  /// 「我们无法为你显示所有共享方法」），改为直接写入「下载」目录并在
+  /// 资源管理器中定位该文件；落盘/定位失败退化为剪贴板，保证日志可导出。
   Future<void> _exportDebugLogs() async {
     final DateTime now = DateTime.now();
     String two(int v) => v.toString().padLeft(2, '0');
@@ -1511,6 +1515,23 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       '───── 日志（最近 ${_playerLogs.length} 条）─────',
       ..._playerLogs,
     ].join('\n');
+    if (Platform.isWindows) {
+      try {
+        final Directory downloads =
+            Directory('${Platform.environment['USERPROFILE']}\\Downloads');
+        final String dir =
+            downloads.existsSync() ? downloads.path : Directory.systemTemp.path;
+        final File file = File('$dir\\vbox_player_debug_'
+            '${now.year}${two(now.month)}${two(now.day)}_'
+            '${two(now.hour)}${two(now.minute)}${two(now.second)}.txt');
+        await file.writeAsString(text, flush: true);
+        await Process.run('explorer.exe', <String>['/select,', file.path]);
+        return;
+      } catch (_) {
+        await Clipboard.setData(ClipboardData(text: text));
+        return;
+      }
+    }
     try {
       final File file = File(
         '${Directory.systemTemp.path}'

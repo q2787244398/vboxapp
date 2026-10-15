@@ -71,6 +71,16 @@ docs/             方案与对齐文档
 - `android/app/src/main/kotlin/com/vbox/player/PlayerPlugin.kt`：
   新增 `log` 事件上报（open / 后端就绪 / 视频轨尺寸 / 播放错误 / 后端初始化
   失败），与 Windows/macOS 日志详细度对齐（Android 不走 mpv，无渲染后端问题）。
+- `windows/runner/player_plugin.cpp`：mpv 初始化启用高质量渲染档位
+  （`profile=high-quality`，旧版回退 `gpu-hq`），并显式钉住
+  `correct-downscaling=yes` / `linear-downscaling=no` / `sigmoid-upscaling=yes`。
+  修复「所有资源画质发虚、iOS 无此现象」：mpv 默认 scale/cscale=bilinear 且
+  未开 correct-downscaling，窗口化缩放的画质明显劣于 iOS AVPlayer。
+  macOS PlayerPlugin.swift 走同一 mpv 管线，后续可同步同参。
+- `lib/presentation/pages/player/player_page.dart` /
+  `lib/presentation/pages/search/search_page.dart`：调试日志导出在 Windows
+  不走 SharePlus 系统共享面板（未打包应用必然弹「我们无法为你显示所有共享
+  方法」），改为写入「下载」目录并在资源管理器中定位；失败退化为剪贴板。
 
 ## 日志事件契约（跨端）
 
