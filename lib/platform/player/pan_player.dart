@@ -98,12 +98,14 @@ class PanPlayer {
         _quark = quarkClient ?? QuarkNativeClient(),
         // 问题 3（P0）：注入真实 WebView 桥，使 bdstoken 四层兜底的第 3 层
         //（WKWebView/HeadlessWebView 载入 disk/main 复用 CookieJar 取用户态
-        // bdstoken）生效（对齐 iOS `baiduFetchUserBdstokenViaWebView`）。Android
-        // /iOS/macOS/Windows 均可用；仅 Linux 无 WebView 实现时
-        // `isAvailable=false`，`_webViewBdstoken` 自动退回空串、继续走第 4 层
-        // 保存值兜底，行为与接线前一致。
+        // bdstoken）生效（对齐 iOS `baiduFetchUserBdstokenViaWebView`）。
+        // Windows 走隐藏 widget 宿主桥（headless 在 6.2.0-beta.3 有原生 abort
+        // 崩溃，见 InAppWebViewBridge.windowsHeadlessEnabled；widget 模式是
+        // 授权中心登录页验证过的稳定承载）；其余平台无头桥语义不变。仅 Linux
+        // 无 WebView 实现时 `isAvailable=false`，`_webViewBdstoken` 自动退回
+        // 空串、继续走第 4 层保存值兜底，行为与接线前一致。
         _baiduIBox = baiduIBoxClient ??
-            BaiduIBoxClient(webView: InAppWebViewBridge()),
+            BaiduIBoxClient(webView: InAppWebViewBridge.forBackgroundTasks()),
         _uc = ucClient ?? UcNativeClient(),
         _aliyun = aliyunClient ??
             AliyunAdriveClient(

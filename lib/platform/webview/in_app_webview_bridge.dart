@@ -49,12 +49,45 @@ class InAppWebViewBridge implements WebViewBridge {
   /// / `InAppWebView` 共用（保证 CookieJar 同源）。
   static WebViewEnvironment? _windowsEnvironment;
 
+  /// Windows WebView2 环境只读访问（[HiddenWidgetWebviewBridge] 与安装器共用）。
+  static WebViewEnvironment? get windowsEnvironmentOrNull => _windowsEnvironment;
+
   /// Windows 平台 WebView2 Runtime 是否可用（其余平台恒 true）。
   ///
   /// 缺省 true（未探测时按可用处理，保持既有行为）；[initialize] 探测到
   /// Runtime 缺失 / 创建失败时置 false，令 Windows 上的 [isAvailable] 返回
   /// false，消费点回退第 4 层保存值兜底。
   static bool _windowsAvailable = true;
+
+  /// Windows WebView2 可用性只读访问（桥选择工厂与安装器判定用）。
+  static bool get windowsEnvAvailable => _windowsAvailable;
+
+  /// 后台页面任务桥选择工厂（bdstoken 浏览器栈层 / 公共页面嗅探消费）。
+  ///
+  /// Windows → [HiddenWidgetWebviewBridge]：widget 模式是授权中心登录页验证
+  /// 过的稳定承载，headless 模式在 6.2.0-beta.3 存在原生 abort 崩溃（见
+  /// [windowsHeadlessEnabled]）。其余平台 → 无头桥（对齐 iOS WKWebView 语义）。
+  static WebViewBridge forBackgroundTasks() =>
+      (!kIsWeb && Platform.isWindows && _windowsAvailable)
+          ? HiddenWidgetWebviewBridge.instance
+          : InAppWebViewBridge();
+
+  /// `evaluateJavascript` 字符串返回值还原（处理插件 JSON 编码包装）。
+  ///
+  /// 插件可能把页面 JS 的字符串返回值再包一层 JSON 编码（带引号）回传；
+  /// 能解码则还原原文，否则原样返回。null / `null` / `undefined` 归空串。
+  static String _plainString(Object? v) {
+    if (v == null) return '';
+    String s;
+    if (v is String) {
+      final Object? decoded = _tryJsonDecode(v);
+      s = decoded is String ? decoded : v;
+    } else {
+      s = '$v';
+    }
+    if (s == 'null' || s == 'undefined' || s == '<null>') return '';
+    return s;
+  }
 
   /// 是否已执行 [initialize]（幂等保护，避免重复创建环境）。
   static bool _windowsInitialized = false;
@@ -266,27 +299,47 @@ class InAppWebViewBridge implements WebViewBridge {
             ),
           )
           .timeout(timeout);
-      final Object? decoded = raw is String ? jsonDecode(raw) : null;
-      if (decoded is! Map) {
-        throw const WebViewBridgeException('页面 XHR 结果解析失败');
-      }
-      final Map<String, Object?> m = decoded.cast<String, Object?>();
-      final Object? rawHeaders = m['headers'];
-      final Map<String, String> rh = rawHeaders is Map
-          ? <String, String>{
-              for (final MapEntry<Object?, Object?> e in rawHeaders.entries)
-                e.key.toString(): '${e.value}',
-            }
-          : const <String, String>{};
-      return (
-        status: (m['status'] as num?)?.toInt() ?? 0,
-        body: '${m['body'] ?? ''}',
-        headers: rh,
-      );
+      return parseXhrResult(raw);
     } on TimeoutException {
       throw const WebViewBridgeException('页面 XHR 超时');
     } finally {
       await page.dispose();
+    }
+  }
+
+  /// XHR 脚本执行结果的统一解析（无头桥与隐藏 widget 桥共用）。
+  ///
+  /// 插件对 `evaluateJavascript` 的字符串返回值在不同平台可能直接回传
+  /// Dart String，或做一次 JSON 编码回传；脚本本身返回 `JSON.stringify(...)`
+  /// 字符串，故对 String 做（至多两重）解码容错。解析不出 Map 即抛
+  /// [WebViewBridgeException]（消费点均 catch 后优雅跳过该层）。
+  static WebViewXhrResult parseXhrResult(Object? raw) {
+    Object? decoded = raw is String ? _tryJsonDecode(raw) : raw;
+    if (decoded is String) decoded = _tryJsonDecode(decoded);
+    if (decoded is! Map) {
+      throw const WebViewBridgeException('页面 XHR 结果解析失败');
+    }
+    final Map<String, Object?> m = decoded.cast<String, Object?>();
+    final Object? rawHeaders = m['headers'];
+    final Map<String, String> rh = rawHeaders is Map
+        ? <String, String>{
+            for (final MapEntry<Object?, Object?> e in rawHeaders.entries)
+              e.key.toString(): '${e.value}',
+          }
+        : const <String, String>{};
+    return (
+      status: (m['status'] as num?)?.toInt() ?? 0,
+      body: '${m['body'] ?? ''}',
+      headers: rh,
+    );
+  }
+
+  /// JSON 解码（失败返回 null，不抛错）。
+  static Object? _tryJsonDecode(String s) {
+    try {
+      return jsonDecode(s);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -352,4 +405,247 @@ class InAppWebViewBridge implements WebViewBridge {
 })()
 ''';
   }
+}
+
+/// 隐藏 widget 宿主桥（Windows 专属 · 崩溃保护下的浏览器栈层承载）。
+///
+/// 背景：3.1839 起插件 `HeadlessInAppWebView`（6.2.0-beta.3）在部分 Windows
+/// 机器触发原生 abort（WER 现场 c0000409），无头兜底层被
+/// [InAppWebViewBridge.windowsHeadlessEnabled] 整体闸死；但**可见 widget 模式**
+/// `InAppWebView` 是授权中心登录页验证过的稳定承载（用户扫码成功即走此路径）。
+/// 本类用 1×1 隐藏 widget 宿主承载同样的 loadPage / XHR 语义：
+///   · [HiddenWebviewHostInstaller] 在 App 首帧把宿主挂进根 Overlay
+///     （仅 Windows；1×1 + IgnorePointer，用户无感知）；
+///   · Cookie 仍经 `CookieManager` 预注入持久 Jar（与无头桥同一
+///     WebViewEnvironment，Jar 全局共享）；
+///   · XHR 前确保宿主页面停在 `hostUrl` origin（同源无 CORS）。
+///
+/// 生命周期：宿主常驻 App 全程（不随调用销毁，约数十 MB 常驻开销换稳定）。
+class HiddenWidgetWebviewBridge implements WebViewBridge {
+  HiddenWidgetWebviewBridge._();
+
+  /// 单例（宿主全局唯一）。
+  static final HiddenWidgetWebviewBridge instance =
+      HiddenWidgetWebviewBridge._();
+
+  /// 全局安装标记（防重复挂载：宿主常驻，只需一个）。
+  static bool _globallyInstalled = false;
+
+  /// 仅 Windows 且 WebView2 环境可用时需要安装宿主。
+  static bool get shouldInstall =>
+      !kIsWeb && Platform.isWindows && InAppWebViewBridge.windowsEnvAvailable;
+
+  InAppWebViewController? _controller;
+  Completer<InAppWebViewController>? _ready;
+  Completer<WebUri?>? _nav;
+
+  /// 宿主 widget（由 [HiddenWebviewHostInstaller] 挂进根 Overlay）。
+  Widget buildHostWidget() {
+    return IgnorePointer(
+      child: SizedBox(
+        width: 1,
+        height: 1,
+        child: InAppWebView(
+          webViewEnvironment: InAppWebViewBridge.windowsEnvironmentOrNull,
+          initialUrlRequest: URLRequest(url: WebUri('about:blank')),
+          initialSettings: InAppWebViewSettings(
+            javaScriptEnabled: true,
+            supportZoom: false,
+          ),
+          onWebViewCreated: (InAppWebViewController controller) {
+            _controller = controller;
+            _ready?.complete(controller);
+          },
+          onLoadStop: (InAppWebViewController controller, WebUri? url) {
+            _nav?.complete(url);
+          },
+          onReceivedError: (
+            InAppWebViewController controller,
+            WebResourceRequest request,
+            WebResourceError error,
+          ) {
+            if (request.isForMainFrame != true) return; // 子资源失败常态，忽略
+            final Completer<WebUri?>? n = _nav;
+            if (n != null && !n.isCompleted) {
+              n.completeError(
+                WebViewBridgeException('页面加载失败：${error.description}'),
+              );
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  @override
+  bool get isAvailable => shouldInstall;
+
+  /// 等待宿主控制器就绪（未安装 / 创建失败超时抛错，消费点优雅跳过）。
+  Future<InAppWebViewController> _ensureReady(Duration timeout) async {
+    final InAppWebViewController? c = _controller;
+    if (c != null) return c;
+    final Completer<InAppWebViewController> completer =
+        _ready ??= Completer<InAppWebViewController>();
+    try {
+      return await completer.future.timeout(timeout);
+    } on TimeoutException {
+      throw const WebViewBridgeException('隐藏 WebView 宿主未就绪（未安装或创建失败）');
+    }
+  }
+
+  /// 导航宿主页面并等待主文档加载完成（返回最终 URL，可空）。
+  Future<WebUri?> _navigate(
+    InAppWebViewController controller,
+    String url,
+    Duration timeout,
+  ) async {
+    final Completer<WebUri?> completer = _nav = Completer<WebUri?>();
+    try {
+      await controller.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+      return await completer.future.timeout(timeout);
+    } on TimeoutException {
+      throw WebViewBridgeException('页面加载超时：$url');
+    } finally {
+      if (identical(_nav, completer)) _nav = null;
+    }
+  }
+
+  @override
+  Future<WebViewPageResult> loadPage({
+    required String url,
+    String? userAgent,
+    Map<String, String> cookies = const <String, String>{},
+    Duration timeout = const Duration(seconds: 30),
+    String? evaluateJs,
+  }) async {
+    final InAppWebViewController controller =
+        await _ensureReady(const Duration(seconds: 10));
+    final WebUri uri = WebUri(url);
+    final CookieManager cookieManager = CookieManager.instance(
+      webViewEnvironment: InAppWebViewBridge.windowsEnvironmentOrNull,
+    );
+    // 预注入 Cookie（HttpOnly 只能经 CookieManager 写入，与无头桥同语义）。
+    for (final MapEntry<String, String> e in cookies.entries) {
+      await cookieManager.setCookie(url: uri, name: e.key, value: e.value);
+    }
+    // UA 按调用定制（宿主缺省沿用创建时设置；公共嗅探层可能传站点专属 UA）。
+    if (userAgent != null && userAgent.isNotEmpty) {
+      try {
+        await controller.setSettings(
+          settings: InAppWebViewSettings(userAgent: userAgent),
+        );
+      } catch (_) {
+        // 设置失败不阻断（沿用上一发 UA）。
+      }
+    }
+    final WebUri? loaded = await _navigate(controller, url, timeout);
+    final Object? html = await controller.evaluateJavascript(
+      source: 'document.documentElement.outerHTML',
+    );
+    String jsResult = '';
+    if (evaluateJs != null && evaluateJs.isNotEmpty) {
+      try {
+        jsResult = InAppWebViewBridge._plainString(
+          await controller.evaluateJavascript(source: evaluateJs),
+        );
+      } catch (_) {
+        jsResult = '';
+      }
+    }
+    final List<Cookie> cs = await cookieManager.getCookies(url: uri);
+    return (
+      html: InAppWebViewBridge._plainString(html),
+      url: '${loaded ?? uri}',
+      cookie: cs.map((Cookie c) => '${c.name}=${c.value}').join('; '),
+      jsResult: jsResult,
+    );
+  }
+
+  @override
+  Future<WebViewXhrResult> request({
+    required String url,
+    String method = 'GET',
+    Map<String, String> headers = const <String, String>{},
+    String? body,
+    String? hostUrl,
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    final InAppWebViewController controller =
+        await _ensureReady(const Duration(seconds: 10));
+    final String host = hostUrl ?? InAppWebViewBridge._originOf(url);
+    // 确保承载页停在目标 origin（同源 XHR 语义；Cookie 由持久 Jar 自动携带）。
+    final String current = InAppWebViewBridge._plainString(
+      await controller.evaluateJavascript(source: 'location.origin'),
+    );
+    if (current != InAppWebViewBridge._originOf(host)) {
+      await _navigate(controller, host, timeout);
+    }
+    final Object? raw = await controller
+        .evaluateJavascript(
+          source: InAppWebViewBridge._xhrScript(
+            url: url,
+            method: method,
+            headers: headers,
+            body: body,
+          ),
+        )
+        .timeout(timeout);
+    return InAppWebViewBridge.parseXhrResult(raw);
+  }
+
+  @override
+  Future<String> currentCookieString({String? domain}) async {
+    final CookieManager cookieManager = CookieManager.instance(
+      webViewEnvironment: InAppWebViewBridge.windowsEnvironmentOrNull,
+    );
+    final List<Cookie> cs = domain == null || domain.isEmpty
+        ? await cookieManager.getAllCookies()
+        : await cookieManager.getCookies(url: WebUri('https://$domain/'));
+    return cs.map((Cookie c) => '${c.name}=${c.value}').join('; ');
+  }
+
+  @override
+  Widget? buildView({required String url, String? userAgent}) => null;
+}
+
+/// 隐藏 WebView 宿主安装器（Windows 专用；包在 [MaterialApp.home] 子树外层，
+/// 首帧把 1×1 宿主挂进根 Overlay）。
+///
+/// 非 Windows / WebView2 不可用时原样透传 [child]，不安装任何东西。
+class HiddenWebviewHostInstaller extends StatefulWidget {
+  /// 构造。
+  const HiddenWebviewHostInstaller({super.key, required this.child});
+
+  /// 透传子树。
+  final Widget child;
+
+  @override
+  State<HiddenWebviewHostInstaller> createState() =>
+      _HiddenWebviewHostInstallerState();
+}
+
+class _HiddenWebviewHostInstallerState
+    extends State<HiddenWebviewHostInstaller> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _install());
+  }
+
+  void _install() {
+    if (HiddenWidgetWebviewBridge._globallyInstalled) return;
+    if (!HiddenWidgetWebviewBridge.shouldInstall) return;
+    final OverlayState? overlay = Overlay.of(context, rootOverlay: true);
+    if (overlay == null) return;
+    HiddenWidgetWebviewBridge._globallyInstalled = true;
+    overlay.insert(
+      OverlayEntry(
+        builder: (BuildContext context) =>
+            HiddenWidgetWebviewBridge.instance.buildHostWidget(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

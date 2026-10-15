@@ -435,7 +435,8 @@ class _VBoxAppState extends State<VBoxApp> {
         // 提取直链」）：自定义解析器未命中时，静态抓页 / WebView 渲染提取
         // 真实 m3u8/mp4 直链再起播（修复网页 URL 直喂内核报容器不支持）。
         webPageSniffer:
-            WebPageSniffer(webview: InAppWebViewBridge()).extractMediaUrl,
+            WebPageSniffer(webview: InAppWebViewBridge.forBackgroundTasks())
+                .extractMediaUrl,
         // O-源3：兜底切片源合成 key 的站点回退解析。
         fallbackSiteResolver: _sourceGovernanceUseCases.findFallbackSite,
         // 网盘详情页解析（对齐 iOS `resolveCloudPlay` 的 `URLSession.shared`：
@@ -679,9 +680,12 @@ class _RootRouter extends StatelessWidget {
       // A5：全端统一 iOS 回弹滚动（BouncingScrollPhysics + 无辉光过卷）。
       scrollBehavior: const VboxScrollBehavior(),
       // L-壳1/L-壳2：品牌闪屏门控包裹首页外壳（3.5s 最短展示 + 数据就绪 + 10s 兜底）。
+      // HiddenWebviewHostInstaller：Windows 专用 1×1 隐藏 WebView2 宿主
+      // （bdstoken 浏览器栈层 / 页面嗅探的后台承载，widget 模式规避 beta
+      // headless 原生崩溃；非 Windows / WebView2 不可用时原样透传）。
       home: StartupGate(
         onStartup: onStartup,
-        child: const HomeShellPage(),
+        child: const HiddenWebviewHostInstaller(child: HomeShellPage()),
       ),
     );
   }
