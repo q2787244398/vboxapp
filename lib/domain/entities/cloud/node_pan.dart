@@ -85,9 +85,12 @@ class NodePanException implements Exception {
   const NodePanException(this.kind, [this.message = '']);
 
   /// 缺省「未就绪」异常（对齐 iOS `.nodeUnavailable`）。
-  const NodePanException.nodeUnavailable()
-      : kind = NodePanErrorKind.nodeUnavailable,
-        message = '';
+  ///
+  /// [message] 可选：附 Node 运行时管理的失败详情（如端口顶包的可操作文案），
+  /// 展示时拼入 displayMessage，避免「重启电脑/结束进程」的指引被通用文案吞掉；
+  /// 缺省保持 iOS 同口径文案。
+  const NodePanException.nodeUnavailable([this.message = ''])
+      : kind = NodePanErrorKind.nodeUnavailable;
 
   /// 原因。
   final NodePanErrorKind kind;
@@ -95,9 +98,12 @@ class NodePanException implements Exception {
   /// 详情（业务错误时为 Node 侧文案）。
   final String message;
 
-  /// 展示文案（逐档对齐 iOS `errorDescription`）。
+  /// 展示文案（逐档对齐 iOS `errorDescription`；`nodeUnavailable` 有详情时
+  /// 拼接运行时管理给出的失败原因，指引可操作）。
   String get displayMessage => switch (kind) {
-        NodePanErrorKind.nodeUnavailable => 'Node 常驻系统未就绪，请稍后重试',
+        NodePanErrorKind.nodeUnavailable => message.isEmpty
+            ? 'Node 常驻系统未就绪，请稍后重试'
+            : 'Node 常驻系统未就绪——$message',
         NodePanErrorKind.invalidShareURL => '无法识别的分享链接',
         NodePanErrorKind.nodeRejected =>
           message.isEmpty ? '网盘解析失败' : message,

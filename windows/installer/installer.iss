@@ -160,12 +160,15 @@ begin
   { 按可执行路径杀 node/python。用 WMI Win32_Process 而非 Get-Process $_.Path：
     残留进程的 exe 文件被卸载删除后，Process.Path 可能为空导致漏杀；WMI 的
     ExecutablePath 记录的是进程创建时的映像路径，文件删除后仍可命中。
+    匹配两处：① 安装目录（AppDir）；② 用户数据目录（*\com.vbox\vbox\*，
+    Node 引擎常驻 node.exe 部署在 Roaming\com.vbox\vbox\noderuntime，升级/
+    重装时必须一并杀掉，否则旧进程占住 58080 端口导致新版「Node 未就绪」）。
     Get-WmiObject 自 PowerShell 2.0（Win7）起可用。安全软件拦截 powershell
     时仅记日志不阻断安装。 }
   Exec('powershell.exe',
        '-NoProfile -ExecutionPolicy Bypass -Command ' +
        'Get-WmiObject Win32_Process -Filter "Name=''node.exe'' OR Name=''python.exe'' OR Name=''pythonw.exe''" | ' +
-       'Where-Object { $_.ExecutablePath -like "' + AppDir + '\*" } | ' +
+       'Where-Object { $_.ExecutablePath -like "' + AppDir + '\*" -or $_.ExecutablePath -like "*\com.vbox\vbox\*" } | ' +
        'ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; ' +
        'Start-Sleep -Milliseconds 800',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

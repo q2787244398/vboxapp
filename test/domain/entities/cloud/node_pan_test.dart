@@ -90,5 +90,18 @@ void main() {
         '网盘解析失败',
       );
     });
+
+    test('nodeUnavailable 带详情时拼入展示文案（运行时失败原因透传）', () {
+      const NodePanException e = NodePanException.nodeUnavailable(
+        'Node 端口 58080 已被其他进程占用（健康响应 pid=111，'
+        '本宿主子进程 pid=222）——请重启电脑，或在任务管理器结束对应进程后重试',
+      );
+      expect(e.kind, NodePanErrorKind.nodeUnavailable);
+      expect(
+        e.displayMessage,
+        startsWith('Node 常驻系统未就绪——Node 端口 58080 已被其他进程占用'),
+      );
+      expect(e.displayMessage, contains('请重启电脑'));
+    });
   });
 }

@@ -14,6 +14,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../../domain/entities/cloud/node_pan.dart';
+import '../../../platform/node/node_runtime_manager.dart';
 
 /// Node 解析 HTTP 响应。
 class NodePanHttpResponse {
@@ -248,7 +249,11 @@ class NodePanClient {
     final int code = res.statusCode;
     if (code >= 200 && code < 300) return;
     if (code == 502 || code == 503 || code == 404) {
-      throw const NodePanException.nodeUnavailable();
+      // 附带运行时管理的失败详情（如端口顶包的可操作文案），避免通用
+      // 「未就绪」文案吞掉「重启电脑/结束进程」指引。
+      throw NodePanException.nodeUnavailable(
+        NodeRuntimeManager.instance.lastError ?? '',
+      );
     }
     final String detail = _extractErrorMessage(res);
     throw NodePanException(
