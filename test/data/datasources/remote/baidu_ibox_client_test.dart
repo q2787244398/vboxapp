@@ -28,15 +28,10 @@ class _FakeWebViewBridge implements WebViewBridge {
   _FakeWebViewBridge({
     this.html = '',
     this.xhr = const <String, String>{},
-    this.xhrSequence,
   });
 
   final String html;
   final Map<String, String> xhr;
-
-  /// 顺序响应（非空时按 `request` 调用次序依次返回，用于区分多次 XHR）。
-  final List<String>? xhrSequence;
-  int _xhrSeq = 0;
 
   final List<String> loaded = <String>[];
   final List<String> requested = <String>[];
@@ -66,13 +61,6 @@ class _FakeWebViewBridge implements WebViewBridge {
     Duration timeout = const Duration(seconds: 15),
   }) async {
     requested.add(url);
-    final List<String>? seq = xhrSequence;
-    if (seq != null) {
-      if (_xhrSeq < seq.length) {
-        return (status: 200, body: seq[_xhrSeq++], headers: const <String, String>{});
-      }
-      return (status: 200, body: '{}', headers: const <String, String>{});
-    }
     for (final MapEntry<String, String> e in xhr.entries) {
       if (url.contains(e.key)) {
         return (status: 200, body: e.value, headers: const <String, String>{});
