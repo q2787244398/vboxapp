@@ -49,6 +49,13 @@ class InAppWebViewBridge implements WebViewBridge {
   /// / `InAppWebView` 共用（保证 CookieJar 同源）。
   static WebViewEnvironment? _windowsEnvironment;
 
+  /// Windows 平台 WebView2 Runtime 是否可用（其余平台恒 true）。
+  ///
+  /// 缺省 true（未探测时按可用处理，保持既有行为）；[initialize] 探测到
+  /// Runtime 缺失 / 创建失败时置 false，令 Windows 上的 [isAvailable] 返回
+  /// false，消费点回退第 4 层保存值兜底。
+  static bool _windowsAvailable = true;
+
   /// 是否已执行 [initialize]（幂等保护，避免重复创建环境）。
   static bool _windowsInitialized = false;
 
