@@ -41,6 +41,11 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
+; 单实例防护（第二道防线）：安装包被重复启动时（双击两次 / 浏览器自动打开 +
+; 手动双击叠加），两个静默内核并发会互相杀进程、并发覆盖文件。占用时第二个
+; 内核提示后退出（/SUPPRESSMSGBOXES 下静默退出）。第一道防线在 .NET 壳的
+; App_Startup（Local\vbox-setup-shell Mutex），向导 UI 根本不会出现第二个。
+SetupMutex=vbox-setup-core-mutex
 
 ; 升级时用 Windows Restart Manager 协助关闭占用安装目录内文件的进程
 ; （vbox.exe / 常驻 node.exe）。注意 Inno 6 没有 CloseApplicationsForce
