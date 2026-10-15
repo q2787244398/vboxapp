@@ -21,6 +21,7 @@ library;
 
 import 'dart:async' show unawaited;
 
+import '../../core/utils/logger.dart';
 import '../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../data/datasources/local/cloud_play_item_cache_store.dart';
 import '../../data/datasources/local/pg_auto_store.dart';
@@ -191,27 +192,57 @@ class PanPlayer {
   Future<String> _baiduSavedBdstoken() async =>
       (await _credential(CloudDriveType.baidu))?.extra['bdstoken'] ?? '';
 
-  /// 百度用户态 bdstoken 回写（对齐 iOS `saveBdstokenCredential`，
-  /// `CloudDriveManager.swift:4761-4762`）：播放链活取成功后更新凭据 extra，
-  /// 下次活取被风控时可走保存值兜底。
-  Future<void> _saveBaiduBdstoken(String bdstoken, String source) async {
+  /// 百度用户态 bdstoken 回写（对齐 iOS `baiduPersistUserBdstoken`，
+  /// `CloudDriveManager.swift:4758-4772`）：播放链活取成功后更新凭据 extra，
+  /// **并合并本次请求所用 cookie**，下次活取被风控时可走保存值兜底。
+  Future<void> _saveBaiduBdstoken(
+    String bdstoken,
+    String source,
+    String mergedCookie,
+  ) async {
     if (bdstoken.isEmpty) return;
     try {
       final CloudDriveCredentialStore store =
           CloudDriveCredentialStore(PrefsManager.instance);
       final CloudDriveCredential? cred =
           await store.credential(CloudDriveType.baidu);
-      if (cred == null || cred.extra['bdstoken'] == bdstoken) return;
+      if (cred == null) return;
+      // 对齐 iOS `baiduMergeCookieStrings([credential.cookie ?? "", mergedCookie])`：
+      // 按 key 合并，保留旧 cookie 中未被覆盖的字段。
+      final String merged = BaiduIBoxClient.mergeCookieStrings(
+        <String>[cred.cookie ?? '', mergedCookie],
+      );
+      // bdstoken 与 cookie 均无变化则不写盘：secure storage（Windows 走 DPAPI）
+      // 写入代价高，避免每次播放都重复落盘。
+      if (cred.extra['bdstoken'] == bdstoken &&
+          cred.extra['bdstoken_source'] == source &&
+          (cred.cookie ?? '') == merged) {
+        return;
+      }
       await store.save(cred.copyWith(
+        cookie: merged.isNotEmpty ? merged : cred.cookie,
         updatedAt: DateTime.now(),
+        lastCheckedAt: DateTime.now(),
+        state: CloudDriveAuthState.valid,
+        statusMessage: '百度登录态已补齐 bdstoken',
         extra: <String, String>{
           ...cred.extra,
           'bdstoken': bdstoken,
           'bdstoken_source': source,
         },
       ));
-    } catch (_) {
+      AppLog.info(
+        'baidu-local',
+        '已回写 bdstoken（source=$source）并合并 cookie',
+        category: LogCategory.cloud,
+      );
+    } catch (e) {
       // 回写失败不阻断播放（对齐 iOS 宽松语义）。
+      AppLog.warn(
+        'baidu-local',
+        '回写 bdstoken 失败：$e',
+        category: LogCategory.cloud,
+      );
     }
   }
 
@@ -503,8 +534,11 @@ class PanPlayer {
               fsId: entry.playID,
               pcsCookie: pair.pcs?.value ?? '',
               savedBdstoken: await _baiduSavedBdstoken(),
-              onBdstokenFetched: (String token, String source) =>
-                  unawaited(_saveBaiduBdstoken(token, source)),
+              onBdstokenFetched:
+                  (String token, String source, String mergedCookie) =>
+                      unawaited(
+                        _saveBaiduBdstoken(token, source, mergedCookie),
+                      ),
             );
           } on BaiduIBoxException catch (e) {
             throw PanPlayException(e.message);

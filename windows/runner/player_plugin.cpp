@@ -160,6 +160,7 @@ bool MpvApi::Load() {
     Name = reinterpret_cast<decltype(Name)>(                               \
         ::GetProcAddress(mod, "mpv_" #Name));                              \
   } while (0)
+  LOAD_MPV_RENDER_SYM(request_log_messages);  // 可选：mpv 内部日志上抛。
   LOAD_MPV_RENDER_SYM(render_context_create);
   LOAD_MPV_RENDER_SYM(render_context_render);
   LOAD_MPV_RENDER_SYM(render_context_set_update_callback);
@@ -274,6 +275,18 @@ void PlayerPlugin::Open(
     result->Error("E_INVALID_SOURCE", "无效的播放源");
     return;
   }
+  // 只记录 host（播放直链常带签名参数，不入日志，避免泄漏凭据）。
+  std::string host = url;
+  const size_t scheme = host.find("://");
+  if (scheme != std::string::npos) {
+    host = host.substr(scheme + 3);
+  }
+  const size_t slash = host.find('/');
+  if (slash != std::string::npos) {
+    host = host.substr(0, slash);
+  }
+  EmitLog("info", "open 请求：host=" + host +
+                      "，urlLength=" + std::to_string(url.size()));
 
   // 后端口径：本插件仅实现 libmpv（D6 桌面主后端）。
   const std::string backend = GetString(*map, "backend", "libmpv");
@@ -413,22 +426,48 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
     return false;
   }
   // R-渲1：有 render API 时走 `vo=libmpv`（mpv_render_context 前置），
-  // 每帧软渲染为 BGRA 交 Flutter 纹理上屏；否则退回 `vo=null`（纯控制面）。
+  // 每帧 GPU 渲染为 BGRA 交 Flutter 纹理上屏；否则退回 `vo=null`（纯控制面）。
   // 注意：vo 属「初始化前生效」选项，必须早于 mpv_initialize 设置，
   // 否则默认 vo 会在 Windows 弹出独立 mpv 渲染窗口，破坏无窗口契约。
-  const bool can_render = api_.render_context_create != nullptr;
-  api_.set_option_string(handle, "vo", can_render ? "libmpv" : "null");
-  if (can_render) {
-    // 问题 5：桌面 render context 改走 OpenGL(GPU) 后端，让 mpv 在 GPU 上跑
+  //
+  // 问题 2：`render_context_create` 函数指针非空只说明 dll 里带 render API，
+  // 不代表离屏 GL 渲染真的可用（无显卡驱动 / OpenGL 1.1 软实现 / 远程桌面
+  // 会话下 FBO 入口为空 → 渲染线程静默退出 → 有声音无画面）。
+  // 预检结论只写日志、不作闸门：预检在平台线程、正式渲染在渲染线程，为避免
+  // 预检误判导致本来能出画面却不出，仍让 mpv 真正尝试一次；真失败时渲染链
+  // 有逐环日志，并自动回退到 SW 软渲染（见 RunRenderLoop）。
+  const bool has_render_api = api_.render_context_create != nullptr;
+  if (has_render_api) {
+    std::string probe_detail;
+    const bool probe_ok = ProbeGlCapability(&probe_detail);
+    EmitLog(probe_ok ? "info" : "warn",
+            "GL 能力预检（仅提示，不阻断）：" + probe_detail);
+  } else {
+    EmitLog("warn", "mpv 未提供 render API（mpv-2.dll 过旧），回退 vo=null");
+  }
+  api_.set_option_string(handle, "vo", has_render_api ? "libmpv" : "null");
+  if (has_render_api) {
+    // 问题 5：桌面 render context 优先走 OpenGL(GPU) 后端，让 mpv 在 GPU 上跑
     // 完整色彩管线（primaries/gamma/HDR tone-mapping），对齐 iOS 的 GPU 路径，
     // 消除 SW 软渲染（仅 YUV→RGB 矩阵、缺色彩管理）导致的泛黄偏色。
+    // 注：OpenGL 不可用时会自动退到 SW（见 RunRenderLoop），不受此选项影响。
     api_.set_option_string(handle, "gpu-api", "opengl");
   }
   if (api_.initialize(handle) < 0) {
     api_.terminate_destroy(handle);
+    EmitLog("error", "mpv_initialize 失败");
     return false;
   }
   mpv_ = handle;
+  // mpv 内部日志上抛（对齐 iOS 排查详细度）：info 及以上经
+  // MPV_EVENT_LOG_MESSAGE 转 EmitLog 交 Dart AppLog。
+  if (api_.request_log_messages != nullptr) {
+    api_.request_log_messages(mpv_, "info");
+  }
+  EmitLog("info", "mpv 初始化完成（vo=" +
+                      std::string(has_render_api ? "libmpv" : "null") +
+                      "，gpu-api=" +
+                      std::string(has_render_api ? "opengl" : "无") + "）");
 
   // 直播流（isLive）open 后自动起播，对齐 Android ExoPlayer 行为；点播保持暂停待 play()。
   int pause = auto_play ? 0 : 1;
@@ -442,7 +481,8 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
   api_.observe_property(mpv_, 0, "demuxer-cache-time", MPV_FORMAT_DOUBLE);
 
   // 渲染输出面（R-渲1）：建 render_context + 注册纹理 + 起渲染线程。
-  if (can_render) {
+  // 先试 OpenGL，失败在渲染线程内自动回退 SW（见 RunRenderLoop）。
+  if (has_render_api) {
     SetupRenderContext();
   }
 
@@ -478,6 +518,16 @@ void PlayerPlugin::ShutdownMpv() {
   }
   last_video_width_ = 0;
   last_video_height_ = 0;
+  // 渲染后端与软渲染缓冲随会话释放。
+  render_backend_ = RenderBackend::none;
+  sw_frame_buffer_.clear();
+  sw_frame_buffer_.shrink_to_fit();
+  sw_frame_width_ = 0;
+  sw_frame_height_ = 0;
+  // 日志去重标记随会话复位，避免上一次失败导致本次不再上报关键日志。
+  logged_first_frame_ = false;
+  logged_render_failure_ = false;
+  logged_frame_drop_ = false;
 
   if (event_thread_ != nullptr) {
     running_ = false;
@@ -492,6 +542,165 @@ void PlayerPlugin::ShutdownMpv() {
 }
 
 // ─────────────── 渲染输出面（R-渲1）───────────────
+
+namespace {
+
+// 承载 WGL 上下文的隐藏窗口类名（预检与正式渲染共用，注册幂等）。
+constexpr const wchar_t kGlWindowClass[] = L"VboxMpvGlHiddenWnd";
+
+// 注册（幂等）隐藏窗口类并创建 1x1 窗口，返回窗口句柄并回填 HDC。
+// 失败返回 nullptr（`wglCreateContext` 需要已设像素格式的 HDC）。
+HWND CreateHiddenGlWindow(HDC* out_hdc) {
+  static bool class_registered = false;
+  HINSTANCE instance = ::GetModuleHandleW(nullptr);
+  if (!class_registered) {
+    WNDCLASSW wc{};
+    wc.style = CS_OWNDC;
+    wc.lpfnWndProc = ::DefWindowProcW;
+    wc.hInstance = instance;
+    wc.lpszClassName = kGlWindowClass;
+    if (::RegisterClassW(&wc) == 0 &&
+        ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+      return nullptr;
+    }
+    class_registered = true;
+  }
+  HWND hwnd = ::CreateWindowExW(0, kGlWindowClass, L"", WS_OVERLAPPED, 0, 0, 1, 1,
+                                nullptr, nullptr, instance, nullptr);
+  if (hwnd == nullptr) {
+    return nullptr;
+  }
+  HDC hdc = ::GetDC(hwnd);
+  if (hdc == nullptr) {
+    ::DestroyWindow(hwnd);
+    return nullptr;
+  }
+  *out_hdc = hdc;
+  return hwnd;
+}
+
+// 为 HDC 选择并设定 OpenGL 像素格式。
+bool SetGlPixelFormat(HDC hdc) {
+  PIXELFORMATDESCRIPTOR pfd{};
+  pfd.nSize = sizeof(pfd);
+  pfd.nVersion = 1;
+  pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+  pfd.iPixelType = PFD_TYPE_RGBA;
+  pfd.cColorBits = 32;
+  pfd.cAlphaBits = 8;
+  pfd.iLayerType = PFD_MAIN_PLANE;
+  const int pf = ::ChoosePixelFormat(hdc, &pfd);
+  if (pf == 0 || !::SetPixelFormat(hdc, pf, &pfd)) {
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+// 平台无关 GL 能力预检：建临时 WGL 上下文，读 GL 版本并检查 FBO 扩展入口。
+//
+// 为什么需要：`vo=libmpv` 属「初始化前生效」选项，一旦设为 libmpv 就不能回退；
+// 而离屏渲染依赖 FBO（`glGenFramebuffers` 等经 wglGetProcAddress 解析）。在无
+// 显卡驱动 / 仅 OpenGL 1.1 软件实现 / 远程桌面会话下这些入口恒为空指针，届时
+// 渲染线程会静默退出——表现为「有声音、有进度、无画面」。预检可提前发现，
+// 让 mpv 走 `vo=null`，避免用户面对无解释的黑屏。
+bool PlayerPlugin::ProbeGlCapability(std::string* detail) {
+  HMODULE ogl = ::LoadLibraryW(L"opengl32.dll");
+  if (ogl == nullptr) {
+    if (detail != nullptr) *detail = "opengl32.dll 加载失败";
+    return false;
+  }
+
+  HWND hwnd = nullptr;
+  HDC hdc = nullptr;
+  HGLRC glrc = nullptr;
+  bool ok = false;
+  do {
+    hwnd = CreateHiddenGlWindow(&hdc);
+    if (hwnd == nullptr) {
+      if (detail != nullptr) *detail = "隐藏窗口创建失败";
+      break;
+    }
+    if (!SetGlPixelFormat(hdc)) {
+      if (detail != nullptr) *detail = "像素格式设置失败（无 OpenGL 像素格式）";
+      break;
+    }
+    auto wgl_create_context = reinterpret_cast<HGLRC (*)(HDC)>(
+        ::GetProcAddress(ogl, "wglCreateContext"));
+    auto wgl_make_current = reinterpret_cast<BOOL (*)(HDC, HGLRC)>(
+        ::GetProcAddress(ogl, "wglMakeCurrent"));
+    auto wgl_delete_context = reinterpret_cast<BOOL (*)(HGLRC)>(
+        ::GetProcAddress(ogl, "wglDeleteContext"));
+    auto wgl_get_proc_address = reinterpret_cast<void* (*)(const char*)>(
+        ::GetProcAddress(ogl, "wglGetProcAddress"));
+    if (wgl_create_context == nullptr || wgl_make_current == nullptr ||
+        wgl_delete_context == nullptr || wgl_get_proc_address == nullptr) {
+      if (detail != nullptr) *detail = "WGL 入口解析失败";
+      break;
+    }
+    glrc = wgl_create_context(hdc);
+    if (glrc == nullptr) {
+      if (detail != nullptr) *detail = "wglCreateContext 失败（无可用显卡驱动）";
+      break;
+    }
+    if (!wgl_make_current(hdc, glrc)) {
+      if (detail != nullptr) *detail = "wglMakeCurrent 失败";
+      break;
+    }
+    // GL 版本（glGetString 属 GL 1.1 导出；GL_VERSION = 0x1F02）。
+    auto gl_get_string = reinterpret_cast<const unsigned char* (*)(GlEnum)>(
+        ::GetProcAddress(ogl, "glGetString"));
+    std::string version = "未知";
+    if (gl_get_string != nullptr) {
+      const unsigned char* v = gl_get_string(0x1F02 /* GL_VERSION */);
+      if (v != nullptr) version = reinterpret_cast<const char*>(v);
+    }
+    void* gen_framebuffers = wgl_get_proc_address("glGenFramebuffers");
+    if (gen_framebuffers == nullptr) {
+      if (detail != nullptr) {
+        *detail = "OpenGL " + version + "，FBO 入口不可用（需 OpenGL 2.0+）";
+      }
+      break;
+    }
+    if (detail != nullptr) *detail = "OpenGL " + version + "，FBO 可用";
+    ok = true;
+  } while (false);
+
+  if (glrc != nullptr) {
+    auto wgl_make_current = reinterpret_cast<BOOL (*)(HDC, HGLRC)>(
+        ::GetProcAddress(ogl, "wglMakeCurrent"));
+    auto wgl_delete_context = reinterpret_cast<BOOL (*)(HGLRC)>(
+        ::GetProcAddress(ogl, "wglDeleteContext"));
+    if (wgl_make_current != nullptr) wgl_make_current(nullptr, nullptr);
+    if (wgl_delete_context != nullptr) wgl_delete_context(glrc);
+  }
+  if (hdc != nullptr && hwnd != nullptr) {
+    ::ReleaseDC(hwnd, hdc);
+  }
+  if (hwnd != nullptr) {
+    ::DestroyWindow(hwnd);
+  }
+  ::FreeLibrary(ogl);
+  return ok;
+}
+
+void PlayerPlugin::EmitLog(const std::string& level,
+                           const std::string& message) {
+  std::shared_ptr<flutter::EventSink<flutter::EncodableValue>> sink =
+      SinkSnapshot();
+  if (sink == nullptr) {
+    return;
+  }
+  sink->Success(flutter::EncodableValue(flutter::EncodableMap{
+      {flutter::EncodableValue(std::string("type")),
+       flutter::EncodableValue(std::string("log"))},
+      {flutter::EncodableValue(std::string("level")),
+       flutter::EncodableValue(level)},
+      {flutter::EncodableValue(std::string("message")),
+       flutter::EncodableValue(message)},
+  }));
+}
 
 bool PlayerPlugin::SetupRenderContext() {
   if (api_.render_context_create == nullptr || mpv_ == nullptr) {
@@ -511,11 +720,13 @@ bool PlayerPlugin::SetupRenderContext() {
 // 渲染线程内：建隐藏窗口 + WGL 上下文 + mpv OpenGL render_context。
 bool PlayerPlugin::CreateGlRenderContext() {
   if (api_.render_context_create == nullptr || mpv_ == nullptr) {
+    EmitLog("error", "创建 GL 渲染上下文失败：render API 或 mpv 句柄不可用");
     return false;
   }
   // 1) opengl32.dll：GL 1.1 入口 + WGL（系统组件，恒存在）。
   opengl32_ = ::LoadLibraryW(L"opengl32.dll");
   if (opengl32_ == nullptr) {
+    EmitLog("error", "创建 GL 渲染上下文失败：opengl32.dll 加载失败");
     return false;
   }
   wgl_.create_context = reinterpret_cast<decltype(wgl_.create_context)>(
@@ -528,58 +739,35 @@ bool PlayerPlugin::CreateGlRenderContext() {
       ::GetProcAddress(opengl32_, "wglGetProcAddress"));
   if (wgl_.create_context == nullptr || wgl_.make_current == nullptr ||
       wgl_.delete_context == nullptr || wgl_.get_proc_address == nullptr) {
+    EmitLog("error", "创建 GL 渲染上下文失败：WGL 入口解析失败");
     return false;
   }
 
   // 2) 隐藏窗口 + 像素格式（wglCreateContext 需已设像素格式的 HDC）。
-  static const wchar_t kClassName[] = L"VboxMpvGlHiddenWnd";
-  static bool class_registered = false;
-  HINSTANCE instance = ::GetModuleHandleW(nullptr);
-  if (!class_registered) {
-    WNDCLASSW wc{};
-    wc.style = CS_OWNDC;
-    wc.lpfnWndProc = ::DefWindowProcW;
-    wc.hInstance = instance;
-    wc.lpszClassName = kClassName;
-    if (::RegisterClassW(&wc) == 0 &&
-        ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-      return false;
-    }
-    class_registered = true;
-  }
-  render_hwnd_ = ::CreateWindowExW(0, kClassName, L"", WS_OVERLAPPED, 0, 0, 1, 1,
-                                   nullptr, nullptr, instance, nullptr);
+  render_hwnd_ = CreateHiddenGlWindow(&render_hdc_);
   if (render_hwnd_ == nullptr) {
+    EmitLog("error", "创建 GL 渲染上下文失败：隐藏窗口或 HDC 创建失败");
     return false;
   }
-  render_hdc_ = ::GetDC(render_hwnd_);
-  if (render_hdc_ == nullptr) {
-    return false;
-  }
-  PIXELFORMATDESCRIPTOR pfd{};
-  pfd.nSize = sizeof(pfd);
-  pfd.nVersion = 1;
-  pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-  pfd.iPixelType = PFD_TYPE_RGBA;
-  pfd.cColorBits = 32;
-  pfd.cAlphaBits = 8;
-  pfd.iLayerType = PFD_MAIN_PLANE;
-  const int pf = ::ChoosePixelFormat(render_hdc_, &pfd);
-  if (pf == 0 || !::SetPixelFormat(render_hdc_, pf, &pfd)) {
+  if (!SetGlPixelFormat(render_hdc_)) {
+    EmitLog("error", "创建 GL 渲染上下文失败：像素格式设置失败");
     return false;
   }
 
   // 3) WGL 上下文并置为当前（仅本渲染线程调用，满足线程亲和）。
   render_glrc_ = wgl_.create_context(render_hdc_);
   if (render_glrc_ == nullptr) {
+    EmitLog("error", "创建 GL 渲染上下文失败：wglCreateContext 返回空");
     return false;
   }
   if (!wgl_.make_current(render_hdc_, render_glrc_)) {
+    EmitLog("error", "创建 GL 渲染上下文失败：wglMakeCurrent 失败");
     return false;
   }
 
   // 4) 解析 GL 入口（须在当前上下文绑定后）。
   if (!LoadGlSymbols()) {
+    EmitLog("error", "创建 GL 渲染上下文失败：GL 入口解析不全（FBO 需要 OpenGL 2.0+）");
     return false;
   }
 
@@ -597,18 +785,62 @@ bool PlayerPlugin::CreateGlRenderContext() {
       {MPV_RENDER_PARAM_INVALID, nullptr},
   };
   mpv_render_context* ctx = nullptr;
-  if (api_.render_context_create(&ctx, mpv_, params) < 0 || ctx == nullptr) {
+  const int rc = api_.render_context_create(&ctx, mpv_, params);
+  if (rc < 0 || ctx == nullptr) {
     // 无纹理输出：Dart 侧深色占位，控制面（播放/进度）不受影响。
+    const char* detail = api_.error_string != nullptr ? api_.error_string(rc) : nullptr;
+    EmitLog("error",
+            "mpv_render_context_create 失败（" +
+                std::string(detail != nullptr ? detail : "未知原因") +
+                "），无视频输出");
     return false;
   }
   render_ctx_ = ctx;
+  render_backend_ = RenderBackend::opengl;
   api_.render_context_set_update_callback(render_ctx_, &PlayerPlugin::OnRenderUpdate,
                                           this);
   RegisterTexture();
+  EmitLog("info", "mpv OpenGL render context 创建成功，纹理输出已就绪");
+  return true;
+}
+
+// 渲染线程内：以 "sw" API 建 render context（libswscale 软渲染，无需 GL）。
+//
+// 用途（问题 2 兜底）：目标机无显卡驱动 / 处于远程桌面会话 / 仅有 OpenGL 1.1
+// 时，OpenGL 离屏路径必然建不起来，此时若直接放弃就会「有声音无画面」。SW
+// 后端不依赖 GPU，可保证画面仍能上屏；代价是无色彩管理（可能泛黄偏色）。
+bool PlayerPlugin::CreateSwRenderContext() {
+  if (api_.render_context_create == nullptr || mpv_ == nullptr) {
+    return false;
+  }
+  int advanced_control = 1;
+  mpv_render_param params[] = {
+      {MPV_RENDER_PARAM_API_TYPE, const_cast<char*>(kRenderApiSw)},
+      {MPV_RENDER_PARAM_ADVANCED_CONTROL, &advanced_control},
+      {MPV_RENDER_PARAM_INVALID, nullptr},
+  };
+  mpv_render_context* ctx = nullptr;
+  const int rc = api_.render_context_create(&ctx, mpv_, params);
+  if (rc < 0 || ctx == nullptr) {
+    const char* detail =
+        api_.error_string != nullptr ? api_.error_string(rc) : nullptr;
+    EmitLog("error",
+            "mpv 软件渲染上下文创建失败（" +
+                std::string(detail != nullptr ? detail : "未知原因") +
+                "），无视频输出");
+    return false;
+  }
+  render_ctx_ = ctx;
+  render_backend_ = RenderBackend::software;
+  api_.render_context_set_update_callback(render_ctx_, &PlayerPlugin::OnRenderUpdate,
+                                          this);
+  RegisterTexture();
+  EmitLog("info", "mpv 软件渲染（SW）已就绪，视频将由 CPU 渲染上屏（色彩表现不如 GPU 路径）");
   return true;
 }
 
 // 渲染线程内：释放 render_context 与 GL 资源（保持 WGL 上下文当前）。
+// 两个后端共用：software 后端只有 render_ctx_，GL 资源为空时各守卫直接跳过。
 void PlayerPlugin::DestroyGlRenderContext() {
   // mpv OpenGL 后端要求释放 render_context 时 GL 上下文仍为当前。
   if (render_ctx_ != nullptr) {
@@ -616,6 +848,7 @@ void PlayerPlugin::DestroyGlRenderContext() {
     api_.render_context_free(render_ctx_);
     render_ctx_ = nullptr;
   }
+  render_backend_ = RenderBackend::none;
   if (render_fbo_ != 0 && gl_.delete_framebuffers != nullptr) {
     gl_.delete_framebuffers(1, &render_fbo_);
   }
@@ -676,14 +909,36 @@ bool PlayerPlugin::LoadGlSymbols() {
   gl_.check_framebuffer_status =
       reinterpret_cast<decltype(gl_.check_framebuffer_status)>(
           wgl_.get_proc_address("glCheckFramebufferStatus"));
-  return gl_.gen_textures != nullptr && gl_.delete_textures != nullptr &&
-         gl_.bind_texture != nullptr && gl_.tex_image_2d != nullptr &&
-         gl_.tex_parameter_i != nullptr && gl_.pixel_store_i != nullptr &&
-         gl_.viewport != nullptr && gl_.read_pixels != nullptr &&
-         gl_.gen_framebuffers != nullptr && gl_.delete_framebuffers != nullptr &&
-         gl_.bind_framebuffer != nullptr &&
-         gl_.framebuffer_texture_2d != nullptr &&
-         gl_.check_framebuffer_status != nullptr;
+  // 逐项登记缺失入口，便于区分「GL 1.1 基础入口缺失」与「FBO 扩展缺失」
+  //（后者几乎总是显卡驱动缺失 / 远程桌面会话 / OpenGL 1.1 软实现）。
+  std::string missing;
+  auto note_missing = [&missing](const char* name, bool present) {
+    if (!present) {
+      if (!missing.empty()) missing += ", ";
+      missing += name;
+    }
+  };
+  note_missing("glGenTextures", gl_.gen_textures != nullptr);
+  note_missing("glDeleteTextures", gl_.delete_textures != nullptr);
+  note_missing("glBindTexture", gl_.bind_texture != nullptr);
+  note_missing("glTexImage2D", gl_.tex_image_2d != nullptr);
+  note_missing("glTexParameteri", gl_.tex_parameter_i != nullptr);
+  note_missing("glPixelStorei", gl_.pixel_store_i != nullptr);
+  note_missing("glViewport", gl_.viewport != nullptr);
+  note_missing("glReadPixels", gl_.read_pixels != nullptr);
+  note_missing("glGenFramebuffers", gl_.gen_framebuffers != nullptr);
+  note_missing("glDeleteFramebuffers", gl_.delete_framebuffers != nullptr);
+  note_missing("glBindFramebuffer", gl_.bind_framebuffer != nullptr);
+  note_missing("glFramebufferTexture2D", gl_.framebuffer_texture_2d != nullptr);
+  note_missing("glCheckFramebufferStatus",
+               gl_.check_framebuffer_status != nullptr);
+  const bool complete = missing.empty();
+  if (complete) {
+    EmitLog("debug", "GL 入口解析完成（GL 1.1 + FBO 扩展齐全）");
+  } else {
+    EmitLog("error", "GL 入口缺失：" + missing);
+  }
+  return complete;
 }
 
 // 渲染线程内：按视频尺寸（懒）建/复用离屏 FBO + 颜色纹理。
@@ -763,9 +1018,18 @@ void PlayerPlugin::OnRenderUpdate(void* callback_ctx) {
 void PlayerPlugin::RunRenderLoop() {
   // 渲染线程内建 GL 上下文 + render_context（WGL 线程亲和）。
   if (!CreateGlRenderContext()) {
-    // 无纹理输出：Dart 侧深色占位，控制面不受影响。兜底清理半初始化资源。
+    // 问题 2 兜底：OpenGL 离屏渲染不可用（无显卡驱动 / 远程桌面 / 仅 GL 1.1）
+    // → 不再直接放弃，改走 libswscale 软渲染，保证仍有画面。失败原因已由
+    // CreateGlRenderContext 逐环上报，此处仅清理半初始化资源再切换后端。
     DestroyGlRenderContext();
-    return;
+    EmitLog("warn", "OpenGL 视频输出不可用，回退 mpv 软件渲染（SW）");
+    if (!CreateSwRenderContext()) {
+      logged_render_failure_ = true;
+      EmitError("当前设备无法建立视频输出（OpenGL 与软件渲染均失败），画面暂不可用，音频正常",
+                false);
+      DestroyGlRenderContext();
+      return;
+    }
   }
   while (render_running_.load()) {
     {
@@ -789,23 +1053,128 @@ void PlayerPlugin::RunRenderLoop() {
   DestroyGlRenderContext();
 }
 
+bool PlayerPlugin::ResolveVideoSize(int* width, int* height) {
+  // 视频目标尺寸：优先 coded 尺寸（width/height），回退 display 尺寸。
+  int64_t w = 0;
+  int64_t h = 0;
+  if (!GetInt64Property("width", &w) || w <= 0 ||
+      !GetInt64Property("height", &h) || h <= 0) {
+    if (!GetInt64Property("dwidth", &w) || w <= 0 ||
+        !GetInt64Property("dheight", &h) || h <= 0) {
+      return false;  // 尚未解出视频轨（纯音频 / 加载中）。
+    }
+  }
+  *width = static_cast<int>(w);
+  *height = static_cast<int>(h);
+  return true;
+}
+
+// 两个渲染后端共用的上屏尾段：丢帧判定 → 交 Flutter 纹理 → 首帧日志 → 尺寸上报。
+void PlayerPlugin::PublishFrame(std::vector<uint8_t>& source, int width,
+                                int height) {
+  bool dropped_for_locked_buffer = false;
+  {
+    std::lock_guard<std::mutex> lock(frame_mutex_);
+    if (frame_locked_.load()) {
+      // 引擎尚未回调 release（长时间占用前缓冲）→ 本帧丢弃。若一直如此，
+      // 画面会静止/全黑但音频与进度正常，且此前无任何日志可查，故留痕一次。
+      // 注意：日志上报放在锁外，避免与 CopyPixelBuffer 的持锁路径互相等待。
+      if (!logged_frame_drop_) {
+        logged_frame_drop_ = true;
+        dropped_for_locked_buffer = true;
+      }
+    } else {
+      frame_buffer_.swap(source);
+      frame_width_ = width;
+      frame_height_ = height;
+    }
+  }
+  if (dropped_for_locked_buffer) {
+    EmitLog("warn",
+            "引擎未释放前缓冲，本帧被丢弃（若持续出现则画面会停滞/黑屏）");
+    return;
+  }
+
+  const int64_t texture_id = texture_id_.load();
+  if (texture_registrar_ != nullptr && texture_id >= 0) {
+    texture_registrar_->MarkTextureFrameAvailable(texture_id);
+  }
+
+  if (!logged_first_frame_) {
+    logged_first_frame_ = true;
+    EmitLog("info",
+            "首帧已渲染上屏（" + std::to_string(width) + "x" +
+                std::to_string(height) + "，textureId=" +
+                std::to_string(texture_id) + "，后端=" +
+                (render_backend_ == RenderBackend::software ? "software"
+                                                            : "opengl") +
+                "）");
+  }
+
+  // 视频尺寸变更上报（Dart 侧输出面纵横比自适应；去重避免抖动）。
+  if (width != last_video_width_ || height != last_video_height_) {
+    last_video_width_ = width;
+    last_video_height_ = height;
+    EmitVideoSize(width, height);
+  }
+}
+
+// 软件渲染后端逐帧输出：libswscale 把视频帧直接写成 BGRA，无 GPU 依赖。
+//
+// 参数口径与改造前的 SW 路径一致（`SW_SIZE` / `SW_FORMAT="bgra"` / `SW_STRIDE`
+// / `SW_POINTER`）：SW 后端输出本就为顶行在上，无需 `FLIP_Y`（该参数仅 OpenGL
+// 路径需要，因为 GL 纹理原点在左下）。
+void PlayerPlugin::RenderFrameSoftware(int width, int height) {
+  const size_t stride = static_cast<size_t>(width) * 4;
+  const size_t bytes = stride * static_cast<size_t>(height);
+  if (sw_frame_width_ != width || sw_frame_height_ != height ||
+      sw_frame_buffer_.size() != bytes) {
+    sw_frame_buffer_.assign(bytes, 0);
+    sw_frame_width_ = width;
+    sw_frame_height_ = height;
+  }
+  int size[2] = {width, height};
+  size_t sw_stride = stride;
+  const char* format = "bgra";
+  void* pointer = sw_frame_buffer_.data();
+  mpv_render_param params[] = {
+      {MPV_RENDER_PARAM_SW_SIZE, size},
+      {MPV_RENDER_PARAM_SW_FORMAT, const_cast<char*>(format)},
+      {MPV_RENDER_PARAM_SW_STRIDE, &sw_stride},
+      {MPV_RENDER_PARAM_SW_POINTER, pointer},
+      {MPV_RENDER_PARAM_INVALID, nullptr},
+  };
+  if (api_.render_context_render(render_ctx_, params) < 0) {
+    if (!logged_render_failure_) {
+      logged_render_failure_ = true;
+      EmitLog("error", "mpv 软件渲染失败（SW），视频帧无法渲染");
+    }
+    return;
+  }
+  PublishFrame(sw_frame_buffer_, width, height);
+}
+
 void PlayerPlugin::RenderFrame() {
   if (render_ctx_ == nullptr || api_.render_context_render == nullptr) {
     return;
   }
-  // 视频目标尺寸：优先 coded 尺寸（width/height），回退 display 尺寸。
-  int64_t width = 0;
-  int64_t height = 0;
-  if (!GetInt64Property("width", &width) || width <= 0 ||
-      !GetInt64Property("height", &height) || height <= 0) {
-    if (!GetInt64Property("dwidth", &width) || width <= 0 ||
-        !GetInt64Property("dheight", &height) || height <= 0) {
-      return;  // 尚未解出视频轨（纯音频 / 加载中）。
-    }
+  int pixel_width = 0;
+  int pixel_height = 0;
+  if (!ResolveVideoSize(&pixel_width, &pixel_height)) {
+    return;
   }
-  const int pixel_width = static_cast<int>(width);
-  const int pixel_height = static_cast<int>(height);
+  if (render_backend_ == RenderBackend::software) {
+    RenderFrameSoftware(pixel_width, pixel_height);
+    return;
+  }
   if (!EnsureFbo(pixel_width, pixel_height)) {
+    if (!logged_render_failure_) {
+      logged_render_failure_ = true;
+      EmitLog("error",
+              "离屏 FBO 创建失败（" + std::to_string(pixel_width) + "x" +
+                  std::to_string(pixel_height) +
+                  "），视频帧无法上屏；请检查显卡驱动与 OpenGL 版本");
+    }
     return;
   }
 
@@ -823,6 +1192,10 @@ void PlayerPlugin::RenderFrame() {
       {MPV_RENDER_PARAM_INVALID, nullptr},
   };
   if (api_.render_context_render(render_ctx_, params) < 0) {
+    if (!logged_render_failure_) {
+      logged_render_failure_ = true;
+      EmitLog("error", "mpv_render_context_render 失败，视频帧无法渲染");
+    }
     return;
   }
 
@@ -835,27 +1208,7 @@ void PlayerPlugin::RenderFrame() {
                   scratch.data());
   gl_.bind_framebuffer(kGlFramebuffer, 0);
 
-  {
-    std::lock_guard<std::mutex> lock(frame_mutex_);
-    if (frame_locked_.load()) {
-      return;  // 引擎正采样前缓冲，丢弃本帧（下一帧回调再补）。
-    }
-    frame_buffer_.swap(scratch);
-    frame_width_ = pixel_width;
-    frame_height_ = pixel_height;
-  }
-
-  const int64_t texture_id = texture_id_.load();
-  if (texture_registrar_ != nullptr && texture_id >= 0) {
-    texture_registrar_->MarkTextureFrameAvailable(texture_id);
-  }
-
-  // 视频尺寸变更上报（Dart 侧输出面纵横比自适应；去重避免抖动）。
-  if (pixel_width != last_video_width_ || pixel_height != last_video_height_) {
-    last_video_width_ = pixel_width;
-    last_video_height_ = pixel_height;
-    EmitVideoSize(pixel_width, pixel_height);
-  }
+  PublishFrame(scratch, pixel_width, pixel_height);
 }
 
 const FlutterDesktopPixelBuffer* PlayerPlugin::CopyPixelBuffer(size_t width,
@@ -907,6 +1260,21 @@ void PlayerPlugin::HandleMpvEvent(const mpv_event* event) {
       int paused = 0;
       const bool has_pause = GetFlagProperty("pause", &paused);
       EmitState(has_pause && paused ? "paused" : "playing");
+      // 记录媒体信息，便于判断「有声音无画面」是否因缺视频轨 / 解码失败。
+      double duration = -1.0;
+      GetDoubleProperty("duration", &duration);
+      int64_t width = 0;
+      int64_t height = 0;
+      const bool has_video = GetInt64Property("width", &width) && width > 0 &&
+                             GetInt64Property("height", &height) && height > 0;
+      const std::string video = has_video
+                                    ? std::to_string(width) + "x" + std::to_string(height)
+                                    : "无（纯音频）";
+      EmitLog("info", "文件已加载：时长=" +
+                          (duration > 0
+                               ? std::to_string(static_cast<int64_t>(duration)) + "秒"
+                               : std::string("未知")) +
+                          "，视频轨尺寸=" + video);
       EmitProgress();
       break;
     }
@@ -922,10 +1290,13 @@ void PlayerPlugin::HandleMpvEvent(const mpv_event* event) {
       if (end_file != nullptr &&
           end_file->reason == MPV_END_FILE_REASON_ERROR) {
         const char* detail = api_.error_string(end_file->error);
-        EmitError(detail != nullptr ? detail : "播放失败", true);
+        const std::string message = detail != nullptr ? detail : "播放失败";
+        EmitLog("error", "播放中断：" + message);
+        EmitError(message, true);
         EmitState("error");
       } else if (end_file != nullptr &&
                  end_file->reason == MPV_END_FILE_REASON_EOF) {
+        EmitLog("info", "播放到文件末尾");
         EmitState("ended");
       }
       break;
@@ -959,8 +1330,32 @@ void PlayerPlugin::HandleMpvEvent(const mpv_event* event) {
       }
       break;
     }
+    case MPV_EVENT_LOG_MESSAGE: {
+      // mpv 内部日志（对齐 iOS 详细度）：前缀 + 文本上抛 Dart AppLog。
+      const auto* log = static_cast<const mpv_event_log_message*>(event->data);
+      if (log == nullptr || log->text == nullptr) {
+        break;
+      }
+      std::string level = log->level != nullptr ? log->level : "info";
+      std::string mapped = "debug";
+      if (level == "fatal" || level == "error") {
+        mapped = "error";
+      } else if (level == "warn") {
+        mapped = "warn";
+      } else if (level == "info") {
+        mapped = "info";
+      }
+      std::string text = log->text;
+      while (!text.empty() &&
+             (text.back() == '\n' || text.back() == '\r')) {
+        text.pop_back();
+      }
+      const std::string prefix = log->prefix != nullptr ? log->prefix : "mpv";
+      EmitLog(mapped, "[mpv/" + prefix + "] " + text);
+      break;
+    }
     default:
-      // MPV_EVENT_NONE / LOG_MESSAGE / QUEUE_OVERFLOW 等：控制面忽略。
+      // MPV_EVENT_NONE / QUEUE_OVERFLOW 等：控制面忽略。
       break;
   }
 }

@@ -8,6 +8,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import '../../core/utils/logger.dart';
 import '../../domain/entities/player/player.dart';
 import 'player_channel_bridge.dart';
 
@@ -175,6 +176,29 @@ class ChannelPlayer implements Player {
           _textureId = id;
           onTextureReady?.call(id);
         }
+      case 'log':
+        // 原生播放器日志（mpv / 渲染 / GL 上下文）转入应用日志，对齐 iOS
+        // 排查详细度：无画面类问题可直接从日志看出失败在哪一环。
+        _logNative(
+          (e['level'] ?? 'info').toString(),
+          (e['message'] ?? '').toString(),
+        );
+    }
+  }
+
+  void _logNative(String level, String message) {
+    if (message.isEmpty) {
+      return;
+    }
+    switch (level) {
+      case 'error':
+        AppLog.error('player-native', message, category: LogCategory.player);
+      case 'warn':
+        AppLog.warn('player-native', message, category: LogCategory.player);
+      case 'debug':
+        AppLog.debug('player-native', message, category: LogCategory.player);
+      default:
+        AppLog.info('player-native', message, category: LogCategory.player);
     }
   }
 

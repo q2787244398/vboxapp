@@ -47,6 +47,7 @@ private let mpvFormatInt64: Int32 = 4     // MPV_FORMAT_INT64
 private let mpvFormatDouble: Int32 = 5    // MPV_FORMAT_DOUBLE
 
 private let mpvEventShutdown: Int32 = 1
+private let mpvEventLogMessage: Int32 = 2
 private let mpvEventStartFile: Int32 = 6
 private let mpvEventEndFile: Int32 = 7
 private let mpvEventFileLoaded: Int32 = 8
@@ -61,6 +62,11 @@ private let mpvRenderParamOpenGLInitParams: Int32 = 2
 private let mpvRenderParamOpenGLFbo: Int32 = 3
 private let mpvRenderParamFlipY: Int32 = 4
 private let mpvRenderParamAdvancedControl: Int32 = 10
+// 软件渲染（MPV_RENDER_API_TYPE_SW）参数：OpenGL 不可用时的兜底后端。
+private let mpvRenderParamSwSize: Int32 = 17
+private let mpvRenderParamSwFormat: Int32 = 18
+private let mpvRenderParamSwStride: Int32 = 19
+private let mpvRenderParamSwPointer: Int32 = 20
 private let mpvRenderParamInvalid: Int32 = 0
 
 /// mpv C 句柄（`mpv_handle*`）。
@@ -90,6 +96,14 @@ private struct MpvEventEndFile {
   var playlistEntryID: Int64
   var playlistInsertID: Int64
   var playlistInsertNumEntries: Int32
+}
+
+/// `mpv_event_log_message`（client.h）：mpv 内部日志（对齐 Windows 详细度）。
+private struct MpvEventLogMessage {
+  var prefix: UnsafePointer<CChar>?
+  var level: UnsafePointer<CChar>?
+  var text: UnsafePointer<CChar>?
+  var logLevel: Int32
 }
 
 /// `mpv_render_param`（render.h）。
@@ -194,6 +208,8 @@ private typealias FnMpvObserveProperty =
 private typealias FnMpvWaitEvent =
   @convention(c) (MpvHandle?, Double) -> UnsafeMutableRawPointer?
 private typealias FnMpvErrorString = @convention(c) (Int32) -> UnsafePointer<CChar>?
+private typealias FnMpvRequestLogMessages =
+  @convention(c) (MpvHandle?, UnsafePointer<CChar>?) -> Int32
 private typealias FnMpvRenderCreate =
   @convention(c) (UnsafeMutableRawPointer?, MpvHandle?, UnsafeMutableRawPointer?) -> Int32
 private typealias FnMpvRender =
@@ -216,6 +232,8 @@ private struct MpvApi {
   var observeProperty: FnMpvObserveProperty?
   var waitEvent: FnMpvWaitEvent?
   var errorString: FnMpvErrorString?
+  // 日志面（可选：旧 dylib 缺失时为空，仅少了 mpv 内部日志上抛）。
+  var requestLogMessages: FnMpvRequestLogMessages?
   // render API（R-渲1；可选增强：旧 dylib 缺失时为 nil → 无纹理输出，控制面仍可用）。
   var renderCreate: FnMpvRenderCreate?
   var render: FnMpvRender?
@@ -291,6 +309,16 @@ public class PlayerPlugin: NSObject, FlutterPlugin {
   private var renderTexture: UInt32 = 0
   private var fboWidth = 0
   private var fboHeight = 0
+  /// 当前生效的视频输出后端（opengl / software / none）。OpenGL 建不起来时
+  /// 由 `mpvRenderLoop` 退到 software（对齐 Windows 问题 2 兜底）。
+  private var mpvRenderBackend = "none"
+  /// 软件渲染输出缓冲（BGRA8888；尺寸随视频变化重建，仅 software 后端使用）。
+  private var swFrameBytes = [UInt8]()
+  private var swFrameWidth = 0
+  private var swFrameHeight = 0
+  // 日志去重：首帧上屏 / 首次渲染失败只上报一次，避免刷屏。
+  private var mpvLoggedFirstFrame = false
+  private var mpvLoggedRenderFailure = false
 
   private static let methodChannelName = "com.vbox.player/player"
   private static let eventChannelName = "com.vbox.player/player/events"
@@ -656,6 +684,10 @@ extension PlayerPlugin {
     api.observeProperty = unsafeBitCast(observeSym, to: FnMpvObserveProperty.self)
     api.waitEvent = unsafeBitCast(waitSym, to: FnMpvWaitEvent.self)
     api.errorString = unsafeBitCast(errorSym, to: FnMpvErrorString.self)
+    // 日志面为可选增强：缺失时仅少了 mpv 内部日志上抛。
+    if let s = sym("mpv_request_log_messages") {
+      api.requestLogMessages = unsafeBitCast(s, to: FnMpvRequestLogMessages.self)
+    }
     // render API 为可选增强（R-渲1）：缺失时控制面可用但无纹理输出。
     if let s = sym("mpv_render_context_create") {
       api.renderCreate = unsafeBitCast(s, to: FnMpvRenderCreate.self)
@@ -723,6 +755,15 @@ extension PlayerPlugin {
     mpvHandle = handle
     mpvActive = true
     mpvState = "opening"
+    // mpv 内部日志上抛（对齐 Windows / iOS 排查详细度）：info 及以上经
+    // MPV_EVENT_LOG_MESSAGE 转 `log` 事件交 Dart AppLog。
+    _ = "info".withCString { api.requestLogMessages?(handle, $0) }
+    // open 日志只记 host（播放直链常带签名参数，不入日志，避免泄漏凭据）。
+    emitLog("info", "open 请求：host=\(Self.hostOf(urlString))，urlLength=\(urlString.count)")
+    emitLog(
+      "info",
+      "mpv 初始化完成（vo=\(canRender ? "libmpv" : "null")，"
+        + "gpu-api=\(canRender ? "opengl" : "无")）")
 
     // 直播直接起播；点播保持暂停待 Dart play()（对齐 Android / Windows 口径）。
     let isLive = args["isLive"] as? Bool ?? false
@@ -852,6 +893,14 @@ extension PlayerPlugin {
     case mpvEventFileLoaded:
       let paused = mpvGetFlag("pause") ?? 0
       mpvEmitState(paused != 0 ? "paused" : "playing")
+      // 记录媒体信息，便于判断「有声音无画面」是否因缺视频轨 / 解码失败。
+      let duration = mpvGetDouble("duration") ?? -1
+      let videoWidth = mpvGetInt64("width") ?? 0
+      let videoHeight = mpvGetInt64("height") ?? 0
+      let videoDesc =
+        (videoWidth > 0 && videoHeight > 0)
+        ? "\(videoWidth)x\(videoHeight)" : "无（纯音频）"
+      emitLog("info", "文件已加载：时长=\(duration > 0 ? "\(Int(duration))秒" : "未知")，视频轨尺寸=\(videoDesc)")
       emitMpvProgress()
     case mpvEventPlaybackRestart:
       let paused = mpvGetFlag("pause") ?? 0
@@ -864,11 +913,24 @@ extension PlayerPlugin {
         if let cString = api?.errorString?(endFile.error) {
           detail = String(cString: cString)
         }
+        emitLog("error", "播放中断：\(detail)")
         mpvEmitError(detail, fatal: true)
         mpvEmitState("error")
       } else if endFile.reason == mpvEndFileReasonEOF {
+        emitLog("info", "播放到文件末尾")
         mpvEmitState("ended")
       }
+    case mpvEventLogMessage:
+      // mpv 内部日志（对齐 Windows 详细度）：前缀 + 文本上抛 Dart AppLog。
+      guard let raw = event.data else { break }
+      let logMessage = raw.assumingMemoryBound(to: MpvEventLogMessage.self).pointee
+      guard let textPointer = logMessage.text else { break }
+      let rawLevel = logMessage.level.map { String(cString: $0) } ?? "info"
+      let mapped = Self.mapMpvLogLevel(rawLevel)
+      let prefix = logMessage.prefix.map { String(cString: $0) } ?? "mpv"
+      var text = String(cString: textPointer)
+      while text.hasSuffix("\n") || text.hasSuffix("\r") { text.removeLast() }
+      emitLog(mapped, "[mpv/\(prefix)] \(text)")
     case mpvEventPropertyChange:
       guard let raw = event.data else { break }
       let property = raw.assumingMemoryBound(to: MpvEventProperty.self).pointee
@@ -910,6 +972,14 @@ extension PlayerPlugin {
     DispatchQueue.main.async { [weak self] in self?.emitError(message, fatal: fatal) }
   }
 
+  /// 播放日志上报（可自任意队列调用；对齐 Windows `EmitLog` / iOS 排查详细度）。
+  /// Dart 侧 `ChannelPlayer` 的 `log` 事件统一转入 `AppLog`（category=player）。
+  private func emitLog(_ level: String, _ message: String) {
+    DispatchQueue.main.async { [weak self] in
+      self?.eventSink?(["type": "log", "level": level, "message": message])
+    }
+  }
+
   private func emitMpvProgress() {
     guard mpvHandle != nil else { return }
     let positionSeconds = mpvGetDouble("time-pos") ?? -1.0
@@ -948,8 +1018,14 @@ extension PlayerPlugin {
   /// 渲染线程内建 NSOpenGL 上下文 + mpv render_context（OpenGL/GPU 后端）。
   private func createGlRenderContext() -> Bool {
     guard let api = mpvApi, let handle = mpvHandle,
-          let create = api.renderCreate else { return false }
-    guard loadGlApi() else { return false }
+          let create = api.renderCreate else {
+      emitLog("error", "创建 GL 渲染上下文失败：render API 或 mpv 句柄不可用")
+      return false
+    }
+    guard loadGlApi() else {
+      emitLog("error", "创建 GL 渲染上下文失败：OpenGL 入口解析不全（FBO 需要 GL 3.2 core）")
+      return false
+    }
 
     let attributes: [NSOpenGLPixelFormatAttribute] = [
       NSOpenGLPixelFormatAttribute(NSOpenGLPFAAccelerated),
@@ -962,7 +1038,10 @@ extension PlayerPlugin {
       0,
     ]
     guard let format = NSOpenGLPixelFormat(attributes: attributes),
-          let context = NSOpenGLContext(format: format, share: nil) else { return false }
+          let context = NSOpenGLContext(format: format, share: nil) else {
+      emitLog("error", "创建 GL 渲染上下文失败：NSOpenGL 像素格式 / 上下文创建失败")
+      return false
+    }
     context.makeCurrentContext()
     glContext = context
 
@@ -993,16 +1072,64 @@ extension PlayerPlugin {
       }
     }
     guard rc >= 0, let ctx = created else {
+      var detail = "未知原因"
+      if let cString = api.errorString?(rc) { detail = String(cString: cString) }
+      emitLog("error", "mpv_render_context_create 失败（\(detail)），无视频输出")
       destroyGlRenderContext()
       return false
     }
     mpvRenderContext = ctx
+    mpvRenderBackend = "opengl"
     api.renderSetUpdate?(
       ctx, mpvRenderUpdateCallback, Unmanaged.passUnretained(self).toOpaque())
+    emitLog("info", "mpv OpenGL render context 创建成功，纹理输出已就绪")
+    return true
+  }
+
+  /// 渲染线程内以 "sw" API 建 render context（libswscale 软渲染，无需 GL 上下文）。
+  ///
+  /// 用途（对齐 Windows 问题 2 兜底）：目标机 OpenGL 不可用（无加速 GL / 远程
+  /// 会话 / GL 3.2 core 不可得）时，若直接放弃就会「有声音无画面」。SW 后端不
+  /// 依赖 GPU，可保证画面仍能上屏；代价是无色彩管理（可能泛黄偏色）。
+  private func createSwRenderContext() -> Bool {
+    guard let api = mpvApi, let handle = mpvHandle, let create = api.renderCreate else {
+      return false
+    }
+    var advancedControl: Int32 = 1
+    var created: MpvRenderContext?
+    let rc: Int32 = "sw".withCString { apiType -> Int32 in
+      withUnsafeMutablePointer(to: &advancedControl) { advPtr -> Int32 in
+        withUnsafeMutablePointer(to: &created) { ctxPtr -> Int32 in
+          var params = [
+            MpvRenderParam(type: mpvRenderParamAPIType,
+                           data: UnsafeMutableRawPointer(mutating: apiType)),
+            MpvRenderParam(type: mpvRenderParamAdvancedControl,
+                           data: UnsafeMutableRawPointer(advPtr)),
+            MpvRenderParam(type: mpvRenderParamInvalid, data: nil),
+          ]
+          return params.withUnsafeMutableBufferPointer { buffer in
+            create(UnsafeMutableRawPointer(ctxPtr), handle,
+                   UnsafeMutableRawPointer(buffer.baseAddress))
+          }
+        }
+      }
+    }
+    guard rc >= 0, let ctx = created else {
+      var detail = "未知原因"
+      if let cString = api.errorString?(rc) { detail = String(cString: cString) }
+      emitLog("error", "mpv 软件渲染上下文创建失败（\(detail)），无视频输出")
+      return false
+    }
+    mpvRenderContext = ctx
+    mpvRenderBackend = "software"
+    api.renderSetUpdate?(
+      ctx, mpvRenderUpdateCallback, Unmanaged.passUnretained(self).toOpaque())
+    emitLog("info", "mpv 软件渲染（SW）已就绪，视频将由 CPU 渲染上屏（色彩表现不如 GPU 路径）")
     return true
   }
 
   /// 渲染线程内释放 render_context（GL 上下文需 current）+ 离屏 FBO/纹理 + 销毁 GL 上下文。
+  /// 两个后端共用：software 后端只有 render_context，GL 资源为空时各守卫直接跳过。
   private func destroyGlRenderContext() {
     if let ctx = mpvRenderContext {
       mpvApi?.renderSetUpdate?(ctx, nil, nil)
@@ -1010,6 +1137,7 @@ extension PlayerPlugin {
       mpvApi?.renderFree?(ctx)
       mpvRenderContext = nil
     }
+    mpvRenderBackend = "none"
     if let gl = glApi {
       if renderFbo != 0 {
         var fbo = renderFbo
@@ -1032,7 +1160,10 @@ extension PlayerPlugin {
   private func loadGlApi() -> Bool {
     guard let module = dlopen(
       "/System/Library/Frameworks/OpenGL.framework/OpenGL",
-      RTLD_LAZY | RTLD_GLOBAL) else { return false }
+      RTLD_LAZY | RTLD_GLOBAL) else {
+      emitLog("error", "OpenGL.framework 加载失败，无法离屏渲染")
+      return false
+    }
     func symbol<T>(_ name: String) -> T? {
       guard let pointer = dlsym(module, name) else { return nil }
       return unsafeBitCast(pointer, to: T.self)
@@ -1050,13 +1181,29 @@ extension PlayerPlugin {
     api.texImage2D = symbol("glTexImage2D")
     api.texParameteri = symbol("glTexParameteri")
     api.deleteTextures = symbol("glDeleteTextures")
-    guard api.readPixels != nil, api.pixelStorei != nil,
-          api.genFramebuffers != nil, api.bindFramebuffer != nil,
-          api.framebufferTexture2D != nil, api.checkFramebufferStatus != nil,
-          api.deleteFramebuffers != nil, api.genTextures != nil,
-          api.bindTexture != nil, api.texImage2D != nil,
-          api.texParameteri != nil, api.deleteTextures != nil else { return false }
+    // 逐项登记缺失入口，便于区分「GL 基础入口缺失」与「FBO 扩展缺失」。
+    var missing: [String] = []
+    func note(_ name: String, _ present: Bool) {
+      if !present { missing.append(name) }
+    }
+    note("glReadPixels", api.readPixels != nil)
+    note("glPixelStorei", api.pixelStorei != nil)
+    note("glGenFramebuffers", api.genFramebuffers != nil)
+    note("glBindFramebuffer", api.bindFramebuffer != nil)
+    note("glFramebufferTexture2D", api.framebufferTexture2D != nil)
+    note("glCheckFramebufferStatus", api.checkFramebufferStatus != nil)
+    note("glDeleteFramebuffers", api.deleteFramebuffers != nil)
+    note("glGenTextures", api.genTextures != nil)
+    note("glBindTexture", api.bindTexture != nil)
+    note("glTexImage2D", api.texImage2D != nil)
+    note("glTexParameteri", api.texParameteri != nil)
+    note("glDeleteTextures", api.deleteTextures != nil)
+    guard missing.isEmpty else {
+      emitLog("error", "GL 入口缺失：\(missing.joined(separator: ", "))")
+      return false
+    }
     glApi = api
+    emitLog("debug", "GL 入口解析完成（GL 3.2 core + FBO 齐全）")
     return true
   }
 
@@ -1106,9 +1253,20 @@ extension PlayerPlugin {
 
   private func mpvRenderLoop() {
     // 渲染线程内建 GL 上下文 + render_context（NSOpenGL 上下文有线程亲和）。
-    guard createGlRenderContext() else {
+    if !createGlRenderContext() {
+      // 问题 2 兜底（对齐 Windows）：OpenGL 离屏渲染不可用（无加速 GL / 远程
+      // 会话 / GL 3.2 core 不可得）→ 不再直接放弃，改走 libswscale 软渲染，
+      // 保证仍有画面。失败原因已由 createGlRenderContext 逐环上报。
       destroyGlRenderContext()
-      return
+      emitLog("warn", "OpenGL 视频输出不可用，回退 mpv 软件渲染（SW）")
+      if !createSwRenderContext() {
+        mpvLoggedRenderFailure = true
+        mpvEmitError(
+          "当前设备无法建立视频输出（OpenGL 与软件渲染均失败），画面暂不可用，音频正常",
+          fatal: false)
+        destroyGlRenderContext()
+        return
+      }
     }
     while mpvRenderRunning {
       _ = mpvRenderWake.wait(timeout: .now() + 0.1)
@@ -1136,7 +1294,20 @@ extension PlayerPlugin {
     let pixelWidth = Int(width)
     let pixelHeight = Int(height)
     let sourceStride = pixelWidth * 4
-    guard ensureFbo(width: pixelWidth, height: pixelHeight) else { return }
+    if mpvRenderBackend == "software" {
+      renderMpvFrameSoftware(width: pixelWidth, height: pixelHeight)
+      return
+    }
+    guard ensureFbo(width: pixelWidth, height: pixelHeight) else {
+      if !mpvLoggedRenderFailure {
+        mpvLoggedRenderFailure = true
+        emitLog(
+          "error",
+          "离屏 FBO 创建失败（\(pixelWidth)x\(pixelHeight)），"
+            + "视频帧无法上屏；请检查显卡驱动与 OpenGL 版本")
+      }
+      return
+    }
 
     // mpv 在 GPU 上渲染到离屏 FBO（含完整色彩管理），随后 glReadPixels 回读 BGRA。
     var fbo = MpvOpenGLFbo(
@@ -1160,7 +1331,13 @@ extension PlayerPlugin {
         }
       }
     }
-    guard renderResult >= 0, let gl = glApi else { return }
+    guard renderResult >= 0, let gl = glApi else {
+      if !mpvLoggedRenderFailure {
+        mpvLoggedRenderFailure = true
+        emitLog("error", "mpv_render_context_render 失败（OpenGL），视频帧无法渲染")
+      }
+      return
+    }
 
     var scratch = [UInt8](repeating: 0, count: sourceStride * pixelHeight)
     gl.pixelStorei?(glPackAlignment, 1)
@@ -1172,8 +1349,68 @@ extension PlayerPlugin {
     }
     gl.bindFramebuffer?(glFramebuffer, 0)
 
+    publishMpvFrame(bytes: scratch, width: pixelWidth, height: pixelHeight, stride: sourceStride)
+  }
+
+  /// 软件渲染后端逐帧输出：libswscale 把视频帧直接写成 BGRA，无 GPU 依赖。
+  ///
+  /// 参数口径与改造前的 SW 路径一致（`SW_SIZE` / `SW_FORMAT="bgra"` / `SW_STRIDE`
+  /// / `SW_POINTER`）：SW 后端输出本就为顶行在上，无需 `FLIP_Y`（该参数仅 OpenGL
+  /// 路径需要，因为 GL 纹理原点在左下）。
+  private func renderMpvFrameSoftware(width: Int, height: Int) {
+    guard let api = mpvApi, let ctx = mpvRenderContext, api.render != nil else { return }
+    let stride = width * 4
+    let bytes = stride * height
+    if swFrameWidth != width || swFrameHeight != height || swFrameBytes.count != bytes {
+      swFrameBytes = [UInt8](repeating: 0, count: bytes)
+      swFrameWidth = width
+      swFrameHeight = height
+    }
+    var size: [Int32] = [Int32(width), Int32(height)]
+    var swStride = stride
+    var renderResult: Int32 = -1
+    size.withUnsafeMutableBufferPointer { sizeBuffer -> Void in
+      guard let sizeBase = sizeBuffer.baseAddress else { return }
+      withUnsafeMutablePointer(to: &swStride) { stridePointer -> Void in
+        swFrameBytes.withUnsafeMutableBytes { frameBuffer -> Void in
+          guard let frameBase = frameBuffer.baseAddress else { return }
+          "bgra".withCString { formatPointer -> Void in
+            var params = [
+              MpvRenderParam(
+                type: mpvRenderParamSwSize,
+                data: UnsafeMutableRawPointer(sizeBase)),
+              MpvRenderParam(
+                type: mpvRenderParamSwFormat,
+                data: UnsafeMutableRawPointer(mutating: formatPointer)),
+              MpvRenderParam(
+                type: mpvRenderParamSwStride,
+                data: UnsafeMutableRawPointer(stridePointer)),
+              MpvRenderParam(
+                type: mpvRenderParamSwPointer,
+                data: frameBase),
+              MpvRenderParam(type: mpvRenderParamInvalid, data: nil),
+            ]
+            renderResult = params.withUnsafeMutableBufferPointer { buffer in
+              api.render?(ctx, UnsafeMutableRawPointer(buffer.baseAddress)) ?? -1
+            }
+          }
+        }
+      }
+    }
+    guard renderResult >= 0 else {
+      if !mpvLoggedRenderFailure {
+        mpvLoggedRenderFailure = true
+        emitLog("error", "mpv 软件渲染失败（SW），视频帧无法渲染")
+      }
+      return
+    }
+    publishMpvFrame(bytes: swFrameBytes, width: width, height: height, stride: stride)
+  }
+
+  /// 两个渲染后端共用的上屏尾段：交 Flutter 纹理 → 首帧日志 → 尺寸上报。
+  private func publishMpvFrame(bytes: [UInt8], width: Int, height: Int, stride: Int) {
     guard let pixelBuffer = Self.makePixelBuffer(
-      from: scratch, width: pixelWidth, height: pixelHeight, sourceStride: sourceStride)
+      from: bytes, width: width, height: height, sourceStride: stride)
     else { return }
 
     mpvFrameLock.lock()
@@ -1184,13 +1421,36 @@ extension PlayerPlugin {
       textureRegistry?.textureFrameAvailable(id)
     }
 
+    if !mpvLoggedFirstFrame {
+      mpvLoggedFirstFrame = true
+      emitLog("info", "首帧已渲染上屏（\(width)x\(height)，后端=\(mpvRenderBackend)）")
+    }
+
     // 视频尺寸变更上报（Dart 侧输出面纵横比自适应；去重避免抖动）。
-    if pixelWidth != mpvLastVideoWidth || pixelHeight != mpvLastVideoHeight {
-      mpvLastVideoWidth = pixelWidth
-      mpvLastVideoHeight = pixelHeight
+    if width != mpvLastVideoWidth || height != mpvLastVideoHeight {
+      mpvLastVideoWidth = width
+      mpvLastVideoHeight = height
       DispatchQueue.main.async { [weak self] in
-        self?.emitVideoSize(pixelWidth, pixelHeight)
+        self?.emitVideoSize(width, height)
       }
+    }
+  }
+
+  /// 从播放直链提取 host（仅用于日志，避免把签名参数写进日志）。
+  private static func hostOf(_ urlString: String) -> String {
+    guard let range = urlString.range(of: "://") else { return urlString }
+    let rest = urlString[range.upperBound...]
+    guard let slash = rest.firstIndex(of: "/") else { return String(rest) }
+    return String(rest[..<slash])
+  }
+
+  /// mpv 日志等级 → Dart `AppLog` 等级（fatal/error→error，v/debug/trace→debug）。
+  private static func mapMpvLogLevel(_ level: String) -> String {
+    switch level {
+    case "fatal", "error": return "error"
+    case "warn": return "warn"
+    case "info": return "info"
+    default: return "debug"
     }
   }
 
@@ -1252,6 +1512,14 @@ extension PlayerPlugin {
     mpvFrameLock.unlock()
     mpvLastVideoWidth = 0
     mpvLastVideoHeight = 0
+    // 渲染后端与软渲染缓冲随会话释放；日志去重标记复位，避免上次失败导致
+    // 本次不再上报关键日志。
+    mpvRenderBackend = "none"
+    swFrameBytes = []
+    swFrameWidth = 0
+    swFrameHeight = 0
+    mpvLoggedFirstFrame = false
+    mpvLoggedRenderFailure = false
 
     // 2. 停事件线程（0.1s 超时轮询 → 最迟 ~0.1s 退出）。
     if mpvRunning {

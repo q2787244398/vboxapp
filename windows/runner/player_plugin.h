@@ -108,8 +108,19 @@ struct mpv_opengl_fbo {
 // render context，让 mpv 在 GPU 上跑完整色彩管线（primaries/gamma/HDR
 // tone-mapping），对齐 iOS 的 GPU 渲染路径，消除 SW 软渲染的泛黄偏色。
 constexpr const char* kRenderApiGl = "opengl";
+// 渲染 api type 字符串（MPV_RENDER_API_TYPE_SW）。问题 2 兜底：OpenGL 离屏
+// 渲染不可用（无显卡驱动 / 远程桌面会话 / 仅 OpenGL 1.1）时退到 libswscale
+// 软渲染，保证仍有画面而不是只剩音频。色彩表现不如 GPU 路径（无色彩管理）。
+constexpr const char* kRenderApiSw = "sw";
 // mpv_render_context_update 返回标志：有新帧可渲染。
 constexpr mpv_render_update_flag kRenderUpdateFrame = 1;
+
+// 实际生效的视频输出后端（render context 建成后确定，渲染线程内读写）。
+enum class RenderBackend {
+  none,      // 未建（或已释放）
+  opengl,    // GPU 离屏 FBO + glReadPixels
+  software,  // libswscale 软渲染直出 BGRA
+};
 
 // ─────────────── OpenGL / WGL 运行期符号（R-渲1 · GPU）───────────────
 //
@@ -182,6 +193,9 @@ struct MpvApi {
   // 工具。
   const char* (*error_string)(int error) = nullptr;
   void (*free)(void* data) = nullptr;
+
+  // 日志面（可选：旧 dll 缺失时保持 nullptr，仅少了 mpv 内部日志上抛）。
+  int (*request_log_messages)(mpv_handle* ctx, const char* min_level) = nullptr;
 
   // ── render API（R-渲1；可选：旧 dll 缺失时为 nullptr → 无纹理输出）──
   int (*render_context_create)(mpv_render_context** res, mpv_handle* ctx,
@@ -288,6 +302,16 @@ class PlayerPlugin : public flutter::Plugin {
   GlUint render_tex_ = 0;        // FBO 颜色纹理
   int fbo_width_ = 0;
   int fbo_height_ = 0;
+  // 当前生效的视频输出后端（OpenGL 失败后由 RunRenderLoop 退到 software）。
+  RenderBackend render_backend_ = RenderBackend::none;
+  // 软渲染输出缓冲（BGRA8888；尺寸随视频变化重建，仅 software 后端使用）。
+  std::vector<uint8_t> sw_frame_buffer_;
+  int sw_frame_width_ = 0;
+  int sw_frame_height_ = 0;
+  // 日志去重：首帧渲染成功 / 首次渲染失败 / 首次持续丢帧只上报一次，避免刷屏。
+  bool logged_first_frame_ = false;
+  bool logged_render_failure_ = false;
+  bool logged_frame_drop_ = false;
 
   // ── 状态 ──
   std::string state_ = "idle";
@@ -324,6 +348,21 @@ class PlayerPlugin : public flutter::Plugin {
   bool SetupRenderContext();
   void RunRenderLoop();
   void RenderFrame();
+  // 取视频目标尺寸（coded 优先，回退 display；未解出视频轨时返回 false）。
+  bool ResolveVideoSize(int* width, int* height);
+  // 把一帧 BGRA 交给 Flutter 纹理上屏（两个后端共用：丢帧判定 / 尺寸上报 / 日志）。
+  void PublishFrame(std::vector<uint8_t>& source, int width, int height);
+  // 软件渲染后端：以 "sw" API 建 render context（无需 GL 上下文）。
+  bool CreateSwRenderContext();
+  // 软件渲染后端逐帧输出（BGRA 直出到 [sw_frame_buffer_]）。
+  void RenderFrameSoftware(int width, int height);
+  // 平台无关 GL 能力预检：建临时 WGL 上下文，检查 OpenGL 版本与 FBO 入口。
+  // 结论**仅用于日志提示**，不作为 `vo` 的闸门——预检跑在平台线程、正式渲染跑
+  // 在渲染线程，为避免预检误判导致本来能出画面却不出，仍让 mpv 实际尝试一次
+  //（失败时渲染链有完整日志，并自动回退软件渲染）。
+  static bool ProbeGlCapability(std::string* detail);
+  // 播放日志上报（经事件通道交 Dart `AppLog`，对齐 iOS 排查详细度）。
+  void EmitLog(const std::string& level, const std::string& message);
   // 渲染线程内建/销毁 WGL 上下文 + mpv render_context（WGL 线程亲和）。
   bool CreateGlRenderContext();
   void DestroyGlRenderContext();

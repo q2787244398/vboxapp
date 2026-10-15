@@ -29,6 +29,8 @@ import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
 
+import '../../../core/utils/logger.dart';
+
 import '../../../data/datasources/local/cloud_drive_credential_store.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
@@ -745,6 +747,7 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     }
 
     /// 取用户态 bdstoken / uk / username（用当前 merged Cookie）。
+    /// 对齐 iOS `baiduFetchTemplateVariables`：同时解析 `errno`，非 0 时记日志。
     Future<void> fetchUserFields() async {
       try {
         final SpiderHttpResult res = await _bridge.request(
@@ -761,6 +764,14 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
         );
         merged.addAll(_filteredCookiesFromHeaders(res.headers));
         final Map<String, Object?>? json = _decodeMap(res.content);
+        final int? errno = _pickInt(json, <String>['errno']);
+        if (errno != null && errno != 0) {
+          AppLog.warn(
+            'baidu-auth',
+            'gettemplatevariable 返回 errno=$errno（登录态异常，可能未取到 bdstoken）',
+            category: LogCategory.cloud,
+          );
+        }
         final Map<String, Object?>? result = _asMap(json?['result']);
         putField('bdstoken', result?['bdstoken'] ?? json?['bdstoken']);
         putField('uk', result?['uk'] ?? json?['uk']);
@@ -770,11 +781,15 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       }
     }
 
-    // 先串行访问只读端点，让服务端通过 Set-Cookie 补齐 BFESS 系字段。
+    // 对齐 iOS `baiduEnrichAccountCookie`（5 端点）：`gettemplatevariable`
+    // 与其它四个端点一样参与循环，让服务端 Set-Cookie 逐跳补齐
+    // `BAIDUID`/`BAIDUID_BFESS` 等跨域字段，使后续请求能取到用户态 bdstoken。
     const List<String> endpoints = <String>[
       'https://www.baidu.com/',
       'https://passport.baidu.com/center',
       'https://pan.baidu.com/disk/main',
+      'https://pan.baidu.com/api/gettemplatevariable?clienttype=0&app_id=250528'
+          '&web=1&fields=[%22bdstoken%22,%22uk%22,%22username%22]',
       'https://pan.baidu.com/api/getuinfo?clienttype=0&app_id=250528&web=1',
     ];
     for (final String urlString in endpoints) {
@@ -791,15 +806,48 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
           ),
         );
         merged.addAll(_filteredCookiesFromHeaders(res.headers));
+        // 对齐 iOS：gettemplatevariable 端点同时解析用户态字段。
+        if (urlString.contains('gettemplatevariable')) {
+          final Map<String, Object?>? json = _decodeMap(res.content);
+          final int? errno = _pickInt(json, <String>['errno']);
+          if (errno != null && errno != 0) {
+            AppLog.warn(
+            'baidu-auth',
+            'gettemplatevariable 返回 errno=$errno（登录态异常，可能未取到 bdstoken）',
+            category: LogCategory.cloud,
+          );
+          }
+          final Map<String, Object?>? result = _asMap(json?['result']);
+          putField('bdstoken', result?['bdstoken'] ?? json?['bdstoken']);
+          putField('uk', result?['uk'] ?? json?['uk']);
+          putField('username', result?['username'] ?? json?['username']);
+        }
       } catch (_) {
         continue; // 单点失败静默回退（对齐 iOS continue 语义）。
       }
     }
-    // Cookie 补全后再取用户态字段；仍缺 bdstoken 时再兜一次（首跳可能因 Cookie
-    // 尚未生效取不到，而 bdstoken 直接决定播放链能否创建转存目录）。
-    await fetchUserFields();
+    // 兜底：端点循环内未取到 bdstoken 时再单独试一次（对齐 iOS 二次尝试）。
     if (!extra.containsKey('bdstoken')) {
       await fetchUserFields();
+    }
+    // 对齐 iOS：输出补全后的 cookie 字段名清单，便于排查登录态是否完整。
+    AppLog.info(
+      'baidu-auth',
+      '扫码 Cookie 补全后字段：${merged.keys.join(",")}',
+      category: LogCategory.cloud,
+    );
+    if (extra.containsKey('bdstoken')) {
+      AppLog.info(
+        'baidu-auth',
+        '扫码补全取得用户态 bdstoken（后续转存目录可直接复用）',
+        category: LogCategory.cloud,
+      );
+    } else {
+      AppLog.warn(
+        'baidu-auth',
+        '扫码补全未取得用户态 bdstoken（转存目录将在播放时活取）',
+        category: LogCategory.cloud,
+      );
     }
     return _BaiduEnrichResult(cookie: joinCookies(merged), extra: extra);
   }

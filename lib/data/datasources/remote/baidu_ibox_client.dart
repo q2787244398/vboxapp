@@ -34,6 +34,7 @@ library;
 
 import 'dart:convert';
 
+import '../../../core/utils/logger.dart';
 import '../../../platform/spider/spider_http_bridge.dart';
 import '../../../platform/webview/webview_bridge.dart';
 import '../local/baidu_playback_cache_store.dart';
@@ -736,13 +737,14 @@ class BaiduIBoxClient {
   /// - [savedBdstoken]：授权中心保存值（凭据 `extra["bdstoken"]`）。四层兜底
   ///   （对齐 iOS `CloudDriveManager.swift:4726-4728`「本次未抓到新 bdstoken，
   ///   临时回退授权中心保存值」）。
-  /// - [onFetched]：活取成功回调（来源 = gettemplatevariable / disk-main-html /
-  ///   webview），调用方据此回写凭据 extra（对齐 iOS `saveBdstokenCredential`，
-  ///   `CloudDriveManager.swift:4761`）。
+  /// - [onFetched]：活取成功回调（来源 = urlsession-templatevariable /
+  ///   urlsession-disk-main / webview-disk-main，与 iOS 逐字一致），携带本次
+  ///   请求所用 cookie，调用方据此回写凭据 extra 与 cookie
+  ///   （对齐 iOS `baiduPersistUserBdstoken`，`CloudDriveManager.swift:4758-4772`）。
   Future<String> fetchUserBdstoken({
     required String cookie,
     String savedBdstoken = '',
-    void Function(String bdstoken, String source)? onFetched,
+    void Function(String bdstoken, String source, String mergedCookie)? onFetched,
   }) async {
     final _Resp tpl = await _request(
       'https://pan.baidu.com/api/gettemplatevariable'
@@ -756,12 +758,48 @@ class BaiduIBoxClient {
       timeout: 12,
     );
     final Map<String, Object?>? json = _decodeMap(tpl.text);
+    if (json == null) {
+      // 响应不是 JSON 时旧代码静默跳过，导致「取不到 bdstoken」无法区分是
+      // 风控（errno）还是登录态失效被重定向到登录页 / 响应被压缩。
+      AppLog.warn(
+        'baidu-local',
+        '第 1 层 gettemplatevariable 响应非 JSON'
+        '（status=${tpl.status}，'
+        'contentType=${tpl.headers['content-type'] ?? tpl.headers['Content-Type'] ?? '未知'}，'
+        'len=${tpl.text.length}）',
+        category: LogCategory.cloud,
+      );
+    }
     if (json != null) {
+      // 对齐 iOS baiduFetchTemplateVariables：解析 errno，非 0 记录日志，
+      // 避免登录态异常时静默吞掉、无法排查。
+      final int errno = _asInt(json['errno']) ?? 0;
+      if (errno != 0) {
+        AppLog.warn(
+          'baidu-local',
+          'gettemplatevariable 返回 errno=$errno（百度登录态异常，无法取得 bdstoken）',
+          category: LogCategory.cloud,
+        );
+      }
       final String token = _deepString(json, <String>{'bdstoken'});
       if (token.isNotEmpty) {
-        onFetched?.call(token, 'gettemplatevariable');
+        AppLog.debug(
+          'baidu-local',
+          '第 1 层 gettemplatevariable 取得用户态 bdstoken',
+          category: LogCategory.cloud,
+        );
+        onFetched?.call(token, 'urlsession-templatevariable', cookie);
         return token;
       }
+      AppLog.warn(
+        'baidu-local',
+        // 对齐 iOS L4712：打印顶层 keys（不含值，避免 bdstoken 泄漏）+ result 结构，
+        // 便于区分 errno 风控与字段结构变化。
+        '第 1 层 gettemplatevariable 未返回 bdstoken'
+        '（errno=$errno，keys=${json.keys.toList()..sort()}，'
+        'result=${_asMap(json['result'])?.keys.toList() ?? '无'}）',
+        category: LogCategory.cloud,
+      );
     }
     // 回退：直接抓 disk/main 页面里的用户态 bdstoken。
     final _Resp page = await _request(
@@ -771,18 +809,55 @@ class BaiduIBoxClient {
     );
     final String fromHtml = extractBdstokenFromHTML(page.text) ?? '';
     if (fromHtml.isNotEmpty) {
-      onFetched?.call(fromHtml, 'disk-main-html');
+      AppLog.debug(
+        'baidu-local',
+        '第 2 层 disk/main HTML 正则取得 bdstoken',
+        category: LogCategory.cloud,
+      );
+      onFetched?.call(fromHtml, 'urlsession-disk-main', cookie);
       return fromHtml;
     }
+    AppLog.warn(
+      'baidu-local',
+      '第 2 层 disk/main HTML 未解析到 bdstoken',
+      category: LogCategory.cloud,
+    );
     // C3 回退：WKWebView 载入 disk/main 复用 CookieJar
     // （对齐 `baiduFetchUserBdstokenViaWebView`）。
-    final String fromWebView = await _webViewBdstoken(cookie);
-    if (fromWebView.isNotEmpty) {
-      onFetched?.call(fromWebView, 'webview');
-      return fromWebView;
+    final ({String token, String cookie}) fromWebView =
+        await _webViewBdstoken(cookie);
+    if (fromWebView.token.isNotEmpty) {
+      AppLog.debug(
+        'baidu-local',
+        '第 3 层 WebView 取得 bdstoken',
+        category: LogCategory.cloud,
+      );
+      onFetched?.call(
+        fromWebView.token,
+        'webview-disk-main',
+        fromWebView.cookie.isEmpty ? cookie : fromWebView.cookie,
+      );
+      return fromWebView.token;
     }
+    AppLog.warn(
+      'baidu-local',
+      '第 3 层 WebView 未解析到 bdstoken（Windows 端需确认 WebView2 可用）',
+      category: LogCategory.cloud,
+    );
     // 第 4 层兜底：回退授权中心保存值（对齐 iOS `CloudDriveManager.swift:4726`）。
-    if (savedBdstoken.isNotEmpty) return savedBdstoken;
+    if (savedBdstoken.isNotEmpty) {
+      AppLog.warn(
+        'baidu-local',
+        '本次未抓到新 bdstoken，临时回退授权中心保存值',
+        category: LogCategory.cloud,
+      );
+      return savedBdstoken;
+    }
+    AppLog.error(
+      'baidu-local',
+      '四层兜底全部失败，未取得用户态 bdstoken，无法创建 vbox 转存目录',
+      category: LogCategory.cloud,
+    );
     return '';
   }
 
@@ -1173,7 +1248,8 @@ class BaiduIBoxClient {
     required String fsId,
     String pcsCookie = '',
     String savedBdstoken = '',
-    void Function(String bdstoken, String source)? onBdstokenFetched,
+    void Function(String bdstoken, String source, String mergedCookie)?
+        onBdstokenFetched,
   }) async {
     final ({String cookie, String bduss}) parsed = parseToken(bduss);
     final String webCookie = parsed.cookie;
@@ -1905,8 +1981,21 @@ class BaiduIBoxClient {
   ///
   /// 三源顺序与 iOS 严格一致：`locals` → `yunData.MYBDSTOKEN` → `context`。
   /// 早期版本漏了 `yunData` 一层，导致 WebView 兜底整条链空手返回。
-  Future<String> _webViewBdstoken(String cookie) async {
-    if (!_webView.isAvailable) return '';
+  ///
+  /// 返回值同时带回 WebView CookieJar 的 cookie（对齐 iOS
+  /// `BaiduWebViewBridge.loadPanPageForBdstoken` 的 `result.cookie`），
+  /// 供调用方按 `baiduPersistUserBdstoken` 语义合并回凭据。
+  Future<({String token, String cookie})> _webViewBdstoken(String cookie) async {
+    if (!_webView.isAvailable) {
+      // 关键诊断：Windows 端 WebView2 环境未就绪时第 3 层恒空，必须留痕，
+      // 否则排查时无法与「页面确实没有 bdstoken」区分。
+      AppLog.warn(
+        'baidu-local',
+        '第 3 层 WebView 不可用（WebView2 环境未就绪），跳过',
+        category: LogCategory.cloud,
+      );
+      return (token: '', cookie: '');
+    }
     try {
       final WebViewPageResult page = await _webView.loadPage(
         url: 'https://pan.baidu.com/disk/main',
@@ -1922,10 +2011,13 @@ class BaiduIBoxClient {
 })()
 ''',
       );
-      if (page.jsResult.isNotEmpty) return page.jsResult;
-      return extractBdstokenFromHTML(page.html) ?? '';
+      final String merged = page.cookie.isEmpty ? cookie : page.cookie;
+      if (page.jsResult.isNotEmpty) {
+        return (token: page.jsResult, cookie: merged);
+      }
+      return (token: extractBdstokenFromHTML(page.html) ?? '', cookie: merged);
     } on WebViewBridgeException {
-      return '';
+      return (token: '', cookie: '');
     }
   }
 

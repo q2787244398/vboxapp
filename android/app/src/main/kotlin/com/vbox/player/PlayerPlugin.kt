@@ -117,10 +117,12 @@ class PlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChanne
             if (w <= 0 || h <= 0) return
             // 输出面尺寸随视频轨（SurfaceProducer 不自动跟随），并按纵横比通知 Dart。
             surfaceProducer?.setSize(w, h)
+            emitLog("info", "视频轨尺寸=${w}x$h")
             emitVideoSize(w, h)
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            emitLog("error", "ExoPlayer 播放错误：${error.errorCodeName}: ${error.message}")
             emitError(error.errorCodeName + ": " + error.message, fatal = true)
             emitState("error")
         }
@@ -134,6 +136,7 @@ class PlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChanne
     private val vlcLayoutListener = IVLCVout.OnNewVideoLayoutListener { _, width, height, _, _, _, _ ->
         if (width > 0 && height > 0) {
             surfaceProducer?.setSize(width, height)
+            emitLog("info", "libVLC 视频轨尺寸=${width}x$height")
             emitVideoSize(width, height)
         }
     }
@@ -150,6 +153,7 @@ class PlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChanne
             MediaPlayer.Event.Stopped -> emitVlcState("idle")
             MediaPlayer.Event.EndReached -> emitVlcState("ended")
             MediaPlayer.Event.EncounteredError -> {
+                emitLog("error", "libVLC 播放错误（EncounteredError）")
                 emitError("libVLC 播放错误", fatal = true)
                 emitVlcState("error")
             }
@@ -251,11 +255,13 @@ class PlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChanne
         val isLive = args["isLive"] as? Boolean ?: false
         // 真实文件名 / 标题：网盘 / Node 代理流 URL 无扩展名，能力探测需据此补判。
         val resourceName = args["title"]?.toString()
+        emitLog("info", "open 请求：backend=$backend，host=${hostOf(url)}，urlLength=${url.length}")
 
         // A21.5：复杂封装 / HEVC 无硬解 → libVLC。Dart 主后端仍投 media3 时上报
         // E_BACKEND_UNAVAILABLE，由 PlayerController 降级链改投 libVLC（可观测）。
         val needed = CodecCapability.selectBackend(url, resourceName)
         if (backend == "media3" && needed == PlayerBackend.LIBVLC) {
+            emitLog("warn", "媒体需 libVLC 回退（复杂封装 / HEVC 无硬解），改投 libVLC 后端")
             result.error(
                 "E_BACKEND_UNAVAILABLE",
                 "该媒体需 libVLC 回退（$url），请改投 libVLC 后端",
@@ -319,11 +325,13 @@ class PlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChanne
             surfaceProducer = producer
             currentBackend = "media3"
             emitState("opening")
+            emitLog("info", "Media3/ExoPlayer 已就绪（textureId=${producer.id()}），等待视频轨")
             handler.post(progressTick)
             // R-渲1：返回纹理句柄（Dart 侧解析为 textureId → Texture(textureId:)）。
             result.success(mapOf("textureId" to producer.id()))
         } catch (t: Throwable) {
             teardown()
+            emitLog("error", "Media3 后端初始化失败：${t.message}")
             result.error(
                 "E_BACKEND_UNAVAILABLE",
                 "Media3 后端初始化失败（$url）：${t.message}",
@@ -385,10 +393,12 @@ class PlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChanne
             if (!isLive) mp.pause()
 
             emitState("opening")
+            emitLog("info", "libVLC 已就绪（textureId=${producer.id()}），等待视频轨")
             handler.post(progressTick)
             result.success(mapOf("textureId" to producer.id()))
         } catch (t: Throwable) {
             teardown()
+            emitLog("error", "libVLC 后端初始化失败：${t.message}")
             result.error(
                 "E_BACKEND_UNAVAILABLE",
                 "libVLC 后端初始化失败（$url）：${t.message}",
@@ -497,6 +507,24 @@ class PlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChanne
 
     private fun emitError(message: String, fatal: Boolean) {
         sink?.success(mapOf("type" to "error", "message" to message, "fatal" to fatal))
+    }
+
+    /**
+     * 播放日志上报（对齐 Windows / macOS 的 `log` 事件）。
+     *
+     * Dart 侧 `ChannelPlayer` 收到后统一转入 `AppLog`（category=player），
+     * 使三端日志详细度一致，便于排查「有声音无画面」这类问题。
+     */
+    private fun emitLog(level: String, message: String) {
+        sink?.success(mapOf("type" to "log", "level" to level, "message" to message))
+    }
+
+    /** 从播放直链提取 host（仅用于日志，避免把签名参数写进日志）。 */
+    private fun hostOf(url: String): String {
+        val scheme = url.indexOf("://")
+        val rest = if (scheme >= 0) url.substring(scheme + 3) else url
+        val slash = rest.indexOf('/')
+        return if (slash >= 0) rest.substring(0, slash) else rest
     }
 
     companion object {
