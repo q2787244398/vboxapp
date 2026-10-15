@@ -227,7 +227,8 @@ class _FakeBaiduIBoxClient extends BaiduIBoxClient {
     required String fsId,
     String pcsCookie = '',
     String savedBdstoken = '',
-    void Function(String bdstoken, String source)? onBdstokenFetched,
+    void Function(String bdstoken, String source, String mergedCookie)?
+        onBdstokenFetched,
   }) async =>
       const BaiduPlayResult(
         url: 'https://ibox/play.m3u8',
@@ -251,7 +252,8 @@ class _RecordingBaiduClient extends BaiduIBoxClient {
     required String fsId,
     String pcsCookie = '',
     String savedBdstoken = '',
-    void Function(String bdstoken, String source)? onBdstokenFetched,
+    void Function(String bdstoken, String source, String mergedCookie)?
+        onBdstokenFetched,
   }) async {
     lastBduss = bduss;
     lastPcsCookie = pcsCookie;
@@ -272,7 +274,8 @@ class _FailingBaiduIBoxClient extends BaiduIBoxClient {
     required String fsId,
     String pcsCookie = '',
     String savedBdstoken = '',
-    void Function(String bdstoken, String source)? onBdstokenFetched,
+    void Function(String bdstoken, String source, String mergedCookie)?
+        onBdstokenFetched,
   }) async =>
       throw const BaiduIBoxException('百度登录态正常，但未取得用户态 bdstoken');
 }
