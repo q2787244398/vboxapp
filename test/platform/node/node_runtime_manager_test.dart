@@ -20,15 +20,21 @@ import 'package:vbox/platform/node/node_host.dart';
 import 'package:vbox/platform/node/node_ports.dart';
 import 'package:vbox/platform/node/node_runtime_manager.dart';
 
-/// 假宿主：记录调用次数与启动参数，可注水失败。
+/// 假宿主：记录调用次数与启动参数，可注水失败 / 模拟子进程意外退出。
 class _FakeNodeHost implements NodeHost {
   int startCalls = 0;
   int stopCalls = 0;
   NodeHostConfig? lastConfig;
   bool failNextStart = false;
 
+  /// [pid] 返回值（模拟本宿主拉起的子进程 pid；null = 未知）。
+  int? pidValue;
+
   @override
   void Function(String)? onLog;
+
+  @override
+  void Function(int exitCode)? onChildExited;
 
   @override
   String get hostLabel => 'fake';
@@ -50,6 +56,12 @@ class _FakeNodeHost implements NodeHost {
 
   @override
   Future<bool> isRunning() async => startCalls > stopCalls;
+
+  @override
+  Future<int?> pid() async => pidValue;
+
+  /// 模拟子进程意外退出（exitCode 非 0 / 非 stopping 场景）。
+  void simulateExit(int exitCode) => onChildExited?.call(exitCode);
 }
 
 /// 假 HTTP：按端口区分主链路与 lx 链路健康，可注入文本 / 字节体。
@@ -389,5 +401,53 @@ void main() {
     await m.runLXHealthCheck();
     expect(m.isLXReady, isFalse);
     expect(m.isSystemReady, isTrue, reason: 'kstore 主链路不受 lx 影响');
+  });
+
+  test('运行中子进程意外退出 → 立即判崩溃并自动重启（不依赖心跳 3 次失败）', () async {
+    final NodeRuntimeManager m = build();
+    addTearDown(m.stop);
+    await m.start();
+    expect(host.startCalls, 1);
+
+    host.simulateExit(1);
+    // _handleCrash → 自动重启为异步，有界轮询等待其完成（重启成功回 ready）
+    for (int i = 0;
+        i < 200 && (host.startCalls < 2 || !m.isSystemReady);
+        i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+
+    expect(host.startCalls, 2, reason: '子进程退出应立即触发自动重启');
+    expect(m.isSystemReady, isTrue);
+  });
+
+  test('探活顶包校验：健康响应 pid 与本宿主子进程不一致 → 启动失败并给出可操作文案', () async {
+    final NodeRuntimeManager m = build();
+    addTearDown(m.stop);
+    host.pidValue = 111; // 本宿主子进程
+    http.healthy = true; // 端口有东西应答（旧版僵尸进程）
+    http.texts['http://127.0.0.1:${NodePorts.health}/health'] =
+        '{"status":"ok","pid":9999,"uptime":12345}';
+
+    await m.start();
+
+    expect(m.status, NodeRuntimeStatus.failed);
+    expect(m.isSystemReady, isFalse);
+    expect(m.lastError, contains('已被其他进程占用'));
+    expect(m.lastError, contains('pid=9999'));
+    expect(m.lastError, contains('重启电脑'));
+  });
+
+  test('探活顶包校验：健康响应 pid 与本宿主一致 → 正常就绪（不误伤）', () async {
+    final NodeRuntimeManager m = build();
+    addTearDown(m.stop);
+    host.pidValue = 111;
+    http.texts['http://127.0.0.1:${NodePorts.health}/health'] =
+        '{"status":"ok","pid":111,"uptime":0.5}';
+
+    await m.start();
+
+    expect(m.isSystemReady, isTrue);
+    expect(m.statusInfo, 'node-ready(58080)');
   });
 }

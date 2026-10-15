@@ -75,7 +75,11 @@ class LocalNodeLoginTransport implements NodeLoginTransport {
       await _waitForNodeReady(const Duration(seconds: 15));
     }
     if (!NodeRuntimeManager.instance.isSystemReady) {
-      throw const NodeLoginException('Node 常驻系统未就绪');
+      // lastError 携带具体原因（端口被顶包 / 子进程退出等），直接透传给 UI，
+      // 让用户能看到「重启电脑 / 结束占用进程」这类可操作指引。
+      throw NodeLoginException(
+        NodeRuntimeManager.instance.lastError ?? 'Node 常驻系统未就绪',
+      );
     }
     NodeLoginException last = const NodeLoginException('未知错误');
     for (int attempt = 1; attempt <= attempts; attempt++) {

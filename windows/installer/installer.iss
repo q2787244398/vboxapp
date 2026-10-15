@@ -142,20 +142,34 @@ begin
 end;
 
 // ── 升级 / 卸载前结束旧版进程（含 ND-02-desktop 内置 python.exe） ──────
+//
+// 背景：常驻 node.exe / python.exe 在 vbox.exe 退出后仍驻留后台，若安装/卸载
+// 时未被杀干净，会锁死 {app} 下的 exe 文件（导致默认目录覆盖失败，用户只见
+// 「安装不上」），且旧 node.exe 继续占用固定端口 58080-58084，新版 Node 引擎
+// 起不来、登录/二维码请求全部打到旧进程（「正在生成二维码…」转圈）。
 procedure KillVboxProcesses();
 var
   AppDir: String;
   ResultCode: Integer;
 begin
   AppDir := ExpandConstant('{app}');
+  Log('KillVboxProcesses: AppDir=' + AppDir);
   Exec(ExpandConstant('{cmd}'), '/C taskkill /f /t /im vbox.exe',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Log('KillVboxProcesses: taskkill vbox.exe 退出码=' + IntToStr(ResultCode));
+  { 按可执行路径杀 node/python。用 WMI Win32_Process 而非 Get-Process $_.Path：
+    残留进程的 exe 文件被卸载删除后，Process.Path 可能为空导致漏杀；WMI 的
+    ExecutablePath 记录的是进程创建时的映像路径，文件删除后仍可命中。
+    Get-WmiObject 自 PowerShell 2.0（Win7）起可用。安全软件拦截 powershell
+    时仅记日志不阻断安装。 }
   Exec('powershell.exe',
        '-NoProfile -ExecutionPolicy Bypass -Command ' +
-       'Get-Process node,python,pythonw -ErrorAction SilentlyContinue | ' +
-       'Where-Object { $_.Path -like "' + AppDir + '\*" } | ' +
-       'Stop-Process -Force; Start-Sleep -Milliseconds 800',
+       'Get-WmiObject Win32_Process -Filter "Name=''node.exe'' OR Name=''python.exe'' OR Name=''pythonw.exe''" | ' +
+       'Where-Object { $_.ExecutablePath -like "' + AppDir + '\*" } | ' +
+       'ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; ' +
+       'Start-Sleep -Milliseconds 800',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Log('KillVboxProcesses: powershell 退出码=' + IntToStr(ResultCode));
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;

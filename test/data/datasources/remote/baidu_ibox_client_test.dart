@@ -28,10 +28,16 @@ class _FakeWebViewBridge implements WebViewBridge {
   _FakeWebViewBridge({
     this.html = '',
     this.xhr = const <String, String>{},
+    this.xhrSequence,
   });
 
   final String html;
   final Map<String, String> xhr;
+
+  /// 顺序响应（非空时按 `request` 调用次序依次返回，用于区分多次 XHR）。
+  final List<String>? xhrSequence;
+  int _xhrSeq = 0;
+
   final List<String> loaded = <String>[];
   final List<String> requested = <String>[];
 
@@ -60,6 +66,13 @@ class _FakeWebViewBridge implements WebViewBridge {
     Duration timeout = const Duration(seconds: 15),
   }) async {
     requested.add(url);
+    final List<String>? seq = xhrSequence;
+    if (seq != null) {
+      if (_xhrSeq < seq.length) {
+        return (status: 200, body: seq[_xhrSeq++], headers: const <String, String>{});
+      }
+      return (status: 200, body: '{}', headers: const <String, String>{});
+    }
     for (final MapEntry<String, String> e in xhr.entries) {
       if (url.contains(e.key)) {
         return (status: 200, body: e.value, headers: const <String, String>{});
@@ -325,6 +338,116 @@ void main() {
 
     test('fetchUserBdstoken：templatevariable 返回用户态 bdstoken', () async {
       expect(await client.fetchUserBdstoken(cookie: 'BDUSS=u'), 'tok123');
+    });
+
+    test('fetchUserBdstoken：第 1 层 errno=-6 → Cookie 补全重试取得 bdstoken', () async {
+      int tplCalls = 0;
+      String? enrichedCookieSeen;
+      final _FakeTransport t = _FakeTransport((SpiderTransportRequest r) {
+        final String url = r.url.toString();
+        final String cookie = r.headers['Cookie'] ?? '';
+        if (url.contains('/api/gettemplatevariable')) {
+          tplCalls++;
+          // 第 1 层（无指纹 Cookie）被风控；补全后（带 BAIDUID）放行。
+          if (cookie.contains('BAIDUID=')) {
+            enrichedCookieSeen = cookie;
+            return _res('{"errno":0,"result":{"bdstoken":"enriched-tok"}}');
+          }
+          return _res('{"errno":-6}');
+        }
+        if (url == 'https://www.baidu.com/' ||
+            url.startsWith('https://www.baidu.com')) {
+          // 服务端种指纹 Cookie。
+          return _res('<html></html>',
+              cookies: <String>['BAIDUID=fingerprint123; Path=/; Domain=.baidu.com']);
+        }
+        return _res('<html></html>');
+      });
+      final BaiduIBoxClient c = BaiduIBoxClient(transport: t, prefs: prefs);
+      String? fetchedSource;
+      final String token = await c.fetchUserBdstoken(
+        cookie: 'BDUSS=u',
+        onFetched: (String bdstoken, String source, String mergedCookie) {
+          fetchedSource = source;
+        },
+      );
+      expect(token, 'enriched-tok');
+      expect(tplCalls, 2, reason: '补全前 errno=-6 一次 + 补全后重试一次');
+      expect(enrichedCookieSeen, contains('BAIDUID=fingerprint123'));
+      expect(enrichedCookieSeen, contains('BDUSS=u'), reason: '账号 Cookie 保留');
+      expect(fetchedSource, 'urlsession-templatevariable');
+    });
+
+    test('fetchUserBdstoken：Cookie 补全仍失败 → 继续 WebView 兜底（不回退保存值短路）', () async {
+      final _FakeTransport t = _FakeTransport(
+          (SpiderTransportRequest r) => _res('<html></html>'));
+      final _FakeWebViewBridge web = _FakeWebViewBridge(
+        html: '<script>bdstoken="webtok"</script>',
+      );
+      final BaiduIBoxClient c =
+          BaiduIBoxClient(transport: t, prefs: prefs, webView: web);
+      expect(await c.fetchUserBdstoken(cookie: 'BDUSS=u'), 'webtok');
+    });
+
+    test('fetchUserBdstoken：Dart 层被风控 → 浏览器栈 XHR（WebView2）取得 bdstoken', () async {
+      String? fetchedSource;
+      final _FakeTransport t = _FakeTransport((SpiderTransportRequest r) {
+        // Dart 直发的 gettemplatevariable 一律被风控（errno=-6）。
+        if (r.url.toString().contains('/api/gettemplatevariable')) {
+          return _res('{"errno":-6}');
+        }
+        return _res('<html></html>');
+      });
+      final _FakeWebViewBridge web = _FakeWebViewBridge(
+        xhr: <String, String>{
+          '/api/gettemplatevariable': '{"errno":0,"result":{"bdstoken":"browser-tok"}}',
+        },
+      );
+      final BaiduIBoxClient c =
+          BaiduIBoxClient(transport: t, prefs: prefs, webView: web);
+      final String token = await c.fetchUserBdstoken(
+        cookie: 'BDUSS=u',
+        onFetched: (String bdstoken, String source, String mergedCookie) {
+          fetchedSource = source;
+        },
+      );
+      expect(token, 'browser-tok');
+      expect(fetchedSource, 'webview-xhr-templatevariable');
+      expect(
+        web.requested.any((String u) => u.contains('/api/gettemplatevariable')),
+        isTrue,
+        reason: '浏览器栈 XHR 层确实发出过 gettemplatevariable',
+      );
+    });
+
+    test('fetchUserBdstoken：浏览器栈（原始 Cookie）失败 + 补全改变输入 → 补全 Cookie 再过浏览器栈', () async {
+      final _FakeTransport t = _FakeTransport((SpiderTransportRequest r) {
+        // Dart 直发永远被风控（覆盖「Cookie + 请求指纹」叠加场景）。
+        if (r.url.toString().contains('/api/gettemplatevariable')) {
+          return _res('{"errno":-6}');
+        }
+        if (r.url.toString().startsWith('https://www.baidu.com')) {
+          return _res('<html></html>',
+              cookies: <String>['BAIDUID=fingerprint123; Path=/; Domain=.baidu.com']);
+        }
+        return _res('<html></html>');
+      });
+      final _FakeWebViewBridge web = _FakeWebViewBridge(
+        xhrSequence: <String>[
+          '{"errno":-6}', // 原始 Cookie → 浏览器栈仍被风控。
+          '{"errno":0,"result":{"bdstoken":"browser-tok2"}}', // 补全 Cookie → 放行。
+        ],
+      );
+      final BaiduIBoxClient c =
+          BaiduIBoxClient(transport: t, prefs: prefs, webView: web);
+      expect(await c.fetchUserBdstoken(cookie: 'BDUSS=u'), 'browser-tok2');
+      expect(
+        web.requested
+            .where((String u) => u.contains('/api/gettemplatevariable'))
+            .length,
+        2,
+        reason: '原始 Cookie 一次 + 补全 Cookie 一次',
+      );
     });
 
     test('ensureTransferDir：目录可列举则不创建', () async {

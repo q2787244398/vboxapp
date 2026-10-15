@@ -80,6 +80,13 @@ abstract class NodeHost {
   /// 宿主日志（含降级事件）。
   void Function(String)? onLog;
 
+  /// 子进程意外退出回调（宿主实现负责触发；进程内引擎 / 不可用宿主不触发）。
+  ///
+  /// 供 [NodeRuntimeManager] 在子进程崩溃时**第一时间**感知：此前只能依赖
+  /// HTTP 探活，而子进程死后端口若被其他进程（如旧版残留 node.exe）占住，
+  /// 探活会打到冒名进程并误判「就绪」——业务请求全部落到错误进程上。
+  void Function(int exitCode)? onChildExited;
+
   /// 宿主标签（日志用）。
   String get hostLabel;
 
@@ -93,6 +100,11 @@ abstract class NodeHost {
 
   /// 宿主进程 / 引擎是否在运行（不探活）。
   Future<bool> isRunning();
+
+  /// 子进程 pid（进程内引擎 / 未知返回 null）。
+  ///
+  /// 探活侧用它与健康端点响应中的 pid 比对，识别「端口被其他进程顶包」。
+  Future<int?> pid() async => null;
 }
 
 /// Node 可执行文件解析结果。
@@ -126,11 +138,17 @@ class ProcessNodeHost implements NodeHost {
   StreamSubscription<String>? _outSub;
   StreamSubscription<String>? _errSub;
 
+  /// 主动停止中标志：[stop] 杀掉子进程触发的退出回调不应视为「意外退出」。
+  bool _stopping = false;
+
   /// 本次 start 实际使用的可执行文件（诊断用）。
   String? _resolvedExecutable;
 
   @override
   void Function(String)? onLog;
+
+  @override
+  void Function(int exitCode)? onChildExited;
 
   @override
   String get hostLabel =>
@@ -258,6 +276,7 @@ class ProcessNodeHost implements NodeHost {
   @override
   Future<void> start(NodeHostConfig config) async {
     await stop();
+    _stopping = false;
     // ① 显式注入优先；② 否则自动解析；③ 仍无 → 退回 PATH 名（保留旧行为，
     //    覆盖 Windows 应用执行别名等「非真实文件」的 shim 情形）。
     final NodeExecutableLocation located = locate(config: config);
@@ -280,6 +299,12 @@ class ProcessNodeHost implements NodeHost {
     } on ProcessException catch (e) {
       throw NodeHostException(_failureMessage(executable, located, e));
     }
+    // 监控子进程退出：崩溃时第一时间回调上层（进程死了但端口可能被
+    // 其他进程占住，仅靠 HTTP 探活会误判「就绪」，见 NodeHost.onChildExited）。
+    unawaited(_process!.exitCode.then((int code) {
+      if (_stopping) return;
+      onChildExited?.call(code);
+    }));
     _outSub = _process!.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
@@ -297,6 +322,7 @@ class ProcessNodeHost implements NodeHost {
 
   @override
   Future<void> stop() async {
+    _stopping = true;
     await _outSub?.cancel();
     await _errSub?.cancel();
     _outSub = null;
@@ -307,6 +333,7 @@ class ProcessNodeHost implements NodeHost {
       p.kill();
       await p.exitCode;
     }
+    _stopping = false;
   }
 
   @override
@@ -314,6 +341,9 @@ class ProcessNodeHost implements NodeHost {
     final Process? p = _process;
     return p != null;
   }
+
+  @override
+  Future<int?> pid() async => _process?.pid;
 }
 
 /// 通道宿主（Android · nodejs-mobile 进程内引擎）。
@@ -341,6 +371,9 @@ class ChannelNodeHost implements NodeHost {
 
   @override
   void Function(String)? onLog;
+
+  @override
+  void Function(int exitCode)? onChildExited;
 
   @override
   String get hostLabel => 'Android nodejs-mobile 进程内引擎';
@@ -392,6 +425,9 @@ class ChannelNodeHost implements NodeHost {
       return false;
     }
   }
+
+  @override
+  Future<int?> pid() async => null;
 }
 
 /// 不可用宿主（未接入平台 / 单测缺省；启动即报错，不 crash）。
@@ -405,6 +441,9 @@ class UnavailableNodeHost implements NodeHost {
   void Function(String)? onLog;
 
   @override
+  void Function(int exitCode)? onChildExited;
+
+  @override
   String get hostLabel => '未接入';
 
   @override
@@ -416,4 +455,7 @@ class UnavailableNodeHost implements NodeHost {
 
   @override
   Future<bool> isRunning() async => false;
+
+  @override
+  Future<int?> pid() async => null;
 }

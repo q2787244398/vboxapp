@@ -166,7 +166,10 @@ class NodeRuntimeManager {
   })  : _host = host ?? NodeHost.forCurrentPlatform(),
         _assets = assets ?? const BundleNodeAssetSource(),
         _http = http ?? IoNodeHttpTransport(),
-        _runtimeDirOverride = runtimeDirPath;
+        _runtimeDirOverride = runtimeDirPath {
+    // 子进程退出 → 立即感知（见 [_onChildExited]）；主动 stop 由 _stopping 屏蔽。
+    _host.onChildExited = _onChildExited;
+  }
 
   /// 全局单例（对齐 iOS `NodeRuntimeManager.shared`）。
   static final NodeRuntimeManager instance = NodeRuntimeManager();
@@ -220,6 +223,13 @@ class NodeRuntimeManager {
   bool _isCrashed = false;
   bool _starting = false;
   bool _startedOnce = false;
+
+  /// 主动停止中：stop 杀子进程触发的退出回调不应视为崩溃。
+  bool _stopping = false;
+
+  /// 本次启动探活失败的具体原因（子进程退出 / 端口被顶包）；无则用通用文案。
+  String? _probeFailureReason;
+
   int _consecutiveHealthFailures = 0;
   int _restartCount = 0;
   String? _lastError;
@@ -306,6 +316,7 @@ class NodeRuntimeManager {
     if (_starting || _startedOnce) return;
     _starting = true;
     _startedOnce = true;
+    _probeFailureReason = null;
     _setStatus(NodeRuntimeStatus.starting);
     try {
       // 1) 部署运行时文件（首次从资源复制到可写目录）
@@ -328,7 +339,8 @@ class NodeRuntimeManager {
       // 5) 就绪判定（HTTP 探活，等价 iOS ack + probe）
       final bool ready = await waitReady();
       if (!ready) {
-        await _failStart('Node 启动后 HTTP 探活失败');
+        // 带上具体原因（子进程退出 / 端口被顶包），无则保持原通用文案。
+        await _failStart(_probeFailureReason ?? 'Node 启动后 HTTP 探活失败');
         return;
       }
 
@@ -350,6 +362,7 @@ class NodeRuntimeManager {
 
   /// 停止 Node 系统并停掉全部定时器。
   Future<void> stop() async {
+    _stopping = true;
     _healthTimer?.cancel();
     _healthTimer = null;
     _lxHealthTimer?.cancel();
@@ -362,6 +375,7 @@ class NodeRuntimeManager {
     _isSystemReady = false;
     _isLXReady = false;
     _setStatus(NodeRuntimeStatus.stopped);
+    _stopping = false;
   }
 
   /// 内存告警降级（对齐 iOS `handleMemoryWarning`）。
@@ -559,12 +573,35 @@ class NodeRuntimeManager {
       probeHealth(retries: readyProbeRetries, retryDelay: readyProbeDelay);
 
   /// HTTP 探活（对齐 iOS `probeHealth`）。
+  ///
+  /// 额外做**顶包校验**：健康端点（main.js healthServer）返回
+  /// `{status, pid, uptime}`，若响应 pid 与本宿主子进程 pid 不一致，说明端口
+  /// 被其他进程占用（典型：旧版本常驻 node.exe 未退出，新子进程 EADDRINUSE），
+  /// 当前子进程必然没绑上端口 —— 立即失败并给出可操作文案，避免探活打到
+  /// 冒名进程而误判「就绪」（业务请求会全部落到错误进程上）。
   Future<bool> probeHealth({
     int retries = 1,
     Duration retryDelay = const Duration(milliseconds: 500),
   }) async {
     final int attempts = retries < 1 ? 1 : retries;
+    final int? ownPid = await _host.pid();
     for (int i = 0; i < attempts; i++) {
+      // 顶包校验（仅健康端点返回 pid；主端口状态端点由状态码兜底）。
+      if (ownPid != null) {
+        final String? body = await _http.getText(
+          'http://127.0.0.1:${NodePorts.health}/health',
+          timeout: const Duration(seconds: 3),
+        );
+        final int? foreign = _foreignPidInHealth(body, ownPid);
+        if (foreign != null) {
+          _probeFailureReason = 'Node 端口 ${NodePorts.main} 已被其他进程占用'
+              '（健康响应 pid=$foreign，本宿主子进程 pid=$ownPid，'
+              '常见于旧版本常驻 node.exe 未退出）——'
+              '请重启电脑，或在任务管理器结束对应进程后重试';
+          _log('❌ $_probeFailureReason');
+          return false;
+        }
+      }
       for (final String endpoint in <String>[
         'http://127.0.0.1:${NodePorts.health}/health',
         'http://127.0.0.1:$activePort/website/api/status',
@@ -575,6 +612,41 @@ class NodeRuntimeManager {
       if (i < attempts - 1) await Future<void>.delayed(retryDelay);
     }
     return false;
+  }
+
+  /// 解析健康端点响应体：能解析出 pid 且与 [ownPid] 不同 → 返回外来 pid。
+  ///
+  /// 响应缺失 / 非 JSON（其他服务占住端口）返回 null，交由状态码兜底判定。
+  int? _foreignPidInHealth(String? body, int ownPid) {
+    if (body == null || body.isEmpty) return null;
+    try {
+      final Object? json = jsonDecode(body);
+      if (json is Map) {
+        final Object? pid = json['pid'];
+        if (pid is int && pid != ownPid) return pid;
+      }
+    } catch (_) {
+      // 非 JSON → 无法判定顶包，维持原状态码语义。
+    }
+    return null;
+  }
+
+  /// 子进程意外退出（宿主回调；主动 stop 由 [_stopping] 屏蔽）。
+  void _onChildExited(int exitCode) {
+    if (_stopping) return;
+    _log('⚠️ Node 子进程已退出（exitCode=$exitCode）');
+    if (_starting) {
+      // 启动阶段子进程就死了（典型：端口被占 → EADDRINUSE → main.js 不退出
+      // 但也监听失败）。记录原因，让随后的探活失败文案带可操作信息；
+      // 若探活随后检出顶包，会以更精确的文案覆盖。
+      _probeFailureReason ??= 'Node 进程启动后立即退出（exitCode=$exitCode，'
+          '端口可能被其他程序占用），请重启电脑或结束占用进程后重试';
+      return;
+    }
+    if (_isSystemReady) {
+      // 运行中崩溃 → 走既有崩溃处理（广播 + 自动重启）。
+      _handleCrash();
+    }
   }
 
   // ─────────────── 心跳与崩溃（对齐 iOS `startHealthMonitor`） ───────────────
@@ -637,6 +709,7 @@ class NodeRuntimeManager {
     _restartCount += 1;
     _log('🔁 尝试重启 Node（第 $_restartCount/$maxRestarts 次）');
     _setStatus(NodeRuntimeStatus.starting);
+    _probeFailureReason = null;
     try {
       await prepareRuntimeFiles();
       await _host.start(_buildHostConfig());
@@ -652,7 +725,8 @@ class NodeRuntimeManager {
     } catch (e) {
       _log('⚠️ Node 重启失败：$e');
     }
-    _failStart('Node 重启失败（已尝试 $_restartCount/$maxRestarts 次）');
+    _failStart('Node 重启失败（已尝试 $_restartCount/$maxRestarts 次）'
+        '${_probeFailureReason == null ? '' : '：$_probeFailureReason'}');
   }
 
   /// 启动失败收尾（对齐 iOS `failStart`）。

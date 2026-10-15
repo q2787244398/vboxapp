@@ -734,11 +734,21 @@ class BaiduIBoxClient {
   /// 私域接口（api/create / filemanager / api/list）必须用登录态 bdstoken；
   /// 分享页 yunData 里的 bdstoken 会被百度判越权（errno=-6）。
   ///
-  /// - [savedBdstoken]：授权中心保存值（凭据 `extra["bdstoken"]`）。四层兜底
-  ///   （对齐 iOS `CloudDriveManager.swift:4726-4728`「本次未抓到新 bdstoken，
-  ///   临时回退授权中心保存值」）。
+  /// - [savedBdstoken]：授权中心保存值（凭据 `extra["bdstoken"]`）。兜底链
+  ///   最后一层（对齐 iOS `CloudDriveManager.swift:4726-4728`「本次未抓到新
+  ///   bdstoken，临时回退授权中心保存值」）。
+  ///
+  /// 完整兜底链（iOS 同款 + Windows 专属增强）：
+  ///   1. Dart URLSession 档 gettemplatevariable（对齐 iOS）；
+  ///   1½. 浏览器栈 XHR·原始 Cookie（WebView2 真实 Edge 网络栈，Windows 增强）；
+  ///   1.5. Cookie 补全 + Dart 重试（对齐 iOS `baiduEnrichAccountCookie`）；
+  ///   1¾. 浏览器栈 XHR·补全 Cookie（覆盖「缺指纹 + 请求指纹风控」叠加）；
+  ///   2. disk/main 静态 HTML 正则（对齐 iOS）；
+  ///   3. WebView 载入 disk/main + 页面 JS 提取（对齐 iOS）；
+  ///   4. 授权中心保存值（对齐 iOS）。
   /// - [onFetched]：活取成功回调（来源 = urlsession-templatevariable /
-  ///   urlsession-disk-main / webview-disk-main，与 iOS 逐字一致），携带本次
+  ///   urlsession-disk-main / webview-disk-main，与 iOS 逐字一致；Windows 增强
+  ///   层来源 = webview-xhr-templatevariable），携带本次
   ///   请求所用 cookie，调用方据此回写凭据 extra 与 cookie
   ///   （对齐 iOS `baiduPersistUserBdstoken`，`CloudDriveManager.swift:4758-4772`）。
   Future<String> fetchUserBdstoken({
@@ -801,6 +811,66 @@ class BaiduIBoxClient {
         category: LogCategory.cloud,
       );
     }
+    // ── 浏览器栈层（Windows 专属增强，iOS 无此层）：WebView2 XHR 直取 ──
+    // 背景（iOS 端同代码一直正常的关键差异）：iOS 经 URLSession 发请求，Apple
+    // TLS 指纹被百度信任；Windows 端 Dart HttpClient 的 TLS/请求指纹可能被
+    // 风控（ errno=-6 / 非 JSON 风控页），此时同一 Cookie 换真实 Edge 网络栈
+    // （WebView2）即可通过。账号 Cookie 先经 CookieManager 种入 WebView2 持久化
+    // Jar，页面上下文 XHR 自动携带（XHR 手动设 Cookie 头会被浏览器剥离）；
+    // Jar 中服务端新种的指纹 Cookie 随返回值带回。复刻 iOS URLSession 信任度。
+    final ({String token, String cookie}) viaBrowser =
+        await _webViewXhrBdstoken(cookie);
+    if (viaBrowser.token.isNotEmpty) {
+      AppLog.debug(
+        'baidu-local',
+        '浏览器栈 XHR（原始 Cookie）取得用户态 bdstoken',
+        category: LogCategory.cloud,
+      );
+      onFetched?.call(viaBrowser.token, 'webview-xhr-templatevariable', viaBrowser.cookie);
+      return viaBrowser.token;
+    }
+    // ── 第 1.5 层（新增）：Cookie 补全 + 重试（对齐 iOS `baiduEnrichAccountCookie`）──
+    // 背景（实测四层兜底在「登录态正常」下全空的主因）：凭据 Cookie 缺
+    // `BAIDUID` 等指纹字段（旧版本登录 / 登录补全被风控）时，gettemplatevariable
+    // 会被百度风控（errno=-6）——而原四层兜底全部用**同一份 Cookie** 发请求，
+    // 必然全空。本层按 iOS 已验证有效的端点套路串行访问只读端点，让百度
+    // 逐跳 Set-Cookie 补齐指纹后再取 bdstoken；补全后的完整 Cookie 经
+    // onFetched 回写凭据（pan_player `_saveBaiduBdstoken` 合并落库），
+    // 下次播放第 1 层可直接命中。
+    final ({String token, String cookie}) enriched = await _enrichBdstoken(cookie);
+    if (enriched.token.isNotEmpty) {
+      AppLog.debug(
+        'baidu-local',
+        '第 1.5 层 Cookie 补全后取得用户态 bdstoken',
+        category: LogCategory.cloud,
+      );
+      onFetched?.call(enriched.token, 'urlsession-templatevariable', enriched.cookie);
+      return enriched.token;
+    }
+    AppLog.warn(
+      'baidu-local',
+      '第 1.5 层 Cookie 补全仍未取得 bdstoken（继续浏览器栈 / HTML / WebView / 保存值兜底）',
+      category: LogCategory.cloud,
+    );
+    // Cookie 补全改变了输入（合并了服务端指纹字段）时，浏览器栈再试一次，
+    // 覆盖「Cookie 缺指纹 + 请求指纹风控」叠加场景（输入未变则跳过，避免重复）。
+    if (enriched.cookie.isNotEmpty && enriched.cookie != cookie) {
+      final ({String token, String cookie}) viaBrowserEnriched =
+          await _webViewXhrBdstoken(enriched.cookie);
+      if (viaBrowserEnriched.token.isNotEmpty) {
+        AppLog.debug(
+          'baidu-local',
+          '浏览器栈 XHR（补全 Cookie）取得用户态 bdstoken',
+          category: LogCategory.cloud,
+        );
+        onFetched?.call(
+          viaBrowserEnriched.token,
+          'webview-xhr-templatevariable',
+          viaBrowserEnriched.cookie,
+        );
+        return viaBrowserEnriched.token;
+      }
+    }
     // 回退：直接抓 disk/main 页面里的用户态 bdstoken。
     final _Resp page = await _request(
       'https://pan.baidu.com/disk/main',
@@ -855,10 +925,160 @@ class BaiduIBoxClient {
     }
     AppLog.error(
       'baidu-local',
-      '四层兜底全部失败，未取得用户态 bdstoken，无法创建 vbox 转存目录',
+      '四层兜底（含 Cookie 补全重试）全部失败，未取得用户态 bdstoken，'
+      '无法创建 vbox 转存目录 —— 多为百度风控或旧版凭据缺指纹 Cookie，'
+      '建议到授权中心重新扫码登录',
       category: LogCategory.cloud,
     );
     return '';
+  }
+
+  /// Cookie 串行补全 + bdstoken 重试（对齐 iOS `baiduEnrichAccountCookie`，
+  /// `CloudDriveAuthManager.swift:1262-1316`）。
+  ///
+  /// 与登录补全相同的只读端点套路：先访问百度主域 / passport 让服务端
+  /// Set-Cookie 补齐 `BAIDUID`/`BAIDUID_BFESS` 等指纹字段，再取
+  /// gettemplatevariable。全部 GET、单次串行、失败静默回退，不写网盘、
+  /// 不触发额外风控。返回补全后的完整 Cookie，供调用方经 `onFetched`
+  /// 回写凭据（下次播放直接带完整指纹）。
+  Future<({String token, String cookie})> _enrichBdstoken(String cookie) async {
+    final Map<String, String> merged = <String, String>{};
+    void ingest(String raw) {
+      for (final String pair in raw.split(';')) {
+        final String p = pair.trim();
+        final int eq = p.indexOf('=');
+        if (eq <= 0) continue;
+        merged[p.substring(0, eq).trim()] = p.substring(eq + 1).trim();
+      }
+    }
+
+    void absorb(List<String> setCookies) {
+      for (final String raw in setCookies) {
+        final String firstPair = raw.split(';').first.trim();
+        final int eq = firstPair.indexOf('=');
+        if (eq <= 0) continue;
+        merged[firstPair.substring(0, eq).trim()] =
+            firstPair.substring(eq + 1).trim();
+      }
+    }
+
+    String cookieString() => merged.entries
+        .map((MapEntry<String, String> e) => '${e.key}=${e.value}')
+        .join('; ');
+
+    ingest(cookie);
+    const List<String> endpoints = <String>[
+      'https://www.baidu.com/',
+      'https://passport.baidu.com/center',
+      'https://pan.baidu.com/disk/main',
+    ];
+    for (final String url in endpoints) {
+      try {
+        final _Resp res = await _request(
+          url,
+          headers: <String, String>{
+            'Cookie': cookieString(),
+            'User-Agent': webUA,
+          },
+          timeout: 12,
+        );
+        absorb(res.setCookies);
+      } catch (_) {
+        continue; // 单点失败静默回退（对齐 iOS continue 语义）。
+      }
+    }
+    try {
+      final _Resp tpl = await _request(
+        'https://pan.baidu.com/api/gettemplatevariable'
+        '?clienttype=0&app_id=250528&web=1'
+        '&fields=${Uri.encodeComponent('["bdstoken","uk","username"]')}',
+        headers: <String, String>{
+          'Cookie': cookieString(),
+          'User-Agent': webUA,
+          'Referer': 'https://pan.baidu.com/disk/main',
+        },
+        timeout: 12,
+      );
+      absorb(tpl.setCookies);
+      final Map<String, Object?>? json = _decodeMap(tpl.text);
+      final String token = _deepString(json, <String>{'bdstoken'});
+      if (token.isNotEmpty) {
+        return (token: token, cookie: cookieString());
+      }
+      final int errno = _asInt(json?['errno']) ?? 0;
+      AppLog.warn(
+        'baidu-local',
+        'Cookie 补全后 gettemplatevariable 仍未返回 bdstoken（errno=$errno）',
+        category: LogCategory.cloud,
+      );
+    } catch (_) {
+      // 静默回退（对齐 iOS continue 语义）。
+    }
+    return (token: '', cookie: cookieString());
+  }
+
+  /// 浏览器栈 XHR 取用户态 bdstoken（Windows 专属增强，iOS 无此层）。
+  ///
+  /// 与 Dart 层同 URL / 同参数，但经 WebView2（真实 Edge 网络栈）发出：
+  ///   · TLS/请求指纹与真实浏览器一致，复刻 iOS URLSession 的信任度；
+  ///   · 账号 Cookie 先经 [WebViewBridge.loadPage] 的 CookieManager 预注入
+  ///     持久化 Jar——XHR 里手动设 `Cookie` 头会被浏览器按规范剥离，必须靠
+  ///     Jar 自动携带；
+  ///   · loadPage 顺带完成一次真实浏览会话，服务端 Set-Cookie 新种的指纹
+  ///     字段经返回值 `cookie` 带回，供调用方回写凭据。
+  ///
+  /// 页面本身即使被风控重定向也不影响后续 XHR（Cookie 已种入 Jar）。
+  Future<({String token, String cookie})> _webViewXhrBdstoken(String cookie) async {
+    if (!_webView.isAvailable) {
+      AppLog.warn(
+        'baidu-local',
+        '浏览器栈 XHR 层跳过（WebView2 环境未就绪）',
+        category: LogCategory.cloud,
+      );
+      return (token: '', cookie: '');
+    }
+    try {
+      // 种 Cookie 进持久 Jar + 真实浏览会话（disk/main；页面内容不参与判定）。
+      final WebViewPageResult page = await _webView.loadPage(
+        url: 'https://pan.baidu.com/disk/main',
+        userAgent: webUA,
+        cookies: _cookieMap(cookie),
+        timeout: const Duration(seconds: 15),
+      );
+      final String jarCookie = page.cookie;
+      final String reqCookie = jarCookie.isEmpty
+          ? cookie
+          : mergeCookieStrings(<String>[cookie, jarCookie]);
+      // 页面上下文同步 XHR（同源无 CORS；Cookie 由 Jar 自动携带）。
+      final WebViewXhrResult xhr = await _webView.request(
+        url: 'https://pan.baidu.com/api/gettemplatevariable'
+            '?clienttype=0&app_id=250528&web=1'
+            '&fields=${Uri.encodeComponent('["bdstoken","token","uk","isdocuser","servertime"]')}',
+        hostUrl: 'https://pan.baidu.com/disk/main',
+        timeout: const Duration(seconds: 15),
+      );
+      final Map<String, Object?>? json = _decodeMap(xhr.body);
+      final String token = _deepString(json, <String>{'bdstoken'});
+      if (token.isNotEmpty) {
+        return (token: token, cookie: reqCookie);
+      }
+      final int errno = _asInt(json?['errno']) ?? -1;
+      AppLog.warn(
+        'baidu-local',
+        '浏览器栈 XHR 未取得 bdstoken'
+        '（status=${xhr.status}，errno=$errno，bodyLen=${xhr.body.length}；'
+        'errno=-1 表示响应非 JSON，多为风控页）',
+        category: LogCategory.cloud,
+      );
+      return (token: '', cookie: reqCookie);
+    } on WebViewBridgeException catch (e) {
+      AppLog.warn(
+        'baidu-local',
+        '浏览器栈 XHR 失败：$e',
+        category: LogCategory.cloud,
+      );
+      return (token: '', cookie: '');
+    }
   }
 
   /// `/vbox` 转存目录是否可列举（对齐 iOS `baiduCanListTransferDir`）。
@@ -1317,7 +1537,9 @@ class BaiduIBoxClient {
       onFetched: onBdstokenFetched,
     );
     if (userBdstoken.isEmpty) {
-      const String message = '百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录';
+      const String message = '百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录'
+          '（Cookie 补全重试仍失败，多为百度风控或旧版凭据缺指纹 Cookie）——'
+          '请到「网盘授权中心」重新扫码登录一次后重试';
       await _cache.recordRouteDiagnostic(
         stage: '主路链',
         status: '缺少用户态bdstoken',
@@ -1997,6 +2219,20 @@ class BaiduIBoxClient {
       return (token: '', cookie: '');
     }
     try {
+      // 指纹预热：Windows 的 WebView2 用独立 userDataFolder，CookieJar 首次为
+      // 空，仅预注入账号 Cookie 缺 BAIDUID 等指纹字段时 disk/main 大概率被
+      // 风控到验证页（对齐 iOS WKWebView 共享系统 jar 的效果）。先访问一次
+      // 百度主域让服务端种指纹 Cookie（jar 持久化，仅首次生效），再进 disk/main。
+      try {
+        await _webView.loadPage(
+          url: 'https://www.baidu.com/',
+          userAgent: webUA,
+          cookies: _cookieMap(cookie),
+          timeout: const Duration(seconds: 10),
+        );
+      } catch (_) {
+        // 预热失败不阻断主流程。
+      }
       final WebViewPageResult page = await _webView.loadPage(
         url: 'https://pan.baidu.com/disk/main',
         userAgent: webUA,
