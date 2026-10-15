@@ -635,8 +635,8 @@ class _HiddenWebviewHostInstallerState
   void _install() {
     if (HiddenWidgetWebviewBridge._globallyInstalled) return;
     if (!HiddenWidgetWebviewBridge.shouldInstall) return;
-    final OverlayState? overlay = Overlay.of(context, rootOverlay: true);
-    if (overlay == null) return;
+    // Overlay.of 非空语义：home 子树必在根 Overlay 之下，找不到即框架异常。
+    final OverlayState overlay = Overlay.of(context, rootOverlay: true);
     HiddenWidgetWebviewBridge._globallyInstalled = true;
     overlay.insert(
       OverlayEntry(
