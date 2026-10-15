@@ -64,13 +64,23 @@ class InAppWebViewBridge implements WebViewBridge {
 
   /// 后台页面任务桥选择工厂（bdstoken 浏览器栈层 / 公共页面嗅探消费）。
   ///
-  /// Windows → [HiddenWidgetWebviewBridge]：widget 模式是授权中心登录页验证
-  /// 过的稳定承载，headless 模式在 6.2.0-beta.3 存在原生 abort 崩溃（见
-  /// [windowsHeadlessEnabled]）。其余平台 → 无头桥（对齐 iOS WKWebView 语义）。
+  /// Windows 一律返回无头桥（headless 受 [windowsHeadlessEnabled] 崩溃保护
+  /// 闸门控制，闸死时消费点优雅跳过该层、回退保存值兜底）。
+  /// [HiddenWidgetWebviewBridge]（3.1844 实测在根 Overlay 挂载 1×1 widget
+  /// WebView 会导致首页渲染后被整窗白屏——beta 插件宿主边界/合成行为不可控，
+  /// 见该类注释）默认停用，仅 [hiddenHostEnabled] 显式打开时启用，待原生
+  /// WebView2 桥替代后整体移除。
   static WebViewBridge forBackgroundTasks() =>
-      (!kIsWeb && Platform.isWindows && _windowsAvailable)
+      (!kIsWeb &&
+              Platform.isWindows &&
+              _windowsAvailable &&
+              hiddenHostEnabled &&
+              HiddenWidgetWebviewBridge.shouldInstall)
           ? HiddenWidgetWebviewBridge.instance
           : InAppWebViewBridge();
+
+  /// 隐藏 widget 宿主桥总开关（默认 **false**：3.1844 白屏回归，见上）。
+  static bool hiddenHostEnabled = false;
 
   /// `evaluateJavascript` 字符串返回值还原（处理插件 JSON 编码包装）。
   ///
@@ -407,13 +417,20 @@ class InAppWebViewBridge implements WebViewBridge {
   }
 }
 
-/// 隐藏 widget 宿主桥（Windows 专属 · 崩溃保护下的浏览器栈层承载）。
+/// 隐藏 widget 宿主桥（Windows 专属 · **默认停用**，见下）。
 ///
-/// 背景：3.1839 起插件 `HeadlessInAppWebView`（6.2.0-beta.3）在部分 Windows
-/// 机器触发原生 abort（WER 现场 c0000409），无头兜底层被
-/// [InAppWebViewBridge.windowsHeadlessEnabled] 整体闸死；但**可见 widget 模式**
-/// `InAppWebView` 是授权中心登录页验证过的稳定承载（用户扫码成功即走此路径）。
-/// 本类用 1×1 隐藏 widget 宿主承载同样的 loadPage / XHR 语义：
+/// ⚠️ 3.1844 实测回归：本桥经根 Overlay 挂载 1×1 widget WebView 后，首页
+/// 渲染完成即整窗白屏（splash → home → white），根因为 beta 插件
+/// （flutter_inappwebview_windows 0.7.0-beta.3）在根 Overlay 场景下的
+/// WebView2 宿主边界 / 合成行为不可控。已由
+/// [InAppWebViewBridge.hiddenHostEnabled] 总开关闸死（默认 false），
+/// 待原生 WebView2 桥（windows/runner 直连，不经 Flutter 插件）替代后
+/// 整体移除本类。
+///
+/// 设计背景（保留备查）：插件 `HeadlessInAppWebView`（6.2.0-beta.3）在部分
+/// Windows 机器触发原生 abort（WER 现场 c0000409），无头兜底层被
+/// [InAppWebViewBridge.windowsHeadlessEnabled] 整体闸死；本类曾试图用
+/// 1×1 隐藏 widget 宿主承载同样的 loadPage / XHR 语义。
 ///   · [HiddenWebviewHostInstaller] 在 App 首帧把宿主挂进根 Overlay
 ///     （仅 Windows；1×1 + IgnorePointer，用户无感知）；
 ///   · Cookie 仍经 `CookieManager` 预注入持久 Jar（与无头桥同一

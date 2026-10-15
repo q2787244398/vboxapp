@@ -680,12 +680,9 @@ class _RootRouter extends StatelessWidget {
       // A5：全端统一 iOS 回弹滚动（BouncingScrollPhysics + 无辉光过卷）。
       scrollBehavior: const VboxScrollBehavior(),
       // L-壳1/L-壳2：品牌闪屏门控包裹首页外壳（3.5s 最短展示 + 数据就绪 + 10s 兜底）。
-      // HiddenWebviewHostInstaller：Windows 专用 1×1 隐藏 WebView2 宿主
-      // （bdstoken 浏览器栈层 / 页面嗅探的后台承载，widget 模式规避 beta
-      // headless 原生崩溃；非 Windows / WebView2 不可用时原样透传）。
       home: StartupGate(
         onStartup: onStartup,
-        child: const HiddenWebviewHostInstaller(child: HomeShellPage()),
+        child: const HomeShellPage(),
       ),
     );
   }
