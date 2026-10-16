@@ -236,3 +236,10 @@ Dart `ChannelPlayer._onEvent` 收到后转 `AppLog`（category=player，tag
     调，恰是「灰蒙蒙」经典症状；iOS mpv 直通 Metal 默认 bt.1886 原样输出。
     GL/SW 两路径统一改钉 `bt.1886`（对齐 iOS 基准），prim 保持 bt.709、
     tone-mapping=bt.2390 保留（仅 HDR→SDR 生效）。
+- `lib/presentation/pages/player/player_page.dart`：**调试浮层汇入原生层日志**。
+  旧浮层只显示 Dart 层生命周期日志（起播/切集/错误），`player-native` tag 的
+  原生日志（mpv 初始化/首帧上屏/渲染后端/FBO 自检/色彩参数/[baidu] 取号桥）
+  只进 AppLog 落盘文件，浮层与导出文件都看不到关键排障行。现订阅
+  `AppLog.stream` 过滤 `player-native` tag，以 `[原生]` 前缀汇入
+  `_playerLogs`——浮层、错误态日志视图、导出文件三处内容一致，偏色/闪退/
+  取号问题一处看全（三端通用：Windows/macOS/Android 原生日志同 tag）。

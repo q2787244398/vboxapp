@@ -23,6 +23,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 
+import '../../../core/utils/logger.dart';
 import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/player/player.dart';
 import '../../../domain/entities/playback/playback_detail.dart';
@@ -278,6 +279,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// `PlayerState.debugLogs` / `ErrorViewWithLogs`）。
   final List<String> _playerLogs = <String>[];
 
+  /// 原生层日志订阅（`player-native` tag → 调试浮层，见 initState 注释）。
+  StreamSubscription<LogEntry>? _nativeLogSub;
+
   /// 视频区手势控制器（UI-F1：亮度 / 音量 / 快进快退）。
   late final PlayerGestureController _gestures;
 
@@ -338,6 +342,16 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     super.initState();
     _player = widget.controller ?? PlayerController.instance;
     _source = widget.source;
+    // 原生层日志汇入调试浮层（3.1858）：`player-native` tag 的条目
+    // （Windows/macOS mpv 渲染、Android 播放、[baidu] 取号桥）此前只进
+    // AppLog 落盘文件，浮层里看不到——「首帧已渲染上屏 / FBO 回读自检 /
+    // 视频色彩参数」等排障关键行缺失。订阅 AppLog 广播流补齐：浮层与
+    // 「设置→导出调试日志」文件内容一致，偏色/闪退/取号问题一处看全。
+    _nativeLogSub = AppLog.stream.listen((LogEntry e) {
+      if (e.tag == 'player-native') {
+        _appendLog('[原生] ${e.message}');
+      }
+    });
     // UI-D2：屏幕常亮（对齐 iOS isIdleTimerDisabled；播放中开启，暂停/退出恢复）。
     _wakeLock = widget.wakeLock ?? const WakelockPlusController();
     _castService = widget.castService ?? DlnaCastService();
@@ -1788,6 +1802,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _nativeLogSub?.cancel();
+    _nativeLogSub = null;
     _hideTimer?.cancel();
     _lockHideTimer?.cancel();
     _rotateResetTimer?.cancel();
