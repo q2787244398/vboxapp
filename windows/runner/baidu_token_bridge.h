@@ -54,11 +54,21 @@ class BaiduTokenBridge {
   /// {errno:int, bdstoken:string, cookie:string, message:string}。
   using Reply = std::function<void(const flutter::EncodableValue&)>;
 
+  /// 原生日志回调（PlayerPlugin 接到 `player/events` 事件通道的 log 事件）。
+  /// level ∈ {"debug","info","warn","error"}；message 为无时间戳纯文本。
+  /// 取号链路每个阶段（固定版加载 / COM / 环境 / 控制器 / 导航 / 脚本）均
+  /// 经此回调上抛 Dart AppLog，满足「有错误就打印错误日志」的排查诉求。
+  using LogCallback =
+      std::function<void(const std::string& level, const std::string& message)>;
+
   explicit BaiduTokenBridge(HWND parent_window);
   ~BaiduTokenBridge();
 
   BaiduTokenBridge(const BaiduTokenBridge&) = delete;
   BaiduTokenBridge& operator=(const BaiduTokenBridge&) = delete;
+
+  /// 挂接日志回调（幂等；未挂接时 EmitLog 静默丢弃）。
+  void SetLogCallback(LogCallback callback) { log_callback_ = callback; }
 
   /// 异步取 bdstoken。[cookie_header] 为凭据原始 Cookie 串（"k=v; k2=v2"），
   /// 会种入 WebView2 Jar 后再导航 disk/main。失败同样回调（errno<0）。
@@ -121,10 +131,14 @@ class BaiduTokenBridge {
   void CompleteAll(int errno_code, const std::string& token,
                    const std::string& cookie, const std::string& message);
   void FailAll(const std::string& message);
+  // 原生日志上报：转发到 log_callback_（未挂接则静默丢弃）。
+  void EmitLog(const std::string& level, const std::string& message);
   static LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                       LPARAM lparam);
 
   HWND parent_window_ = nullptr;
+  // 原生日志回调（SetLogCallback 挂接；见 EmitLog）。
+  LogCallback log_callback_;
   HWND host_window_ = nullptr;
   Phase phase_ = Phase::kIdle;
   const char* phase_label_ = "";

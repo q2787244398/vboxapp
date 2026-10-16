@@ -218,6 +218,14 @@ jobs:
         shell: pwsh
         run: .\scripts\bundle-python-windows.ps1 -Config Release
 
+      # 百度取号 WebView2 固定版运行时随 release 目录分发（<exeDir>/webview2/，
+      # 原生桥 WebView2BrowserExecutableDir 优先离线加载）——对齐 iOS「系统浏览器
+      # 永远可用」：用户机器无需预装 Edge WebView2 Evergreen 即可离线取号，根治
+      # 精简系统/云电脑镜像「WebView2 运行时不可用（ERROR_FILE_NOT_FOUND）」。
+      - name: Bundle WebView2 fixed runtime into release dir
+        shell: pwsh
+        run: .\scripts\bundle-webview2-windows.ps1 -Config Release
+
       # G-03-B：QuickJS JS 引擎随 release 目录分发。域层 `_effectiveEngineType`
       # 将 JS 站点（javaScriptCore）映射为 quickJS（见 content_browse_usecases.dart），
       # 故桌面端 JS 蜘蛛依赖 libvbox_quickjs；此前从未随包分发 → 切源分类无数据、

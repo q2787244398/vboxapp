@@ -19,6 +19,8 @@
 #include <wrl/event.h>
 
 #include <algorithm>
+#include <iomanip>
+#include <sstream>
 #include <utility>
 
 namespace vbox {
@@ -48,6 +50,16 @@ std::string WideToUtf8(const wchar_t* text) {
   ::WideCharToMultiByte(CP_UTF8, 0, text, -1, out.data(), bytes, nullptr,
                         nullptr);
   return out;
+}
+
+// HRESULT → "0x" + 大写十六进制。修复旧代码「"0x" + std::to_string(decimal)」
+// 的打印 bug：std::to_string 输出十进制却被拼在 0x 前缀后，导致错误码被误读
+// （如 0x80070002 被打印成 0x2147942402，排查方向完全跑偏）。
+std::string HexHResult(HRESULT hr) {
+  std::ostringstream oss;
+  oss << "0x" << std::uppercase << std::hex
+      << static_cast<unsigned long>(hr);
+  return oss.str();
 }
 
 // ─────────────── 极简 JSON 工具（仅处理固定形状的响应） ───────────────
@@ -171,6 +183,30 @@ std::wstring WebView2UserDataDir() {
   }
   if (!dir.empty()) EnsureDirectory(dir);
   return dir;
+}
+
+// 随包内置的 WebView2 固定版（Fixed Version）运行时目录：<exeDir>\webview2。
+// 存在 msedgewebview2.exe 则返回该目录，供 CreateCoreWebView2EnvironmentWithOptions
+// 第一参 browserExecutableFolder 离线加载——不依赖系统是否安装 Edge WebView2
+// Evergreen 运行时（「WebView2 运行时不可用」= 系统未装 Evergreen 的根因，
+// 3.1857 起打包脚本 bundle-webview2-windows.ps1 将固定版随安装包分发，
+// installer.iss 递归打包 Release\webview2\* 自动携带）。
+// 目录不存在则返回空串，调用方回退系统 Evergreen 检测（与旧版行为一致，可回退）。
+std::wstring WebView2BrowserExecutableDir() {
+  wchar_t path[MAX_PATH] = {0};
+  const DWORD len = ::GetModuleFileNameW(nullptr, path, MAX_PATH);
+  if (len == 0 || len >= MAX_PATH) return std::wstring();
+  std::wstring dir(path);
+  const size_t slash = dir.find_last_of(L"\\/");
+  if (slash == std::wstring::npos) return std::wstring();
+  dir.resize(slash);
+  const std::wstring runtime = dir + L"\\webview2";
+  const std::wstring exe = runtime + L"\\msedgewebview2.exe";
+  const DWORD attr = ::GetFileAttributesW(exe.c_str());
+  if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+    return std::wstring();
+  }
+  return runtime;
 }
 
 // 页面上下文取号脚本：disk/main 同源 fetch（credentials 自动携带 Jar 全量
@@ -434,7 +470,12 @@ void BaiduTokenBridge::OnProcessFailed(DWORD kind) {
 
 void BaiduTokenBridge::GetBdstoken(const std::string& cookie_header,
                                    Reply reply, bool interactive) {
+  EmitLog("info", std::string("百度取号：cookie 长度=") +
+                      std::to_string(cookie_header.size()) +
+                      (interactive ? "，交互验证模式" : "") +
+                      (last_fetch_ok_ ? "，上次已成功" : ""));
   if (shutting_down_) {
+    EmitLog("warn", "百度取号：桥已关闭，直接拒绝");
     reply(BuildResult(-1, std::string(), std::string(), "桥已关闭"));
     return;
   }
@@ -442,6 +483,7 @@ void BaiduTokenBridge::GetBdstoken(const std::string& cookie_header,
   if (phase_ != Phase::kIdle) {
     // 已有链路在跑：结果出来后一并答复（含并发混入 interactive 请求的
     // 边缘情况——共享当前链路结果；调用方串行触发，实际不会发生）。
+    EmitLog("debug", "百度取号：已有链路在跑，本次请求并入等待队列");
     return;
   }
   cookie_header_ = cookie_header;
@@ -451,10 +493,12 @@ void BaiduTokenBridge::GetBdstoken(const std::string& cookie_header,
   if (webview_ && last_fetch_ok_ && !interactive_) {
     // 快速路径：页面会话已就绪（Jar/登录态都在），免导航直接 fetch。
     // 交互模式强制走完整链路（需要显示验证窗口 + 重新导航）。
+    EmitLog("info", "百度取号：会话已就绪，走免导航快速路径直接页面 fetch");
     EnterPhase(Phase::kExecuting, "页面fetch", 15000);
     RunScript();
     return;
   }
+  EmitLog("info", "百度取号：启动完整链路（建环境→建控制器→种 Cookie→导航）");
   StartChain();
 }
 
@@ -484,6 +528,13 @@ void BaiduTokenBridge::CompleteAll(int errno_code, const std::string& token,
 
 void BaiduTokenBridge::FailAll(const std::string& message) {
   CompleteAll(-1, std::string(), std::string(), message);
+}
+
+void BaiduTokenBridge::EmitLog(const std::string& level,
+                               const std::string& message) {
+  if (log_callback_) {
+    log_callback_(level, message);
+  }
 }
 
 void BaiduTokenBridge::EnterPhase(Phase phase, const char* label,
@@ -525,17 +576,36 @@ void BaiduTokenBridge::StartChain() {
     const HRESULT hr = ::CoInitializeEx(
         nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     com_initialized_ = SUCCEEDED(hr);
+    EmitLog(com_initialized_ ? "debug" : "warn",
+            std::string("COM 初始化：") +
+                (com_initialized_ ? "成功" : "失败（hr=" + HexHResult(hr) + "）"));
   }
-  // WebView2 Evergreen 运行时检查（登录网关同款依赖，缺失则如实上报）。
-  LPWSTR version = nullptr;
-  const HRESULT vr = ::GetAvailableCoreWebView2BrowserVersionString(
-      nullptr, &version);
-  if (FAILED(vr) || version == nullptr) {
-    FailAll("WebView2 运行时不可用（hr=0x" +
-            std::to_string(static_cast<unsigned long>(vr)) + "）");
-    return;
+  // 随包内置的 WebView2 固定版（Fixed Version）目录，存在则离线加载，
+  // 不依赖系统是否安装 Edge WebView2 Evergreen 运行时（「WebView2 运行时
+  // 不可用」= 系统未装 Evergreen 的根因）。无内置包时回退系统 Evergreen 检测。
+  const std::wstring fixed_dir = WebView2BrowserExecutableDir();
+  const bool has_fixed = !fixed_dir.empty();
+  if (has_fixed) {
+    EmitLog("info", std::string("WebView2 固定版运行时已就位：") +
+                        WideToUtf8(fixed_dir.c_str()));
+  } else {
+    EmitLog("warn",
+            "未检测到随包 WebView2 固定版（<exeDir>\\webview2），回退系统 Evergreen 运行时检测");
   }
-  ::CoTaskMemFree(version);
+  if (!has_fixed) {
+    // 回退：系统 Evergreen 运行时检查（登录网关同款依赖，缺失则如实上报）。
+    LPWSTR version = nullptr;
+    const HRESULT vr = ::GetAvailableCoreWebView2BrowserVersionString(
+        nullptr, &version);
+    if (FAILED(vr) || version == nullptr) {
+      EmitLog("error", "WebView2 运行时不可用（hr=" + HexHResult(vr) +
+                           "），请确认已内置固定版或系统已装 Edge WebView2");
+      FailAll("WebView2 运行时不可用（hr=" + HexHResult(vr) + "）");
+      return;
+    }
+    ::CoTaskMemFree(version);
+    EmitLog("info", "系统 Evergreen WebView2 运行时已检测到");
+  }
 
   if (env_ == nullptr) {
     EnterPhase(Phase::kCreatingEnv, "创建WebView2环境", 20000);
@@ -546,10 +616,10 @@ void BaiduTokenBridge::StartChain() {
           return S_OK;
         });
     const HRESULT hr = ::CreateCoreWebView2EnvironmentWithOptions(
-        nullptr, WebView2UserDataDir().c_str(), nullptr, handler.Get());
+        has_fixed ? fixed_dir.c_str() : nullptr,
+        WebView2UserDataDir().c_str(), nullptr, handler.Get());
     if (FAILED(hr)) {
-      FailAll("创建 WebView2 环境失败（hr=0x" +
-              std::to_string(static_cast<unsigned long>(hr)) + "）");
+      FailAll("创建 WebView2 环境失败（hr=" + HexHResult(hr) + "）");
     }
     return;
   }
@@ -560,11 +630,11 @@ void BaiduTokenBridge::OnEnvironmentCreated(HRESULT result,
                                             ICoreWebView2Environment* created) {
   if (phase_ != Phase::kCreatingEnv) return;
   if (FAILED(result) || created == nullptr) {
-    FailAll("创建 WebView2 环境失败（回调 hr=0x" +
-            std::to_string(static_cast<unsigned long>(result)) + "）");
+    FailAll("创建 WebView2 环境失败（回调 hr=" + HexHResult(result) + "）");
     return;
   }
   env_ = created;
+  EmitLog("info", "WebView2 环境创建成功");
   EnsureController();
 }
 
@@ -584,8 +654,7 @@ void BaiduTokenBridge::EnsureController() {
   const HRESULT hr = env_->CreateCoreWebView2Controller(host_window_,
                                                         handler.Get());
   if (FAILED(hr)) {
-    FailAll("创建 WebView2 控制器失败（hr=0x" +
-            std::to_string(static_cast<unsigned long>(hr)) + "）");
+    FailAll("创建 WebView2 控制器失败（hr=" + HexHResult(hr) + "）");
   }
 }
 
@@ -593,8 +662,7 @@ void BaiduTokenBridge::OnControllerCreated(
     HRESULT result, ICoreWebView2Controller* created) {
   if (phase_ != Phase::kCreatingCtl) return;
   if (FAILED(result) || created == nullptr) {
-    FailAll("创建 WebView2 控制器失败（回调 hr=0x" +
-            std::to_string(static_cast<unsigned long>(result)) + "）");
+    FailAll("创建 WebView2 控制器失败（回调 hr=" + HexHResult(result) + "）");
     return;
   }
   controller_ = created;
@@ -647,6 +715,7 @@ void BaiduTokenBridge::OnControllerCreated(
       });
   webview_->add_NewWindowRequested(win.Get(), &win_token_);
 
+  EmitLog("info", "WebView2 控制器与内核对象创建成功，开始种 Cookie 并导航");
   SeedCookies();
   NavigateMain();
 }
@@ -654,10 +723,18 @@ void BaiduTokenBridge::OnControllerCreated(
 void BaiduTokenBridge::SeedCookies() {
   if (webview_ == nullptr || cookie_header_.empty()) return;
   Microsoft::WRL::ComPtr<ICoreWebView2_2> web2;
-  if (FAILED(webview_.As(&web2)) || web2 == nullptr) return;
+  if (FAILED(webview_.As(&web2)) || web2 == nullptr) {
+    EmitLog("warn", "种 Cookie：未取得 ICoreWebView2_2（接口版本过低）");
+    return;
+  }
   Microsoft::WRL::ComPtr<ICoreWebView2CookieManager> manager;
-  if (FAILED(web2->get_CookieManager(&manager)) || manager == nullptr) return;
-  for (const auto& pair : ParseCookieHeader(cookie_header_)) {
+  if (FAILED(web2->get_CookieManager(&manager)) || manager == nullptr) {
+    EmitLog("warn", "种 Cookie：CookieManager 获取失败");
+    return;
+  }
+  const auto pairs = ParseCookieHeader(cookie_header_);
+  EmitLog("info", "种入 Cookie " + std::to_string(pairs.size()) + " 条到 .baidu.com");
+  for (const auto& pair : pairs) {
     Microsoft::WRL::ComPtr<ICoreWebView2Cookie> cookie;
     if (FAILED(manager->CreateCookie(
             Utf8ToWide(pair.first).c_str(), Utf8ToWide(pair.second).c_str(),
@@ -704,10 +781,13 @@ void BaiduTokenBridge::NavigateMain() {
   } else {
     EnterPhase(Phase::kNavigating, "导航disk/main", 25000);
   }
+  EmitLog("info", std::string("导航 disk/main（代际 ") +
+                      std::to_string(nav_generation_) +
+                      (interactive_ ? "，交互验证模式" : "，常态") + "）");
   const HRESULT hr = webview_->Navigate(L"https://pan.baidu.com/disk/main");
   if (FAILED(hr)) {
-    FailAll("disk/main 导航启动失败（hr=0x" +
-            std::to_string(static_cast<unsigned long>(hr)) + "）");
+    EmitLog("error", "disk/main 导航启动失败（hr=" + HexHResult(hr) + "）");
+    FailAll("disk/main 导航启动失败（hr=" + HexHResult(hr) + "）");
   }
 }
 
@@ -718,6 +798,7 @@ void BaiduTokenBridge::OnNavigationCompleted(int generation,
   if (generation != nav_generation_) return;
   if (!succeeded) {
     if (!interactive_) {
+      EmitLog("error", "disk/main 导航失败（网络/风控页）");
       FailAll("disk/main 导航失败（网络/风控页）");
       return;
     }
@@ -742,6 +823,7 @@ void BaiduTokenBridge::OnNavigationCompleted(int generation,
       return;
     }
   }
+  EmitLog("info", "disk/main 导航完成，等待 Set-Cookie 沉降 800ms");
   // 沉降 800ms：等服务端 Set-Cookie（指纹字段）落 Jar 后再取号。
   EnterPhase(Phase::kSettle, "Set-Cookie沉降", 0);
   ::SetTimer(host_window_, kSettleTimer, 800, nullptr);
@@ -750,6 +832,7 @@ void BaiduTokenBridge::OnNavigationCompleted(int generation,
 void BaiduTokenBridge::OnSettle() {
   ::KillTimer(host_window_, kSettleTimer);
   if (phase_ != Phase::kSettle) return;
+  EmitLog("info", "Set-Cookie 沉降完成，开始执行页面取号脚本");
   EnterPhase(Phase::kExecuting, "页面fetch", 15000);
   RunScript();
 }
@@ -764,6 +847,7 @@ void BaiduTokenBridge::RunScript() {
   // 脚本代际：旧链路迟到的 ExecuteScript 结果（如看门狗杀链后另起新链）
   // 因代际不符被忽略，防止跨链路串扰（把上一轮结果答复给当前等待者）。
   const int gen = ++script_generation_;
+  EmitLog("info", "执行页面取号脚本（代际 " + std::to_string(gen) + "）");
   // 注意：接口 Invoke 第二参数为 LPCWSTR（只读），WRL::Callback 会按接口签名
   // 校验 lambda 参数类型，写 LPWSTR 将报 C2664。
   auto handler = Microsoft::WRL::Callback<
@@ -773,8 +857,7 @@ void BaiduTokenBridge::RunScript() {
           return S_OK;  // 旧链路结果，忽略。
         }
         if (FAILED(result) || json == nullptr) {
-          FailAll("页面脚本执行失败（hr=0x" +
-                  std::to_string(static_cast<unsigned long>(result)) + "）");
+          FailAll("页面脚本执行失败（hr=" + HexHResult(result) + "）");
           return S_OK;
         }
         OnScriptResult(WideToUtf8(json));
@@ -783,8 +866,7 @@ void BaiduTokenBridge::RunScript() {
   const HRESULT hr =
       webview_->ExecuteScript(Utf8ToWide(kBdstokenJs).c_str(), handler.Get());
   if (FAILED(hr)) {
-    FailAll("页面脚本提交失败（hr=0x" +
-            std::to_string(static_cast<unsigned long>(hr)) + "）");
+    FailAll("页面脚本提交失败（hr=" + HexHResult(hr) + "）");
   }
 }
 
@@ -804,6 +886,7 @@ void BaiduTokenBridge::OnScriptResult(const std::string& js_return_json) {
 
   if (errno_code == 0 && !token.empty()) {
     last_fetch_ok_ = true;
+    EmitLog("info", "取号成功：bdstoken 长度=" + std::to_string(token.size()));
     FetchJarCookiesThenComplete(token);
     return;
   }
@@ -829,6 +912,7 @@ void BaiduTokenBridge::OnScriptResult(const std::string& js_return_json) {
   } else {
     message = "响应未含 bdstoken：" + Excerpt(inner, 160);
   }
+  EmitLog("error", "取号失败（errno=" + std::to_string(errno_code) + "）：" + message);
   CompleteAll(errno_code, std::string(), std::string(), message);
 }
 
@@ -863,6 +947,7 @@ void BaiduTokenBridge::FetchJarCookiesThenComplete(const std::string& token) {
             if (value != nullptr) ::CoTaskMemFree(value);
           }
         }
+        EmitLog("info", "取号链路完成：回传 bdstoken 与 Jar Cookie");
         CompleteAll(0, token, joined, std::string());
         return S_OK;
       });

@@ -205,6 +205,13 @@ PlayerPlugin::PlayerPlugin(flutter::PluginRegistrarWindows* registrar)
   flutter::FlutterView* flutter_view = registrar->GetView();
   baidu_bridge_ = std::make_unique<BaiduTokenBridge>(
       flutter_view != nullptr ? flutter_view->GetNativeWindow() : nullptr);
+  // 取号链路原生日志 → player/events log 事件上抛（Dart ChannelPlayer 转
+  // AppLog）：固定版加载 / COM / 环境 / 导航 / 脚本每一阶段的成败都有留痕，
+  // 满足「有错误就打印错误日志」的排查诉求。
+  baidu_bridge_->SetLogCallback(
+      [this](const std::string& level, const std::string& message) {
+        EmitLog(level, "[baidu] " + message);
+      });
   cloud_channel_->SetMethodCallHandler(
       [this](const auto& call, auto result) {
         HandleCloudMethodCall(call, std::move(result));

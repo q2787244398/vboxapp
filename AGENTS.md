@@ -143,6 +143,30 @@ docs/             方案与对齐文档
     `VBOX_FORCE_SW_RENDER=1` 环境变量强制 SW（逃生门）。
   - `FILE_LOADED` 上报视频色彩参数（pixfmt/primaries/gamma/hwdec），偏色
     类问题日志一眼定位 HDR/601/709 与解码路径。
+- `windows/runner/baidu_token_bridge.cpp` + `scripts/bundle-webview2-windows.ps1`
+  + `.github/workflows/build-release-assets.yml`（3.1857 百度取号「WebView2
+  运行时不可用」根治 · 对齐 iOS「系统浏览器永远可用」）：
+  - 3.1857 前原生桥依赖系统 Edge WebView2 Evergreen 运行时
+    （`CreateCoreWebView2EnvironmentWithOptions(nullptr, ...)`）；精简系统/
+    云电脑镜像未装时 `GetAvailableCoreWebView2BrowserVersionString` 返回
+    `ERROR_FILE_NOT_FOUND`（0x80070002），取号在环境检测第一步即失败——与
+    3.1854/3.1856 修复的「窗口可见性 / 导航超时」是两条无关的失败路径。
+  - 修复为「随包内置固定版（Fixed Version）」：新增
+    `WebView2BrowserExecutableDir()` 定位 `<exeDir>\webview2`，存在则离线加载
+    （`CreateCoreWebView2EnvironmentWithOptions(fixed_dir, ...)`），否则回退
+    系统 Evergreen 检测——未打包内置时行为与旧版一致，可安全回退。
+  - `bundle-webview2-windows.ps1` 把 CI 构建机（windows-latest 预装 Edge
+    WebView2）已就位的运行时复制为固定版到 `Release\webview2\`（排除
+    Installer/SetupMetrics 缓存），installer.iss 递归打包自动携带。
+  - **HRESULT 打印 bug 修复**：旧代码 `"0x" + std::to_string(十进制)` 把
+    0x80070002 误打印成 `0x2147942402`（十进制 2147942402 = unsigned
+    0x80070002），排查方向完全跑偏；新增 `HexHResult()` 统一按大写十六进制
+    打印，8 处失败文案全部改用。
+  - **原生日志回调上抛**：`BaiduTokenBridge` 新增 `SetLogCallback` + `EmitLog`
+    （level ∈ debug/info/warn/error），PlayerPlugin 构桥后挂接 → `[baidu]`
+    前缀经 `player/events` log 事件上抛 Dart AppLog。取号链路每一阶段
+    （固定版检测/COM/环境/控制器/种 Cookie/导航/脚本/成功回传）都有留痕，
+    满足「有错误就打印错误日志」的排查诉求。
 
 ## 日志事件契约（跨端）
 
