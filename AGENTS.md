@@ -90,21 +90,29 @@ docs/             方案与对齐文档
   持久化 Jar（`%APPDATA%\com.vbox\vbox\win_baidu_webview`）→ 真实浏览器栈
   导航 disk/main → 页面上下文 fetch gettemplatevariable（复刻 iOS
   WKWebView 系统网络栈信任度）→ Jar 全量 Cookie 回传合并回写凭据。
-  owned 弹出窗口承载 Controller（3.1854 起为屏幕外可见形态，见下方
-  3.1854 条目；不经 Flutter 插件 WebView，规避 3.1839 闪退 / 3.1844
-  白屏路径）；全阶段看门狗，errno!=0 时种 Cookie 重导航一次后如实回传
+  owned 弹出窗口承载 Controller（3.1856 起为主窗口内 2x2 鼠标穿透形态，
+  见下方 3.1854/3.1856 条目；不经 Flutter 插件 WebView，规避 3.1839 闪退 /
+  3.1844 白屏路径）；全阶段看门狗，errno!=0 时种 Cookie 重导航一次后如实回传
   交 Dart 兜底链。
-- `windows/runner/baidu_token_bridge.{h,cpp}`（3.1854 取号超时根因修复）：
-  - 宿主窗口改「屏幕外可见」：`SW_SHOWNOACTIVATE` 显示但停靠虚拟屏右下角
-    之外，Controller `IsVisible=TRUE`。原 `IsVisible=FALSE`/不 ShowWindow 的
-    隐藏窗口会被 WebView2 挂起渲染/推迟 load，`NavigationCompleted` 不触发
-    → 任何网络环境（家宽实测同现）25s 看门狗必超时。
+- `windows/runner/baidu_token_bridge.{h,cpp}`（3.1854 取号超时根因修复 +
+  3.1856 修正）：
+  - 宿主窗口「主窗口内 2x2 鼠标穿透」（3.1856，对齐 iOS「1x1 WKWebView
+    addSubview 到可见 key window」）：主窗口客户区右下角内侧 2x2 owned 弹窗
+    （`WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|TOOLWINDOW`），`SW_SHOWNOACTIVATE`
+    显示，Controller `IsVisible=TRUE`。3.1854 曾停靠「虚拟屏外」，但 Chromium
+    `NativeWindowOcclusionTracker` 会把完全不在任何显示器区域内的窗口判定
+    hidden/occluded → 3.1855 云电脑实测 NavigationCompleted 仍不触发（25s
+    超时照旧）。挂在主窗口内则几何在屏幕内且 owned 弹窗恒在 owner 之上 →
+    occlusion 判定可见。每条链路开始刷新停靠位（跟随主窗口移动/缩放）。
   - `ProcessFailed` 作废会话（`InvalidateSession`，浏览器主进程亡连环境一并
-    重建）：修复渲染进程死亡后复用僵尸 COM 对象导致的「点重试闪退」。
+    重建）：修复渲染进程死亡后复用僵尸 COM 对象导致的「点重试闪退」；
+    3.1856 起回调内只 `PostMessage(kProcessFailedMsg)`，销毁/回复延迟到
+    消息循环执行（不在 WebView2 回调链内 Close/Release COM）。
   - 导航/脚本回调带代际校验：看门狗超时未停的挂起导航在新链路 Navigate 时
     补发的取消事件不再误杀新链路；迟到的 ExecuteScript 结果不再跨链路串扰。
   - `interactive` 交互验证模式：重试链路弹可见「百度安全验证」窗口（3 分钟
-    看门狗 + 页面 Source 校验 + 关窗取消），人工过风控一次后 Jar 持久化。
+    看门狗 + 页面 Source 校验 + 关窗取消），人工过风控一次后 Jar 持久化；
+    显示时摘除 `WS_EX_TRANSPARENT`（否则滑块/验证码无法交互），收尾恢复。
 - `lib/data/datasources/remote/baidu_ibox_client.dart` /
   `lib/platform/webview/baidu_native_token_bridge.dart`：取号失败置位
   `_nextFetchInteractive`，用户点「重试」→ 第 0 层原生桥交互验证模式。
@@ -112,17 +120,27 @@ docs/             方案与对齐文档
   重新扫码落库合并既有 `extra`（此前整体覆盖会把播放链回写的 `bdstoken`
   抹掉，形成「重登→兜底值丢失→再失败」死循环）。
 - `windows/runner/player_plugin.{h,cpp}` + `lib/presentation/widgets/player/
-  video_surface.dart`（3.1854 画质修复）：
+  video_surface.dart`（3.1854 画质修复 + 3.1856 闪退/偏色修正）：
   - **按显示尺寸渲染**：`CopyPixelBuffer` 的引擎入参（纹理显示物理像素）
     原被忽略，现记录并在渲染线程取 `min(视频, 显示)` 为渲染目标——缩小由
     mpv 高质量缩放器（ewa_lanczossharp）完成，修复「4K 按原尺寸渲染、缩小
     全靠 Flutter bilinear」的发虚/摩尔纹（此前 mpv profile 修复无效的根因：
     FBO=视频原尺寸，mpv 内部缩放根本没参与）；回读带宽同步下降。纵横比上
-    报始终用视频原始尺寸（与渲染目标解耦）。`VideoSurface` filterQuality
-    low→medium。
+    报始终用视频原始尺寸（与渲染目标解耦）。
+  - **filterQuality 回退 low（3.1856 闪退修复）**：3.1854 曾改 medium，
+    Windows 桌面引擎的外部纹理（PixelBufferTexture）无 mipmap 链，medium
+    采样触发引擎 mipmap 路径后于 flutter_windows.dll 内 fastfail 闪退
+    （3.1855 云电脑三连崩，WER BEX64 c0000409；iOS Metal 外部纹理路径无
+    此问题）。按显示尺寸渲染后纹理 1:1 上屏，low 足够。
   - SW 软渲染色彩钉扎：`target-prim=bt.709` / `target-trc=srgb` /
     `tone-mapping=bt.2390`（软转换缺省仅 YUV→RGB 矩阵导致泛黄偏色）；
-    `VBOX_FORCE_SW_RENDER=1` 环境变量强制 SW（GL 回读颜色错乱的逃生门）。
+    3.1856 起 GL 路径同口径钉扎（消除 FBO 输出目标色彩空间歧义）。
+  - **GL 回读颜色自检（3.1856 偏色根因修复）**：预检向 FBO 画已知纯色
+    （红+绿双色）并回读比对 BGRA 字节序——虚拟化 GPU（真名不在黑名单的
+    GRID/Paravirtual 等）`glReadPixels` 可能输出通道交换/错乱颜色，
+    glFinish 修撕裂修不了颜色；黑名单只能枚举已知型号，实测回读字节才是
+    确定性判据，不符即强制 SW（SW 色彩已钉扎）。
+    `VBOX_FORCE_SW_RENDER=1` 环境变量强制 SW（逃生门）。
   - `FILE_LOADED` 上报视频色彩参数（pixfmt/primaries/gamma/hwdec），偏色
     类问题日志一眼定位 HDR/601/709 与解码路径。
 

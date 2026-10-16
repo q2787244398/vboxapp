@@ -201,17 +201,34 @@ constexpr UINT kInteractiveWatchdogMs = 180000;
 constexpr int kVerifyWindowWidth = 560;
 constexpr int kVerifyWindowHeight = 720;
 
-// 屏幕外停靠位（取号窗口常态位）：虚拟屏右下角之外 +64px。
-// 窗口保持 ShowWindow(SW_SHOWNOACTIVATE) + Controller IsVisible=TRUE——
-// WebView2 视为「可见」故导航/JS 正常执行，但位置在所有显示器之外，
-// 用户永远看不到（put_IsVisible(FALSE) 会挂起渲染、NavigationCompleted
-// 不触发 → 25s 看门狗必超时，家宽也一样，3.1854 根因）。
-POINT OffScreenDockPosition() {
-  const int vsx = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
-  const int vsy = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
-  const int vsw = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
-  const int vsh = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
-  return POINT{vsx + vsw + 64, vsy + vsh + 64};
+// 常态停靠位（取号窗口常态位）：主窗口客户区右下角内侧 2x2（对齐 iOS
+// BaiduWebViewBridge「1x1 WKWebView addSubview 到可见 key window」）。
+//
+// 3.1854 曾用「虚拟屏外 +64px」：Win32 IsWindowVisible=TRUE、Controller
+// IsVisible=TRUE，但 Chromium 的 NativeWindowOcclusionTracker 会把
+// 「完全不在任何显示器区域内」的窗口判定为 hidden/occluded → WebView2
+// 照样挂起渲染、NavigationCompleted 不触发 → 25s 看门狗超时照旧
+// （3.1855 云电脑实测仍超时的根因）。挂在主窗口客户区内则窗口几何上
+// 位于屏幕内且 owned 弹窗永远在 owner 之上（2 像素不被主窗口遮挡），
+// occlusion 判定可见，导航/JS 正常执行；配合 WS_EX_TRANSPARENT 鼠标
+// 穿透 + WS_EX_NOACTIVATE + WS_EX_TOOLWINDOW，用户完全无感。
+POINT InWindowDockPosition(HWND parent_window) {
+  const int kSize = 2;
+  if (parent_window != nullptr && ::IsWindow(parent_window)) {
+    RECT client{};
+    POINT origin{0, 0};
+    if (::GetClientRect(parent_window, &client) &&
+        ::ClientToScreen(parent_window, &origin)) {
+      const int right = origin.x + static_cast<int>(client.right);
+      const int bottom = origin.y + static_cast<int>(client.bottom);
+      return POINT{right - kSize, bottom - kSize};
+    }
+  }
+  // 兜底：主窗口不可用（理论不发生——桥由插件持有 parent）时退回
+  // 主显示器右下角内侧（仍在屏幕内，保住「几何可见」语义）。
+  const int sw = ::GetSystemMetrics(SM_CXSCREEN);
+  const int sh = ::GetSystemMetrics(SM_CYSCREEN);
+  return POINT{sw - kSize - 8, sh - kSize - 8};
 }
 
 // 构造通道结果 EncodableValue（GetBdstoken 前置声明使用，置于匿名命名空间）。
@@ -268,12 +285,13 @@ void BaiduTokenBridge::InvalidateSession() {
   nav_registered_ = false;
 }
 
-// 交互验证窗口：从屏幕外常态位移入父窗口中央并放大（摘除 WS_EX_NOACTIVATE
-// 并前置，便于滑块/验证码交互）。
+// 交互验证窗口：从 2x2 常态位移入父窗口中央并放大（摘除 WS_EX_NOACTIVATE
+// 与 WS_EX_TRANSPARENT 鼠标穿透并前置，便于滑块/验证码交互）。
 void BaiduTokenBridge::ShowVerifyWindow() {
   if (host_window_ == nullptr) return;
   const LONG_PTR ex = ::GetWindowLongPtrW(host_window_, GWL_EXSTYLE);
-  ::SetWindowLongPtrW(host_window_, GWL_EXSTYLE, ex & ~WS_EX_NOACTIVATE);
+  ::SetWindowLongPtrW(host_window_, GWL_EXSTYLE,
+                      ex & ~(WS_EX_NOACTIVATE | WS_EX_TRANSPARENT));
   int x = 80;
   int y = 80;
   if (parent_window_ != nullptr) {
@@ -295,20 +313,21 @@ void BaiduTokenBridge::ShowVerifyWindow() {
   }
 }
 
-// 交互验证窗口收尾：回到屏幕外常态位（保持可见性契约：IsVisible=TRUE +
-// 虚拟屏外，见 EnsureHostWindow 注释），恢复 NOACTIVATE 与极小边界。
+// 交互验证窗口收尾：回到主窗口内 2x2 常态位（保持几何可见契约：屏幕内 +
+// owner 之上，见 EnsureHostWindow 注释），恢复 NOACTIVATE / TRANSPARENT。
 void BaiduTokenBridge::HideVerifyWindow() {
   if (host_window_ == nullptr) return;
   if (controller_ != nullptr) {
-    RECT bounds{0, 0, 160, 120};
+    RECT bounds{0, 0, 2, 2};
     controller_->put_Bounds(bounds);
     controller_->put_IsVisible(TRUE);
   }
-  const POINT dock = OffScreenDockPosition();
-  ::SetWindowPos(host_window_, HWND_BOTTOM, dock.x, dock.y, 160, 120,
-                 SWP_NOACTIVATE);
+  const POINT dock = InWindowDockPosition(parent_window_);
+  ::SetWindowPos(host_window_, HWND_TOP, dock.x, dock.y, 2, 2,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
   const LONG_PTR ex = ::GetWindowLongPtrW(host_window_, GWL_EXSTYLE);
-  ::SetWindowLongPtrW(host_window_, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE);
+  ::SetWindowLongPtrW(host_window_, GWL_EXSTYLE,
+                      ex | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
 }
 
 // 用户关闭验证窗口（WM_CLOSE）：视为取消本次取号。
@@ -320,7 +339,16 @@ void BaiduTokenBridge::OnVerifyWindowClosed() {
 }
 
 void BaiduTokenBridge::EnsureHostWindow() {
-  if (host_window_ != nullptr) return;
+  // 主窗口移动/缩放后常态位会漂移：每条链路开始时刷新停靠位，保持
+  // 「主窗口客户区内 2x2」几何可见语义（见 InWindowDockPosition 注释）。
+  const POINT dock = InWindowDockPosition(parent_window_);
+  if (host_window_ != nullptr) {
+    if (!interactive_) {
+      ::SetWindowPos(host_window_, nullptr, dock.x, dock.y, 0, 0,
+                     SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER);
+    }
+    return;
+  }
 
   static const wchar_t* kClass = L"VboxWebView2Host";
   static bool class_registered = false;
@@ -335,15 +363,16 @@ void BaiduTokenBridge::EnsureHostWindow() {
     }
     class_registered = true;
   }
-  // 屏幕外停靠的 owned 弹出窗口：SW_SHOWNOACTIVATE 显示（不抢焦点）但停在
-  // 虚拟屏之外（用户不可见），TOOLWINDOW 不进任务栏。WebView2 由此视为
-  // 「可见」窗口，导航/页面 JS 正常执行——这是取号链能否工作的关键
-  // （隐藏/IsVisible=FALSE 会导致 NavigationCompleted 挂起 → 25s 必超时）。
-  const POINT dock = OffScreenDockPosition();
+  // 主窗口客户区内的 owned 弹出窗口（2x2，右下角内侧）：SW_SHOWNOACTIVATE
+  // 显示（不抢焦点），TRANSPARENT 鼠标穿透、TOOLWINDOW 不进任务栏——用户
+  // 无感，但窗口几何在屏幕内且位于 owner 之上，Chromium occlusion 判定
+  // 「可见」，导航/页面 JS 正常执行——这是取号链能否工作的关键（隐藏/
+  // IsVisible=FALSE/虚拟屏外都会被判定 hidden → NavigationCompleted
+  // 挂起 → 25s 必超时；对齐 iOS「1x1 WKWebView 挂可见 window」）。
   host_window_ = ::CreateWindowExW(
-      WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClass, L"vbox-webview2-host",
-      WS_POPUP, dock.x, dock.y, 160, 120, parent_window_, nullptr,
-      ::GetModuleHandleW(nullptr), nullptr);
+      WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT, kClass,
+      L"vbox-webview2-host", WS_POPUP, dock.x, dock.y, 2, 2, parent_window_,
+      nullptr, ::GetModuleHandleW(nullptr), nullptr);
   if (host_window_ != nullptr) {
     ::SetWindowLongPtrW(host_window_, GWLP_USERDATA,
                         reinterpret_cast<LONG_PTR>(this));
@@ -377,7 +406,28 @@ LRESULT CALLBACK BaiduTokenBridge::HostWndProc(HWND hwnd, UINT msg,
       }
     }
   }
+  if (msg == kProcessFailedMsg) {
+    // ProcessFailed 回调投递的延迟处理（见 OnControllerCreated 注册处注释）。
+    auto* bridge = reinterpret_cast<BaiduTokenBridge*>(
+        ::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (bridge != nullptr) {
+      bridge->OnProcessFailed(static_cast<DWORD>(wparam));
+      return 0;
+    }
+  }
   return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+void BaiduTokenBridge::OnProcessFailed(DWORD kind) {
+  last_fetch_ok_ = false;
+  InvalidateSession();
+  // 浏览器主进程死亡时环境一并作废，下次调用从建环境开始。
+  if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED) {
+    env_.Reset();
+  }
+  if (phase_ != Phase::kIdle) {
+    FailAll("WebView2 进程异常退出（会话已作废，下次调用自动重建）");
+  }
 }
 
 // ─────────────── 取号入口 ───────────────
@@ -548,12 +598,12 @@ void BaiduTokenBridge::OnControllerCreated(
     return;
   }
   controller_ = created;
-  // IsVisible 必须为 TRUE（窗口本身停在虚拟屏外，用户不可见）：WebView2 对
-  // IsVisible=FALSE 的 Widget 会挂起渲染/推迟 load 完成，NavigationCompleted
-  // 不触发 → 任何网络环境下 25s 看门狗必超时（3.1854 根因，家宽/云电脑
-  // 双实测复现）。极小边界降低无谓的渲染开销。
+  // IsVisible 必须为 TRUE（窗口本身为主窗口内 2x2 鼠标穿透窗，用户无感）：
+  // WebView2 对 IsVisible=FALSE 的 Widget 会挂起渲染/推迟 load 完成，
+  // NavigationCompleted 不触发 → 任何网络环境下 25s 看门狗必超时（3.1854
+  // 根因）。边界与宿主窗口同尺寸（2x2），降低无谓的渲染开销。
   controller_->put_IsVisible(TRUE);
-  RECT bounds{0, 0, 160, 120};
+  RECT bounds{0, 0, 2, 2};
   controller_->put_Bounds(bounds);
   if (FAILED(controller_->get_CoreWebView2(&webview_)) ||
       webview_ == nullptr) {
@@ -566,6 +616,10 @@ void BaiduTokenBridge::OnControllerCreated(
   // 关键修复：原实现只 FailAll 不释放对象，渲染进程死亡后 controller_/
   // webview_ 仍非空，下次调用 EnsureController 直接复用僵尸 COM 对象，
   // SeedCookies/Navigate 打在死对象上 → 原生崩溃（点重试闪退的根因）。
+  // 3.1856 加固：InvalidateSession/Reply 一律 PostMessage 延迟到消息循环
+  // 执行——在 WebView2 事件回调内直接 Close/Release COM 对象或触发
+  // MethodChannel 回复，可能破坏 WebView2 回调链（文档建议 handler 内
+  // 不做销毁）。
   auto proc = Microsoft::WRL::Callback<ICoreWebView2ProcessFailedEventHandler>(
       [this](ICoreWebView2* sender,
              ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
@@ -574,14 +628,11 @@ void BaiduTokenBridge::OnControllerCreated(
         if (args != nullptr) {
           args->get_ProcessFailedKind(&kind);
         }
-        last_fetch_ok_ = false;
-        InvalidateSession();
-        // 浏览器主进程死亡时环境一并作废，下次调用从建环境开始。
-        if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED) {
-          env_.Reset();
-        }
-        if (phase_ != Phase::kIdle) {
-          FailAll("WebView2 进程异常退出（会话已作废，下次调用自动重建）");
+        // host_window_ 由 EnsureHostWindow 先行创建，此处理论非空；仍判空
+        // 防御（PostMessage(NULL) 会向所有顶层窗口广播）。
+        if (host_window_ != nullptr) {
+          ::PostMessageW(host_window_, kProcessFailedMsg,
+                         static_cast<WPARAM>(kind), 0);
         }
         return S_OK;
       });

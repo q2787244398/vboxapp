@@ -22,7 +22,7 @@ class VideoSurface extends StatelessWidget {
     this.textureId,
     this.aspectRatio,
     this.fit = BoxFit.contain,
-    this.filterQuality = FilterQuality.medium,
+    this.filterQuality = FilterQuality.low,
   });
 
   /// 原生纹理句柄（null = 无纹理输出 → 深色占位）。
@@ -36,9 +36,11 @@ class VideoSurface extends StatelessWidget {
 
   /// 纹理采样质量。
   ///
-  /// 3.1854：low → medium。原生端已按显示尺寸渲染（缩小由 mpv 高质量缩放
-  /// 器完成），纹理通常以 1:1 或放大方式上屏；medium（bilerp，可用时含
-  /// mipmap）在窗口尺寸变化/放大场景明显优于 low，开销与 low 相当。
+  /// 保持 low（bilinear）：原生端已按显示尺寸渲染（缩小由 mpv 高质量缩放
+  /// 器完成），纹理通常以 1:1 或放大方式上屏，low 足够。3.1854 曾试过
+  /// medium，Windows 桌面引擎的外部纹理（PixelBufferTexture）无 mipmap 链，
+  /// medium 采样触发引擎 mipmap 路径后闪退（flutter_windows.dll 内
+  /// fastfail，iOS 的 Metal 外部纹理路径无此问题）——3.1856 回退。
   final FilterQuality filterQuality;
 
   @override

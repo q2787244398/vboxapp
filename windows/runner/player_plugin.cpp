@@ -813,8 +813,115 @@ bool PlayerPlugin::ProbeGlCapability(std::string* detail,
       ok = false;
       break;
     }
-    if (detail != nullptr) *detail = "OpenGL " + version + "，FBO 可用";
-    ok = true;
+    // 回读颜色自检（3.1856，云电脑偏色根因检测）：向 FBO 画已知纯色并回读
+    // 比对 BGRA 字节序。虚拟化 GPU（GRID/Paravirtual 等真名不在黑名单的
+    // 虚拟显卡）glReadPixels 可能输出通道交换/错乱的颜色——glFinish 修撕裂
+    // 修不了颜色。黑名单只能枚举已知型号，实测才是确定性判据：回读字节
+    // 与预期不符 → 该环境 GL 回读不可信 → 强制 SW（SW 色彩已钉扎）。
+    // 双色校验（红+绿）同时排除「全 0 / 全 255」假阳性。
+    do {
+      auto gl_gen_textures = reinterpret_cast<void (*)(GlSizei, GlUint*)>(
+          ::GetProcAddress(ogl, "glGenTextures"));
+      auto gl_bind_texture = reinterpret_cast<void (*)(GlEnum, GlUint)>(
+          ::GetProcAddress(ogl, "glBindTexture"));
+      auto gl_tex_image_2d = reinterpret_cast<void (*)(
+          GlEnum, GlInt, GlInt, GlSizei, GlSizei, GlInt, GlEnum, GlEnum,
+          const void*)>(::GetProcAddress(ogl, "glTexImage2D"));
+      auto gl_tex_parameter_i = reinterpret_cast<void (*)(GlEnum, GlEnum, GlInt)>(
+          ::GetProcAddress(ogl, "glTexParameteri"));
+      auto gl_clear_color = reinterpret_cast<void (*)(float, float, float, float)>(
+          ::GetProcAddress(ogl, "glClearColor"));
+      auto gl_clear = reinterpret_cast<void (*)(unsigned int)>(
+          ::GetProcAddress(ogl, "glClear"));
+      auto gl_read_pixels = reinterpret_cast<void (*)(
+          GlInt, GlInt, GlSizei, GlSizei, GlEnum, GlEnum, void*)>(
+          ::GetProcAddress(ogl, "glReadPixels"));
+      auto gl_delete_textures =
+          reinterpret_cast<void (*)(GlSizei, const GlUint*)>(
+              ::GetProcAddress(ogl, "glDeleteTextures"));
+      auto wgl_bind_framebuffer =
+          reinterpret_cast<void (*)(GlEnum, GlUint)>(
+              wgl_get_proc_address("glBindFramebuffer"));
+      auto wgl_framebuffer_texture_2d =
+          reinterpret_cast<void (*)(GlEnum, GlEnum, GlEnum, GlUint, GlInt)>(
+              wgl_get_proc_address("glFramebufferTexture2D"));
+      auto wgl_delete_framebuffers =
+          reinterpret_cast<void (*)(GlSizei, const GlUint*)>(
+              wgl_get_proc_address("glDeleteFramebuffers"));
+      if (gl_gen_textures == nullptr || gl_bind_texture == nullptr ||
+          gl_tex_image_2d == nullptr || gl_tex_parameter_i == nullptr ||
+          gl_clear_color == nullptr || gl_clear == nullptr ||
+          gl_read_pixels == nullptr || gl_delete_textures == nullptr ||
+          wgl_bind_framebuffer == nullptr ||
+          wgl_framebuffer_texture_2d == nullptr ||
+          wgl_delete_framebuffers == nullptr) {
+        // 入口不全 = GL 版本不足以支撑离屏 FBO 路径（CreateGlRenderContext
+        // 同样会失败），按「GL 不可用」处理。
+        if (detail != nullptr) {
+          *detail = "OpenGL " + version + "，渲染器=" + renderer +
+                    "，回读自检入口不全 → 改用软件渲染";
+        }
+        ok = false;
+        break;
+      }
+      constexpr int kProbe = 4;
+      GlUint tex = 0;
+      GlUint fbo = 0;
+      unsigned char px[kProbe * kProbe * 4] = {};
+      bool color_ok = true;
+      gl_gen_textures(1, &tex);
+      gl_bind_texture(kGlTexture2D, tex);
+      gl_tex_parameter_i(kGlTexture2D, kGlTextureMinFilter, 0x2600 /*NEAREST*/);
+      gl_tex_image_2d(kGlTexture2D, 0, kGlRgba8, kProbe, kProbe, 0, kGlRgba,
+                      kGlUnsignedByte, nullptr);
+      reinterpret_cast<void (*)(GlSizei, GlUint*)>(gen_framebuffers)(1, &fbo);
+      wgl_bind_framebuffer(kGlFramebuffer, fbo);
+      wgl_framebuffer_texture_2d(kGlFramebuffer, kGlColorAttachment0,
+                                 kGlTexture2D, tex, 0);
+      // 纯红 (1,0,0)：BGRA 字节序应为 B=0,G=0,R=255,A=255。
+      gl_clear_color(1.0f, 0.0f, 0.0f, 1.0f);
+      gl_clear(0x4000 /*GL_COLOR_BUFFER_BIT*/);
+      gl_read_pixels(0, 0, kProbe, kProbe, kGlBgra, kGlUnsignedByte, px);
+      for (int i = 0; i < kProbe * kProbe; ++i) {
+        if (px[i * 4] != 0 || px[i * 4 + 1] != 0 || px[i * 4 + 2] != 255 ||
+            px[i * 4 + 3] != 255) {
+          color_ok = false;
+          break;
+        }
+      }
+      // 纯绿 (0,1,0)：BGRA 应为 B=0,G=255,R=0,A=255。
+      if (color_ok) {
+        gl_clear_color(0.0f, 1.0f, 0.0f, 1.0f);
+        gl_clear(0x4000);
+        gl_read_pixels(0, 0, kProbe, kProbe, kGlBgra, kGlUnsignedByte, px);
+        for (int i = 0; i < kProbe * kProbe; ++i) {
+          if (px[i * 4] != 0 || px[i * 4 + 1] != 255 || px[i * 4 + 2] != 0 ||
+              px[i * 4 + 3] != 255) {
+            color_ok = false;
+            break;
+          }
+        }
+      }
+      wgl_bind_framebuffer(kGlFramebuffer, 0);
+      wgl_delete_framebuffers(1, &fbo);
+      gl_delete_textures(1, &tex);
+      if (!color_ok) {
+        if (out_prefer_software != nullptr) {
+          *out_prefer_software = true;
+        }
+        if (detail != nullptr) {
+          *detail = "OpenGL " + version + "，渲染器=" + renderer +
+                    "，回读颜色自检失败（通道错乱/虚拟显卡）→ 改用软件渲染";
+        }
+        ok = false;
+        break;
+      }
+      if (detail != nullptr) {
+        *detail = "OpenGL " + version + "，渲染器=" + renderer +
+                  "，FBO 回读自检通过";
+      }
+      ok = true;
+    } while (false);
   } while (false);
 
   if (glrc != nullptr) {
@@ -947,6 +1054,13 @@ bool PlayerPlugin::CreateGlRenderContext() {
   }
   render_ctx_ = ctx;
   render_backend_ = RenderBackend::opengl;
+  // GL 路径色彩钉扎（3.1856，与 SW 路径同口径）：mpv 渲染到 FBO 的输出
+  // 色彩目标显式钉住，避免虚拟显卡驱动自报的色彩参数异常导致 GPU 管线
+  // 输出错色。GPU 色彩管线本身完整（primaries/gamma/tone-mapping），钉扎
+  // 仅消除目标空间歧义；旧版 mpv-2.dll 不识别时选项被忽略，行为不变。
+  api_.set_option_string(mpv_, "target-prim", "bt.709");
+  api_.set_option_string(mpv_, "target-trc", "srgb");
+  api_.set_option_string(mpv_, "tone-mapping", "bt.2390");
   api_.render_context_set_update_callback(render_ctx_, &PlayerPlugin::OnRenderUpdate,
                                           this);
   RegisterTexture();

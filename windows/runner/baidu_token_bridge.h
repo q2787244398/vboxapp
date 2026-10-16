@@ -12,12 +12,16 @@
 //  网关同源的浏览器信任路径，不经 Flutter 插件 WebView，结构上不会复现
 //  白屏/闪退。
 //
-//  ⚠ 窗口可见性（3.1854 取号超时根因）：绝不能用 put_IsVisible(FALSE) 或
-//  不 ShowWindow 的隐藏窗口导航——WebView2 对不可见 Widget 会挂起渲染/
-//  推迟 load 完成，NavigationCompleted 迟迟不触发，任何机器（含家宽）都会
-//  25s 看门狗超时（对齐 iOS：WKWebView 为真实承载窗口，无此问题）。正确
-//  姿势 = 窗口 ShowWindow(SW_SHOWNOACTIVATE) 但停靠在虚拟屏右下角之外，
-//  用户不可见，WebView2 视为可见，导航正常完成。
+//  ⚠ 窗口可见性（3.1854 取号超时根因 + 3.1856 修正）：绝不能用
+//  put_IsVisible(FALSE) 或不 ShowWindow 的隐藏窗口导航——WebView2 对不可见
+//  Widget 会挂起渲染/推迟 load 完成，NavigationCompleted 迟迟不触发，任何
+//  机器（含家宽）都会 25s 看门狗超时。3.1854 曾停靠「虚拟屏右下角之外」，
+//  但 Chromium 的 NativeWindowOcclusionTracker 会把完全不在任何显示器区域
+//  内的窗口判定为 hidden/occluded → 3.1855 云电脑实测仍超时。3.1856 起
+//  对齐 iOS BaiduWebViewBridge（「1x1 WKWebView addSubview 到可见 key
+//  window」）：宿主窗口 = 主窗口客户区右下角内侧 2x2 的 owned 弹窗
+//  （WS_EX_TRANSPARENT 鼠标穿透 + WS_EX_NOACTIVATE + TOOLWINDOW，用户无感），
+//  几何上在屏幕内且位于 owner 之上 → occlusion 判定可见，导航正常完成。
 //
 //  Dart 侧：lib/platform/webview/baidu_native_token_bridge.dart
 //  通道：MethodChannel `com.vbox.player/cloud_bridge` · getBdstoken
@@ -83,6 +87,10 @@ class BaiduTokenBridge {
   // WM_TIMER id：1 = 阶段看门狗，2 = 导航完成后 Set-Cookie 沉降。
   static constexpr UINT_PTR kWatchdogTimer = 1;
   static constexpr UINT_PTR kSettleTimer = 2;
+  // ProcessFailed 投递消息（回调内只 Post，销毁/回复延后到消息循环执行，
+  // 不在 WebView2 回调链内 Close/Release COM 对象）。wparam 携带
+  // COREWEBVIEW2_PROCESS_FAILED_KIND。
+  static constexpr UINT kProcessFailedMsg = WM_APP + 1;
 
   void EnsureHostWindow();
   void StartChain();
@@ -103,6 +111,9 @@ class BaiduTokenBridge {
   void OnEnvironmentCreated(HRESULT result, ICoreWebView2Environment* created);
   void OnControllerCreated(HRESULT result, ICoreWebView2Controller* created);
   void OnNavigationCompleted(int generation, bool succeeded);
+  // ProcessFailed 延迟处理（HostWndProc kProcessFailedMsg 分发，kind 为
+  // COREWEBVIEW2_PROCESS_FAILED_KIND）。
+  void OnProcessFailed(DWORD kind);
   void OnWatchdog();
   void OnSettle();
   void OnScriptResult(const std::string& js_return_json);
