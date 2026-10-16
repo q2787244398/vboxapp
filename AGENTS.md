@@ -81,6 +81,18 @@ docs/             方案与对齐文档
   `lib/presentation/pages/search/search_page.dart`：调试日志导出在 Windows
   不走 SharePlus 系统共享面板（未打包应用必然弹「我们无法为你显示所有共享
   方法」），改为写入「下载」目录并在资源管理器中定位；失败退化为剪贴板。
+- `windows/runner/baidu_token_bridge.{h,cpp}` + `windows/runner/webview2/`
+  （WebView2 SDK 1.0.2903.40 头文件与静态加载器）+
+  `windows/runner/player_plugin.{h,cpp}`（`com.vbox.player/cloud_bridge`
+  通道）+ `lib/platform/webview/baidu_native_token_bridge.dart` +
+  `lib/data/datasources/remote/baidu_ibox_client.dart`：
+  普通百度网盘 bdstoken **原生 WebView2 桥**。凭据 Cookie 种入 WebView2
+  持久化 Jar（`%APPDATA%\com.vbox\vbox\win_baidu_webview`）→ 真实浏览器栈
+  导航 disk/main → 页面上下文 fetch gettemplatevariable（复刻 iOS
+  WKWebView 系统网络栈信任度）→ Jar 全量 Cookie 回传合并回写凭据。
+  隐藏 owned 弹出窗口承载 Controller（IsVisible=FALSE，不渲染不抢焦点，
+  不经 Flutter 插件 WebView，规避 3.1839 闪退 / 3.1844 白屏路径）；
+  全阶段看门狗，errno!=0 时种 Cookie 重导航一次后如实回传交 Dart 兜底链。
 
 ## 日志事件契约（跨端）
 

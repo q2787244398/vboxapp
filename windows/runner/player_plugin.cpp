@@ -18,6 +18,8 @@
 #include <flutter/method_result_functions.h>
 #include <flutter/standard_method_codec.h>
 
+#include "baidu_token_bridge.h"
+
 namespace vbox {
 
 namespace {
@@ -182,6 +184,10 @@ PlayerPlugin::PlayerPlugin(flutter::PluginRegistrarWindows* registrar)
     : channel_(std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           registrar->messenger(), "com.vbox.player/player",
           &flutter::StandardMethodCodec::GetInstance())),
+      cloud_channel_(
+          std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+              registrar->messenger(), "com.vbox.player/cloud_bridge",
+              &flutter::StandardMethodCodec::GetInstance())),
       events_(std::make_unique<flutter::EventChannel<flutter::EncodableValue>>(
           registrar->messenger(), "com.vbox.player/player/events",
           &flutter::StandardMethodCodec::GetInstance())) {
@@ -191,6 +197,14 @@ PlayerPlugin::PlayerPlugin(flutter::PluginRegistrarWindows* registrar)
       [this](const auto& call, auto result) {
         HandleMethodCall(call, std::move(result));
       });
+  // 百度 bdstoken 原生 WebView2 桥（隐藏窗口承载，与播放器渲染互不相干）。
+  baidu_bridge_ = std::make_unique<BaiduTokenBridge>(
+      registrar->view() != nullptr ? registrar->view()->GetNativeWindow()
+                                   : nullptr);
+  cloud_channel_->SetMethodCallHandler(
+      [this](const auto& call, auto result) {
+        HandleCloudMethodCall(call, std::move(result));
+      });
   stream_handler_ = std::make_unique<StreamHandler>(this);
   events_->SetStreamHandler(std::move(stream_handler_));
 }
@@ -198,6 +212,32 @@ PlayerPlugin::PlayerPlugin(flutter::PluginRegistrarWindows* registrar)
 PlayerPlugin::~PlayerPlugin() {
   ShutdownMpv();
   ClearSink();
+}
+
+// ─────────────── 云侧桥通道（baidu_token_bridge） ───────────────
+
+void PlayerPlugin::HandleCloudMethodCall(
+    const flutter::MethodCall<flutter::EncodableValue>& call,
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+  if (call.method_name() == "getBdstoken") {
+    std::string cookie;
+    if (call.arguments() != nullptr) {
+      const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+      if (args != nullptr) {
+        const auto it = args->find(flutter::EncodableValue("cookie"));
+        if (it != args->end() && std::holds_alternative<std::string>(it->second)) {
+          cookie = std::get<std::string>(it->second);
+        }
+      }
+    }
+    baidu_bridge_->GetBdstoken(
+        cookie,
+        [result = std::move(result)](const flutter::EncodableValue& value) {
+          result->Success(value);
+        });
+    return;
+  }
+  result->NotImplemented();
 }
 
 // ─────────────── StreamHandler ───────────────

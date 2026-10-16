@@ -213,6 +213,9 @@ struct MpvApi {
   bool Load();
 };
 
+// 百度 bdstoken 原生 WebView2 桥（完整定义见 baidu_token_bridge.h）。
+class BaiduTokenBridge;
+
 // Windows 播放器插件（libmpv + 视频纹理输出面，见文件头注释）。
 class PlayerPlugin : public flutter::Plugin {
  public:
@@ -229,6 +232,12 @@ class PlayerPlugin : public flutter::Plugin {
   // MethodChannel 分派入口（flutter::Plugin 无 HandleMethodCall 虚函数，
   // 由构造期 SetMethodCallHandler lambda 回调）。
   void HandleMethodCall(
+      const flutter::MethodCall<flutter::EncodableValue>& call,
+      std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
+
+  // 云侧桥通道分派（`com.vbox.player/cloud_bridge`：原生 WebView2 取
+  // bdstoken，见 baidu_token_bridge.h）。
+  void HandleCloudMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
 
@@ -258,10 +267,16 @@ class PlayerPlugin : public flutter::Plugin {
 
   // ── 通道 ──
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      cloud_channel_;
   std::unique_ptr<flutter::EventChannel<flutter::EncodableValue>> events_;
   std::unique_ptr<StreamHandler> stream_handler_;
   std::mutex sink_mutex_;
   std::shared_ptr<flutter::EventSink<flutter::EncodableValue>> sink_;
+
+  // ── 百度 bdstoken 原生 WebView2 桥（cloud_bridge 后端，
+  //    完整类型见 baidu_token_bridge.h）──
+  std::unique_ptr<BaiduTokenBridge> baidu_bridge_;
 
   // ── Flutter 纹理输出面（R-渲1）──
   flutter::TextureRegistrar* texture_registrar_ = nullptr;

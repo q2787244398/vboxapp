@@ -36,6 +36,7 @@ import 'dart:convert';
 
 import '../../../core/utils/logger.dart';
 import '../../../platform/spider/spider_http_bridge.dart';
+import '../../../platform/webview/baidu_native_token_bridge.dart';
 import '../../../platform/webview/webview_bridge.dart';
 import '../local/baidu_playback_cache_store.dart';
 import '../local/prefs_manager.dart';
@@ -2203,6 +2204,30 @@ class BaiduIBoxClient {
   /// `BaiduWebViewBridge.loadPanPageForBdstoken` 的 `result.cookie`），
   /// 供调用方按 `baiduPersistUserBdstoken` 语义合并回凭据。
   Future<({String token, String cookie})> _webViewBdstoken(String cookie) async {
+    // Windows 专属：优先走原生 WebView2 桥（runner C++ 直连，不经 Flutter
+    // 插件 WebView——规避 3.1839 无头闪退 / 3.1844 根 Overlay 白屏路径）。
+    // 原生侧与登录网关同源：凭据 Cookie 种入 WebView2 持久化 Jar → 真实
+    // 浏览器栈导航 disk/main → 页面上下文 fetch gettemplatevariable，
+    // 复刻 iOS WKWebView 的系统网络栈信任度，并带回 Jar 全量 Cookie
+    // （含服务端新种指纹字段，供上层合并回写凭据）。
+    final viaNative = await BaiduNativeTokenBridge.fetchBdstoken(cookie);
+    if (viaNative.token.isNotEmpty) {
+      AppLog.debug(
+        'baidu-local',
+        '原生 WebView2 桥取得用户态 bdstoken',
+        category: LogCategory.cloud,
+      );
+      return (
+        token: viaNative.token,
+        cookie: viaNative.cookie.isEmpty ? cookie : viaNative.cookie,
+      );
+    }
+    AppLog.warn(
+      'baidu-local',
+      '原生 WebView2 桥未取得 bdstoken（errno=${viaNative.errno}，'
+      '${viaNative.message}），回退 Flutter 插件 WebView 路径',
+      category: LogCategory.cloud,
+    );
     if (!_webView.isAvailable) {
       // 关键诊断：Windows 端 WebView2 环境未就绪时第 3 层恒空，必须留痕，
       // 否则排查时无法与「页面确实没有 bdstoken」区分。

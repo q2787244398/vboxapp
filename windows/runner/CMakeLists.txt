@@ -10,6 +10,7 @@ add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
   "player_plugin.cpp"
+  "baidu_token_bridge.cpp"
   "screen_controls_plugin.cpp"
   "floating_plugin.cpp"
   "music_media_plugin.cpp"
@@ -49,6 +50,16 @@ target_link_libraries(${BINARY_NAME} PRIVATE "gdi32.lib")
 # 批次 D · D3：SMTC 走 C++/WinRT（music_media_plugin.cpp），需链接 Windows 运行时
 # 伞形导入库，否则 LNK2019（RoGetActivationFactory / RoOriginateLanguageException）。
 target_link_libraries(${BINARY_NAME} PRIVATE "windowsapp.lib")
+# 百度 bdstoken 原生 WebView2 桥（baidu_token_bridge.cpp）：静态链接 WebView2
+# 加载器（免分发 WebView2Loader.dll），运行期依赖系统 Evergreen 运行时
+# （登录网关同款依赖）。随包预置的 webview2/include 头文件来自
+# Microsoft.Web.WebView2 1.0.2903.40（NuGet，仅引入 build/native 两件套）。
+target_include_directories(${BINARY_NAME} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/webview2/include")
+target_link_libraries(${BINARY_NAME} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/webview2/WebView2LoaderStatic.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "ole32.lib" "oleaut32.lib"
+    "uuid.lib" "advapi32.lib" "version.lib" "shell32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
