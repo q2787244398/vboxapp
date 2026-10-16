@@ -538,9 +538,11 @@ void BaiduTokenBridge::RunScript() {
     FailAll("WebView2 内核不可用");
     return;
   }
+  // 注意：接口 Invoke 第二参数为 LPCWSTR（只读），WRL::Callback 会按接口签名
+  // 校验 lambda 参数类型，写 LPWSTR 将报 C2664。
   auto handler = Microsoft::WRL::Callback<
       ICoreWebView2ExecuteScriptCompletedHandler>(
-      [this](HRESULT result, LPWSTR json) -> HRESULT {
+      [this](HRESULT result, LPCWSTR json) -> HRESULT {
         if (FAILED(result) || json == nullptr) {
           FailAll("页面脚本执行失败（hr=0x" +
                   std::to_string(static_cast<unsigned long>(result)) + "）");

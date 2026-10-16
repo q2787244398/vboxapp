@@ -232,9 +232,13 @@ void PlayerPlugin::HandleCloudMethodCall(
         }
       }
     }
+    // Reply 是 std::function（要求可拷贝），unique_ptr 是 move-only——先转
+    // shared_ptr 再捕获，否则 std::function 构造报 C2338（copy constructible）。
+    std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>> shared_result(
+        std::move(result));
     baidu_bridge_->GetBdstoken(
         cookie,
-        [result = std::move(result)](const flutter::EncodableValue& value) {
+        [result = std::move(shared_result)](const flutter::EncodableValue& value) {
           result->Success(value);
         });
     return;
