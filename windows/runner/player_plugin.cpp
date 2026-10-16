@@ -486,7 +486,8 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
   const bool has_render_api = api_.render_context_create != nullptr;
   if (has_render_api) {
     std::string probe_detail;
-    const bool probe_ok = ProbeGlCapability(&probe_detail);
+    const bool probe_ok =
+        ProbeGlCapability(&probe_detail, &prefer_software_render_);
     EmitLog(probe_ok ? "info" : "warn",
             "GL 能力预检（仅提示，不阻断）：" + probe_detail);
   } else {
@@ -600,6 +601,8 @@ void PlayerPlugin::ShutdownMpv() {
   last_video_height_ = 0;
   // 渲染后端与软渲染缓冲随会话释放。
   render_backend_ = RenderBackend::none;
+  // 渲染偏好随会话复位（下次 Open 由预检重新判定）。
+  prefer_software_render_ = false;
   sw_frame_buffer_.clear();
   sw_frame_buffer_.shrink_to_fit();
   sw_frame_width_ = 0;
@@ -685,7 +688,8 @@ bool SetGlPixelFormat(HDC hdc) {
 // 显卡驱动 / 仅 OpenGL 1.1 软件实现 / 远程桌面会话下这些入口恒为空指针，届时
 // 渲染线程会静默退出——表现为「有声音、有进度、无画面」。预检可提前发现，
 // 让 mpv 走 `vo=null`，避免用户面对无解释的黑屏。
-bool PlayerPlugin::ProbeGlCapability(std::string* detail) {
+bool PlayerPlugin::ProbeGlCapability(std::string* detail,
+                                     bool* out_prefer_software) {
   HMODULE ogl = ::LoadLibraryW(L"opengl32.dll");
   if (ogl == nullptr) {
     if (detail != nullptr) *detail = "opengl32.dll 加载失败";
@@ -741,6 +745,39 @@ bool PlayerPlugin::ProbeGlCapability(std::string* detail) {
       if (detail != nullptr) {
         *detail = "OpenGL " + version + "，FBO 入口不可用（需 OpenGL 2.0+）";
       }
+      break;
+    }
+    // 渲染器 / 厂商（GL_RENDERER = 0x1F01，GL_VENDOR = 0x1F00）。
+    std::string renderer = "未知";
+    if (gl_get_string != nullptr) {
+      const unsigned char* r = gl_get_string(0x1F01 /* GL_RENDERER */);
+      if (r != nullptr) renderer = reinterpret_cast<const char*>(r);
+    }
+    // 虚拟显卡 / 软渲染黑名单：这些实现名义上支持 GL 2.0+（FBO 入口非空），
+    // 但 glReadPixels 从 FBO 回读会产生撕裂、叠影、颜色错乱（云电脑 / 远程桌面 /
+    // 无显卡驱动）。命中或处于远程桌面会话时，改走 libswscale 软渲染。
+    const bool is_software_renderer =
+        renderer.find("GDI Generic") != std::string::npos ||
+        renderer.find("Microsoft Basic Render") != std::string::npos ||
+        renderer.find("Microsoft GDI") != std::string::npos ||
+        renderer.find("WARP") != std::string::npos ||
+        renderer.find("llvmpipe") != std::string::npos ||
+        renderer.find("softpipe") != std::string::npos ||
+        renderer.find("SwiftShader") != std::string::npos ||
+        renderer.find("VMware SVGA") != std::string::npos ||
+        renderer.find("VirtualBox") != std::string::npos;
+    // 远程桌面 / 云电脑会话（SM_REMOTESESSION != 0）。
+    const bool is_remote_session = ::GetSystemMetrics(SM_REMOTESESSION) != 0;
+    if (is_software_renderer || is_remote_session) {
+      if (out_prefer_software != nullptr) {
+        *out_prefer_software = true;
+      }
+      if (detail != nullptr) {
+        *detail = "OpenGL " + version + "，渲染器=" + renderer +
+                  (is_remote_session ? "，远程桌面会话" : "，软渲染实现") +
+                  " → 改用软件渲染";
+      }
+      ok = false;
       break;
     }
     if (detail != nullptr) *detail = "OpenGL " + version + "，FBO 可用";
@@ -976,6 +1013,8 @@ bool PlayerPlugin::LoadGlSymbols() {
       ::GetProcAddress(opengl32_, "glViewport"));
   gl_.read_pixels = reinterpret_cast<decltype(gl_.read_pixels)>(
       ::GetProcAddress(opengl32_, "glReadPixels"));
+  gl_.finish = reinterpret_cast<decltype(gl_.finish)>(
+      ::GetProcAddress(opengl32_, "glFinish"));
   // FBO 属扩展入口（ARB_framebuffer_object / GL 3.0），须经 wglGetProcAddress。
   gl_.gen_framebuffers = reinterpret_cast<decltype(gl_.gen_framebuffers)>(
       wgl_.get_proc_address("glGenFramebuffers"));
@@ -1006,6 +1045,7 @@ bool PlayerPlugin::LoadGlSymbols() {
   note_missing("glPixelStorei", gl_.pixel_store_i != nullptr);
   note_missing("glViewport", gl_.viewport != nullptr);
   note_missing("glReadPixels", gl_.read_pixels != nullptr);
+  note_missing("glFinish", gl_.finish != nullptr);
   note_missing("glGenFramebuffers", gl_.gen_framebuffers != nullptr);
   note_missing("glDeleteFramebuffers", gl_.delete_framebuffers != nullptr);
   note_missing("glBindFramebuffer", gl_.bind_framebuffer != nullptr);
@@ -1097,7 +1137,18 @@ void PlayerPlugin::OnRenderUpdate(void* callback_ctx) {
 
 void PlayerPlugin::RunRenderLoop() {
   // 渲染线程内建 GL 上下文 + render_context（WGL 线程亲和）。
-  if (!CreateGlRenderContext()) {
+  if (prefer_software_render_) {
+    // 预检已识别软渲染 OpenGL / 远程桌面会话：跳过 OpenGL 离屏路径，直接用
+    // libswscale 软渲染，避免虚拟显卡 glReadPixels 回读产生的花屏/叠影。
+    EmitLog("warn",
+            "检测到软渲染 OpenGL 或远程桌面会话，直接使用 mpv 软件渲染（SW）");
+    if (!CreateSwRenderContext()) {
+      logged_render_failure_ = true;
+      EmitError("当前设备无法建立视频输出（软件渲染失败），画面暂不可用，音频正常",
+                false);
+      return;
+    }
+  } else if (!CreateGlRenderContext()) {
     // 问题 2 兜底：OpenGL 离屏渲染不可用（无显卡驱动 / 远程桌面 / 仅 GL 1.1）
     // → 不再直接放弃，改走 libswscale 软渲染，保证仍有画面。失败原因已由
     // CreateGlRenderContext 逐环上报，此处仅清理半初始化资源再切换后端。
@@ -1286,6 +1337,14 @@ void PlayerPlugin::RenderFrame() {
   // 正确（缺失会导致卡顿与刷新时机漂移，见 ShutdownMpv 注释与 AGENTS.md）。
   if (api_.render_context_report_swap != nullptr) {
     api_.render_context_report_swap(render_ctx_);
+  }
+
+  // 回读同步（云电脑/虚拟显卡花屏修复）：render_context_render 提交的是异步
+  // GPU 命令，虚拟显卡 / 软渲染 OpenGL 下 glReadPixels 可能读到尚未完成的帧
+  // 缓冲 → 画面撕裂 / 上一帧残留（叠影）/ 颜色错乱。回读前显式 glFinish
+  // 强制 GPU 完成渲染，保证取到完整已渲染帧。
+  if (gl_.finish != nullptr) {
+    gl_.finish();
   }
 
   // 回读 BGRA 到引擎前缓冲（纹理上屏管线与旧 SW 路径一致，Dart 侧零改动）。

@@ -33,6 +33,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import '../../../core/utils/logger.dart';
 import '../../../platform/spider/spider_http_bridge.dart';
@@ -177,6 +178,10 @@ class BaiduIBoxClient {
 
   /// 播放缓存统一层注入（测试用；缺省走全局 [PrefsManager]）。
   final BaiduPlaybackCacheStore? _cacheOverride;
+
+  /// 最近一次原生 WebView2 桥取 bdstoken 的失败原因（Windows 专属；
+  /// 用于把真实失败原因带进最终报错，避免用户盲目反复扫码）。
+  String _lastBaiduNativeFailure = '';
 
   /// 播放缓存统一层（批次 E · E5-5；对齐 iOS `CloudDriveManager` 缓存族）。
   BaiduPlaybackCacheStore get _cache =>
@@ -757,6 +762,42 @@ class BaiduIBoxClient {
     String savedBdstoken = '',
     void Function(String bdstoken, String source, String mergedCookie)? onFetched,
   }) async {
+    // ── 第 0 层（Windows 专属，新增）：原生 WebView2 桥（真实 Edge 网络栈）──
+    // iOS 端 URLSession / WKWebView 均为系统网络栈，百度天然信任，故 iOS 无此问题；
+    // Windows 端 dart:io HttpClient 的 TLS/请求指纹会被百度风控（errno=-6），
+    // 而原生 WebView2 桥（windows/runner/baidu_token_bridge.cpp）走真实 Edge 栈、
+    // 与登录网关同源，信任度最高，故在 Windows 上提为首选项，Dart 层降为兜底。
+    // 非 Windows 平台跳过本层，iOS/Android/macOS 行为完全不变。
+    if (Platform.isWindows) {
+      final viaNative = await BaiduNativeTokenBridge.fetchBdstoken(cookie);
+      if (viaNative.token.isNotEmpty) {
+        AppLog.debug(
+          'baidu-local',
+          '第 0 层 原生 WebView2 桥取得用户态 bdstoken',
+          category: LogCategory.cloud,
+        );
+        // 回传 WebView2 Jar 全量 Cookie（含服务端现场补种的
+        // BAIDUID/BAIDUID_BFESS），经 onFetched → pan_player._saveBaiduBdstoken
+        // 合并落库，后续播放第 1 层即可命中。
+        onFetched?.call(
+          viaNative.token,
+          'native-webview2-bdstoken',
+          viaNative.cookie.isEmpty ? cookie : viaNative.cookie,
+        );
+        return viaNative.token;
+      }
+      if (viaNative.errno != -1 || viaNative.message.isNotEmpty) {
+        _lastBaiduNativeFailure = viaNative.message.isEmpty
+            ? '原生 WebView2 桥未取得 bdstoken（errno=${viaNative.errno}）'
+            : viaNative.message;
+        AppLog.warn(
+          'baidu-local',
+          '第 0 层 原生 WebView2 桥未取得 bdstoken'
+          '（errno=${viaNative.errno}，$_lastBaiduNativeFailure），继续原有兜底链',
+          category: LogCategory.cloud,
+        );
+      }
+    }
     final _Resp tpl = await _request(
       'https://pan.baidu.com/api/gettemplatevariable'
       '?clienttype=0&app_id=250528&web=1'
@@ -1533,16 +1574,20 @@ class BaiduIBoxClient {
       onFetched: onBdstokenFetched,
     );
     if (userBdstoken.isEmpty) {
-      const String message = '百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录'
-          '（Cookie 补全重试仍失败，多为百度风控或旧版凭据缺指纹 Cookie）——'
-          '请到「网盘授权中心」重新扫码登录一次后重试';
+      final String hint = _lastBaiduNativeFailure.isEmpty
+          ? 'Cookie 补全重试仍失败，多为百度风控或旧版凭据缺指纹 Cookie，'
+              '请到「网盘授权中心」重新扫码登录一次后重试'
+          : '$_lastBaiduNativeFailure（请到「网盘授权中心」重新扫码登录，'
+              '云电脑/数据中心 IP 更易触发百度风控）';
+      final String message = '百度登录态正常，但未取得用户态 bdstoken，'
+          '无法创建 vbox 转存目录 —— $hint';
       await _cache.recordRouteDiagnostic(
         stage: '主路链',
         status: '缺少用户态bdstoken',
         detail: message,
         fsId: fsId,
       );
-      throw const BaiduIBoxException(message);
+      throw BaiduIBoxException(message);
     }
     final BaiduFileItem? selected = _selectFile(context.files, fsId);
     if (selected == null) {

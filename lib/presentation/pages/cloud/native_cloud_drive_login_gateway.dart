@@ -36,6 +36,7 @@ import '../../../data/datasources/local/prefs_manager.dart';
 import '../../../domain/entities/cloud/cloud_drive.dart';
 import '../../../domain/entities/cloud/cloud_drive_login.dart';
 import '../../../platform/spider/spider_http_bridge.dart';
+import '../../../platform/webview/baidu_native_token_bridge.dart';
 import 'login_gateway.dart';
 
 /// UC 扫码任务暂存（跨 start/poll 复用 token 与轮询 client_id）。
@@ -718,14 +719,37 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     // 扫码成功后补全 BFESS 系 Cookie，并把用户态 bdstoken/uk/username 落 extra
     // （播放链「保存值兜底」的数据源，对齐 iOS `saveBdstokenCredential`，
     // `CloudDriveManager.swift:4761`）。
-    final _BaiduEnrichResult enriched = await _enrichBaiduAccount(cookie);
+    //
+    // Windows 专属增强：先走原生 WebView2 桥补全（真实 Edge 网络栈 + 持久化 Jar）。
+    // iOS 端 WKWebView 共享系统 Cookie Jar，补全天然有效；Windows 端
+    // _enrichBaiduAccount 走 dart:io HttpClient（指纹被百度风控），BAIDUID 补不全、
+    // bdstoken 取不到 → 落库凭据缺指纹，播放链第 4 层保存值兜底也为空。
+    // 原生桥返回 Jar 全量 Cookie（含 BAIDUID/BAIDUID_BFESS）与用户态 bdstoken；
+    // 非 Windows 该方法内部立即返回空，iOS/Android/macOS 行为不变。
+    final native = await BaiduNativeTokenBridge.fetchBdstoken(cookie);
+    final String seedCookie = native.cookie.isEmpty
+        ? cookie
+        : joinCookies(<String, String>{
+            ..._cookieStringToMap(cookie),
+            ..._cookieStringToMap(native.cookie),
+          });
+    // 原生补全后的 Cookie 继续走原 Dart 补全（仍可再补一层，取并集）。
+    final _BaiduEnrichResult enriched = await _enrichBaiduAccount(seedCookie);
+    final String finalCookie = joinCookies(<String, String>{
+      ..._cookieStringToMap(seedCookie),
+      ..._cookieStringToMap(enriched.cookie),
+    });
     await _persist(
       CloudDriveType.baidu,
-      cookie: enriched.cookie,
+      cookie: finalCookie,
       statusMessage: '百度扫码登录成功，已保存 BDUSS/STOKEN',
       extra: <String, String>{
         'cookie_mode': 'BDUSS_STOKEN',
         ...enriched.extra,
+        // 播放链第 4 层「保存值兜底」的数据源（对齐 iOS saveBdstokenCredential）。
+        if (native.token.isNotEmpty) 'bdstoken': native.token,
+        if (native.token.isNotEmpty)
+          'bdstoken_source': 'native-webview2-login',
       },
     );
   }

@@ -148,6 +148,9 @@ struct GlApi {
   void (*viewport)(GlInt, GlInt, GlSizei, GlSizei) = nullptr;
   void (*read_pixels)(GlInt, GlInt, GlSizei, GlSizei, GlEnum, GlEnum,
                       void*) = nullptr;
+  // glFinish：回读前强制 GPU 完成渲染，避免虚拟显卡/软渲染 OpenGL 下
+  // glReadPixels 读到未完成帧缓冲导致的花屏/叠影（GL 1.1 导出，恒存在）。
+  void (*finish)(void) = nullptr;
 };
 
 // WGL 入口（opengl32.dll；渲染线程内 wglMakeCurrent 绑定，线程亲和）。
@@ -325,6 +328,10 @@ class PlayerPlugin : public flutter::Plugin {
   int fbo_height_ = 0;
   // 当前生效的视频输出后端（OpenGL 失败后由 RunRenderLoop 退到 software）。
   RenderBackend render_backend_ = RenderBackend::none;
+  // 预检结论：软渲染 OpenGL / 远程桌面会话 → 跳过 OpenGL 离屏路径，直接走 SW。
+  // 平台线程（ProbeGlCapability）写入，渲染线程（RunRenderLoop）读取，
+  // 仅在 Open 流程串行使用，无并发风险。
+  bool prefer_software_render_ = false;
   // 软渲染输出缓冲（BGRA8888；尺寸随视频变化重建，仅 software 后端使用）。
   std::vector<uint8_t> sw_frame_buffer_;
   int sw_frame_width_ = 0;
@@ -377,11 +384,12 @@ class PlayerPlugin : public flutter::Plugin {
   bool CreateSwRenderContext();
   // 软件渲染后端逐帧输出（BGRA 直出到 [sw_frame_buffer_]）。
   void RenderFrameSoftware(int width, int height);
-  // 平台无关 GL 能力预检：建临时 WGL 上下文，检查 OpenGL 版本与 FBO 入口。
-  // 结论**仅用于日志提示**，不作为 `vo` 的闸门——预检跑在平台线程、正式渲染跑
-  // 在渲染线程，为避免预检误判导致本来能出画面却不出，仍让 mpv 实际尝试一次
-  //（失败时渲染链有完整日志，并自动回退软件渲染）。
-  static bool ProbeGlCapability(std::string* detail);
+  // 平台无关 GL 能力预检：建临时 WGL 上下文，检查 OpenGL 版本与 FBO 入口，
+  // 并识别软渲染 OpenGL / 远程桌面会话（云电脑/虚拟显卡 glReadPixels 回读会
+  // 花屏/叠影）。识别到时经 [out_prefer_software] 回传 true，由调用方决定直接
+  // 走 libswscale 软渲染。结论同时用于日志提示，不作为 `vo` 的闸门。
+  static bool ProbeGlCapability(std::string* detail,
+                                bool* out_prefer_software = nullptr);
   // 播放日志上报（经事件通道交 Dart `AppLog`，对齐 iOS 排查详细度）。
   void EmitLog(const std::string& level, const std::string& message);
   // 渲染线程内建/销毁 WGL 上下文 + mpv render_context（WGL 线程亲和）。
