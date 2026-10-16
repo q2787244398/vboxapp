@@ -81,6 +81,14 @@ class BaiduTokenBridge {
   void GetBdstoken(const std::string& cookie_header, Reply reply,
                    bool interactive = false);
 
+  /// WinHTTP（Schannel 系统原生栈）同步直取 gettemplatevariable 的用户态
+  /// bdstoken——对齐 iOS 第 1 层 URLSession 的「系统网络栈」语义。不依赖
+  /// WebView2 运行时、无窗口；返回 errno（0=成功），bdstoken/detail 出参
+  /// （detail 携带 errno/HTTP 状态等关键信息供日志留痕）。
+  static int FetchBdstokenViaWinHttp(const std::string& cookie_header,
+                                     std::string* bdstoken,
+                                     std::string* detail);
+
   /// 释放 WebView2 资源（PlayerPlugin 析构时调用；幂等）。
   void Shutdown();
 

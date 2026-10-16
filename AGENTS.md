@@ -186,3 +186,53 @@ Dart `ChannelPlayer._onEvent` 收到后转 `AppLog`（category=player，tag
   现解析 `mpv_render_context_report_swap()`，OpenGL 与软件渲染路径均在
   `mpv_render_context_render()` 成功后回报一帧 swap，维持 mpv 帧节流/播速/timing
   正确（对齐 `windows/runner/player_plugin.{h,cpp}`）。
+
+## 3.1858 视频纹理三缓冲 + WinHTTP 取号前置层
+
+- `windows/runner/player_plugin.{h,cpp}`：
+  - **闪退根因（0xC0000409 实锤）**：Flutter 引擎要求 `CopyPixelBuffer`
+    返回的 buffer 尺寸 == 引擎传入的显示尺寸；3.1857 的「min(视频,显示)」
+    渲染在小分辨率视频 + 大窗口时返回小 buffer → 引擎 fastfail（事件日志
+    `flutter_windows.dll` c0000409）。修复：渲染目标**严格 = 引擎显示尺寸**
+    （缩放全部交给 mpv 高质量缩放器，同时消除引擎 bilinear 二次放大的发虚），
+    `CopyPixelBuffer` 加尺寸一致性防御（不一致返回 nullptr，引擎沿用旧帧）。
+  - **卡顿根因 + 三缓冲帧池**：旧单缓冲在引擎持帧未 release 期间只能丢帧，
+    vsync 采样与 mpv 出帧节奏不齐时周期性丢帧 = 「一卡一卡」。改为 3 槽
+    `FrameSlot` 环池（buffer/width/height/locked/seq）：渲染线程写最旧空闲槽、
+    引擎取最新空闲槽、`FrameReleaseContext` 定位归还槽；Shutdown 等全部槽
+    归还后清空。读写不再互斥，丢帧理论上不再出现。
+- `windows/runner/baidu_token_bridge.{h,cpp}` + `player_plugin.cpp`
+  （`cloud_bridge` 通道）+ `lib/platform/webview/baidu_native_token_bridge.dart`
+  + `lib/data/datasources/remote/baidu_ibox_client.dart`：
+  - **WinHTTP（Schannel 系统栈）bdstoken 直取**：`FetchBdstokenViaWinHttp`
+    同步 GET `gettemplatevariable`（Cookie/Referer/UA 对齐 Dart 第 1 层，
+    紧超时 5s/8s），通道方法 `getBdstokenWinHttp`。Dart 侧
+    `fetchUserBdstoken` 在 WebView2 之前插入「第 0 前置层」——对齐 iOS
+    第 1 层 URLSession 的系统栈语义，不依赖 WebView2 运行时/窗口；errno
+    留痕判定百度对 Schannel 指纹的信任度（0=通过，-6=仍需 WebView2 兜底）。
+  - CMakeLists 链接 `winhttp.lib`。
+- `.github/workflows/build-release-assets.yml`：**移除 WebView2 固定版随包
+  分发**（523MB → ~246MB），取号回退系统 Evergreen 检测 + WinHTTP 前置层，
+  未装 WebView2 的机器由 WinHTTP 层承接。
+
+## 3.1858 补充：硬解 + 偏色像素转储排查工具（用户日志实锤驱动）
+
+- `windows/runner/player_plugin.cpp`：
+  - **hwdec=auto-copy**（卡顿第二根因）：用户日志实测 4K HEVC 60fps 10-bit
+    在 SW 软渲染下 `hwdec=no` 纯 CPU 软解，伴随连续 `Audio device underrun`
+    （CPU 彻底过载）——「一卡一卡」的另一半根因（另一半是单缓冲丢帧，已由
+    三槽环池修复）。取 `auto-copy`（D3D11VA 解码后拷回内存，GL/SW 双路径
+    通吃，零拷贝 interop 在离屏 WGL 上下文有兼容风险故不走）；RDP 会话仅
+    WARP 时 mpv 自动回退软解，无副作用。
+  - **SW 路径色彩钉扎无效的实锤与对策**：用户 3.1857 实测仍偏色，证明
+    `target-prim/target-trc/tone-mapping` 在 render API SW 模式（libswscale
+    软转换）下不生效（仅作用于 GPU 渲染管线）。新增 **VBOX_DUMP_FRAME=1
+    首帧像素转储**（`DumpFirstFrameToBmp`，GL/SW 汇聚点 `PublishFrame` 落
+    盘 24 位 BMP 到 %TEMP%）：像素级区分偏色责任方——BMP 正常而屏幕偏色 →
+    显示器/系统色彩配置；BMP 偏色 → mpv 渲染管线。
+  - **target-trc 钉扎修正（srgb → bt.1886，双机器同偏色的主嫌疑）**：家用
+    电脑与云电脑同样「偏冷发蓝 + 灰蒙蒙低对比」= 渲染管线系统性问题。
+    3.1856 曾把 TRC 钉 `srgb`——bt.1886(≈2.4)→sRGB(≈2.2) 会整体提亮中间
+    调，恰是「灰蒙蒙」经典症状；iOS mpv 直通 Metal 默认 bt.1886 原样输出。
+    GL/SW 两路径统一改钉 `bt.1886`（对齐 iOS 基准），prim 保持 bt.709、
+    tone-mapping=bt.2390 保留（仅 HDR→SDR 生效）。

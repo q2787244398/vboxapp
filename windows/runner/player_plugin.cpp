@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <string>
 #include <utility>
 #include <variant>
 
@@ -258,6 +260,31 @@ void PlayerPlugin::HandleCloudMethodCall(
           result->Success(value);
         },
         interactive);
+    return;
+  }
+  if (call.method_name() == "getBdstokenWinHttp") {
+    // WinHTTP（Schannel 系统栈）直取 gettemplatevariable——对齐 iOS 第 1 层
+    // URLSession。同步调用（紧超时，见 FetchBdstokenViaWinHttp）。
+    std::string cookie;
+    if (call.arguments() != nullptr) {
+      const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+      if (args != nullptr) {
+        const auto it = args->find(flutter::EncodableValue("cookie"));
+        if (it != args->end() && std::holds_alternative<std::string>(it->second)) {
+          cookie = std::get<std::string>(it->second);
+        }
+      }
+    }
+    std::string token;
+    std::string detail;
+    const int errno_code =
+        BaiduTokenBridge::FetchBdstokenViaWinHttp(cookie, &token, &detail);
+    flutter::EncodableMap out;
+    out[flutter::EncodableValue("errno")] =
+        flutter::EncodableValue(errno_code);
+    out[flutter::EncodableValue("bdstoken")] = flutter::EncodableValue(token);
+    out[flutter::EncodableValue("message")] = flutter::EncodableValue(detail);
+    result->Success(flutter::EncodableValue(out));
     return;
   }
   result->NotImplemented();
@@ -565,6 +592,13 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
     if (quality_profile != nullptr) {
       EmitLog("info", std::string("mpv 画质画像：") + quality_profile);
     }
+    // 硬解（3.1858 卡顿修复）：用户日志实测 4K HEVC 60fps 10-bit 走 SW 软
+    // 渲染时 hwdec=no（纯 CPU 软解），伴随连续「Audio device underrun」
+    // （音频都供不上 = CPU 彻底过载）与丢帧——「播放一卡一卡」的直接根因。
+    // 取 auto-copy：D3D11VA 解码后拷回系统内存，GL / SW 两条渲染路径通吃
+    // （零拷贝 interop 在离屏 WGL 上下文有兼容风险，不走）；D3D11 不可用
+    // （RDP 会话仅 WARP）时 mpv 自动回退软解，无副作用。运行时可改。
+    api_.set_option_string(handle, "hwdec", "auto-copy");
   }
   if (api_.initialize(handle) < 0) {
     api_.terminate_destroy(handle);
@@ -624,18 +658,28 @@ void PlayerPlugin::ShutdownMpv() {
   UnregisterTexture();
   {
     // 竞态修复（0xC0000409 闪退根因）：引擎光栅线程经 CopyPixelBuffer 拿到
-    // frame_buffer_ 后、OnPixelBufferReleased 归还前，若此处立即 clear()，后续
-    // 新 Open 重分配帧缓冲会释放引擎仍在采样的内存 → STATUS_STACK_BUFFER_OVERRUN。
-    // 故在 UnregisterTexture 后**有界等待**引擎归还缓冲再清空；渲染线程已 join，
-    // 不会再产生新帧，此处只可能被引擎 release 回调唤醒，1s 超时兜底防死锁。
+    // 帧槽后、OnPixelBufferReleased 归还前，若此处立即 clear()，后续新 Open
+    // 重分配帧缓冲会释放引擎仍在采样的内存 → STATUS_STACK_BUFFER_OVERRUN。
+    // 故在 UnregisterTexture 后**有界等待**引擎归还全部帧槽再清空；渲染线程
+    // 已 join，不会再产生新帧，此处只可能被引擎 release 回调唤醒，1s 超时
+    // 兜底防死锁。
     std::unique_lock<std::mutex> lock(frame_mutex_);
     frame_cv_.wait_for(lock, std::chrono::milliseconds(1000), [this] {
-      return !frame_locked_.load();
+      for (const FrameSlot& s : frame_slots_) {
+        if (s.locked) {
+          return false;
+        }
+      }
+      return true;
     });
-    frame_buffer_.clear();
-    frame_width_ = 0;
-    frame_height_ = 0;
-    frame_locked_ = false;
+    for (FrameSlot& s : frame_slots_) {
+      s.buffer.clear();
+      s.width = 0;
+      s.height = 0;
+      s.locked = false;
+      s.seq = 0;
+    }
+    frame_seq_ = 0;
   }
   last_video_width_ = 0;
   last_video_height_ = 0;
@@ -1061,12 +1105,15 @@ bool PlayerPlugin::CreateGlRenderContext() {
   }
   render_ctx_ = ctx;
   render_backend_ = RenderBackend::opengl;
-  // GL 路径色彩钉扎（3.1856，与 SW 路径同口径）：mpv 渲染到 FBO 的输出
-  // 色彩目标显式钉住，避免虚拟显卡驱动自报的色彩参数异常导致 GPU 管线
-  // 输出错色。GPU 色彩管线本身完整（primaries/gamma/tone-mapping），钉扎
-  // 仅消除目标空间歧义；旧版 mpv-2.dll 不识别时选项被忽略，行为不变。
+  // GL 路径色彩钉扎（3.1858 修正，与 SW 路径同口径）：primaries 钉 bt.709
+  // （SDR 恒等、HDR 收敛到 SDR 显示），**TRC 改钉 bt.1886**——3.1856 曾钉
+  // srgb，但视频标准 gamma=bt.1886(≈2.4) 转 sRGB(≈2.2) 会整体提亮中间调，
+  // 恰是用户实测「灰蒙蒙/低对比」的经典症状；iOS mpv 直通 Metal 用的就是
+  // 默认 bt.1886 原样输出（无 sRGB 转换），对齐 iOS 即对齐 bt.1886。
+  // tone-mapping 保留（仅 HDR→SDR 时生效，SDR 不受影响）；旧版 mpv-2.dll
+  // 不识别时选项被忽略，行为不变。
   api_.set_option_string(mpv_, "target-prim", "bt.709");
-  api_.set_option_string(mpv_, "target-trc", "srgb");
+  api_.set_option_string(mpv_, "target-trc", "bt.1886");
   api_.set_option_string(mpv_, "tone-mapping", "bt.2390");
   api_.render_context_set_update_callback(render_ctx_, &PlayerPlugin::OnRenderUpdate,
                                           this);
@@ -1084,14 +1131,14 @@ bool PlayerPlugin::CreateSwRenderContext() {
   if (api_.render_context_create == nullptr || mpv_ == nullptr) {
     return false;
   }
-  // SW 路径色彩钉扎（泛黄修复）：libswscale 软转换在目标色彩参数缺省时仅按
-  // 默认矩阵做 YUV→RGB（云电脑/虚拟机实测整体泛黄——典型 601/709 系数与
-  // gamma 不匹配症状）。显式钉住输出 primaries/TRC 与 tone-mapping，使软
-  // 渲染输出向 GPU 路径看齐。三者均为运行时选项（mpv 已 initialize 后可
-  // 设置）；旧版 mpv-2.dll 不识别时 set_option_string 返回非 0，选项被
-  // 忽略，行为与修复前一致。
+  // SW 路径色彩钉扎（3.1858 修正）：TRC 与 GL 路径同口径改钉 bt.1886——
+  // 3.1856 钉 srgb（≈2.2）会把 bt.1886(≈2.4) 视频中间调整体提亮 = 用户实测
+  // 「灰蒙蒙/低对比」症状；iOS 直通 Metal 原样 bt.1886 输出，对齐之。
+  // 注：SW（libswscale 软转换）对 target-* 选项的支持随 mpv 版本而异
+  // （旧版不识别时忽略，行为不变），色彩最终以 VBOX_DUMP_FRAME 转储的
+  // BMP 像素实测为准。
   api_.set_option_string(mpv_, "target-prim", "bt.709");
-  api_.set_option_string(mpv_, "target-trc", "srgb");
+  api_.set_option_string(mpv_, "target-trc", "bt.1886");
   api_.set_option_string(mpv_, "tone-mapping", "bt.2390");
   int advanced_control = 1;
   mpv_render_param params[] = {
@@ -1363,31 +1410,126 @@ bool PlayerPlugin::ResolveVideoSize(int* width, int* height) {
   return true;
 }
 
+namespace {
+
+// 首帧像素转储（仅 VBOX_DUMP_FRAME=1 时生效）：把 BGRA 缓冲写成 24 位 BMP
+// （自底向上行序）。返回落盘路径；未启用 / 失败返回空串。GL 与 SW 后端的
+// 输出在此点均为 BGRA 顶行在上，同一口径。
+std::string DumpFirstFrameToBmp(const std::vector<uint8_t>& bgra, int width,
+                                int height, bool software_backend) {
+  char enabled[8] = {0};
+  if (::GetEnvironmentVariableA("VBOX_DUMP_FRAME", enabled,
+                                static_cast<DWORD>(sizeof(enabled))) == 0) {
+    return "";
+  }
+  if (width <= 0 || height <= 0 ||
+      bgra.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4) {
+    return "";
+  }
+  char temp_dir[MAX_PATH] = {0};
+  const DWORD len = ::GetTempPathA(MAX_PATH, temp_dir);
+  if (len == 0 || len >= MAX_PATH - 64) {
+    return "";
+  }
+  const std::string path = std::string(temp_dir) + "vbox_frame_" +
+                           std::to_string(width) + "x" + std::to_string(height) +
+                           (software_backend ? "_sw.bmp" : "_gl.bmp");
+  const size_t row_bytes = ((static_cast<size_t>(width) * 3 + 3) / 4) * 4;
+  const size_t image_bytes = row_bytes * static_cast<size_t>(height);
+  BITMAPFILEHEADER file_hdr{};
+  file_hdr.bfType = 0x4D42;  // 'BM'
+  file_hdr.bfSize = sizeof(file_hdr) + sizeof(BITMAPINFOHEADER) + image_bytes;
+  file_hdr.bfOffBits = sizeof(file_hdr) + sizeof(BITMAPINFOHEADER);
+  BITMAPINFOHEADER info_hdr{};
+  info_hdr.biSize = sizeof(info_hdr);
+  info_hdr.biWidth = width;
+  info_hdr.biHeight = height;  // 正值 = 自底向上
+  info_hdr.biPlanes = 1;
+  info_hdr.biBitCount = 24;
+  info_hdr.biCompression = BI_RGB;
+  info_hdr.biSizeImage = static_cast<DWORD>(image_bytes);
+  info_hdr.biXPelsPerMeter = 2835;
+  info_hdr.biYPelsPerMeter = 2835;
+  std::vector<uint8_t> pixels(image_bytes, 0);
+  for (int y = 0; y < height; ++y) {
+    const uint8_t* src =
+        bgra.data() + static_cast<size_t>(y) * static_cast<size_t>(width) * 4;
+    uint8_t* dst = pixels.data() +
+                   static_cast<size_t>(height - 1 - y) * row_bytes;
+    for (int x = 0; x < width; ++x) {
+      dst[x * 3 + 0] = src[x * 4 + 0];  // B
+      dst[x * 3 + 1] = src[x * 4 + 1];  // G
+      dst[x * 3 + 2] = src[x * 4 + 2];  // R
+    }
+  }
+  FILE* f = nullptr;
+  if (fopen_s(&f, path.c_str(), "wb") != 0 || f == nullptr) {
+    return "";
+  }
+  fwrite(&file_hdr, sizeof(file_hdr), 1, f);
+  fwrite(&info_hdr, sizeof(info_hdr), 1, f);
+  fwrite(pixels.data(), 1, pixels.size(), f);
+  fclose(f);
+  return path;
+}
+
+}  // namespace
+
 // 两个渲染后端共用的上屏尾段：丢帧判定 → 交 Flutter 纹理 → 首帧日志 → 尺寸
 // 上报。缓冲尺寸（渲染目标，可能为显示尺寸）与视频原始尺寸（纵横比上报）
 // 解耦：按显示尺寸渲染时二者不同。
 void PlayerPlugin::PublishFrame(std::vector<uint8_t>& source, int width,
                                 int height, int video_width, int video_height) {
-  bool dropped_for_locked_buffer = false;
-  {
-    std::lock_guard<std::mutex> lock(frame_mutex_);
-    if (frame_locked_.load()) {
-      // 引擎尚未回调 release（长时间占用前缓冲）→ 本帧丢弃。若一直如此，
-      // 画面会静止/全黑但音频与进度正常，且此前无任何日志可查，故留痕一次。
-      // 注意：日志上报放在锁外，避免与 CopyPixelBuffer 的持锁路径互相等待。
-      if (!logged_frame_drop_) {
-        logged_frame_drop_ = true;
-        dropped_for_locked_buffer = true;
-      }
-    } else {
-      frame_buffer_.swap(source);
-      frame_width_ = width;
-      frame_height_ = height;
+  // 偏色排查逃生门（VBOX_DUMP_FRAME=1）：首帧经此汇聚点落盘为 24 位 BMP
+  // （%TEMP%\vbox_frame_宽x高_后端.bmp）。像素级区分偏色责任方：BMP 颜色
+  // 正常而屏幕偏色 → 显示器/系统色彩配置；BMP 本身偏色 → mpv 渲染管线
+  // （SW 软转换色彩弱）。GL / SW 两后端共用本函数，转储覆盖全路径。
+  if (!logged_first_frame_ && !source.empty()) {
+    const std::string dumped = DumpFirstFrameToBmp(
+        source, width, height, render_backend_ == RenderBackend::software);
+    if (!dumped.empty()) {
+      EmitLog("info",
+              "VBOX_DUMP_FRAME：首帧像素已转储 " + dumped +
+                  "（与屏幕比对可定位偏色环节：BMP 正常→显示器/系统；BMP 偏"
+                  "色→渲染管线）");
     }
   }
-  if (dropped_for_locked_buffer) {
+  bool dropped_for_full_pool = false;
+  {
+    std::lock_guard<std::mutex> lock(frame_mutex_);
+    // 三槽环池：写入「最旧的空闲槽」（空槽优先）。引擎持有的槽绝不触碰，
+    // 其余槽随时可写——引擎按 vsync 持帧 1-2 帧不归还也不再丢帧（卡顿修复）。
+    int target = -1;
+    uint64_t min_seq = UINT64_MAX;
+    for (size_t i = 0; i < kFrameSlotCount; ++i) {
+      const FrameSlot& s = frame_slots_[i];
+      if (s.locked) {
+        continue;
+      }
+      if (s.seq == 0) {
+        target = static_cast<int>(i);
+        break;
+      }
+      if (s.seq < min_seq) {
+        min_seq = s.seq;
+        target = static_cast<int>(i);
+      }
+    }
+    if (target >= 0) {
+      FrameSlot& slot = frame_slots_[target];
+      slot.buffer.swap(source);
+      slot.width = width;
+      slot.height = height;
+      slot.seq = ++frame_seq_;
+    } else if (!logged_frame_drop_) {
+      // 3 槽全被引擎持有（异常长持有）：留痕一次后丢弃本帧。
+      logged_frame_drop_ = true;
+      dropped_for_full_pool = true;
+    }
+  }
+  if (dropped_for_full_pool) {
     EmitLog("warn",
-            "引擎未释放前缓冲，本帧被丢弃（若持续出现则画面会停滞/黑屏）");
+            "帧池 3 槽全部被引擎持有，本帧被丢弃（若持续出现则画面会停滞）");
     return;
   }
 
@@ -1469,30 +1611,19 @@ void PlayerPlugin::RenderFrame() {
   if (!ResolveVideoSize(&pixel_width, &pixel_height)) {
     return;
   }
-  // 渲染目标尺寸：显示尺寸小于视频尺寸时按显示尺寸渲染——缩小由 mpv 的
-  // 高质量缩放器（ewa_lanczossharp + correct-downscaling）完成，规避
-  // Flutter 纹理 bilinear 缩放大尺寸纹理的发虚/摩尔纹（「画质不是原视频」
-  // 的渲染端根因：此前 4K 视频按原尺寸渲染，缩小全靠引擎 bilinear）。
-  // 显示尺寸未上报 / 大于视频（放大场景）时维持视频原尺寸（bilinear 放大
-  // 损耗可忽略）。回读带宽也随渲染目标缩小同比下降（云电脑收益明显）。
-  int target_width = pixel_width;
+  // 渲染目标 = 引擎显示尺寸（CopyPixelBuffer 回调入参）。Flutter 引擎要求
+  // 返回的 buffer 尺寸严格等于其传入的显示尺寸，否则触发 fastfail
+  // (0xC0000409，实测 3.1857 闪退根因)。故此处不做「min(视频, 显示)」——
+  // 视频无论放大还是缩小，统一渲染到显示尺寸，缩放全部交给 mpv 高质量
+  // 缩放器（ewa_lanczossharp + correct-downscaling），渲染目标尺寸恒与引擎
+  // 显示尺寸一致，同时规避引擎二次 bilinear 缩放导致的发虚/偏色。
+  int target_width = pixel_width;  // 显示尺寸未上报（首帧前）时兜底视频尺寸
   int target_height = pixel_height;
   const int req_width = requested_width_.load(std::memory_order_relaxed);
   const int req_height = requested_height_.load(std::memory_order_relaxed);
-  if (req_width > 0 && req_height > 0 &&
-      (req_width < pixel_width || req_height < pixel_height)) {
-    const double scale_w = static_cast<double>(req_width) / pixel_width;
-    const double scale_h = static_cast<double>(req_height) / pixel_height;
-    const double scale = std::min(scale_w, scale_h);
-    if (scale < 1.0) {
-      const int w = static_cast<int>(pixel_width * scale);
-      const int h = static_cast<int>(pixel_height * scale);
-      // 保底：异常小的布局（隐藏/最小化瞬间的 0 尺寸等）不采用。
-      if (w >= 64 && h >= 64) {
-        target_width = w;
-        target_height = h;
-      }
-    }
+  if (req_width >= 64 && req_height >= 64) {
+    target_width = req_width;
+    target_height = req_height;
   }
   if (render_backend_ == RenderBackend::software) {
     RenderFrameSoftware(pixel_width, pixel_height, target_width, target_height);
@@ -1557,37 +1688,67 @@ void PlayerPlugin::RenderFrame() {
   PublishFrame(scratch, target_width, target_height, pixel_width, pixel_height);
 }
 
+// 引擎持有缓冲的释放上下文（多槽并发持有 → 每次归还需定位具体槽）。
+struct FrameReleaseContext {
+  PlayerPlugin* plugin;
+  size_t slot_index;
+};
+
 const FlutterDesktopPixelBuffer* PlayerPlugin::CopyPixelBuffer(size_t width,
                                                                size_t height) {
-  // 引擎回调入参即纹理显示尺寸（物理像素）：记录之，渲染线程下一帧按
-  // min(视频尺寸, 显示尺寸) 渲染，缩小交给 mpv 高质量缩放器。入参无效
-  // （0）或早于首帧（引擎尚未布局）时不采用，维持视频原尺寸渲染。
+  // 引擎回调入参即纹理显示尺寸（物理像素）：记录之，渲染线程下一帧严格
+  // 按此尺寸渲染（引擎要求 buffer 尺寸一致，否则 fastfail 0xC0000409）。
   if (width > 0 && height <= static_cast<size_t>(0x7FFFFFFF)) {
     requested_width_.store(static_cast<int>(width), std::memory_order_relaxed);
     requested_height_.store(static_cast<int>(height),
                             std::memory_order_relaxed);
   }
   std::lock_guard<std::mutex> lock(frame_mutex_);
-  if (frame_width_ <= 0 || frame_height_ <= 0 || frame_buffer_.empty()) {
+  // 取「最新的空闲槽」（引擎总是希望拿到最新画面）。
+  int best = -1;
+  for (size_t i = 0; i < kFrameSlotCount; ++i) {
+    const FrameSlot& s = frame_slots_[i];
+    if (s.locked || s.seq == 0 || s.buffer.empty()) {
+      continue;
+    }
+    if (best < 0 || s.seq > frame_slots_[best].seq) {
+      best = static_cast<int>(i);
+    }
+  }
+  if (best < 0) {
+    return nullptr;  // 帧池空（首帧前）或全被持有 → 引擎沿用既有纹理
+  }
+  FrameSlot& slot = frame_slots_[best];
+  // 尺寸一致性防御：Flutter 引擎要求返回 buffer 尺寸 == 其传入的显示尺寸，
+  // 否则触发 fastfail（0xC0000409）。resize / 首帧瞬态下渲染线程可能尚未
+  // 按新显示尺寸出帧，此时返回 nullptr 让引擎沿用上一帧，杜绝尺寸不一致。
+  if (static_cast<size_t>(slot.width) != width ||
+      static_cast<size_t>(slot.height) != height) {
     return nullptr;
   }
-  pixel_buffer_.buffer = frame_buffer_.data();
-  pixel_buffer_.width = static_cast<size_t>(frame_width_);
-  pixel_buffer_.height = static_cast<size_t>(frame_height_);
+  pixel_buffer_.buffer = slot.buffer.data();
+  pixel_buffer_.width = static_cast<size_t>(slot.width);
+  pixel_buffer_.height = static_cast<size_t>(slot.height);
   pixel_buffer_.release_callback = &PlayerPlugin::OnPixelBufferReleased;
-  pixel_buffer_.release_context = this;
-  frame_locked_ = true;
+  pixel_buffer_.release_context = new FrameReleaseContext{
+      this, static_cast<size_t>(best)};
+  slot.locked = true;
   return &pixel_buffer_;
 }
 
 void PlayerPlugin::OnPixelBufferReleased(void* release_context) {
-  auto* self = static_cast<PlayerPlugin*>(release_context);
-  if (self == nullptr) {
+  auto* ctx = static_cast<FrameReleaseContext*>(release_context);
+  if (ctx == nullptr) {
     return;
   }
+  PlayerPlugin* self = ctx->plugin;
+  const size_t index = ctx->slot_index;
+  delete ctx;
   {
     std::lock_guard<std::mutex> lock(self->frame_mutex_);
-    self->frame_locked_ = false;
+    if (index < PlayerPlugin::kFrameSlotCount) {
+      self->frame_slots_[index].locked = false;
+    }
   }
   // 唤醒 ShutdownMpv 中等待缓冲归还的线程（有界等待，见 ShutdownMpv）。
   self->frame_cv_.notify_all();

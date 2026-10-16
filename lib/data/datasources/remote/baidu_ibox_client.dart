@@ -772,6 +772,35 @@ class BaiduIBoxClient {
     String savedBdstoken = '',
     void Function(String bdstoken, String source, String mergedCookie)? onFetched,
   }) async {
+    // ── 第 0 前置层（Windows 专属，3.1858）：WinHTTP 系统栈直取 ──
+    // 对齐 iOS 第 1 层 URLSession 的「系统网络栈」语义（Windows 上等价物为
+    // WinHTTP/Schannel）：不依赖 WebView2 运行时、无窗口、秒级完成，成功则
+    // 一步到位。errno 留痕判定百度对 Schannel 指纹的信任度（-6=仍被风控，
+    // 继续走 WebView2 / 原有兜底链）。非 Windows 平台跳过。
+    if (Platform.isWindows) {
+      final viaWinHttp =
+          await BaiduNativeTokenBridge.fetchBdstokenWinHttp(cookie);
+      if (viaWinHttp.token.isNotEmpty) {
+        AppLog.debug(
+          'baidu-local',
+          '第 0 前置层 WinHTTP（系统栈）取得用户态 bdstoken',
+          category: LogCategory.cloud,
+        );
+        onFetched?.call(
+          viaWinHttp.token,
+          'winhttp-templatevariable',
+          cookie,
+        );
+        return viaWinHttp.token;
+      }
+      AppLog.warn(
+        'baidu-local',
+        '第 0 前置层 WinHTTP 未取得 bdstoken'
+        '（errno=${viaWinHttp.errno}，${viaWinHttp.message}），'
+        '继续 WebView2 / 原有兜底链',
+        category: LogCategory.cloud,
+      );
+    }
     // ── 第 0 层（Windows 专属，新增）：原生 WebView2 桥（真实 Edge 网络栈）──
     // iOS 端 URLSession / WKWebView 均为系统网络栈，百度天然信任，故 iOS 无此问题；
     // Windows 端 dart:io HttpClient 的 TLS/请求指纹会被百度风控（errno=-6），

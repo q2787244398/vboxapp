@@ -61,6 +61,9 @@ target_link_libraries(${BINARY_NAME} PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/webview2/WebView2LoaderStatic.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "ole32.lib" "oleaut32.lib"
     "uuid.lib" "advapi32.lib" "version.lib" "shell32.lib")
+# WinHTTP（Schannel 系统栈）bdstoken 直取（baidu_token_bridge.cpp
+# FetchBdstokenViaWinHttp，对齐 iOS URLSession 第 1 层）。
+target_link_libraries(${BINARY_NAME} PRIVATE "winhttp.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

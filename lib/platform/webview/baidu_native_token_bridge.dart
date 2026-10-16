@@ -72,4 +72,38 @@ class BaiduNativeTokenBridge {
       return (token: '', cookie: '', errno: -1, message: '原生桥调用失败：$e');
     }
   }
+
+  /// WinHTTP（Schannel 系统原生栈）直取 gettemplatevariable 的 bdstoken。
+  ///
+  /// 对齐 iOS 第 1 层 URLSession 的「系统网络栈」语义：不依赖 WebView2
+  /// 运行时、无窗口、秒级完成。返回 errno=0 且 token 非空为成功；
+  /// errno/message 供日志留痕（-6 = Schannel 指纹也被风控，需 WebView2 兜底）。
+  static Future<({String token, int errno, String message})>
+      fetchBdstokenWinHttp(String cookieHeader) async {
+    if (!Platform.isWindows) {
+      return (token: '', errno: -1, message: '非 Windows 平台');
+    }
+    try {
+      final Object? raw = await _channel
+          .invokeMethod<dynamic>(
+            'getBdstokenWinHttp',
+            <String, Object?>{'cookie': cookieHeader},
+          )
+          .timeout(const Duration(seconds: 20));
+      if (raw is! Map) {
+        return (token: '', errno: -1, message: '桥返回类型异常');
+      }
+      final int errno = (raw['errno'] as num?)?.toInt() ?? -1;
+      final String token = raw['bdstoken'] as String? ?? '';
+      final String message = raw['message'] as String? ?? '';
+      if (errno == 0 && token.isNotEmpty) {
+        return (token: token, errno: 0, message: message);
+      }
+      return (token: '', errno: errno, message: message);
+    } on TimeoutException {
+      return (token: '', errno: -1, message: 'WinHTTP 调用超时');
+    } catch (e) {
+      return (token: '', errno: -1, message: 'WinHTTP 调用失败：$e');
+    }
+  }
 }

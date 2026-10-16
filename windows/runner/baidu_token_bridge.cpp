@@ -16,10 +16,13 @@
 #include <objbase.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <winhttp.h>
 #include <wrl/event.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <iomanip>
+#include <regex>
 #include <sstream>
 #include <utility>
 
@@ -372,6 +375,136 @@ void BaiduTokenBridge::OnVerifyWindowClosed() {
   if (phase_ != Phase::kIdle) {
     FailAll("已取消百度安全验证（窗口被关闭）");
   }
+}
+
+// ─────────────── WinHTTP 直取 bdstoken（第 1 层系统栈，对齐 iOS URLSession） ───────────────
+//
+// 背景：iOS 第 1 层用 URLSession（CFNetwork 系统栈）请求 gettemplatevariable，
+// 百度风控信任、一步成功；Windows 上 dart:io HttpClient（BoringSSL）被风控
+// （errno=-6），此前全押 WebView2 兜底，而 WebView2 依赖运行时安装与窗口
+// 可见性等环境条件，精简系统/云电脑上脆弱。WinHTTP 走 Schannel 系统栈
+// （与 Edge/IE 同源），是 Windows 上最接近 URLSession 的等价物：不依赖
+// WebView2、无窗口、秒级完成。返回 errno（0=取得 bdstoken），响应关键信息
+// 写入 detail 供日志留痕——百度对 Schannel 指纹的信任度由实测 errno 判定
+// （0=通过，-6=被风控，届时仍需 WebView2 兜底）。
+int BaiduTokenBridge::FetchBdstokenViaWinHttp(const std::string& cookie_header,
+                                              std::string* bdstoken,
+                                              std::string* detail) {
+  *bdstoken = std::string();
+  static const wchar_t kUserAgent[] =
+      L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      L"(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+  // fields 与 Dart 第 1 层完全一致（已 urlencode）。
+  static const wchar_t kPath[] =
+      L"/api/gettemplatevariable?clienttype=0&app_id=250528&web=1&bdstoken="
+      L"&fields=%5B%22bdstoken%22%2C%22token%22%2C%22uk%22%2C%22isdocuser%22"
+      L"%2C%22servertime%22%5D";
+
+  HINTERNET session = nullptr;
+  HINTERNET connect = nullptr;
+  HINTERNET request = nullptr;
+  auto close_all = [&session, &connect, &request]() {
+    if (request != nullptr) ::WinHttpCloseHandle(request);
+    if (connect != nullptr) ::WinHttpCloseHandle(connect);
+    if (session != nullptr) ::WinHttpCloseHandle(session);
+  };
+
+  session = ::WinHttpOpen(kUserAgent, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  if (session == nullptr) {
+    *detail = "WinHttpOpen 失败（Gle=" + std::to_string(::GetLastError()) + "）";
+    close_all();
+    return -1;
+  }
+  // 紧超时（同步调用，平台线程等待）：解析/连接 5s，收发 8s。
+  ::WinHttpSetTimeouts(session, 0, 5000, 5000, 8000);
+  connect = ::WinHttpConnect(session, L"pan.baidu.com",
+                             INTERNET_DEFAULT_HTTPS_PORT, 0);
+  if (connect == nullptr) {
+    *detail = "WinHttpConnect 失败（Gle=" + std::to_string(::GetLastError()) +
+              "）";
+    close_all();
+    return -1;
+  }
+  request = ::WinHttpOpenRequest(connect, L"GET", kPath, nullptr,
+                                 WINHTTP_NO_REFERER,
+                                 WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                 WINHTTP_FLAG_SECURE);
+  if (request == nullptr) {
+    *detail = "WinHttpOpenRequest 失败";
+    close_all();
+    return -1;
+  }
+  // 请求头对齐 Dart 第 1 层（Cookie / Referer / Accept；UA 已随 WinHttpOpen）。
+  const std::wstring headers =
+      L"Cookie: " + Utf8ToWide(cookie_header) +
+      L"\r\nReferer: https://pan.baidu.com/disk/main"
+      L"\r\nAccept: application/json, text/plain, */*";
+  if (!::WinHttpAddRequestHeaders(request, headers.c_str(), -1L,
+                                  WINHTTP_ADDREQ_FLAG_ADD)) {
+    *detail = "WinHttpAddRequestHeaders 失败";
+    close_all();
+    return -1;
+  }
+  if (!::WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+      !::WinHttpReceiveResponse(request, nullptr)) {
+    const DWORD gle = ::GetLastError();
+    *detail = gle == ERROR_WINHTTP_TIMEOUT
+                  ? "WinHTTP 请求超时"
+                  : "WinHTTP 请求失败（Gle=" + std::to_string(gle) + "）";
+    close_all();
+    return -1;
+  }
+  DWORD status = 0;
+  DWORD status_size = sizeof(status);
+  if (!::WinHttpQueryHeaders(
+          request,
+          WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+          WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_size,
+          WINHTTP_NO_HEADER_INDEX)) {
+    *detail = "WinHTTP 查询状态码失败";
+    close_all();
+    return -1;
+  }
+  std::string body;
+  for (;;) {
+    DWORD available = 0;
+    if (!::WinHttpQueryDataAvailable(request, &available) || available == 0) {
+      break;
+    }
+    std::vector<char> chunk(available);
+    DWORD read = 0;
+    if (!::WinHttpReadData(request, chunk.data(), available, &read) ||
+        read == 0) {
+      break;
+    }
+    body.append(chunk.data(), read);
+  }
+  close_all();
+
+  if (status != 200) {
+    *detail = "HTTP " + std::to_string(status) + "（body " +
+              std::to_string(body.size()) + " 字节）";
+    return -1;
+  }
+  // 容错解析 errno 与 bdstoken（与页面 JSON 的空格无关）。
+  std::smatch m;
+  int errno_code = -1;
+  if (std::regex_search(body, m,
+                        std::regex("\"errno\"\\s*:\\s*(-?\\d+)"))) {
+    errno_code = std::atoi(m[1].str().c_str());
+  }
+  if (errno_code == 0 &&
+      std::regex_search(body, m,
+                        std::regex("\"bdstoken\"\\s*:\\s*\"([^\"]+)\""))) {
+    *bdstoken = m[1].str();
+    *detail = "WinHTTP errno=0，取得 bdstoken";
+    return 0;
+  }
+  *detail = "WinHTTP errno=" + std::to_string(errno_code) + "（body " +
+            std::to_string(body.size()) + " 字节）";
+  return errno_code != 0 ? errno_code : -1;
 }
 
 void BaiduTokenBridge::EnsureHostWindow() {

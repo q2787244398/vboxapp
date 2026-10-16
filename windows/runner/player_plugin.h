@@ -291,19 +291,28 @@ class PlayerPlugin : public flutter::Plugin {
   std::atomic<int64_t> texture_id_{-1};
   FlutterDesktopPixelBuffer pixel_buffer_{};
   std::mutex frame_mutex_;
-  // 引擎释放前缓冲（OnPixelBufferReleased）时的通知：ShutdownMpv 借此有界等待
+  // 引擎释放帧缓冲（OnPixelBufferReleased）时的通知：ShutdownMpv 借此有界等待
   // 引擎归还缓冲，避免帧缓冲被提前释放而引擎光栅线程仍在采样（0xC0000409）。
   std::condition_variable frame_cv_;
-  std::vector<uint8_t> frame_buffer_;  // BGRA8888（引擎读取的前缓冲）
-  int frame_width_ = 0;
-  int frame_height_ = 0;
-  // 引擎是否正持有 [frame_buffer_]（CopyPixelBuffer 后至 release_callback 间）。
-  // 置位期间渲染线程丢弃新帧，避免写坏引擎正在采样的缓冲。
-  std::atomic<bool> frame_locked_{false};
-  // 引擎光栅线程经 CopyPixelBuffer 回报的显示尺寸（物理像素）。非 0 且小于
-  // 视频尺寸时按此渲染（缩小交给 mpv 高质量缩放器，规避 Flutter bilinear
-  // 缩放大尺寸纹理的发虚/摩尔纹——「画质不是原视频」的渲染端根因）。
-  // 光栅线程写、渲染线程读，原子访问。
+  // ── 三缓冲帧池（3.1858 卡顿修复）──
+  // 旧单缓冲 + frame_locked_ 的架构：引擎持帧未归还期间渲染线程只能丢帧，
+  // 引擎按 vsync 采样（60Hz）与 mpv 出帧（视频帧率）节奏不齐时高概率撞锁
+  // → 周期性丢帧 = 「一卡一卡」。改为 3 槽环池：渲染线程写入最旧的空闲槽，
+  // 引擎取最新的空闲槽，读写永不互斥；3 槽同时覆盖「引擎迟归还 1-2 帧」的
+  // 常态抖动，仅全部被锁时才丢帧（理论上不再出现）。
+  struct FrameSlot {
+    std::vector<uint8_t> buffer;  // BGRA8888
+    int width = 0;
+    int height = 0;
+    bool locked = false;  // 引擎持有中（CopyPixelBuffer 后至 release 间）
+    uint64_t seq = 0;     // 发布序号（0 = 空槽），引擎取最大者
+  };
+  static constexpr size_t kFrameSlotCount = 3;
+  FrameSlot frame_slots_[kFrameSlotCount];
+  uint64_t frame_seq_ = 0;
+  // 引擎光栅线程经 CopyPixelBuffer 回报的显示尺寸（物理像素）。渲染目标
+  // 恒等于该尺寸（引擎要求 buffer 尺寸严格一致，否则 fastfail），缩放全部
+  // 由 mpv 高质量缩放器完成。光栅线程写、渲染线程读，原子访问。
   std::atomic<int> requested_width_{0};
   std::atomic<int> requested_height_{0};
   int last_video_width_ = 0;   // 上次上报的视频尺寸（去重）
