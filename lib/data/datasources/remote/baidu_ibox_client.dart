@@ -1600,7 +1600,7 @@ class BaiduIBoxClient {
       _nextFetchInteractive = true;
       final String hint = _lastBaiduNativeFailure.isEmpty
           ? 'Cookie 补全重试仍失败，多为百度风控或旧版凭据缺指纹 Cookie'
-          : '$_lastBaiduNativeFailure';
+          : _lastBaiduNativeFailure;
       final String message = '百度登录态正常，但未取得用户态 bdstoken，'
           '无法创建 vbox 转存目录 —— $hint。'
           '点击「重试」将打开百度安全验证窗口，完成验证后自动继续播放';
