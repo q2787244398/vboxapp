@@ -440,8 +440,9 @@ int BaiduTokenBridge::FetchBdstokenViaWinHttp(const std::string& cookie_header,
       L"Cookie: " + Utf8ToWide(cookie_header) +
       L"\r\nReferer: https://pan.baidu.com/disk/main"
       L"\r\nAccept: application/json, text/plain, */*";
-  if (!::WinHttpAddRequestHeaders(request, headers.c_str(), -1L,
-                                  WINHTTP_ADDREQ_FLAG_ADD)) {
+  if (!::WinHttpAddRequestHeaders(
+          request, headers.c_str(), static_cast<DWORD>(headers.size()),
+          WINHTTP_ADDREQ_FLAG_ADD)) {
     *detail = "WinHttpAddRequestHeaders 失败";
     close_all();
     return -1;

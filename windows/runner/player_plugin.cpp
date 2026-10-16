@@ -1438,8 +1438,10 @@ std::string DumpFirstFrameToBmp(const std::vector<uint8_t>& bgra, int width,
   const size_t image_bytes = row_bytes * static_cast<size_t>(height);
   BITMAPFILEHEADER file_hdr{};
   file_hdr.bfType = 0x4D42;  // 'BM'
-  file_hdr.bfSize = sizeof(file_hdr) + sizeof(BITMAPINFOHEADER) + image_bytes;
-  file_hdr.bfOffBits = sizeof(file_hdr) + sizeof(BITMAPINFOHEADER);
+  file_hdr.bfSize = static_cast<DWORD>(sizeof(file_hdr) +
+                                       sizeof(BITMAPINFOHEADER) + image_bytes);
+  file_hdr.bfOffBits =
+      static_cast<DWORD>(sizeof(file_hdr) + sizeof(BITMAPINFOHEADER));
   BITMAPINFOHEADER info_hdr{};
   info_hdr.biSize = sizeof(info_hdr);
   info_hdr.biWidth = width;
