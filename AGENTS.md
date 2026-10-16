@@ -108,6 +108,7 @@ Dart `ChannelPlayer._onEvent` 收到后转 `AppLog`（category=player，tag
 ## 已知待决问题
 
 - 百度 `pcs_cookie` 在 iOS 与 Flutter 均无写入点，`pcs` 两端恒空，非差异。
-- 渲染线程启用了 `MPV_RENDER_PARAM_ADVANCED_CONTROL`，但未调用 mpv 契约要求的
-  `mpv_render_context_report_swap()`（帧已呈现回报），可能影响帧节流/画面刷新
-  时机；`MpvApi` 尚未解析该符号，待确认是否补齐。
+- 渲染线程启用 `MPV_RENDER_PARAM_ADVANCED_CONTROL` 的帧回报契约已补齐：`MpvApi`
+  现解析 `mpv_render_context_report_swap()`，OpenGL 与软件渲染路径均在
+  `mpv_render_context_render()` 成功后回报一帧 swap，维持 mpv 帧节流/播速/timing
+  正确（对齐 `windows/runner/player_plugin.{h,cpp}`）。

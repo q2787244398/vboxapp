@@ -65,7 +65,7 @@ class VBoxApp extends StatefulWidget {
   State<VBoxApp> createState() => _VBoxAppState();
 }
 
-class _VBoxAppState extends State<VBoxApp> {
+class _VBoxAppState extends State<VBoxApp> with WidgetsBindingObserver {
   /// 日志标签。
   static const String _logTag = 'app';
 
@@ -145,7 +145,26 @@ class _VBoxAppState extends State<VBoxApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _bootstrap();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 应用引擎即将销毁（窗口关闭 / 退出）：主动停止 Node 常驻子进程，
+    // 释放 58080 端口（配合 Windows Job Object 兜底崩溃路径）。
+    if (state == AppLifecycleState.detached) {
+      unawaited(_stopNodeRuntime());
+    }
+  }
+
+  /// 停止 Node 常驻系统（优雅退出路径；失败仅记日志不阻断退出）。
+  Future<void> _stopNodeRuntime() async {
+    try {
+      await NodeRuntimeManager.instance.stop();
+    } catch (e) {
+      AppLog.warn(_logTag, '退出时停止 Node 常驻失败：$e');
+    }
   }
 
   /// 站点聚合加载（清单刷新 → allSources URL → 拉取解析）。
@@ -574,6 +593,9 @@ class _VBoxAppState extends State<VBoxApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    // 兜底：dispose 时也尝试停止 Node 常驻（正常退出路径）。
+    unawaited(_stopNodeRuntime());
     unawaited(_logSink?.stop());
     unawaited(_nodeStatusSub?.cancel());
     super.dispose();

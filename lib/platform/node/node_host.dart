@@ -131,6 +131,10 @@ class ProcessNodeHost implements NodeHost {
   /// [nodeExecutable] 可注入（测试 / 自定义打包）；为 null 时自动解析。
   ProcessNodeHost({this.nodeExecutable});
 
+  /// Node 子进程生命周期通道（Windows Native `NodeLifecyclePlugin`）。
+  static const MethodChannel _lifecycleChannel =
+      MethodChannel('com.vbox.node/lifecycle');
+
   /// 显式指定的 Node 可执行文件（绝对路径或 PATH 名）；null → 自动解析。
   final String? nodeExecutable;
 
@@ -299,6 +303,13 @@ class ProcessNodeHost implements NodeHost {
     } on ProcessException catch (e) {
       throw NodeHostException(_failureMessage(executable, located, e));
     }
+    // Windows：把刚拉起的 node.exe 收编进主进程 Job Object（KILL_ON_JOB_CLOSE），
+    // 主进程退出/崩溃时由 OS 连带终结子进程，避免孤儿继续占用 58080 端口
+    // （「Node 端口已被占用」反复修复未根治的根因）。
+    final Process? spawned = _process;
+    if (Platform.isWindows && spawned != null) {
+      unawaited(_attachToJobObject(spawned.pid));
+    }
     // 监控子进程退出：崩溃时第一时间回调上层（进程死了但端口可能被
     // 其他进程占住，仅靠 HTTP 探活会误判「就绪」，见 NodeHost.onChildExited）。
     unawaited(_process!.exitCode.then((int code) {
@@ -318,6 +329,20 @@ class ProcessNodeHost implements NodeHost {
       if (line.trim().isNotEmpty) onLog?.call('[node:err] $line');
     });
     onLog?.call('🚀 已拉起 Node 子进程（$executable ${config.mainScript}）');
+  }
+
+  /// 把子进程绑入主进程 Job Object（Windows Native `NodeLifecyclePlugin`）。
+  ///
+  /// 绑定失败（含 macOS/Linux 无插件、调试器嵌套作业未被允许）不阻断拉起：
+  /// 仍有退出时 stop() 与健康监控兜底。
+  Future<void> _attachToJobObject(int pid) async {
+    try {
+      await _lifecycleChannel.invokeMethod<void>('attach', pid);
+    } on MissingPluginException {
+      // 非 Windows / 未接原生插件：忽略。
+    } on PlatformException catch (e) {
+      onLog?.call('⚠️ 绑定 Node 子进程到 Job Object 失败（${e.code}）：${e.message}');
+    }
   }
 
   @override

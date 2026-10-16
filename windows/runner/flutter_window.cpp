@@ -7,6 +7,7 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "floating_plugin.h"
 #include "music_media_plugin.h"
+#include "node_lifecycle_plugin.h"
 #include "player_plugin.h"
 #include "screen_controls_plugin.h"
 
@@ -41,6 +42,13 @@ bool FlutterWindow::OnCreate() {
           ->GetRegistrar<flutter::PluginRegistrarWindows>(
               flutter_controller_->engine()->GetRegistrarForPlugin(
                   "PlayerPlugin")));
+  // ND-01 补充：Node 子进程生命周期绑定（Job Object），主进程退出/崩溃时
+  // 由 OS 连带终结 node.exe 孤儿，杜绝「Node 端口 58080 已被占用」。
+  vbox::NodeLifecyclePlugin::RegisterWithRegistrar(
+      flutter::PluginRegistrarManager::GetInstance()
+          ->GetRegistrar<flutter::PluginRegistrarWindows>(
+              flutter_controller_->engine()->GetRegistrarForPlugin(
+                  "NodeLifecyclePlugin")));
   // 批次 D：D1 亮度/音量、D2 浮窗、D3 媒体会话手动注册（同 PlayerPlugin 模式）。
   // 浮窗 owner 与 SMTC GetForWindow 均需主窗口 HWND（OnCreate 时窗口已建）。
   vbox::ScreenControlsPlugin::RegisterWithRegistrar(

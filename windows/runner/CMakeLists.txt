@@ -11,6 +11,7 @@ add_executable(${BINARY_NAME} WIN32
   "main.cpp"
   "player_plugin.cpp"
   "baidu_token_bridge.cpp"
+  "node_lifecycle_plugin.cpp"
   "screen_controls_plugin.cpp"
   "floating_plugin.cpp"
   "music_media_plugin.cpp"

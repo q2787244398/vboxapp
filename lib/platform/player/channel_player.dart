@@ -153,6 +153,7 @@ class ChannelPlayer implements Player {
     switch ((e['type'] ?? '').toString()) {
       case 'state':
         onStateChanged?.call(_parseState((e['value'] ?? '').toString()));
+        break;
       case 'progress':
         onProgress?.call(PlaybackProgress(
           positionMs: (e['positionMs'] as num?)?.toInt() ?? 0,
@@ -160,22 +161,26 @@ class ChannelPlayer implements Player {
           bufferedMs: (e['bufferedMs'] as num?)?.toInt() ?? 0,
           isLive: e['isLive'] as bool? ?? false,
         ));
+        break;
       case 'error':
         onError?.call(
           (e['message'] ?? '').toString(),
           fatal: e['fatal'] as bool? ?? true,
         );
+        break;
       case 'videoSize':
         onVideoSize?.call(
           (e['width'] as num?)?.toInt() ?? 0,
           (e['height'] as num?)?.toInt() ?? 0,
         );
+        break;
       case 'textureReady':
         final int? id = (e['textureId'] as num?)?.toInt();
         if (id != null && id >= 0) {
           _textureId = id;
           onTextureReady?.call(id);
         }
+        break;
       case 'log':
         // 原生播放器日志（mpv / 渲染 / GL 上下文）转入应用日志，对齐 iOS
         // 排查详细度：无画面类问题可直接从日志看出失败在哪一环。
@@ -183,6 +188,7 @@ class ChannelPlayer implements Player {
           (e['level'] ?? 'info').toString(),
           (e['message'] ?? '').toString(),
         );
+        break;
     }
   }
 
@@ -193,10 +199,13 @@ class ChannelPlayer implements Player {
     switch (level) {
       case 'error':
         AppLog.error('player-native', message, category: LogCategory.player);
+        return;
       case 'warn':
         AppLog.warn('player-native', message, category: LogCategory.player);
+        return;
       case 'debug':
         AppLog.debug('player-native', message, category: LogCategory.player);
+        return;
       default:
         AppLog.info('player-native', message, category: LogCategory.player);
     }

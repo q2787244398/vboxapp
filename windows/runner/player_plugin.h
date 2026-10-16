@@ -208,6 +208,9 @@ struct MpvApi {
   mpv_render_update_flag (*render_context_update)(mpv_render_context* ctx) =
       nullptr;
   void (*render_context_free)(mpv_render_context* ctx) = nullptr;
+  // 帧已呈现回报（R-渲1）：ADVANCED_CONTROL 契约要求每渲染一帧调用一次，
+  // 否则 mpv 的帧节流/播速/timing 会漂移，见 AGENTS.md「已知待决问题」。
+  void (*render_context_report_swap)(mpv_render_context* ctx) = nullptr;
 
   // 加载 mpv-2.dll 并解析全部符号；失败时 loaded=false。
   bool Load();
@@ -285,6 +288,9 @@ class PlayerPlugin : public flutter::Plugin {
   std::atomic<int64_t> texture_id_{-1};
   FlutterDesktopPixelBuffer pixel_buffer_{};
   std::mutex frame_mutex_;
+  // 引擎释放前缓冲（OnPixelBufferReleased）时的通知：ShutdownMpv 借此有界等待
+  // 引擎归还缓冲，避免帧缓冲被提前释放而引擎光栅线程仍在采样（0xC0000409）。
+  std::condition_variable frame_cv_;
   std::vector<uint8_t> frame_buffer_;  // BGRA8888（引擎读取的前缓冲）
   int frame_width_ = 0;
   int frame_height_ = 0;

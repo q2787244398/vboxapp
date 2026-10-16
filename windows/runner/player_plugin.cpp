@@ -168,6 +168,7 @@ bool MpvApi::Load() {
   LOAD_MPV_RENDER_SYM(render_context_set_update_callback);
   LOAD_MPV_RENDER_SYM(render_context_update);
   LOAD_MPV_RENDER_SYM(render_context_free);
+  LOAD_MPV_RENDER_SYM(render_context_report_swap);
 #undef LOAD_MPV_RENDER_SYM
   loaded = true;
   return true;
@@ -581,7 +582,15 @@ void PlayerPlugin::ShutdownMpv() {
   }
   UnregisterTexture();
   {
-    std::lock_guard<std::mutex> lock(frame_mutex_);
+    // 竞态修复（0xC0000409 闪退根因）：引擎光栅线程经 CopyPixelBuffer 拿到
+    // frame_buffer_ 后、OnPixelBufferReleased 归还前，若此处立即 clear()，后续
+    // 新 Open 重分配帧缓冲会释放引擎仍在采样的内存 → STATUS_STACK_BUFFER_OVERRUN。
+    // 故在 UnregisterTexture 后**有界等待**引擎归还缓冲再清空；渲染线程已 join，
+    // 不会再产生新帧，此处只可能被引擎 release 回调唤醒，1s 超时兜底防死锁。
+    std::unique_lock<std::mutex> lock(frame_mutex_);
+    frame_cv_.wait_for(lock, std::chrono::milliseconds(1000), [this] {
+      return !frame_locked_.load();
+    });
     frame_buffer_.clear();
     frame_width_ = 0;
     frame_height_ = 0;
@@ -1222,6 +1231,9 @@ void PlayerPlugin::RenderFrameSoftware(int width, int height) {
     }
     return;
   }
+  if (api_.render_context_report_swap != nullptr) {
+    api_.render_context_report_swap(render_ctx_);
+  }
   PublishFrame(sw_frame_buffer_, width, height);
 }
 
@@ -1270,6 +1282,12 @@ void PlayerPlugin::RenderFrame() {
     return;
   }
 
+  // ADVANCED_CONTROL 契约：每渲染一帧回报一次 swap，维持 mpv 帧节流/播速/timing
+  // 正确（缺失会导致卡顿与刷新时机漂移，见 ShutdownMpv 注释与 AGENTS.md）。
+  if (api_.render_context_report_swap != nullptr) {
+    api_.render_context_report_swap(render_ctx_);
+  }
+
   // 回读 BGRA 到引擎前缓冲（纹理上屏管线与旧 SW 路径一致，Dart 侧零改动）。
   const size_t row_bytes = static_cast<size_t>(pixel_width) * 4;
   std::vector<uint8_t> scratch(row_bytes * static_cast<size_t>(pixel_height));
@@ -1304,7 +1322,12 @@ void PlayerPlugin::OnPixelBufferReleased(void* release_context) {
   if (self == nullptr) {
     return;
   }
-  self->frame_locked_ = false;
+  {
+    std::lock_guard<std::mutex> lock(self->frame_mutex_);
+    self->frame_locked_ = false;
+  }
+  // 唤醒 ShutdownMpv 中等待缓冲归还的线程（有界等待，见 ShutdownMpv）。
+  self->frame_cv_.notify_all();
 }
 
 void PlayerPlugin::RunEventLoop() {

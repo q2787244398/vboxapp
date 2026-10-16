@@ -343,6 +343,12 @@ class NodeRuntimeManager {
         return;
       }
 
+      // 2.6) 启动新子进程前清理占住主端口的孤儿 node.exe（Windows）：
+      // 收编失败说明端口被「非本次可复用」的旧进程占住（典型：旧版本常驻
+      // node.exe 孤儿）。若不清理，新子进程必然 EADDRINUSE。仅终止「占住
+      // 58080 且镜像名为 node.exe」的进程，绝不动其他服务。
+      await _clearStaleResidentOnPort();
+
       // 3) 拉起 Node 引擎（端口矩阵经环境变量注入）
       await _host.start(_buildHostConfig());
 
@@ -599,6 +605,66 @@ class NodeRuntimeManager {
     }
   }
 
+  // ─────────────── 旧孤儿 node 进程清理（Windows）───────────────
+
+  /// 清理占住主端口的孤儿 node.exe（Windows），启动新子进程前调用。
+  ///
+  /// 仅终止「正监听 58080 且进程镜像名为 node.exe」的进程，绝不误杀其他服务。
+  /// 非 Windows 直接返回（macOS 无此场景，且 Job Object 该平台不适用）。
+  Future<void> _clearStaleResidentOnPort() async {
+    if (!Platform.isWindows) return;
+    final int pid = await _pidListeningOnPort(activePort);
+    if (pid <= 0) return;
+    if (!await _isNodeProcess(pid)) {
+      _log('⚠️ 端口 $activePort 被非 node 进程（pid=$pid）占用，不主动清理');
+      return;
+    }
+    _log('🧹 清理占住端口 $activePort 的孤儿 node.exe（pid=$pid）');
+    try {
+      final ProcessResult r = await Process.run(
+        'taskkill',
+        <String>['/PID', '$pid', '/F'],
+      );
+      _log('🧹 taskkill /PID $pid /F → exit=${r.exitCode}');
+    } catch (e) {
+      _log('⚠️ 清理孤儿 node.exe 失败：$e');
+    }
+  }
+
+  /// 用 `netstat -ano -p tcp` 找监听 [port] 的 pid；无则返回 0。
+  Future<int> _pidListeningOnPort(int port) async {
+    try {
+      final ProcessResult r = await Process.run(
+        'netstat',
+        <String>['-ano', '-p', 'tcp'],
+      );
+      final String out = r.stdout.toString();
+      if (r.exitCode != 0 || out.isEmpty) return 0;
+      for (final String line in const LineSplitter().convert(out)) {
+        if (!line.contains('LISTENING') || !line.contains(':$port')) continue;
+        final List<String> parts = line.trim().split(RegExp(r'\s+'));
+        final int pid = int.tryParse(parts.isNotEmpty ? parts.last : '') ?? 0;
+        if (pid > 0) return pid;
+      }
+    } catch (_) {
+      // netstat 不可用 → 视为无占用。
+    }
+    return 0;
+  }
+
+  /// 用 `tasklist` 判断 [pid] 是否为 node.exe。
+  Future<bool> _isNodeProcess(int pid) async {
+    try {
+      final ProcessResult r = await Process.run(
+        'tasklist',
+        <String>['/FI', 'PID eq $pid', '/FO', 'CSV', '/NH'],
+      );
+      return r.stdout.toString().toLowerCase().contains('node.exe');
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// 构造宿主启动参数（环境变量矩阵与 iOS `setenv` 1:1）。
   NodeHostConfig _buildHostConfig() => NodeHostConfig(
         runtimeDir: runtimeDirPath,
@@ -768,6 +834,7 @@ class NodeRuntimeManager {
     _probeFailureReason = null;
     try {
       await prepareRuntimeFiles();
+      await _clearStaleResidentOnPort();
       await _host.start(_buildHostConfig());
       if (await waitReady()) {
         _isCrashed = false;
