@@ -90,9 +90,41 @@ docs/             方案与对齐文档
   持久化 Jar（`%APPDATA%\com.vbox\vbox\win_baidu_webview`）→ 真实浏览器栈
   导航 disk/main → 页面上下文 fetch gettemplatevariable（复刻 iOS
   WKWebView 系统网络栈信任度）→ Jar 全量 Cookie 回传合并回写凭据。
-  隐藏 owned 弹出窗口承载 Controller（IsVisible=FALSE，不渲染不抢焦点，
-  不经 Flutter 插件 WebView，规避 3.1839 闪退 / 3.1844 白屏路径）；
-  全阶段看门狗，errno!=0 时种 Cookie 重导航一次后如实回传交 Dart 兜底链。
+  owned 弹出窗口承载 Controller（3.1854 起为屏幕外可见形态，见下方
+  3.1854 条目；不经 Flutter 插件 WebView，规避 3.1839 闪退 / 3.1844
+  白屏路径）；全阶段看门狗，errno!=0 时种 Cookie 重导航一次后如实回传
+  交 Dart 兜底链。
+- `windows/runner/baidu_token_bridge.{h,cpp}`（3.1854 取号超时根因修复）：
+  - 宿主窗口改「屏幕外可见」：`SW_SHOWNOACTIVATE` 显示但停靠虚拟屏右下角
+    之外，Controller `IsVisible=TRUE`。原 `IsVisible=FALSE`/不 ShowWindow 的
+    隐藏窗口会被 WebView2 挂起渲染/推迟 load，`NavigationCompleted` 不触发
+    → 任何网络环境（家宽实测同现）25s 看门狗必超时。
+  - `ProcessFailed` 作废会话（`InvalidateSession`，浏览器主进程亡连环境一并
+    重建）：修复渲染进程死亡后复用僵尸 COM 对象导致的「点重试闪退」。
+  - 导航/脚本回调带代际校验：看门狗超时未停的挂起导航在新链路 Navigate 时
+    补发的取消事件不再误杀新链路；迟到的 ExecuteScript 结果不再跨链路串扰。
+  - `interactive` 交互验证模式：重试链路弹可见「百度安全验证」窗口（3 分钟
+    看门狗 + 页面 Source 校验 + 关窗取消），人工过风控一次后 Jar 持久化。
+- `lib/data/datasources/remote/baidu_ibox_client.dart` /
+  `lib/platform/webview/baidu_native_token_bridge.dart`：取号失败置位
+  `_nextFetchInteractive`，用户点「重试」→ 第 0 层原生桥交互验证模式。
+- `lib/presentation/pages/cloud/native_cloud_drive_login_gateway.dart`：
+  重新扫码落库合并既有 `extra`（此前整体覆盖会把播放链回写的 `bdstoken`
+  抹掉，形成「重登→兜底值丢失→再失败」死循环）。
+- `windows/runner/player_plugin.{h,cpp}` + `lib/presentation/widgets/player/
+  video_surface.dart`（3.1854 画质修复）：
+  - **按显示尺寸渲染**：`CopyPixelBuffer` 的引擎入参（纹理显示物理像素）
+    原被忽略，现记录并在渲染线程取 `min(视频, 显示)` 为渲染目标——缩小由
+    mpv 高质量缩放器（ewa_lanczossharp）完成，修复「4K 按原尺寸渲染、缩小
+    全靠 Flutter bilinear」的发虚/摩尔纹（此前 mpv profile 修复无效的根因：
+    FBO=视频原尺寸，mpv 内部缩放根本没参与）；回读带宽同步下降。纵横比上
+    报始终用视频原始尺寸（与渲染目标解耦）。`VideoSurface` filterQuality
+    low→medium。
+  - SW 软渲染色彩钉扎：`target-prim=bt.709` / `target-trc=srgb` /
+    `tone-mapping=bt.2390`（软转换缺省仅 YUV→RGB 矩阵导致泛黄偏色）；
+    `VBOX_FORCE_SW_RENDER=1` 环境变量强制 SW（GL 回读颜色错乱的逃生门）。
+  - `FILE_LOADED` 上报视频色彩参数（pixfmt/primaries/gamma/hwdec），偏色
+    类问题日志一眼定位 HDR/601/709 与解码路径。
 
 ## 日志事件契约（跨端）
 

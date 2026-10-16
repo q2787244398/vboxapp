@@ -9,6 +9,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <utility>
@@ -224,12 +225,19 @@ void PlayerPlugin::HandleCloudMethodCall(
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
   if (call.method_name() == "getBdstoken") {
     std::string cookie;
+    bool interactive = false;
     if (call.arguments() != nullptr) {
       const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
       if (args != nullptr) {
         const auto it = args->find(flutter::EncodableValue("cookie"));
         if (it != args->end() && std::holds_alternative<std::string>(it->second)) {
           cookie = std::get<std::string>(it->second);
+        }
+        const auto it_interactive =
+            args->find(flutter::EncodableValue("interactive"));
+        if (it_interactive != args->end() &&
+            std::holds_alternative<bool>(it_interactive->second)) {
+          interactive = std::get<bool>(it_interactive->second);
         }
       }
     }
@@ -241,7 +249,8 @@ void PlayerPlugin::HandleCloudMethodCall(
         cookie,
         [result = std::move(shared_result)](const flutter::EncodableValue& value) {
           result->Success(value);
-        });
+        },
+        interactive);
     return;
   }
   result->NotImplemented();
@@ -467,6 +476,20 @@ void PlayerPlugin::Dispose(
 
 // ─────────────── libmpv 生命周期 ───────────────
 
+namespace {
+
+// 环境变量开关判定：已设置且值不为 0/false/no 即视为开（空串视为关）。
+bool IsEnvFlagSet(const wchar_t* name) {
+  wchar_t value[8]{};
+  const DWORD n = ::GetEnvironmentVariableW(name, value, 8);
+  if (n == 0) return false;
+  if (n >= 8) return true;  // 缓冲不够长 → 值非空且较长，视为开
+  return ::lstrcmpW(value, L"0") != 0 && ::lstrcmpiW(value, L"false") != 0 &&
+         ::lstrcmpiW(value, L"no") != 0;
+}
+
+}  // namespace
+
 bool PlayerPlugin::InitializeMpv(bool auto_play) {
   mpv_handle* handle = api_.create();
   if (handle == nullptr) {
@@ -490,6 +513,16 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
         ProbeGlCapability(&probe_detail, &prefer_software_render_);
     EmitLog(probe_ok ? "info" : "warn",
             "GL 能力预检（仅提示，不阻断）：" + probe_detail);
+    // GL 路径逃生门（云电脑泛黄/花屏）：虚拟显卡上 GL 离屏回读可能产生
+    // 通道级颜色错乱（glFinish 只能修复撕裂/叠影，修不了颜色错乱），且黑
+    // 名单不可能覆盖所有云电脑 GPU 型号。设置环境变量
+    // VBOX_FORCE_SW_RENDER=1 可强制全程软件渲染（SW 输出色彩已钉扎，见
+    // CreateSwRenderContext），无需改代码即可在云电脑上恢复正确色彩。
+    if (IsEnvFlagSet(L"VBOX_FORCE_SW_RENDER")) {
+      prefer_software_render_ = true;
+      EmitLog("info",
+              "VBOX_FORCE_SW_RENDER=1：按用户要求强制使用软件渲染（SW）");
+    }
   } else {
     EmitLog("warn", "mpv 未提供 render API（mpv-2.dll 过旧），回退 vo=null");
   }
@@ -930,6 +963,15 @@ bool PlayerPlugin::CreateSwRenderContext() {
   if (api_.render_context_create == nullptr || mpv_ == nullptr) {
     return false;
   }
+  // SW 路径色彩钉扎（泛黄修复）：libswscale 软转换在目标色彩参数缺省时仅按
+  // 默认矩阵做 YUV→RGB（云电脑/虚拟机实测整体泛黄——典型 601/709 系数与
+  // gamma 不匹配症状）。显式钉住输出 primaries/TRC 与 tone-mapping，使软
+  // 渲染输出向 GPU 路径看齐。三者均为运行时选项（mpv 已 initialize 后可
+  // 设置）；旧版 mpv-2.dll 不识别时 set_option_string 返回非 0，选项被
+  // 忽略，行为与修复前一致。
+  api_.set_option_string(mpv_, "target-prim", "bt.709");
+  api_.set_option_string(mpv_, "target-trc", "srgb");
+  api_.set_option_string(mpv_, "tone-mapping", "bt.2390");
   int advanced_control = 1;
   mpv_render_param params[] = {
       {MPV_RENDER_PARAM_API_TYPE, const_cast<char*>(kRenderApiSw)},
@@ -1200,9 +1242,11 @@ bool PlayerPlugin::ResolveVideoSize(int* width, int* height) {
   return true;
 }
 
-// 两个渲染后端共用的上屏尾段：丢帧判定 → 交 Flutter 纹理 → 首帧日志 → 尺寸上报。
+// 两个渲染后端共用的上屏尾段：丢帧判定 → 交 Flutter 纹理 → 首帧日志 → 尺寸
+// 上报。缓冲尺寸（渲染目标，可能为显示尺寸）与视频原始尺寸（纵横比上报）
+// 解耦：按显示尺寸渲染时二者不同。
 void PlayerPlugin::PublishFrame(std::vector<uint8_t>& source, int width,
-                                int height) {
+                                int height, int video_width, int video_height) {
   bool dropped_for_locked_buffer = false;
   {
     std::lock_guard<std::mutex> lock(frame_mutex_);
@@ -1234,19 +1278,22 @@ void PlayerPlugin::PublishFrame(std::vector<uint8_t>& source, int width,
   if (!logged_first_frame_) {
     logged_first_frame_ = true;
     EmitLog("info",
-            "首帧已渲染上屏（" + std::to_string(width) + "x" +
-                std::to_string(height) + "，textureId=" +
-                std::to_string(texture_id) + "，后端=" +
+            "首帧已渲染上屏（渲染" + std::to_string(width) + "x" +
+                std::to_string(height) + "，视频" +
+                std::to_string(video_width) + "x" + std::to_string(video_height) +
+                "，textureId=" + std::to_string(texture_id) + "，后端=" +
                 (render_backend_ == RenderBackend::software ? "software"
                                                             : "opengl") +
                 "）");
   }
 
   // 视频尺寸变更上报（Dart 侧输出面纵横比自适应；去重避免抖动）。
-  if (width != last_video_width_ || height != last_video_height_) {
-    last_video_width_ = width;
-    last_video_height_ = height;
-    EmitVideoSize(width, height);
+  // 始终按视频原始尺寸上报——按显示尺寸渲染时不能让渲染目标尺寸参与
+  // 纵横比计算（纵横比必须由视频本身决定）。
+  if (video_width != last_video_width_ || video_height != last_video_height_) {
+    last_video_width_ = video_width;
+    last_video_height_ = video_height;
+    EmitVideoSize(video_width, video_height);
   }
 }
 
@@ -1255,16 +1302,19 @@ void PlayerPlugin::PublishFrame(std::vector<uint8_t>& source, int width,
 // 参数口径与改造前的 SW 路径一致（`SW_SIZE` / `SW_FORMAT="bgra"` / `SW_STRIDE`
 // / `SW_POINTER`）：SW 后端输出本就为顶行在上，无需 `FLIP_Y`（该参数仅 OpenGL
 // 路径需要，因为 GL 纹理原点在左下）。
-void PlayerPlugin::RenderFrameSoftware(int width, int height) {
-  const size_t stride = static_cast<size_t>(width) * 4;
-  const size_t bytes = stride * static_cast<size_t>(height);
-  if (sw_frame_width_ != width || sw_frame_height_ != height ||
+void PlayerPlugin::RenderFrameSoftware(int video_width, int video_height,
+                                       int target_width, int target_height) {
+  // 按显示尺寸渲染（缩小由 mpv 缩放器完成，见 RenderFrame 注释）；
+  // SW 输出顶行在上，无需 FLIP_Y（GL 纹理原点在左下，仅 OpenGL 路径需要）。
+  const size_t stride = static_cast<size_t>(target_width) * 4;
+  const size_t bytes = stride * static_cast<size_t>(target_height);
+  if (sw_frame_width_ != target_width || sw_frame_height_ != target_height ||
       sw_frame_buffer_.size() != bytes) {
     sw_frame_buffer_.assign(bytes, 0);
-    sw_frame_width_ = width;
-    sw_frame_height_ = height;
+    sw_frame_width_ = target_width;
+    sw_frame_height_ = target_height;
   }
-  int size[2] = {width, height};
+  int size[2] = {target_width, target_height};
   size_t sw_stride = stride;
   const char* format = "bgra";
   void* pointer = sw_frame_buffer_.data();
@@ -1285,7 +1335,8 @@ void PlayerPlugin::RenderFrameSoftware(int width, int height) {
   if (api_.render_context_report_swap != nullptr) {
     api_.render_context_report_swap(render_ctx_);
   }
-  PublishFrame(sw_frame_buffer_, width, height);
+  PublishFrame(sw_frame_buffer_, target_width, target_height, video_width,
+               video_height);
 }
 
 void PlayerPlugin::RenderFrame() {
@@ -1297,16 +1348,41 @@ void PlayerPlugin::RenderFrame() {
   if (!ResolveVideoSize(&pixel_width, &pixel_height)) {
     return;
   }
+  // 渲染目标尺寸：显示尺寸小于视频尺寸时按显示尺寸渲染——缩小由 mpv 的
+  // 高质量缩放器（ewa_lanczossharp + correct-downscaling）完成，规避
+  // Flutter 纹理 bilinear 缩放大尺寸纹理的发虚/摩尔纹（「画质不是原视频」
+  // 的渲染端根因：此前 4K 视频按原尺寸渲染，缩小全靠引擎 bilinear）。
+  // 显示尺寸未上报 / 大于视频（放大场景）时维持视频原尺寸（bilinear 放大
+  // 损耗可忽略）。回读带宽也随渲染目标缩小同比下降（云电脑收益明显）。
+  int target_width = pixel_width;
+  int target_height = pixel_height;
+  const int req_width = requested_width_.load(std::memory_order_relaxed);
+  const int req_height = requested_height_.load(std::memory_order_relaxed);
+  if (req_width > 0 && req_height > 0 &&
+      (req_width < pixel_width || req_height < pixel_height)) {
+    const double scale_w = static_cast<double>(req_width) / pixel_width;
+    const double scale_h = static_cast<double>(req_height) / pixel_height;
+    const double scale = std::min(scale_w, scale_h);
+    if (scale < 1.0) {
+      const int w = static_cast<int>(pixel_width * scale);
+      const int h = static_cast<int>(pixel_height * scale);
+      // 保底：异常小的布局（隐藏/最小化瞬间的 0 尺寸等）不采用。
+      if (w >= 64 && h >= 64) {
+        target_width = w;
+        target_height = h;
+      }
+    }
+  }
   if (render_backend_ == RenderBackend::software) {
-    RenderFrameSoftware(pixel_width, pixel_height);
+    RenderFrameSoftware(pixel_width, pixel_height, target_width, target_height);
     return;
   }
-  if (!EnsureFbo(pixel_width, pixel_height)) {
+  if (!EnsureFbo(target_width, target_height)) {
     if (!logged_render_failure_) {
       logged_render_failure_ = true;
       EmitLog("error",
-              "离屏 FBO 创建失败（" + std::to_string(pixel_width) + "x" +
-                  std::to_string(pixel_height) +
+              "离屏 FBO 创建失败（" + std::to_string(target_width) + "x" +
+                  std::to_string(target_height) +
                   "），视频帧无法上屏；请检查显卡驱动与 OpenGL 版本");
     }
     return;
@@ -1314,10 +1390,11 @@ void PlayerPlugin::RenderFrame() {
 
   // 问题 5：OpenGL 离屏渲染到 FBO（internal_format=0 由 mpv 选择），
   // mpv 在 GPU 上完成完整色彩管线（primaries/gamma/HDR tone-mapping）。
+  // mpv 按视频纵横比信箱化适配 FBO，FBO 与视频宽高不一致也不会拉伸。
   mpv_opengl_fbo fbo{};
   fbo.fbo = static_cast<int>(render_fbo_);
-  fbo.w = pixel_width;
-  fbo.h = pixel_height;
+  fbo.w = target_width;
+  fbo.h = target_height;
   fbo.internal_format = 0;
   int flip_y = 1;
   mpv_render_param params[] = {
@@ -1348,21 +1425,27 @@ void PlayerPlugin::RenderFrame() {
   }
 
   // 回读 BGRA 到引擎前缓冲（纹理上屏管线与旧 SW 路径一致，Dart 侧零改动）。
-  const size_t row_bytes = static_cast<size_t>(pixel_width) * 4;
-  std::vector<uint8_t> scratch(row_bytes * static_cast<size_t>(pixel_height));
+  const size_t row_bytes = static_cast<size_t>(target_width) * 4;
+  std::vector<uint8_t> scratch(row_bytes * static_cast<size_t>(target_height));
   gl_.pixel_store_i(kGlPackAlignment, 1);
   gl_.bind_framebuffer(kGlFramebuffer, render_fbo_);
-  gl_.read_pixels(0, 0, pixel_width, pixel_height, kGlBgra, kGlUnsignedByte,
+  gl_.read_pixels(0, 0, target_width, target_height, kGlBgra, kGlUnsignedByte,
                   scratch.data());
   gl_.bind_framebuffer(kGlFramebuffer, 0);
 
-  PublishFrame(scratch, pixel_width, pixel_height);
+  PublishFrame(scratch, target_width, target_height, pixel_width, pixel_height);
 }
 
 const FlutterDesktopPixelBuffer* PlayerPlugin::CopyPixelBuffer(size_t width,
                                                                size_t height) {
-  (void)width;
-  (void)height;
+  // 引擎回调入参即纹理显示尺寸（物理像素）：记录之，渲染线程下一帧按
+  // min(视频尺寸, 显示尺寸) 渲染，缩小交给 mpv 高质量缩放器。入参无效
+  // （0）或早于首帧（引擎尚未布局）时不采用，维持视频原尺寸渲染。
+  if (width > 0 && height <= static_cast<size_t>(0x7FFFFFFF)) {
+    requested_width_.store(static_cast<int>(width), std::memory_order_relaxed);
+    requested_height_.store(static_cast<int>(height),
+                            std::memory_order_relaxed);
+  }
   std::lock_guard<std::mutex> lock(frame_mutex_);
   if (frame_width_ <= 0 || frame_height_ <= 0 || frame_buffer_.empty()) {
     return nullptr;
@@ -1428,6 +1511,19 @@ void PlayerPlugin::HandleMpvEvent(const mpv_event* event) {
                                ? std::to_string(static_cast<int64_t>(duration)) + "秒"
                                : std::string("未知")) +
                           "，视频轨尺寸=" + video);
+      // 色彩参数留痕（画质/偏色排查）：pixelformat/primaries/gamma 一眼定位
+      // HDR（bt.2020+pq/hlg）与 601/709 疑问；hwdec-current 供解码路径比对。
+      if (has_video) {
+        const std::string pixfmt = GetStringProperty("video-params/pixelformat");
+        const std::string primaries =
+            GetStringProperty("video-params/primaries");
+        const std::string gamma = GetStringProperty("video-params/gamma");
+        const std::string hwdec = GetStringProperty("hwdec-current");
+        EmitLog("info",
+                "视频色彩参数：pixfmt=" + pixfmt + "，primaries=" + primaries +
+                    "，gamma=" + gamma + "，hwdec=" +
+                    (hwdec.empty() ? std::string("no") : hwdec));
+      }
       EmitProgress();
       break;
     }
@@ -1651,6 +1747,23 @@ bool PlayerPlugin::GetInt64Property(const char* name, int64_t* out) {
   }
   *out = value;
   return true;
+}
+
+std::string PlayerPlugin::GetStringProperty(const char* name) {
+  if (mpv_ == nullptr) {
+    return std::string();
+  }
+  // MPV_FORMAT_STRING：mpv 分配字符串，调用方经 mpv_free 释放。
+  char* value = nullptr;
+  if (api_.get_property(mpv_, name, MPV_FORMAT_STRING, &value) < 0 ||
+      value == nullptr) {
+    return std::string();
+  }
+  std::string result = value;
+  if (api_.free != nullptr) {
+    api_.free(value);
+  }
+  return result;
 }
 
 }  // namespace vbox

@@ -195,6 +195,25 @@ std::string Excerpt(const std::string& text, size_t keep) {
   return text.substr(0, keep) + "…";
 }
 
+// 交互验证模式看门狗：放宽到 3 分钟，等待用户人工完成百度安全验证。
+constexpr UINT kInteractiveWatchdogMs = 180000;
+// 交互验证窗口尺寸（容纳百度安全验证页 / 滑块控件）。
+constexpr int kVerifyWindowWidth = 560;
+constexpr int kVerifyWindowHeight = 720;
+
+// 屏幕外停靠位（取号窗口常态位）：虚拟屏右下角之外 +64px。
+// 窗口保持 ShowWindow(SW_SHOWNOACTIVATE) + Controller IsVisible=TRUE——
+// WebView2 视为「可见」故导航/JS 正常执行，但位置在所有显示器之外，
+// 用户永远看不到（put_IsVisible(FALSE) 会挂起渲染、NavigationCompleted
+// 不触发 → 25s 看门狗必超时，家宽也一样，3.1854 根因）。
+POINT OffScreenDockPosition() {
+  const int vsx = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
+  const int vsy = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
+  const int vsw = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
+  const int vsh = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
+  return POINT{vsx + vsw + 64, vsy + vsh + 64};
+}
+
 // 构造通道结果 EncodableValue（GetBdstoken 前置声明使用，置于匿名命名空间）。
 flutter::EncodableValue BuildResult(int errno_code, const std::string& token,
                                     const std::string& cookie,
@@ -222,11 +241,7 @@ void BaiduTokenBridge::Shutdown() {
     ::KillTimer(host_window_, kWatchdogTimer);
     ::KillTimer(host_window_, kSettleTimer);
   }
-  if (controller_ != nullptr) {
-    controller_->Close();
-  }
-  webview_.Reset();
-  controller_.Reset();
+  InvalidateSession();
   env_.Reset();
   if (host_window_ != nullptr) {
     ::SetWindowLongPtrW(host_window_, GWLP_USERDATA, 0);
@@ -234,6 +249,74 @@ void BaiduTokenBridge::Shutdown() {
     host_window_ = nullptr;
   }
   FailAll("桥已关闭");
+}
+
+// 作废当前 WebView2 会话：关闭并释放 Controller / WebView。
+//
+// 调用点：Shutdown（析构）与 ProcessFailed（进程异常）。
+// 关键语义：渲染/浏览器进程死亡后，controller_ / webview_ 指向的 COM 对象
+// 已是僵尸——若仍非空，下次调用 EnsureController 会直接复用它们，
+// SeedCookies / Navigate 打在死对象上 → 原生崩溃（点重试闪退的根因）。
+// 作废后 EnsureController 走全新创建路径。
+void BaiduTokenBridge::InvalidateSession() {
+  if (controller_ != nullptr) {
+    controller_->Close();
+  }
+  webview_.Reset();
+  controller_.Reset();
+  // 事件 token 随 webview 实例一起失效（新实例上重注册，见 NavigateMain）。
+  nav_registered_ = false;
+}
+
+// 交互验证窗口：从屏幕外常态位移入父窗口中央并放大（摘除 WS_EX_NOACTIVATE
+// 并前置，便于滑块/验证码交互）。
+void BaiduTokenBridge::ShowVerifyWindow() {
+  if (host_window_ == nullptr) return;
+  const LONG_PTR ex = ::GetWindowLongPtrW(host_window_, GWL_EXSTYLE);
+  ::SetWindowLongPtrW(host_window_, GWL_EXSTYLE, ex & ~WS_EX_NOACTIVATE);
+  int x = 80;
+  int y = 80;
+  if (parent_window_ != nullptr) {
+    RECT parent{};
+    if (::GetWindowRect(parent_window_, &parent)) {
+      x = parent.left +
+          ((parent.right - parent.left) - kVerifyWindowWidth) / 2;
+      y = parent.top +
+          ((parent.bottom - parent.top) - kVerifyWindowHeight) / 2;
+    }
+  }
+  ::SetWindowPos(host_window_, HWND_TOP, x, y, kVerifyWindowWidth,
+                 kVerifyWindowHeight, SWP_SHOWWINDOW);
+  ::SetForegroundWindow(host_window_);
+  if (controller_ != nullptr) {
+    RECT bounds{0, 0, kVerifyWindowWidth, kVerifyWindowHeight};
+    controller_->put_Bounds(bounds);
+    controller_->put_IsVisible(TRUE);
+  }
+}
+
+// 交互验证窗口收尾：回到屏幕外常态位（保持可见性契约：IsVisible=TRUE +
+// 虚拟屏外，见 EnsureHostWindow 注释），恢复 NOACTIVATE 与极小边界。
+void BaiduTokenBridge::HideVerifyWindow() {
+  if (host_window_ == nullptr) return;
+  if (controller_ != nullptr) {
+    RECT bounds{0, 0, 160, 120};
+    controller_->put_Bounds(bounds);
+    controller_->put_IsVisible(TRUE);
+  }
+  const POINT dock = OffScreenDockPosition();
+  ::SetWindowPos(host_window_, HWND_BOTTOM, dock.x, dock.y, 160, 120,
+                 SWP_NOACTIVATE);
+  const LONG_PTR ex = ::GetWindowLongPtrW(host_window_, GWL_EXSTYLE);
+  ::SetWindowLongPtrW(host_window_, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE);
+}
+
+// 用户关闭验证窗口（WM_CLOSE）：视为取消本次取号。
+void BaiduTokenBridge::OnVerifyWindowClosed() {
+  HideVerifyWindow();
+  if (phase_ != Phase::kIdle) {
+    FailAll("已取消百度安全验证（窗口被关闭）");
+  }
 }
 
 void BaiduTokenBridge::EnsureHostWindow() {
@@ -252,20 +335,34 @@ void BaiduTokenBridge::EnsureHostWindow() {
     }
     class_registered = true;
   }
-  // 隐藏的 owned 弹出窗口：不显示、不抢焦点、随主窗口销毁；仅承载 WebView2
-  // Controller 与 WM_TIMER（看门狗 / 沉降）。
+  // 屏幕外停靠的 owned 弹出窗口：SW_SHOWNOACTIVATE 显示（不抢焦点）但停在
+  // 虚拟屏之外（用户不可见），TOOLWINDOW 不进任务栏。WebView2 由此视为
+  // 「可见」窗口，导航/页面 JS 正常执行——这是取号链能否工作的关键
+  // （隐藏/IsVisible=FALSE 会导致 NavigationCompleted 挂起 → 25s 必超时）。
+  const POINT dock = OffScreenDockPosition();
   host_window_ = ::CreateWindowExW(
       WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClass, L"vbox-webview2-host",
-      WS_POPUP, 0, 0, 160, 120, parent_window_, nullptr,
+      WS_POPUP, dock.x, dock.y, 160, 120, parent_window_, nullptr,
       ::GetModuleHandleW(nullptr), nullptr);
   if (host_window_ != nullptr) {
     ::SetWindowLongPtrW(host_window_, GWLP_USERDATA,
                         reinterpret_cast<LONG_PTR>(this));
+    ::ShowWindow(host_window_, SW_SHOWNOACTIVATE);
   }
 }
 
 LRESULT CALLBACK BaiduTokenBridge::HostWndProc(HWND hwnd, UINT msg,
                                                WPARAM wparam, LPARAM lparam) {
+  if (msg == WM_CLOSE) {
+    // 交互验证窗口被用户关闭 → 取消本次取号（隐藏模式窗口本就不可见，
+    // 只有验证模式会收到 WM_CLOSE）。
+    auto* bridge = reinterpret_cast<BaiduTokenBridge*>(
+        ::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (bridge != nullptr) {
+      bridge->OnVerifyWindowClosed();
+      return 0;
+    }
+  }
   if (msg == WM_TIMER) {
     auto* bridge = reinterpret_cast<BaiduTokenBridge*>(
         ::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -286,20 +383,24 @@ LRESULT CALLBACK BaiduTokenBridge::HostWndProc(HWND hwnd, UINT msg,
 // ─────────────── 取号入口 ───────────────
 
 void BaiduTokenBridge::GetBdstoken(const std::string& cookie_header,
-                                   Reply reply) {
+                                   Reply reply, bool interactive) {
   if (shutting_down_) {
     reply(BuildResult(-1, std::string(), std::string(), "桥已关闭"));
     return;
   }
   pending_.push_back(std::move(reply));
   if (phase_ != Phase::kIdle) {
-    return;  // 已有链路在跑：结果出来后一并答复。
+    // 已有链路在跑：结果出来后一并答复（含并发混入 interactive 请求的
+    // 边缘情况——共享当前链路结果；调用方串行触发，实际不会发生）。
+    return;
   }
   cookie_header_ = cookie_header;
   seed_retry_done_ = false;
+  interactive_ = interactive;
 
-  if (webview_ && last_fetch_ok_) {
+  if (webview_ && last_fetch_ok_ && !interactive_) {
     // 快速路径：页面会话已就绪（Jar/登录态都在），免导航直接 fetch。
+    // 交互模式强制走完整链路（需要显示验证窗口 + 重新导航）。
     EnterPhase(Phase::kExecuting, "页面fetch", 15000);
     RunScript();
     return;
@@ -316,12 +417,18 @@ void BaiduTokenBridge::CompleteAll(int errno_code, const std::string& token,
   }
   phase_ = Phase::kIdle;
   phase_label_ = "";
+  const bool was_interactive = interactive_;
+  interactive_ = false;
   flutter::EncodableValue value =
       BuildResult(errno_code, token, cookie, message);
   std::vector<Reply> replies;
   replies.swap(pending_);
   for (auto& reply : replies) {
     reply(value);
+  }
+  if (was_interactive) {
+    // 交互链路收尾：撤下验证窗口，恢复隐藏取号形态。
+    HideVerifyWindow();
   }
 }
 
@@ -344,6 +451,12 @@ void BaiduTokenBridge::EnterPhase(Phase phase, const char* label,
 
 void BaiduTokenBridge::OnWatchdog() {
   ::KillTimer(host_window_, kWatchdogTimer);
+  // 停掉仍在飞行的导航：导航挂起超时后 WebView2 内并未停止，若不停掉，
+  // 旧导航的取消事件会在下一条链路 Navigate 时补发——即使有代际校验，
+  // 也让它彻底结束（双保险）。交互模式不停：不打断用户正在操作的页面。
+  if (webview_ != nullptr && phase_ == Phase::kNavigating && !interactive_) {
+    webview_->Stop();
+  }
   FailAll(std::string("取号阶段超时（") + (phase_label_ ? phase_label_ : "?") +
           "）");
 }
@@ -435,8 +548,11 @@ void BaiduTokenBridge::OnControllerCreated(
     return;
   }
   controller_ = created;
-  // 隐藏 + 极小边界：不渲染、不抢焦点，JS/网络照常运行。
-  controller_->put_IsVisible(FALSE);
+  // IsVisible 必须为 TRUE（窗口本身停在虚拟屏外，用户不可见）：WebView2 对
+  // IsVisible=FALSE 的 Widget 会挂起渲染/推迟 load 完成，NavigationCompleted
+  // 不触发 → 任何网络环境下 25s 看门狗必超时（3.1854 根因，家宽/云电脑
+  // 双实测复现）。极小边界降低无谓的渲染开销。
+  controller_->put_IsVisible(TRUE);
   RECT bounds{0, 0, 160, 120};
   controller_->put_Bounds(bounds);
   if (FAILED(controller_->get_CoreWebView2(&webview_)) ||
@@ -444,24 +560,28 @@ void BaiduTokenBridge::OnControllerCreated(
     FailAll("WebView2 内核对象获取失败");
     return;
   }
-  // 导航完成事件（常驻，按 phase 过滤）。
-  auto nav = Microsoft::WRL::Callback<
-      ICoreWebView2NavigationCompletedEventHandler>(
-      [this](ICoreWebView2* sender,
-             ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
-        BOOL ok = FALSE;
-        if (args != nullptr) args->get_IsSuccess(&ok);
-        OnNavigationCompleted(ok == TRUE);
-        return S_OK;
-      });
-  webview_->add_NavigationCompleted(nav.Get(), &nav_token_);
-  // 渲染进程崩溃：如实终止本次链路（下次调用重建）。
+  // 导航完成事件：按次在 NavigateMain 内注册（携带代际，见该方法注释），
+  // 此处不注册。
+  // 渲染/浏览器进程异常：作废会话（下次调用重建），如实终止本次链路。
+  // 关键修复：原实现只 FailAll 不释放对象，渲染进程死亡后 controller_/
+  // webview_ 仍非空，下次调用 EnsureController 直接复用僵尸 COM 对象，
+  // SeedCookies/Navigate 打在死对象上 → 原生崩溃（点重试闪退的根因）。
   auto proc = Microsoft::WRL::Callback<ICoreWebView2ProcessFailedEventHandler>(
       [this](ICoreWebView2* sender,
              ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
+        COREWEBVIEW2_PROCESS_FAILED_KIND kind =
+            COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
+        if (args != nullptr) {
+          args->get_ProcessFailedKind(&kind);
+        }
+        last_fetch_ok_ = false;
+        InvalidateSession();
+        // 浏览器主进程死亡时环境一并作废，下次调用从建环境开始。
+        if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED) {
+          env_.Reset();
+        }
         if (phase_ != Phase::kIdle) {
-          last_fetch_ok_ = false;
-          FailAll("WebView2 进程异常退出");
+          FailAll("WebView2 进程异常退出（会话已作废，下次调用自动重建）");
         }
         return S_OK;
       });
@@ -505,7 +625,34 @@ void BaiduTokenBridge::NavigateMain() {
     FailAll("WebView2 内核不可用");
     return;
   }
-  EnterPhase(Phase::kNavigating, "导航disk/main", 25000);
+  // 代际递增 + 按次重注册导航回调（WebView2 事件本身不带代际信息）：
+  // 旧链路遗留的导航（如看门狗超时未停的挂起导航被新 Navigate 取消）
+  // 会补发 NavigationCompleted(FALSE)，若不校验代际，会误杀新链路为
+  // 「disk/main 导航失败（网络/风控页）」——修复「超时后点重试秒败」。
+  ++nav_generation_;
+  if (nav_registered_ && webview_ != nullptr) {
+    webview_->remove_NavigationCompleted(nav_token_);
+    nav_registered_ = false;
+  }
+  auto nav = Microsoft::WRL::Callback<
+      ICoreWebView2NavigationCompletedEventHandler>(
+      [this, gen = nav_generation_](
+          ICoreWebView2* sender,
+          ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+        BOOL ok = FALSE;
+        if (args != nullptr) args->get_IsSuccess(&ok);
+        OnNavigationCompleted(gen, ok == TRUE);
+        return S_OK;
+      });
+  webview_->add_NavigationCompleted(nav.Get(), &nav_token_);
+  nav_registered_ = true;
+  if (interactive_) {
+    // 交互验证模式：显示窗口，看门狗放宽到 3 分钟等用户完成验证。
+    ShowVerifyWindow();
+    EnterPhase(Phase::kNavigating, "等待完成百度验证", kInteractiveWatchdogMs);
+  } else {
+    EnterPhase(Phase::kNavigating, "导航disk/main", 25000);
+  }
   const HRESULT hr = webview_->Navigate(L"https://pan.baidu.com/disk/main");
   if (FAILED(hr)) {
     FailAll("disk/main 导航启动失败（hr=0x" +
@@ -513,11 +660,36 @@ void BaiduTokenBridge::NavigateMain() {
   }
 }
 
-void BaiduTokenBridge::OnNavigationCompleted(bool succeeded) {
+void BaiduTokenBridge::OnNavigationCompleted(int generation,
+                                             bool succeeded) {
   if (phase_ != Phase::kNavigating) return;
+  // 旧链路遗留的导航事件（含挂起导航被取消后补发的失败事件）→ 忽略。
+  if (generation != nav_generation_) return;
   if (!succeeded) {
-    FailAll("disk/main 导航失败（网络/风控页）");
+    if (!interactive_) {
+      FailAll("disk/main 导航失败（网络/风控页）");
+      return;
+    }
+    // 交互模式：导航失败可能是验证流程中的瞬时中断（页内跳转/重定向），
+    // 不立即失败——重置长看门狗等待后续导航接管；用户可关窗取消。
+    EnterPhase(Phase::kNavigating, "等待完成百度验证", kInteractiveWatchdogMs);
     return;
+  }
+  if (interactive_) {
+    // 交互模式：只有当前页面落在 disk/main（验证完成/自动跳回）才继续
+    // 取号；验证/登录中转页导航完成 → 继续等待用户操作（长看门狗约束）。
+    LPWSTR source = nullptr;
+    bool on_main = false;
+    if (webview_ != nullptr &&
+        SUCCEEDED(webview_->get_Source(&source)) && source != nullptr) {
+      on_main = std::wstring(source).find(L"disk/main") !=
+                std::wstring::npos;
+      ::CoTaskMemFree(source);
+    }
+    if (!on_main) {
+      EnterPhase(Phase::kNavigating, "等待完成百度验证", kInteractiveWatchdogMs);
+      return;
+    }
   }
   // 沉降 800ms：等服务端 Set-Cookie（指纹字段）落 Jar 后再取号。
   EnterPhase(Phase::kSettle, "Set-Cookie沉降", 0);
@@ -538,11 +710,17 @@ void BaiduTokenBridge::RunScript() {
     FailAll("WebView2 内核不可用");
     return;
   }
+  // 脚本代际：旧链路迟到的 ExecuteScript 结果（如看门狗杀链后另起新链）
+  // 因代际不符被忽略，防止跨链路串扰（把上一轮结果答复给当前等待者）。
+  const int gen = ++script_generation_;
   // 注意：接口 Invoke 第二参数为 LPCWSTR（只读），WRL::Callback 会按接口签名
   // 校验 lambda 参数类型，写 LPWSTR 将报 C2664。
   auto handler = Microsoft::WRL::Callback<
       ICoreWebView2ExecuteScriptCompletedHandler>(
-      [this](HRESULT result, LPCWSTR json) -> HRESULT {
+      [this, gen](HRESULT result, LPCWSTR json) -> HRESULT {
+        if (gen != script_generation_) {
+          return S_OK;  // 旧链路结果，忽略。
+        }
         if (FAILED(result) || json == nullptr) {
           FailAll("页面脚本执行失败（hr=0x" +
                   std::to_string(static_cast<unsigned long>(result)) + "）");
@@ -560,6 +738,9 @@ void BaiduTokenBridge::RunScript() {
 }
 
 void BaiduTokenBridge::OnScriptResult(const std::string& js_return_json) {
+  if (phase_ != Phase::kExecuting) {
+    return;  // 非本链路执行态的迟到结果，忽略。
+  }
   const std::string inner = DecodeJsonStringLiteral(js_return_json);
   const bool http_ok = inner.find("\"httpOk\":true") != std::string::npos;
   const int errno_code =
@@ -577,7 +758,9 @@ void BaiduTokenBridge::OnScriptResult(const std::string& js_return_json) {
   }
 
   // 失败 → 种 Cookie + 重导航补一次（覆盖「凭据 Cookie 未生效 / 被清」场景）。
-  if (!seed_retry_done_ && errno_code != -100) {
+  // 交互模式不做自动重导航——会把用户正在操作的验证页导航走，破坏验证流程；
+  // 失败原因如实回传，由用户重试或完成验证后自动继续。
+  if (!seed_retry_done_ && errno_code != -100 && !interactive_) {
     seed_retry_done_ = true;
     SeedCookies();
     NavigateMain();

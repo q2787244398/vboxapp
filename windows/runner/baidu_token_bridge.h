@@ -7,9 +7,17 @@
 //  指纹被百度风控（gettemplatevariable errno=-6）。iOS 端经 WKWebView（系统
 //  网络栈）天然可信；Windows 端 Flutter 插件 WebView 曾先后引入闪退（无头
 //  模式）与白屏（根 Overlay 宿主），均已下线。本桥在 runner 原生层直接承载
-//  WebView2：隐藏子窗口 + 持久化 Jar + disk/main 页面上下文内 fetch
-//  gettemplatevariable——与登录网关同源的浏览器信任路径，不经 Flutter 插件
-//  WebView，结构上不会复现白屏/闪退。
+//  WebView2：屏幕外（虚拟屏之外）但 IsVisible=TRUE 的 owned 弹出窗口 +
+//  持久化 Jar + disk/main 页面上下文内 fetch gettemplatevariable——与登录
+//  网关同源的浏览器信任路径，不经 Flutter 插件 WebView，结构上不会复现
+//  白屏/闪退。
+//
+//  ⚠ 窗口可见性（3.1854 取号超时根因）：绝不能用 put_IsVisible(FALSE) 或
+//  不 ShowWindow 的隐藏窗口导航——WebView2 对不可见 Widget 会挂起渲染/
+//  推迟 load 完成，NavigationCompleted 迟迟不触发，任何机器（含家宽）都会
+//  25s 看门狗超时（对齐 iOS：WKWebView 为真实承载窗口，无此问题）。正确
+//  姿势 = 窗口 ShowWindow(SW_SHOWNOACTIVATE) 但停靠在虚拟屏右下角之外，
+//  用户不可见，WebView2 视为可见，导航正常完成。
 //
 //  Dart 侧：lib/platform/webview/baidu_native_token_bridge.dart
 //  通道：MethodChannel `com.vbox.player/cloud_bridge` · getBdstoken
@@ -50,7 +58,14 @@ class BaiduTokenBridge {
 
   /// 异步取 bdstoken。[cookie_header] 为凭据原始 Cookie 串（"k=v; k2=v2"），
   /// 会种入 WebView2 Jar 后再导航 disk/main。失败同样回调（errno<0）。
-  void GetBdstoken(const std::string& cookie_header, Reply reply);
+  ///
+  /// [interactive]：交互验证模式（重试链路使用）——导航前把屏幕外常态位
+  /// 宿主窗口移入屏幕中央，显示为可见的「百度安全验证」窗口，看门狗放宽
+  /// 到 3 分钟，等待用户人工完成风控验证后继续取号。用于云电脑/数据中心
+  /// IP 下取号被风控拦截的场景：Jar 持久化，人工过一次验证后，后续取号
+  /// 即可直接通过。
+  void GetBdstoken(const std::string& cookie_header, Reply reply,
+                   bool interactive = false);
 
   /// 释放 WebView2 资源（PlayerPlugin 析构时调用；幂等）。
   void Shutdown();
@@ -79,9 +94,15 @@ class BaiduTokenBridge {
   void NavigateMain();
   void SeedCookies();
   void RunScript();
+  // 作废当前 WebView2 会话（进程异常后禁止复用僵尸 COM 对象）。
+  void InvalidateSession();
+  // 交互验证窗口：显示 / 隐藏 / 用户关闭（WM_CLOSE）。
+  void ShowVerifyWindow();
+  void HideVerifyWindow();
+  void OnVerifyWindowClosed();
   void OnEnvironmentCreated(HRESULT result, ICoreWebView2Environment* created);
   void OnControllerCreated(HRESULT result, ICoreWebView2Controller* created);
-  void OnNavigationCompleted(bool succeeded);
+  void OnNavigationCompleted(int generation, bool succeeded);
   void OnWatchdog();
   void OnSettle();
   void OnScriptResult(const std::string& js_return_json);
@@ -107,11 +128,25 @@ class BaiduTokenBridge {
   bool last_fetch_ok_ = false;
   bool com_initialized_ = false;
   bool shutting_down_ = false;
+  // 导航代际：每次 NavigateMain 递增并随回调闭包携带；旧链路遗留的
+  // 导航取消事件（如看门狗超时未停的挂起导航在新链路 Navigate 时补发）
+  // 因代际不符被忽略——修复「超时挂起后点重试被旧事件秒杀为
+  // 网络/风控页失败」。
+  int nav_generation_ = 0;
+  // 脚本代际：每次 RunScript 递增；旧链路迟到的 ExecuteScript 结果
+  // 被忽略，防止跨链路串扰（把上一轮结果答复给当前等待者）。
+  int script_generation_ = 0;
+  // 本次链路是否交互验证模式（窗口可见 + 长看门狗 + 不自动重导航）。
+  bool interactive_ = false;
+  // nav_token_ 是否属于当前 webview_ 实例（导航回调按次重注册时记账，
+  // 会话作废后旧 token 随 webview 一起失效，不可再用于 remove）。
+  bool nav_registered_ = false;
 
   Microsoft::WRL::ComPtr<ICoreWebView2Environment> env_;
   Microsoft::WRL::ComPtr<ICoreWebView2Controller> controller_;
   Microsoft::WRL::ComPtr<ICoreWebView2> webview_;
-  // 事件注册 token（webview_ 生命周期内常驻，无需反注册）。
+  // 事件注册 token（nav 按次重注册携带代际，见 NavigateMain；proc/win 常驻，
+  // 随 webview_ 实例一起失效）。
   EventRegistrationToken nav_token_{};
   EventRegistrationToken proc_token_{};
   EventRegistrationToken win_token_{};

@@ -28,10 +28,17 @@ class BaiduNativeTokenBridge {
 
   /// 取 bdstoken。成功返回非空 token 与 Jar Cookie 串；
   /// 非 Windows / 桥不可用 / 失败返回空 token（errno/message 供日志留痕）。
+  ///
+  /// [interactive]：交互验证模式——原生侧把屏幕外常态位的 WebView2 窗口
+  /// 移入屏幕中央，显示为可见的「百度安全验证」窗口（看门狗 3 分钟），
+  /// 等待人工完成风控验证后继续取号。用于云电脑/数据中心 IP 下取号被
+  /// 风控拦截的场景；验证通过后 Jar 持久化，后续取号即可直接通过。
+  /// 交互模式超时放宽到 220s（覆盖原生 180s 看门狗 + 沉降/取号耗时）。
   static Future<({String token, String cookie, int errno, String message})>
       fetchBdstoken(
     String cookieHeader, {
     Duration timeout = const Duration(seconds: 45),
+    bool interactive = false,
   }) async {
     if (!Platform.isWindows) {
       return (token: '', cookie: '', errno: -1, message: '非 Windows 平台');
@@ -40,9 +47,14 @@ class BaiduNativeTokenBridge {
       final Object? raw = await _channel
           .invokeMethod<dynamic>(
             'getBdstoken',
-            <String, Object?>{'cookie': cookieHeader},
+            <String, Object?>{
+              'cookie': cookieHeader,
+              'interactive': interactive,
+            },
           )
-          .timeout(timeout);
+          .timeout(
+            interactive ? const Duration(seconds: 220) : timeout,
+          );
       if (raw is! Map) {
         return (token: '', cookie: '', errno: -1, message: '桥返回类型异常');
       }

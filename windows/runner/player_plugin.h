@@ -300,6 +300,12 @@ class PlayerPlugin : public flutter::Plugin {
   // 引擎是否正持有 [frame_buffer_]（CopyPixelBuffer 后至 release_callback 间）。
   // 置位期间渲染线程丢弃新帧，避免写坏引擎正在采样的缓冲。
   std::atomic<bool> frame_locked_{false};
+  // 引擎光栅线程经 CopyPixelBuffer 回报的显示尺寸（物理像素）。非 0 且小于
+  // 视频尺寸时按此渲染（缩小交给 mpv 高质量缩放器，规避 Flutter bilinear
+  // 缩放大尺寸纹理的发虚/摩尔纹——「画质不是原视频」的渲染端根因）。
+  // 光栅线程写、渲染线程读，原子访问。
+  std::atomic<int> requested_width_{0};
+  std::atomic<int> requested_height_{0};
   int last_video_width_ = 0;   // 上次上报的视频尺寸（去重）
   int last_video_height_ = 0;
 
@@ -379,11 +385,16 @@ class PlayerPlugin : public flutter::Plugin {
   // 取视频目标尺寸（coded 优先，回退 display；未解出视频轨时返回 false）。
   bool ResolveVideoSize(int* width, int* height);
   // 把一帧 BGRA 交给 Flutter 纹理上屏（两个后端共用：丢帧判定 / 尺寸上报 / 日志）。
-  void PublishFrame(std::vector<uint8_t>& source, int width, int height);
+  // [width/height] 为本帧缓冲（渲染目标）尺寸；[video_width/video_height] 为
+  // 视频原始尺寸（纵横比上报用，与渲染目标解耦——按显示尺寸渲染时二者不同）。
+  void PublishFrame(std::vector<uint8_t>& source, int width, int height,
+                    int video_width, int video_height);
   // 软件渲染后端：以 "sw" API 建 render context（无需 GL 上下文）。
   bool CreateSwRenderContext();
   // 软件渲染后端逐帧输出（BGRA 直出到 [sw_frame_buffer_]）。
-  void RenderFrameSoftware(int width, int height);
+  // 视频尺寸与渲染目标尺寸解耦（按显示尺寸渲染时二者不同，见 RenderFrame）。
+  void RenderFrameSoftware(int video_width, int video_height, int target_width,
+                           int target_height);
   // 平台无关 GL 能力预检：建临时 WGL 上下文，检查 OpenGL 版本与 FBO 入口，
   // 并识别软渲染 OpenGL / 远程桌面会话（云电脑/虚拟显卡 glReadPixels 回读会
   // 花屏/叠影）。识别到时经 [out_prefer_software] 回传 true，由调用方决定直接
@@ -416,6 +427,8 @@ class PlayerPlugin : public flutter::Plugin {
   bool GetDoubleProperty(const char* name, double* out);
   bool GetFlagProperty(const char* name, int* out);
   bool GetInt64Property(const char* name, int64_t* out);
+  // 读字符串属性（如 video-params/pixelformat）；失败返回空串。
+  std::string GetStringProperty(const char* name);
 };
 
 }  // namespace vbox

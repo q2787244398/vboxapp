@@ -183,6 +183,16 @@ class BaiduIBoxClient {
   /// 用于把真实失败原因带进最终报错，避免用户盲目反复扫码）。
   String _lastBaiduNativeFailure = '';
 
+  /// 下一次取号是否使用「交互验证模式」（可见 WebView2 验证窗口）。
+  ///
+  /// 触发点：[resolvePlayURL] 因缺 bdstoken 失败时置位——用户点「重试」后
+  /// 第 0 层原生桥以交互模式运行：弹出百度安全验证窗口，人工完成风控验证
+  /// 后自动继续取号，Jar/凭据随 onFetched 持久化，后续播放无需再验证。
+  /// 云电脑/数据中心 IP 下隐藏取号链被风控全灭时，这是唯一可行的取号路径
+  /// （重新扫码登录也救不了：登录富集走同一条被风控的隐藏链路）。
+  /// 静态字段：跨实例共享（provider 重建客户端实例不应丢掉重试语义）。
+  static bool _nextFetchInteractive = false;
+
   /// 播放缓存统一层（批次 E · E5-5；对齐 iOS `CloudDriveManager` 缓存族）。
   BaiduPlaybackCacheStore get _cache =>
       _cacheOverride ??
@@ -769,11 +779,19 @@ class BaiduIBoxClient {
     // 与登录网关同源，信任度最高，故在 Windows 上提为首选项，Dart 层降为兜底。
     // 非 Windows 平台跳过本层，iOS/Android/macOS 行为完全不变。
     if (Platform.isWindows) {
-      final viaNative = await BaiduNativeTokenBridge.fetchBdstoken(cookie);
+      // 交互验证重试：上次因缺 bdstoken 失败后置位 → 本次弹出可见的
+      // 百度安全验证窗口（人工过风控，Jar 持久化）。一次性消费。
+      final bool interactive = _nextFetchInteractive;
+      _nextFetchInteractive = false;
+      final viaNative = await BaiduNativeTokenBridge.fetchBdstoken(
+        cookie,
+        interactive: interactive,
+      );
       if (viaNative.token.isNotEmpty) {
         AppLog.debug(
           'baidu-local',
-          '第 0 层 原生 WebView2 桥取得用户态 bdstoken',
+          '第 0 层 原生 WebView2 桥取得用户态 bdstoken'
+          '${interactive ? '（交互验证模式）' : ''}',
           category: LogCategory.cloud,
         );
         // 回传 WebView2 Jar 全量 Cookie（含服务端现场补种的
@@ -1574,13 +1592,18 @@ class BaiduIBoxClient {
       onFetched: onBdstokenFetched,
     );
     if (userBdstoken.isEmpty) {
+      // 置位交互验证重试：用户点「重试」后第 0 层原生桥将弹出可见的
+      // 百度安全验证窗口——云电脑/数据中心 IP 下隐藏链路被风控全灭，
+      // 人工完成验证是唯一出路（重新扫码登录无效：登录富集走同一条
+      // 被风控的隐藏链路，bdstoken 依然存不进凭据）。Jar 持久化，过一次
+      // 即可，后续播放直接命中保存值兜底。
+      _nextFetchInteractive = true;
       final String hint = _lastBaiduNativeFailure.isEmpty
-          ? 'Cookie 补全重试仍失败，多为百度风控或旧版凭据缺指纹 Cookie，'
-              '请到「网盘授权中心」重新扫码登录一次后重试'
-          : '$_lastBaiduNativeFailure（请到「网盘授权中心」重新扫码登录，'
-              '云电脑/数据中心 IP 更易触发百度风控）';
+          ? 'Cookie 补全重试仍失败，多为百度风控或旧版凭据缺指纹 Cookie'
+          : '$_lastBaiduNativeFailure';
       final String message = '百度登录态正常，但未取得用户态 bdstoken，'
-          '无法创建 vbox 转存目录 —— $hint';
+          '无法创建 vbox 转存目录 —— $hint。'
+          '点击「重试」将打开百度安全验证窗口，完成验证后自动继续播放';
       await _cache.recordRouteDiagnostic(
         stage: '主路链',
         status: '缺少用户态bdstoken',

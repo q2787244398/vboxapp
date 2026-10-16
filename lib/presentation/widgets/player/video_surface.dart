@@ -22,7 +22,7 @@ class VideoSurface extends StatelessWidget {
     this.textureId,
     this.aspectRatio,
     this.fit = BoxFit.contain,
-    this.filterQuality = FilterQuality.low,
+    this.filterQuality = FilterQuality.medium,
   });
 
   /// 原生纹理句柄（null = 无纹理输出 → 深色占位）。
@@ -34,7 +34,11 @@ class VideoSurface extends StatelessWidget {
   /// 缩放模式（UI-E2；仅已知纵横比时区分，未知尺寸一律铺满）。
   final BoxFit fit;
 
-  /// 纹理采样质量（播放器画面取 low 足够，避免高开销重采样）。
+  /// 纹理采样质量。
+  ///
+  /// 3.1854：low → medium。原生端已按显示尺寸渲染（缩小由 mpv 高质量缩放
+  /// 器完成），纹理通常以 1:1 或放大方式上屏；medium（bilerp，可用时含
+  /// mipmap）在窗口尺寸变化/放大场景明显优于 low，开销与 low 相当。
   final FilterQuality filterQuality;
 
   @override

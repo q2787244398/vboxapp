@@ -739,18 +739,27 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       ..._cookieStringToMap(seedCookie),
       ..._cookieStringToMap(enriched.cookie),
     });
+    // 合并既有 extra 再落库：播放链经 onFetched 回写的 bdstoken（凭据
+    // `extra["bdstoken"]`，第 4 层「保存值兜底」的数据源）不得被重新扫码
+    // 整体覆盖抹掉——否则云电脑上每次重登都会清空兜底值，永远回到
+    // 「登录正常但取不到 bdstoken」的死循环（原生桥取不到时 native.token
+    // 为空，旧实现会把已保存的 bdstoken 一并丢掉）。
+    final CloudDriveCredential? existing =
+        await _store.credential(CloudDriveType.baidu);
+    final Map<String, String> extra = <String, String>{
+      ...?existing?.extra,
+      'cookie_mode': 'BDUSS_STOKEN',
+      ...enriched.extra,
+      // 播放链第 4 层「保存值兜底」的数据源（对齐 iOS saveBdstokenCredential）。
+      if (native.token.isNotEmpty) 'bdstoken': native.token,
+      if (native.token.isNotEmpty)
+        'bdstoken_source': 'native-webview2-login',
+    };
     await _persist(
       CloudDriveType.baidu,
       cookie: finalCookie,
       statusMessage: '百度扫码登录成功，已保存 BDUSS/STOKEN',
-      extra: <String, String>{
-        'cookie_mode': 'BDUSS_STOKEN',
-        ...enriched.extra,
-        // 播放链第 4 层「保存值兜底」的数据源（对齐 iOS saveBdstokenCredential）。
-        if (native.token.isNotEmpty) 'bdstoken': native.token,
-        if (native.token.isNotEmpty)
-          'bdstoken_source': 'native-webview2-login',
-      },
+      extra: extra,
     );
   }
 
