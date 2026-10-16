@@ -198,9 +198,11 @@ PlayerPlugin::PlayerPlugin(flutter::PluginRegistrarWindows* registrar)
         HandleMethodCall(call, std::move(result));
       });
   // 百度 bdstoken 原生 WebView2 桥（隐藏窗口承载，与播放器渲染互不相干）。
+  // PluginRegistrarWindows 无 view() 访问器（旧 API 已移除），用 GetView()
+  // 取隐式视图；多视图/无隐式视图场景回退 nullptr（桥内已容忍无父窗口）。
+  flutter::FlutterView* flutter_view = registrar->GetView();
   baidu_bridge_ = std::make_unique<BaiduTokenBridge>(
-      registrar->view() != nullptr ? registrar->view()->GetNativeWindow()
-                                   : nullptr);
+      flutter_view != nullptr ? flutter_view->GetNativeWindow() : nullptr);
   cloud_channel_->SetMethodCallHandler(
       [this](const auto& call, auto result) {
         HandleCloudMethodCall(call, std::move(result));

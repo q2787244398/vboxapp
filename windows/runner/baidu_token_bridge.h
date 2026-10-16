@@ -71,6 +71,10 @@ class BaiduTokenBridge {
 
   void EnsureHostWindow();
   void StartChain();
+  // 复用或创建 WebView2 Controller（成功后接 SeedCookies + NavigateMain）。
+  // 注意：StartChain / OnEnvironmentCreated 均会调用，必须在头文件声明，
+  // 否则 .cpp 中的定义无法成为类成员（CI 曾因漏声明整链报错）。
+  void EnsureController();
   void EnterPhase(Phase phase, const char* label, UINT watchdog_ms);
   void NavigateMain();
   void SeedCookies();
