@@ -592,13 +592,19 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
     if (quality_profile != nullptr) {
       EmitLog("info", std::string("mpv 画质画像：") + quality_profile);
     }
-    // 硬解（3.1858 卡顿修复）：用户日志实测 4K HEVC 60fps 10-bit 走 SW 软
-    // 渲染时 hwdec=no（纯 CPU 软解），伴随连续「Audio device underrun」
-    // （音频都供不上 = CPU 彻底过载）与丢帧——「播放一卡一卡」的直接根因。
-    // 取 auto-copy：D3D11VA 解码后拷回系统内存，GL / SW 两条渲染路径通吃
-    // （零拷贝 interop 在离屏 WGL 上下文有兼容风险，不走）；D3D11 不可用
-    // （RDP 会话仅 WARP）时 mpv 自动回退软解，无副作用。运行时可改。
-    api_.set_option_string(handle, "hwdec", "auto-copy");
+    // 硬解（3.1858 卡顿修复 + 3.1859 软解回退修正）：用户日志实测 4K HEVC
+    // 60fps 10-bit 走纯 CPU 软解时伴随连续「Audio device underrun」与丢帧
+    // （CPU 彻底过载）——「一卡一卡」的根因，故 GL 路径取 auto-copy
+    // （D3D11VA 解码后拷回系统内存，零拷贝 interop 在离屏 WGL 上下文有
+    // 兼容风险，不走）。
+    // 但 SW 软渲染路径（虚拟显卡 / 远程桌面 / 仅 OpenGL 1.1，预检已识别
+    // prefer_software_render_=true）下，D3D11VA 在多数虚拟化环境不可用，
+    // hwdec=auto-copy 初始化 AVHWDeviceContext 失败，且 copy-back 帧与 SW
+    // 渲染链路存在配合缺口——用户实测「Node 高码视频有声音无画面」。故按
+    // 渲染后端分档：SW → hwdec=no（纯 CPU 软解，杜绝无画面）；GL →
+    // auto-copy（硬解加速，保留 4K 卡顿修复）。必须在 mpv_initialize 前设置。
+    api_.set_option_string(handle, "hwdec",
+                           prefer_software_render_ ? "no" : "auto-copy");
   }
   if (api_.initialize(handle) < 0) {
     api_.terminate_destroy(handle);
@@ -614,7 +620,12 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
   EmitLog("info", "mpv 初始化完成（vo=" +
                       std::string(has_render_api ? "libmpv" : "null") +
                       "，gpu-api=" +
-                      std::string(has_render_api ? "opengl" : "无") + "）");
+                      std::string(has_render_api ? "opengl" : "无") +
+                      "，hwdec=" +
+                      std::string(has_render_api
+                                      ? (prefer_software_render_ ? "no" : "auto-copy")
+                                      : "无") +
+                      "）");
 
   // 直播流（isLive）open 后自动起播，对齐 Android ExoPlayer 行为；点播保持暂停待 play()。
   int pause = auto_play ? 0 : 1;
@@ -826,8 +837,15 @@ bool PlayerPlugin::ProbeGlCapability(std::string* detail,
     }
     void* gen_framebuffers = wgl_get_proc_address("glGenFramebuffers");
     if (gen_framebuffers == nullptr) {
+      // FBO 入口缺失（OpenGL 1.1 软实现 / 无显卡驱动）：GL 离屏渲染必然失败，
+      // 标记走软件渲染——同时影响 RunRenderLoop 后端选择与 hwdec 分档
+      // （SW 后端需 hwdec=no，否则 auto-copy 硬解初始化失败会导致无画面）。
+      if (out_prefer_software != nullptr) {
+        *out_prefer_software = true;
+      }
       if (detail != nullptr) {
-        *detail = "OpenGL " + version + "，FBO 入口不可用（需 OpenGL 2.0+）";
+        *detail = "OpenGL " + version + "，FBO 入口不可用（需 OpenGL 2.0+）"
+                  " → 改用软件渲染";
       }
       break;
     }
@@ -907,7 +925,11 @@ bool PlayerPlugin::ProbeGlCapability(std::string* detail,
           wgl_framebuffer_texture_2d == nullptr ||
           wgl_delete_framebuffers == nullptr) {
         // 入口不全 = GL 版本不足以支撑离屏 FBO 路径（CreateGlRenderContext
-        // 同样会失败），按「GL 不可用」处理。
+        // 同样会失败），按「GL 不可用」处理，标记走软件渲染（同 FBO 缺失路径，
+        // 供 RunRenderLoop 后端选择与 hwdec 分档使用）。
+        if (out_prefer_software != nullptr) {
+          *out_prefer_software = true;
+        }
         if (detail != nullptr) {
           *detail = "OpenGL " + version + "，渲染器=" + renderer +
                     "，回读自检入口不全 → 改用软件渲染";

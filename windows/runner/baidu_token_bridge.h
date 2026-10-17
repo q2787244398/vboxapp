@@ -157,6 +157,10 @@ class BaiduTokenBridge {
   std::string cookie_header_;
   // errno!=0 重试标记：种 Cookie + 重导航仅补一次，防止死循环。
   bool seed_retry_done_ = false;
+  // 导航看门狗超时抢救标记：NavigationCompleted 因渲染器遮挡/节流未触发时
+  // （云电脑/虚拟显卡实测），跳过事件直接页面 fetch 抢救一次即不再重复，
+  // 防止「抢救失败 → 种 Cookie 重导航 → 再超时再抢救」死循环。
+  bool nav_salvage_done_ = false;
   // 上次取号是否成功（成功 → 下次走免导航快速路径）。
   bool last_fetch_ok_ = false;
   bool com_initialized_ = false;

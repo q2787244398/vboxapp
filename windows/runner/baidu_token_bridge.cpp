@@ -622,6 +622,7 @@ void BaiduTokenBridge::GetBdstoken(const std::string& cookie_header,
   }
   cookie_header_ = cookie_header;
   seed_retry_done_ = false;
+  nav_salvage_done_ = false;
   interactive_ = interactive;
 
   if (webview_ && last_fetch_ok_ && !interactive_) {
@@ -686,6 +687,20 @@ void BaiduTokenBridge::EnterPhase(Phase phase, const char* label,
 
 void BaiduTokenBridge::OnWatchdog() {
   ::KillTimer(host_window_, kWatchdogTimer);
+  // 导航看门狗超时（非交互）：页面可能已就绪、只是 NavigationCompleted 因
+  // 渲染器遮挡/节流未触发（云电脑/虚拟显卡实测——有网、页面已加载，但完成
+  // 事件迟迟不发）。此时不必等事件，直接页面 fetch 抢救一次：页面 JS 上下文
+  // 通常已可用，同源 fetch 取下 bdstoken 即自动取号，免去「点重试」人工步骤。
+  // 仅一次（nav_salvage_done_）：若页面确未加载（fetch 失败），才走后续
+  // 种 Cookie 重导航 / 如实报错，避免无限自抢救。
+  if (webview_ != nullptr && phase_ == Phase::kNavigating && !interactive_ &&
+      !nav_salvage_done_) {
+    nav_salvage_done_ = true;
+    EmitLog("warn", "导航超时：跳过 NavigationCompleted，直接页面 fetch 抢救");
+    EnterPhase(Phase::kExecuting, "页面fetch", 15000);
+    RunScript();
+    return;
+  }
   // 停掉仍在飞行的导航：导航挂起超时后 WebView2 内并未停止，若不停掉，
   // 旧导航的取消事件会在下一条链路 Navigate 时补发——即使有代际校验，
   // 也让它彻底结束（双保险）。交互模式不停：不打断用户正在操作的页面。
