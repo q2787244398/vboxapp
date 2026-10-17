@@ -581,8 +581,11 @@ int BaiduTokenBridge::FetchBdstokenViaWinHttp(const std::string& cookie_header,
   close_all();
 
   if (status != 200) {
+    // 3.1862 诊断增强：带出响应体摘要（57 字节级风控响应全文可见，据此
+    // 判定拦截类型：风控 JSON / 验证页跳转 / 代理劫持）。
     *detail = "HTTP " + std::to_string(status) + "（body " +
-              std::to_string(body.size()) + " 字节）";
+              std::to_string(body.size()) + " 字节：" + Excerpt(body, 160) +
+              "）";
     return -1;
   }
   // 容错解析 errno 与 bdstoken（与页面 JSON 的空格无关）。
@@ -600,7 +603,8 @@ int BaiduTokenBridge::FetchBdstokenViaWinHttp(const std::string& cookie_header,
     return 0;
   }
   *detail = "WinHTTP errno=" + std::to_string(errno_code) + "（body " +
-            std::to_string(body.size()) + " 字节）";
+            std::to_string(body.size()) + " 字节：" + Excerpt(body, 160) +
+            "）";
   return errno_code != 0 ? errno_code : -1;
 }
 
@@ -1205,13 +1209,21 @@ void BaiduTokenBridge::OnScriptResult(const std::string& js_return_json) {
   }
 
   last_fetch_ok_ = false;
+  // 3.1862 诊断增强：失败时带出 HTTP 状态码与响应体摘要——区分「百度有
+  // 响应（风控页/风控 JSON）」vs「网络层失败（fetch 抛异常，status=0）」，
+  // 消灭「疑似风控页」这类无证据猜测。
+  const int http_status = FindJsonIntValue(inner, "status", 0);
+  const std::string body_excerpt =
+      Excerpt(FindJsonStringValue(inner, "body"), 200);
   std::string message;
   if (errno_code == -6) {
-    message = "百度登录态被风控（errno=-6）——请到授权中心重新扫码登录";
+    message = "百度登录态被风控（errno=-6，HTTP " + std::to_string(http_status) +
+              "，body=" + body_excerpt + "）——请到授权中心重新扫码登录";
   } else if (!js_err.empty()) {
     message = "页面取号异常：" + js_err;
   } else if (!http_ok) {
-    message = "gettemplatevariable 请求未成功（疑似风控页）";
+    message = "gettemplatevariable 请求未成功（HTTP " +
+              std::to_string(http_status) + "，body=" + body_excerpt + "）";
   } else {
     message = "响应未含 bdstoken：" + Excerpt(inner, 160);
   }

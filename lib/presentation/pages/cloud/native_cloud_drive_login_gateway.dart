@@ -713,6 +713,14 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     );
     final String cookie = joinCookies(cookies);
     if (!_isBaiduAccountCookie(cookie)) {
+      // 3.1862 诊断增强：失败点留痕键名列表——区分「扫码链 Cookie 不全」
+      // 与「富集被风控」两类失败（用户诉求：扫码后有没有拿到需要的 token
+      // 要有日志提示）。只打键名不打值，避免凭据泄露。
+      AppLog.warn(
+        'baidu-auth',
+        '扫码 Cookie 校验未通过：总长 ${cookie.length}，键名 '
+        '[${_cookieKeyNames(cookie).join(', ')}]（要求含 BDUSS+STOKEN）',
+      );
       throw const CloudDriveLoginException('百度扫码未返回完整 BDUSS/STOKEN');
     }
     // 对齐 iOS `baiduEnrichAccountCookie`（`CloudDriveAuthManager.swift:1262`）：
@@ -739,6 +747,20 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       ..._cookieStringToMap(seedCookie),
       ..._cookieStringToMap(enriched.cookie),
     });
+    // 3.1862 诊断增强：扫码凭据链全景留痕（用户诉求：扫码成功后有没有获取
+    // 到需要的 token 要有明确日志提示）。只打键名不打值防凭据泄露；据此可
+    // 直接判定落库凭据缺哪些指纹键（BAIDUID/BAIDUID_BFESS/STOKEN 等），
+    // 以及原生 WebView2 富集与 Dart 富集各自是否拿到 bdstoken。
+    AppLog.info(
+      'baidu-auth',
+      '扫码凭据链全景：扫码 Cookie 键名 [${_cookieKeyNames(cookie).join(', ')}] | '
+      '原生 WebView2 富集'
+      '${native.token.isEmpty ? '未取得 bdstoken' : '取得 bdstoken（长度 ${native.token.length}）'}'
+      '${native.cookie.isEmpty ? '，未返回 Jar Cookie' : '，Jar 键名 [${_cookieKeyNames(native.cookie).join(', ')}]'} | '
+      'Dart 富集 extra 键 [${enriched.extra.keys.join(', ')}] | '
+      '最终落库 Cookie 键名 [${_cookieKeyNames(finalCookie).join(', ')}]，'
+      '总长 ${finalCookie.length}',
+    );
     // 合并既有 extra 再落库：播放链经 onFetched 回写的 bdstoken（凭据
     // `extra["bdstoken"]`，第 4 层「保存值兜底」的数据源）不得被重新扫码
     // 整体覆盖抹掉——否则云电脑上每次重登都会清空兜底值，永远回到
@@ -936,6 +958,10 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
 
   static bool _isBaiduAccountCookie(String cookie) =>
       cookie.contains('BDUSS=') && cookie.contains('STOKEN=');
+
+  /// 3.1862 诊断增强：提取 Cookie 键名列表（只打键名不打值，防凭据泄露）。
+  static List<String> _cookieKeyNames(String cookie) =>
+      _cookieStringToMap(cookie).keys.map((String k) => k.trim()).toList();
 
   // ─────────────── 夸克 ───────────────
 

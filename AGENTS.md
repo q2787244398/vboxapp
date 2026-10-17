@@ -289,3 +289,41 @@ flutter_windows.dll+0xfb4909 两次同偏移）；② 播放黑屏有声无画�
     走系统 Evergreen。
   - 版本串解析用 `std::stoi`（ParseVersionPrefix3），版本读取复用
     version.lib（CMakeLists 已链接，无新依赖）。
+
+## 3.1862 Windows 播放黑屏回归修复：player_page 补挂 onTextureReady
+
+- **根因（3.1861 实测实锤）**：UI 重构后 `lib/presentation/pages/player/
+  player_page.dart` 只监听 `onSurfaceChanged` 挂载纹理，而 Windows 原生
+  只发 `textureReady` 事件（无 surfaceChanged）→ 页面 `_textureId` 恒
+  null → `VideoSurface` 永远渲染深色占位。云电脑 19:20 日志佐证：mpv
+  首帧非黑像素占比 79%、`MarkTextureFrameAvailable` 正常发布，但用户
+  全黑——发布链全通，挂载链断裂。家用电脑「旧版能出画面、新版黑」与
+  此完全吻合（旧版 player_page 还挂着 onTextureReady）。
+- **修复**：`player_page.dart` initState 补挂 `_player.onTextureReady`
+  （setState 设置 `_textureId`，channel 层 textureReady 事件分发本就
+  存在，channel_player.dart L177-183）；dispose 补清理。与
+  onSurfaceChanged 并存幂等（同值 setState），macOS/Android 不受影响。
+- **基线说明**：本修复前已将 player_page.dart 同步到远端 main（3.1861）
+  最新内容再做增量修改，未回退 3.1859-3.1861 期间的他人改动。
+
+## 3.1862 取号失败诊断增强：扫码链全景日志 + 桥层失败详情带响应体
+
+- **背景**：家用电脑/云电脑均出现「普通百度网盘加载失败」，用户未开代理、
+  扫码登录早已成功，取号链四层兜底（WinHTTP → 原生 WebView2 桥 → Dart
+  HttpClient → HTML 解析）仍全挂。代码注释自证「Windows 端 Dart 富集走
+  HttpClient 指纹被风控、BAIDUID 补不全 → 落库凭据缺指纹」（L723-726），
+  但缺运行时证据，先加日志不动逻辑，复测定位真凶后精准修。
+- **扫码链诊断**（`native_cloud_drive_login_gateway.dart`）：
+  - 扫码 Cookie 校验失败留痕：总长 + 键名列表（要求含 BDUSS+STOKEN）；
+  - 扫码成功后凭据链全景日志（`baidu-auth` tag）：扫码 Cookie 键名 →
+    原生 WebView2 富集结果 → Dart 富集 extra 键 → 最终落库 Cookie 键名
+    与总长，只打键名不打值防凭据泄露（新增 `_cookieKeyNames` helper）。
+  - 复测预期：若全景日志显示最终落库 Cookie 缺 BAIDUID/BDCLND 等指纹键，
+    即坐实「落库凭据缺指纹」推理。
+- **桥层诊断**（`baidu_token_bridge.cpp`）：
+  - WinHTTP 非 200 / errno!=0 失败 detail 携带响应体前 160 字节摘要
+    （errno=-6 风控码的 57 字节 body 内容直接可见）；
+  - OnScriptResult 失败分支回传 HTTP status + body 前 200 字节
+    （区分「网络层请求未成功」与「百度服务端 errno 风控」）。
+  - 复测预期：日志直接暴露 gettemplatevariable 实际返回内容，判断
+    是凭据指纹缺失还是 IP/UA 风控。
