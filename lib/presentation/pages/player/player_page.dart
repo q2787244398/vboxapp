@@ -1226,16 +1226,6 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() => _textureId = id);
     };
-    // Windows 端原生纹理就绪走 `textureReady` 事件（macOS/Android 走上面的
-    // surfaceChanged）：UI 重构后本页只监听 onSurfaceChanged，而 Windows 原生
-    // 从不发该事件 → _textureId 恒 null，VideoSurface 永远渲染深色占位
-    // （「有声无画」回归根因，云电脑实测 mpv 已输出非黑帧但屏幕黑）。此处
-    // 补挂 onTextureReady 恢复 Windows 挂载链；两事件并存幂等（同值 setState），
-    // 对其他平台无影响。
-    _player.onTextureReady = (int id) {
-      if (!mounted) return;
-      setState(() => _textureId = id);
-    };
     _player.onError = (String message, {required bool fatal}) {
       if (!mounted) return;
       _appendLog('错误：$message');
@@ -1833,7 +1823,6 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _player.onProgress = null;
     _player.onVideoSize = null;
     _player.onSurfaceChanged = null;
-    _player.onTextureReady = null;
     _player.onError = null;
     WidgetsBinding.instance.removeObserver(this);
     final PipController? pip = _pip;

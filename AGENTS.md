@@ -290,21 +290,25 @@ flutter_windows.dll+0xfb4909 两次同偏移）；② 播放黑屏有声无画�
   - 版本串解析用 `std::stoi`（ParseVersionPrefix3），版本读取复用
     version.lib（CMakeLists 已链接，无新依赖）。
 
-## 3.1862 Windows 播放黑屏回归修复：player_page 补挂 onTextureReady
+## 3.1862 黑屏误诊回退 + 取号诊断增强
 
-- **根因（3.1861 实测实锤）**：UI 重构后 `lib/presentation/pages/player/
-  player_page.dart` 只监听 `onSurfaceChanged` 挂载纹理，而 Windows 原生
-  只发 `textureReady` 事件（无 surfaceChanged）→ 页面 `_textureId` 恒
-  null → `VideoSurface` 永远渲染深色占位。云电脑 19:20 日志佐证：mpv
-  首帧非黑像素占比 79%、`MarkTextureFrameAvailable` 正常发布，但用户
-  全黑——发布链全通，挂载链断裂。家用电脑「旧版能出画面、新版黑」与
-  此完全吻合（旧版 player_page 还挂着 onTextureReady）。
-- **修复**：`player_page.dart` initState 补挂 `_player.onTextureReady`
-  （setState 设置 `_textureId`，channel 层 textureReady 事件分发本就
-  存在，channel_player.dart L177-183）；dispose 补清理。与
-  onSurfaceChanged 并存幂等（同值 setState），macOS/Android 不受影响。
-- **基线说明**：本修复前已将 player_page.dart 同步到远端 main（3.1861）
-  最新内容再做增量修改，未回退 3.1859-3.1861 期间的他人改动。
+- **误诊记录（重要教训）**：曾判断「Windows 黑屏 = 页面只监听
+  onSurfaceChanged 而原生只发 textureReady → _textureId 恒 null」，并在
+  player_page.dart 补挂 `_player.onTextureReady`——实际 PlayerController
+  早在 cef5f44096（10-14「修复百度网盘播放异常与 Windows 安装器进度卡死」）
+  的 `_attach()` 里就把底层 textureReady 重映射到 onSurfaceChanged
+  （player_controller.dart L326-328），挂载链在用户实测版本里本就畅通；
+  且 PlayerController 并无 onTextureReady setter，该改动导致 flutter
+  analyze 两处 error、flutter-analyze job 失败、build-windows 全线 skip
+  （首例 CI 编译失败即 3.1862 首推 e7073f40）。本节已整体回退，
+  player_page.dart 恢复 3.1861 原状。
+- **黑屏真因重新定向**：原生发布链正常（mpv 首帧非黑像素 79%）、
+  事件链（textureReady → channel 分发 → 重映射 → onSurfaceChanged →
+  setState）代码级畅通、VideoSurface 有 textureId 即渲染 Texture——
+  嫌疑转向引擎侧像素缓冲拉取路径（PixelBufferTexture.CopyPixelBuffer
+  返回内容 / 槽位锁定归还时序 / 纹理注册尺寸），待复测日志定位。
+- **基线说明**：player_page.dart 本次回退已逐字节比对远端
+  c522f30f（3.1862 版本号提交）内容一致后才推送，无覆盖风险。
 
 ## 3.1862 取号失败诊断增强：扫码链全景日志 + 桥层失败详情带响应体
 
