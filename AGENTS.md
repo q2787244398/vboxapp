@@ -331,3 +331,36 @@ flutter_windows.dll+0xfb4909 两次同偏移）；② 播放黑屏有声无画�
     （区分「网络层请求未成功」与「百度服务端 errno 风控」）。
   - 复测预期：日志直接暴露 gettemplatevariable 实际返回内容，判断
     是凭据指纹缺失还是 IP/UA 风控。
+
+## 3.1863 黑屏回归点回退 + SW 软渲染偏色直接修对 + 色彩链路诊断日志
+
+用户纠正：「不单单是人物偏色，整个视频画面颜色都不一样；iOS 早期也遇到过、
+后来修好了」——根因是 iOS 走 GPU 渲染（`vo=gpu-next` + `gpu-api=vulkan` +
+moltenvk + videotoolbox），完整 GPU 色彩管线，故色彩正确；Windows 端退 SW
+软渲染（libswscale）无色彩管理才是偏色主因，而非 601/709 参数微调所能解决。
+本版按用户要求「不降级兜底、有问题直接输出日志」落地。
+
+- `windows/runner/player_plugin.cpp`（黑屏回退 · 确定性修复）：
+  - **移除 FRAME 闸门**（`RunRenderLoop`）：3.1859 加的「仅 kRenderUpdateFrame
+    时渲染」是黑屏回归点——首帧在 VO reconfig 时渲染消耗 FRAME 标志后，慢解码/
+    软解过载下后续真实帧的 FRAME 通知不再可靠置位 → 持续黑屏。恢复旧版「每
+    100ms 无条件渲染」拉取式，`render_context_update` 返回值不再作门槛；真实帧
+    解出前由 `ResolveVideoSize`（尺寸未就绪即 return）兜住，不渲空帧。
+  - **移除 pixelformat 闸门**（`RenderFrame`）：3.1859 加的
+    `video-params/pixelformat` 空检查同为黑屏回归点，删除。
+  - **SW 路径色彩改 colormatrix 系列**：旧 target-prim/target-trc/tone-mapping
+    属 GPU 项、libswscale 软转换不识别（3.1858 已实锤不生效）。改设
+    `colormatrix=bt.709` / `colormatrix-primaries=bt.709` /
+    `colormatrix-gamma=bt.1886`，逐项记录 `set_option_string` 返回值（<0 =
+    mpv-2.dll 未识别该选项，日志一眼可见是否被接受），而非盲改。
+  - **首帧色彩参数日志增强**：`PublishFrame` 首帧渲染成功后补打真实
+    `video-params/primaries` / `gamma` / `colormatrix` / `colorlevels`——
+    FILE_LOADED 时机 video-params 尚空（实测日志为空），VO reconfig 后首帧才
+    就绪，故移到首帧统一留痕；偏色（矩阵 601/709、range limited/full、
+    primaries/gamma 缺失）一眼定位。偏色硬证据链保留：`VBOX_DUMP_FRAME` 默认
+    开启首帧 BMP 转储（设 0/false/no/off 关闭；BMP 偏色→渲染管线，BMP 正常→
+    显示器/系统）。
+
+- **待办（发布前关闭）**：`VBOX_DUMP_FRAME` 已默认开启——起播首帧自动转储 BMP
+  到 `%TEMP%` 用于偏色定责。偏色定位/修复后务必改回默认关闭（恢复需显式设置才
+  转储），避免正式版每次起播都写临时文件。

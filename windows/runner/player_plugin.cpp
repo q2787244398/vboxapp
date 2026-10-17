@@ -1174,15 +1174,20 @@ bool PlayerPlugin::CreateSwRenderContext() {
   if (api_.render_context_create == nullptr || mpv_ == nullptr) {
     return false;
   }
-  // SW 路径色彩钉扎（3.1858 修正）：TRC 与 GL 路径同口径改钉 bt.1886——
-  // 3.1856 钉 srgb（≈2.2）会把 bt.1886(≈2.4) 视频中间调整体提亮 = 用户实测
-  // 「灰蒙蒙/低对比」症状；iOS 直通 Metal 原样 bt.1886 输出，对齐之。
-  // 注：SW（libswscale 软转换）对 target-* 选项的支持随 mpv 版本而异
-  // （旧版不识别时忽略，行为不变），色彩最终以 VBOX_DUMP_FRAME 转储的
-  // BMP 像素实测为准。
-  api_.set_option_string(mpv_, "target-prim", "bt.709");
-  api_.set_option_string(mpv_, "target-trc", "bt.1886");
-  api_.set_option_string(mpv_, "tone-mapping", "bt.2390");
+  // SW（libswscale）路径色彩修正：旧的 target-prim/target-trc/tone-mapping
+  // 属 GPU 项，libswscale 软转换不识别（前注已自白，实测未生效）。改用直接
+  // 作用于 libswscale 的 colormatrix 系列。4K 视频 YUV→RGB 默认矩阵应为
+  // bt.709；range 保持 auto（缺元数据时回退有限范围）。逐项记录
+  // set_option_string 返回值（<0 = mpv-2.dll 未识别该选项，即未生效），从
+  // 日志即可判断设置是否被接受，而非盲改。
+  const int cm = api_.set_option_string(mpv_, "colormatrix", "bt.709");
+  const int cmp = api_.set_option_string(mpv_, "colormatrix-primaries", "bt.709");
+  const int cmg = api_.set_option_string(mpv_, "colormatrix-gamma", "bt.1886");
+  EmitLog("info",
+          "SW 色彩矩阵设置结果：colormatrix=" + std::to_string(cm) +
+              "，colormatrix-primaries=" + std::to_string(cmp) +
+              "，colormatrix-gamma=" + std::to_string(cmg) +
+              "（<0 = mpv 未识别，视为未生效）");
   int advanced_control = 1;
   mpv_render_param params[] = {
       {MPV_RENDER_PARAM_API_TYPE, const_cast<char*>(kRenderApiSw)},
@@ -1429,15 +1434,14 @@ void PlayerPlugin::RunRenderLoop() {
     if (render_ctx_ == nullptr) {
       continue;
     }
-    // 仅当 mpv 报告有新帧（kRenderUpdateFrame）才渲染。旧实现无视返回值每
-    // 100ms 空渲一帧：mpv 尚未解出真实视频帧时 render 输出黑帧并被发布上屏
-    // （14:38 4K 实测首帧发布早于 VO reconfig 1.6s），4K 纯软解过载时黑帧
-    // 可停留数十秒 = 「黑屏有声无画」首因。跳过 REDRAW 位无碍：重绘请求随
-    // 下一真帧（≤40ms@25fps）自然覆盖。
-    const mpv_render_update_flag flags = api_.render_context_update(render_ctx_);
-    if ((flags & kRenderUpdateFrame) != 0) {
-      RenderFrame();
-    }
+    // 恢复拉取式渲染：每 100ms 无条件渲染一帧（旧版行为）。3.1859 引入的
+    // FRAME 闸门（仅 kRenderUpdateFrame 时渲染）是黑屏回归点：首帧在 VO
+    // reconfig 时渲染消耗 FRAME 标志后，慢解码/软解过载下后续真实帧的 FRAME
+    // 通知不再可靠置位 → 持续黑屏。render_context_update 仍需调用以驱动内部
+    // 更新，但其返回值不再作为渲染门槛；真实帧解出前由 ResolveVideoSize
+    // （尺寸未就绪即 return）兜住，不会渲出空帧。
+    api_.render_context_update(render_ctx_);
+    RenderFrame();
   }
   // 渲染线程内释放（保持 GL 上下文当前，满足 mpv OpenGL 后端释放契约）。
   DestroyGlRenderContext();
@@ -1461,15 +1465,22 @@ bool PlayerPlugin::ResolveVideoSize(int* width, int* height) {
 
 namespace {
 
-// 首帧像素转储（仅 VBOX_DUMP_FRAME=1 时生效）：把 BGRA 缓冲写成 24 位 BMP
-// （自底向上行序）。返回落盘路径；未启用 / 失败返回空串。GL 与 SW 后端的
-// 输出在此点均为 BGRA 顶行在上，同一口径。
+// 首帧像素转储（默认开启，VBOX_DUMP_FRAME=0/false/no/off 时关闭）：把 BGRA
+// 缓冲写成 24 位 BMP（自底向上行序）。返回落盘路径；失败返回空串。GL 与 SW
+// 后端的输出在此点均为 BGRA 顶行在上，同一口径。偏色定位后应改回默认关闭。
 std::string DumpFirstFrameToBmp(const std::vector<uint8_t>& bgra, int width,
                                 int height, bool software_backend) {
   char enabled[8] = {0};
-  if (::GetEnvironmentVariableA("VBOX_DUMP_FRAME", enabled,
-                                static_cast<DWORD>(sizeof(enabled))) == 0) {
-    return "";
+  const DWORD env_len =
+      ::GetEnvironmentVariableA("VBOX_DUMP_FRAME", enabled,
+                                static_cast<DWORD>(sizeof(enabled)));
+  // 默认开启（偏色排查用）：未设置环境变量即转储；仅显式设置为 0/false/no/off
+  // 时关闭。定位修复后应改回默认关闭（见 AGENTS.md 待办）。
+  if (env_len > 0) {
+    const std::string opt(enabled);
+    if (opt == "0" || opt == "false" || opt == "no" || opt == "off") {
+      return "";
+    }
   }
   if (width <= 0 || height <= 0 ||
       bgra.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4) {
@@ -1555,6 +1566,16 @@ void PlayerPlugin::PublishFrame(std::vector<uint8_t>& source, int width,
                 std::to_string(pixels > 0 ? non_black * 100 / pixels : 0) +
                 "%，平均亮度=" +
                 std::to_string(pixels > 0 ? luma_sum / pixels : 0) + "/255");
+    // VO reconfig 就绪后的真实色彩参数（FILE_LOADED 时机 video-params 尚空，
+    // 首帧像素解出后此处才可靠）。SW 软渲染偏色的定责关键留痕：矩阵错配
+    // （601/709）、range 错配（limited/full）、primaries/gamma 缺失都能从
+    // 这几项一眼定位。
+    EmitLog("info",
+            "首帧色彩参数：primaries=" +
+                GetStringProperty("video-params/primaries") +
+                "，gamma=" + GetStringProperty("video-params/gamma") +
+                "，colormatrix=" + GetStringProperty("video-params/colormatrix") +
+                "，colorlevels=" + GetStringProperty("video-params/colorlevels"));
     const std::string dumped = DumpFirstFrameToBmp(
         source, width, height, render_backend_ == RenderBackend::software);
     if (!dumped.empty()) {
@@ -1676,13 +1697,10 @@ void PlayerPlugin::RenderFrame() {
   if (render_ctx_ == nullptr || api_.render_context_render == nullptr) {
     return;
   }
-  // 真实视频帧闸门（双保险，外层已有 FRAME flags 闸门）：video-params 就位
-  // （首个视频帧完成输出配置）前不渲染发布。FILE_LOADED 时 params 可能尚未
-  // 就绪——14:38 4K 实测该时刻 video-params/pixelformat 为空、1.6s 后 VO 才
-  // reconfig，此前 render 必输出黑帧。音频源无视频轨时恒为空，同样被拦。
-  if (GetStringProperty("video-params/pixelformat").empty()) {
-    return;
-  }
+  // 注：此处不再以 video-params/pixelformat 为空作渲染门槛（3.1859 引入的
+  // pixelformat 闸门是黑屏回归点之一）。真实视频帧解出前，ResolveVideoSize
+  // 会因尺寸未就绪而 return，已足够避免空帧发布；色彩参数改由首帧渲染成功
+  // 后统一留痕（见 PublishFrame）。
   int pixel_width = 0;
   int pixel_height = 0;
   if (!ResolveVideoSize(&pixel_width, &pixel_height)) {
