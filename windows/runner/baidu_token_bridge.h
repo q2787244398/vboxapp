@@ -116,6 +116,14 @@ class BaiduTokenBridge {
   // 注意：StartChain / OnEnvironmentCreated 均会调用，必须在头文件声明，
   // 否则 .cpp 中的定义无法成为类成员（CI 曾因漏声明整链报错）。
   void EnsureController();
+  // 创建 WebView2 环境（use_fixed=true 用校验通过的固定版目录，否则系统
+  // Evergreen）。StartChain 与固定版失败重试共用；失败统一交
+  // HandleEnvCreateFailure 处理。
+  void BeginCreateEnvironment(bool use_fixed);
+  // 环境创建失败处理（[where] 标注环节：同步/回调，供日志区分）：
+  // 固定版失败且未重试过 → 自动改用系统 Evergreen 重试一次（对齐 iOS
+  // 「系统浏览器永远可用」）；重试过或本就 Evergreen → 如实 FailAll。
+  void HandleEnvCreateFailure(HRESULT hr, const char* where);
   void EnterPhase(Phase phase, const char* label, UINT watchdog_ms);
   void NavigateMain();
   void SeedCookies();
@@ -178,6 +186,13 @@ class BaiduTokenBridge {
   // nav_token_ 是否属于当前 webview_ 实例（导航回调按次重注册时记账，
   // 会话作废后旧 token 随 webview 一起失效，不可再用于 remove）。
   bool nav_registered_ = false;
+
+  // WebView2 运行时选择（3.1859）：固定版目录仅在校验通过时使用（完整性
+  // 三级校验见 WebView2BrowserExecutableDir）；校验未通过或环境创建失败时
+  // 进程级回退系统 Evergreen，evergreen_retry_used_ 防止来回重试死循环。
+  std::wstring fixed_runtime_dir_;
+  bool use_fixed_runtime_ = false;
+  bool evergreen_retry_used_ = false;
 
   Microsoft::WRL::ComPtr<ICoreWebView2Environment> env_;
   Microsoft::WRL::ComPtr<ICoreWebView2Controller> controller_;

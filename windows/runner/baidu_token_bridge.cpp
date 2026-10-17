@@ -20,6 +20,7 @@
 #include <wrl/event.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <iomanip>
 #include <regex>
@@ -188,25 +189,120 @@ std::wstring WebView2UserDataDir() {
   return dir;
 }
 
+// 解析 "a.b.c.d" 版本串前三段（major.minor.build）；段缺失/非法记 0。
+std::array<int, 3> ParseVersionPrefix3(const std::string& version) {
+  std::array<int, 3> out{0, 0, 0};
+  size_t begin = 0;
+  for (int i = 0; i < 3; ++i) {
+    if (begin > version.size()) break;
+    const size_t end = version.find('.', begin);
+    const std::string seg = version.substr(
+        begin, end == std::string::npos ? std::string::npos : end - begin);
+    try {
+      out[i] = std::stoi(seg);
+    } catch (...) {
+      out[i] = 0;
+    }
+    if (end == std::string::npos) break;
+    begin = end + 1;
+  }
+  return out;
+}
+
+// 读 PE 文件的 VERSIONINFO FileVersion（"a.b.c.d"），失败返回空串。
+std::string QueryFileVersion(const std::wstring& file) {
+  DWORD handle = 0;
+  const DWORD size = ::GetFileVersionInfoSizeW(file.c_str(), &handle);
+  if (size == 0) return std::string();
+  std::vector<BYTE> data(size);
+  if (!::GetFileVersionInfoW(file.c_str(), 0, size, data.data())) {
+    return std::string();
+  }
+  VS_FIXEDFILEINFO* info = nullptr;
+  UINT len = 0;
+  if (!::VerQueryValueW(data.data(), L"\\", reinterpret_cast<LPVOID*>(&info),
+                        &len) ||
+      info == nullptr || len < sizeof(VS_FIXEDFILEINFO)) {
+    return std::string();
+  }
+  std::ostringstream oss;
+  oss << HIWORD(info->dwFileVersionMS) << "." << LOWORD(info->dwFileVersionMS)
+      << "." << HIWORD(info->dwFileVersionLS) << "."
+      << LOWORD(info->dwFileVersionLS);
+  return oss.str();
+}
+
 // 随包内置的 WebView2 固定版（Fixed Version）运行时目录：<exeDir>\webview2。
-// 存在 msedgewebview2.exe 则返回该目录，供 CreateCoreWebView2EnvironmentWithOptions
-// 第一参 browserExecutableFolder 离线加载——不依赖系统是否安装 Edge WebView2
+// 校验通过则返回该目录，供 CreateCoreWebView2EnvironmentWithOptions 第一参
+// browserExecutableFolder 离线加载——不依赖系统是否安装 Edge WebView2
 // Evergreen 运行时（「WebView2 运行时不可用」= 系统未装 Evergreen 的根因，
 // 3.1857 起打包脚本 bundle-webview2-windows.ps1 将固定版随安装包分发，
 // installer.iss 递归打包 Release\webview2\* 自动携带）。
-// 目录不存在则返回空串，调用方回退系统 Evergreen 检测（与旧版行为一致，可回退）。
-std::wstring WebView2BrowserExecutableDir() {
+//
+// 3.1859 加固：仅「exe 存在」不再视为可用——云电脑实测该目录 142/155 文件
+// 混杂时环境创建虽成功、导航却无响应（25s 看门狗超时）。改为三级完整性
+// 校验，任一不过返回空串并回退系统 Evergreen：
+//   级 1：GetAvailableCoreWebView2BrowserVersionString(runtime) 能从该目录
+//         探测出非空运行时版本（加载器可加载该目录）；
+//   级 2：exe 的 VERSIONINFO FileVersion 与探测版本前三段一致；
+//   级 3：核心 dll（msedgewebview2.dll）版本与 exe 前三段一致——直接抓
+//         「exe 与核心 dll 版本错配」的混杂目录（本机实测主症状）。
+// [reject_reason] 出参约定：返回空串时，空 = 目录不存在（未检测到，非完整
+// 性问题）；非空 = 存在但校验拒绝（拒绝原因，供日志留痕）。
+std::wstring WebView2BrowserExecutableDir(std::string* reject_reason) {
+  if (reject_reason != nullptr) reject_reason->clear();
   wchar_t path[MAX_PATH] = {0};
   const DWORD len = ::GetModuleFileNameW(nullptr, path, MAX_PATH);
-  if (len == 0 || len >= MAX_PATH) return std::wstring();
+  if (len == 0 || len >= MAX_PATH) {
+    if (reject_reason != nullptr) *reject_reason = "宿主 exe 路径获取失败";
+    return std::wstring();
+  }
   std::wstring dir(path);
   const size_t slash = dir.find_last_of(L"\\/");
-  if (slash == std::wstring::npos) return std::wstring();
+  if (slash == std::wstring::npos) {
+    if (reject_reason != nullptr) *reject_reason = "宿主 exe 路径异常";
+    return std::wstring();
+  }
   dir.resize(slash);
   const std::wstring runtime = dir + L"\\webview2";
   const std::wstring exe = runtime + L"\\msedgewebview2.exe";
   const DWORD attr = ::GetFileAttributesW(exe.c_str());
   if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+    return std::wstring();  // 目录不存在：reason 留空 = 未检测到。
+  }
+  // 级 1：加载器探测——能从固定版目录解析出可用运行时版本。
+  LPWSTR detected = nullptr;
+  const HRESULT vr = ::GetAvailableCoreWebView2BrowserVersionString(
+      runtime.c_str(), &detected);
+  if (FAILED(vr) || detected == nullptr || *detected == L'\0') {
+    if (reject_reason != nullptr) {
+      *reject_reason = "运行时探测失败（hr=" + HexHResult(vr) + "）";
+    }
+    if (detected != nullptr) ::CoTaskMemFree(detected);
+    return std::wstring();
+  }
+  const std::string detected_version = WideToUtf8(detected);
+  ::CoTaskMemFree(detected);
+  // 级 2：exe 文件版本与探测版本前三段比对。
+  const std::string exe_version = QueryFileVersion(exe);
+  if (exe_version.empty()) {
+    if (reject_reason != nullptr) *reject_reason = "exe 版本信息缺失";
+    return std::wstring();
+  }
+  // 级 3：核心 dll 版本与 exe 比对（防 142/155 混杂错配）。
+  const std::string core_dll_version =
+      QueryFileVersion(runtime + L"\\msedgewebview2.dll");
+  if (core_dll_version.empty()) {
+    if (reject_reason != nullptr) *reject_reason = "核心 dll 缺失版本信息";
+    return std::wstring();
+  }
+  if (ParseVersionPrefix3(exe_version) != ParseVersionPrefix3(detected_version) ||
+      ParseVersionPrefix3(core_dll_version) != ParseVersionPrefix3(exe_version)) {
+    if (reject_reason != nullptr) {
+      *reject_reason = "版本错配（exe=" + exe_version + "，核心dll=" +
+                       core_dll_version + "，探测=" + detected_version +
+                       "，疑似混杂目录）";
+    }
     return std::wstring();
   }
   return runtime;
@@ -707,11 +803,65 @@ void BaiduTokenBridge::OnWatchdog() {
   if (webview_ != nullptr && phase_ == Phase::kNavigating && !interactive_) {
     webview_->Stop();
   }
+  // 3.1859 兜底：本次链路用的是固定版却走到看门狗超时（混杂目录可能
+  // 「环境创建成功但导航无响应」，完整性校验不一定拦得住）→ 标记回退，
+  // 下次链路跳过固定版直接走系统 Evergreen。回退过或本就 Evergreen 时无操作。
+  if (use_fixed_runtime_) {
+    evergreen_retry_used_ = true;
+    EmitLog("warn", "固定版链路看门狗超时，下次取号将跳过固定版走系统 Evergreen");
+  }
   FailAll(std::string("取号阶段超时（") + (phase_label_ ? phase_label_ : "?") +
           "）");
 }
 
 // ─────────────── 完整链路 ───────────────
+
+// 创建 WebView2 环境（StartChain 与固定版失败重试共用）。use_fixed=true 用
+// 校验通过的固定版目录离线加载，否则系统 Evergreen。同步失败转
+// HandleEnvCreateFailure（回调失败由 OnEnvironmentCreated 转入）。
+void BaiduTokenBridge::BeginCreateEnvironment(bool use_fixed) {
+  EnterPhase(Phase::kCreatingEnv, "创建WebView2环境", 20000);
+  auto handler = Microsoft::WRL::Callback<
+      ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+      [this](HRESULT result, ICoreWebView2Environment* created) -> HRESULT {
+        OnEnvironmentCreated(result, created);
+        return S_OK;
+      });
+  const HRESULT hr = ::CreateCoreWebView2EnvironmentWithOptions(
+      use_fixed ? fixed_runtime_dir_.c_str() : nullptr,
+      WebView2UserDataDir().c_str(), nullptr, handler.Get());
+  if (FAILED(hr)) {
+    HandleEnvCreateFailure(hr, "同步");
+  }
+}
+
+// 环境创建失败统一处理：当前用固定版且未回退过 → 置回退标记后改用系统
+// Evergreen 重试一次（固定版混杂/损坏时系统运行时仍可用——本机实测主场景）；
+// 本就 Evergreen 或已回退过 → 如实终止本次链路。
+void BaiduTokenBridge::HandleEnvCreateFailure(HRESULT hr, const char* where) {
+  if (use_fixed_runtime_ && !evergreen_retry_used_) {
+    evergreen_retry_used_ = true;
+    EmitLog("error", std::string("WebView2 固定版环境创建失败（") + where +
+                         " hr=" + HexHResult(hr) + "），回退系统 Evergreen 重试");
+    use_fixed_runtime_ = false;
+    LPWSTR version = nullptr;
+    const HRESULT vr = ::GetAvailableCoreWebView2BrowserVersionString(
+        nullptr, &version);
+    if (FAILED(vr) || version == nullptr) {
+      EmitLog("error", "系统 Evergreen WebView2 运行时也不可用（hr=" +
+                           HexHResult(vr) + "），无可用运行时");
+      FailAll("WebView2 运行时不可用（固定版创建失败 + Evergreen 缺失，hr=" +
+              HexHResult(vr) + "）");
+      return;
+    }
+    ::CoTaskMemFree(version);
+    EmitLog("info", "系统 Evergreen WebView2 运行时已检测到，开始重试");
+    BeginCreateEnvironment(false);
+    return;
+  }
+  FailAll(std::string("创建 WebView2 环境失败（") + where +
+          " hr=" + HexHResult(hr) + "）");
+}
 
 void BaiduTokenBridge::StartChain() {
   EnsureHostWindow();
@@ -729,20 +879,39 @@ void BaiduTokenBridge::StartChain() {
             std::string("COM 初始化：") +
                 (com_initialized_ ? "成功" : "失败（hr=" + HexHResult(hr) + "）"));
   }
-  // 随包内置的 WebView2 固定版（Fixed Version）目录，存在则离线加载，
-  // 不依赖系统是否安装 Edge WebView2 Evergreen 运行时（「WebView2 运行时
-  // 不可用」= 系统未装 Evergreen 的根因）。无内置包时回退系统 Evergreen 检测。
-  const std::wstring fixed_dir = WebView2BrowserExecutableDir();
-  const bool has_fixed = !fixed_dir.empty();
-  if (has_fixed) {
-    EmitLog("info", std::string("WebView2 固定版运行时已就位：") +
-                        WideToUtf8(fixed_dir.c_str()));
-  } else {
-    EmitLog("warn",
-            "未检测到随包 WebView2 固定版（<exeDir>\\webview2），回退系统 Evergreen 运行时检测");
+  if (env_ != nullptr) {
+    // 环境/控制器常驻复用：直接续链（种 Cookie + 导航）。
+    EnsureController();
+    return;
   }
-  if (!has_fixed) {
-    // 回退：系统 Evergreen 运行时检查（登录网关同款依赖，缺失则如实上报）。
+  // ── WebView2 运行时选择（3.1859）──
+  // 固定版目录经完整性校验通过才使用；校验未通过（目录混杂/版本错配）或
+  // 此前环境创建失败已回退过的，进程级走系统 Evergreen（对齐 iOS「系统
+  // 浏览器永远可用」）；evergreen_retry_used_ 防固定版↔Evergreen 来回死循环。
+  std::string reject_reason;
+  fixed_runtime_dir_ = WebView2BrowserExecutableDir(&reject_reason);
+  if (!fixed_runtime_dir_.empty()) {
+    if (evergreen_retry_used_) {
+      use_fixed_runtime_ = false;
+      EmitLog("warn",
+              "WebView2 固定版校验通过，但此前环境创建失败已回退，本次仍走系统 Evergreen");
+    } else {
+      use_fixed_runtime_ = true;
+      EmitLog("info", "WebView2 固定版运行时完整性校验通过：" +
+                          WideToUtf8(fixed_runtime_dir_.c_str()));
+    }
+  } else {
+    use_fixed_runtime_ = false;
+    if (reject_reason.empty()) {
+      EmitLog("warn",
+              "未检测到随包 WebView2 固定版（<exeDir>\\webview2），走系统 Evergreen");
+    } else {
+      EmitLog("error", "WebView2 固定版完整性校验未通过（" + reject_reason +
+                           "），回退系统 Evergreen");
+    }
+  }
+  if (!use_fixed_runtime_) {
+    // 系统 Evergreen 运行时检查（登录网关同款依赖，缺失则如实上报）。
     LPWSTR version = nullptr;
     const HRESULT vr = ::GetAvailableCoreWebView2BrowserVersionString(
         nullptr, &version);
@@ -755,31 +924,16 @@ void BaiduTokenBridge::StartChain() {
     ::CoTaskMemFree(version);
     EmitLog("info", "系统 Evergreen WebView2 运行时已检测到");
   }
-
-  if (env_ == nullptr) {
-    EnterPhase(Phase::kCreatingEnv, "创建WebView2环境", 20000);
-    auto handler = Microsoft::WRL::Callback<
-        ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-        [this](HRESULT result, ICoreWebView2Environment* created) -> HRESULT {
-          OnEnvironmentCreated(result, created);
-          return S_OK;
-        });
-    const HRESULT hr = ::CreateCoreWebView2EnvironmentWithOptions(
-        has_fixed ? fixed_dir.c_str() : nullptr,
-        WebView2UserDataDir().c_str(), nullptr, handler.Get());
-    if (FAILED(hr)) {
-      FailAll("创建 WebView2 环境失败（hr=" + HexHResult(hr) + "）");
-    }
-    return;
-  }
-  EnsureController();
+  BeginCreateEnvironment(use_fixed_runtime_);
 }
 
 void BaiduTokenBridge::OnEnvironmentCreated(HRESULT result,
                                             ICoreWebView2Environment* created) {
   if (phase_ != Phase::kCreatingEnv) return;
   if (FAILED(result) || created == nullptr) {
-    FailAll("创建 WebView2 环境失败（回调 hr=" + HexHResult(result) + "）");
+    // 创建失败统一处理：固定版 → Evergreen 回退重试一次；Evergreen →
+    // 如实终止（HandleEnvCreateFailure 内区分）。
+    HandleEnvCreateFailure(result, "回调");
     return;
   }
   env_ = created;

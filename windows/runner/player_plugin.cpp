@@ -577,6 +577,8 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
   // （spline36 档）；再显式钉住缩小保真/上采样两项，画像未生效时也不退回
   // bilinear 默认。渲染 API 缺失（vo=null 纯控制面）时无需设置。
   // 注：macOS PlayerPlugin.swift 走同一 mpv 管线，后续可同步同参。
+  // 实际生效的硬解档位（无 render API 时保持"无"），设置与初始化日志共用。
+  std::string hwdec = "无";
   if (has_render_api) {
     const char* quality_profile = "high-quality";
     if (api_.set_option_string(handle, "profile", quality_profile) < 0) {
@@ -603,8 +605,24 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
     // 渲染链路存在配合缺口——用户实测「Node 高码视频有声音无画面」。故按
     // 渲染后端分档：SW → hwdec=no（纯 CPU 软解，杜绝无画面）；GL →
     // auto-copy（硬解加速，保留 4K 卡顿修复）。必须在 mpv_initialize 前设置。
-    api_.set_option_string(handle, "hwdec",
-                           prefer_software_render_ ? "no" : "auto-copy");
+    // 硬解分档默认（3.1859）：SW → no（纯 CPU 软解）；GL → auto-copy。
+    // VBOX_HWDEC=no|auto-copy|auto 环境变量可覆盖默认——4K 在弱 CPU 云电脑
+    // 上软解过载（Audio device underrun 实测），可不动代码切 auto-copy 试
+    // D3D11VA 硬解（设备不可用时 mpv 自动回退软解，行为等价默认档）。
+    hwdec = prefer_software_render_ ? "no" : "auto-copy";
+    wchar_t hwdec_env[16] = {0};
+    if (::GetEnvironmentVariableW(L"VBOX_HWDEC", hwdec_env, 16) > 0 &&
+        hwdec_env[0] != L'\0') {
+      if (::lstrcmpiW(hwdec_env, L"no") == 0) {
+        hwdec = "no";
+      } else if (::lstrcmpiW(hwdec_env, L"auto-copy") == 0) {
+        hwdec = "auto-copy";
+      } else if (::lstrcmpiW(hwdec_env, L"auto") == 0) {
+        hwdec = "auto";
+      }
+      EmitLog("info", "VBOX_HWDEC=" + hwdec + "（环境变量覆盖硬解分档默认）");
+    }
+    api_.set_option_string(handle, "hwdec", hwdec.c_str());
   }
   if (api_.initialize(handle) < 0) {
     api_.terminate_destroy(handle);
@@ -621,10 +639,7 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
                       std::string(has_render_api ? "libmpv" : "null") +
                       "，gpu-api=" +
                       std::string(has_render_api ? "opengl" : "无") +
-                      "，hwdec=" +
-                      std::string(has_render_api
-                                      ? (prefer_software_render_ ? "no" : "auto-copy")
-                                      : "无") +
+                      "，hwdec=" + hwdec +
                       "）");
 
   // 直播流（isLive）open 后自动起播，对齐 Android ExoPlayer 行为；点播保持暂停待 play()。
@@ -669,11 +684,14 @@ void PlayerPlugin::ShutdownMpv() {
   UnregisterTexture();
   {
     // 竞态修复（0xC0000409 闪退根因）：引擎光栅线程经 CopyPixelBuffer 拿到
-    // 帧槽后、OnPixelBufferReleased 归还前，若此处立即 clear()，后续新 Open
-    // 重分配帧缓冲会释放引擎仍在采样的内存 → STATUS_STACK_BUFFER_OVERRUN。
-    // 故在 UnregisterTexture 后**有界等待**引擎归还全部帧槽再清空；渲染线程
-    // 已 join，不会再产生新帧，此处只可能被引擎 release 回调唤醒，1s 超时
-    // 兜底防死锁。
+    // 帧槽后、OnPixelBufferReleased 归还前，该槽 buffer 绝不可释放。旧实现
+    // 在 1s 有界等待超时后仍强制 clear 全部槽——引擎（云电脑负载下光栅线程
+    // 可能长时间卡顿）稍后继续采样已释放内存 → STATUS_STACK_BUFFER_OVERRUN
+    // fastfail（flutter_windows.dll 内确定性偏移，实测两次崩溃同址）。
+    // 现改为：仅复位未锁定槽；锁定槽原样保留，交由引擎 release 回调在
+    // OnPixelBufferReleased 中复位。buffer 内存一律不在此释放（待下次
+    // PublishFrame swap 时自然回收），竞态窗口归零。渲染线程已 join 不会再
+    // 产生新帧；此处只可能被引擎 release 回调唤醒，1s 超时兜底防死锁。
     std::unique_lock<std::mutex> lock(frame_mutex_);
     frame_cv_.wait_for(lock, std::chrono::milliseconds(1000), [this] {
       for (const FrameSlot& s : frame_slots_) {
@@ -684,11 +702,14 @@ void PlayerPlugin::ShutdownMpv() {
       return true;
     });
     for (FrameSlot& s : frame_slots_) {
-      s.buffer.clear();
+      if (s.locked) {
+        // 引擎仍持有：原样保留（含 buffer），等 release 回调归还时复位。
+        continue;
+      }
       s.width = 0;
       s.height = 0;
-      s.locked = false;
       s.seq = 0;
+      s.locked = false;
     }
     frame_seq_ = 0;
   }
@@ -1408,9 +1429,15 @@ void PlayerPlugin::RunRenderLoop() {
     if (render_ctx_ == nullptr) {
       continue;
     }
-    // update 返回 kRenderUpdateFrame=有新帧；返回 0 也可能是重绘请求，均渲染一帧。
-    api_.render_context_update(render_ctx_);
-    RenderFrame();
+    // 仅当 mpv 报告有新帧（kRenderUpdateFrame）才渲染。旧实现无视返回值每
+    // 100ms 空渲一帧：mpv 尚未解出真实视频帧时 render 输出黑帧并被发布上屏
+    // （14:38 4K 实测首帧发布早于 VO reconfig 1.6s），4K 纯软解过载时黑帧
+    // 可停留数十秒 = 「黑屏有声无画」首因。跳过 REDRAW 位无碍：重绘请求随
+    // 下一真帧（≤40ms@25fps）自然覆盖。
+    const mpv_render_update_flag flags = api_.render_context_update(render_ctx_);
+    if ((flags & kRenderUpdateFrame) != 0) {
+      RenderFrame();
+    }
   }
   // 渲染线程内释放（保持 GL 上下文当前，满足 mpv OpenGL 后端释放契约）。
   DestroyGlRenderContext();
@@ -1509,6 +1536,25 @@ void PlayerPlugin::PublishFrame(std::vector<uint8_t>& source, int width,
   // 正常而屏幕偏色 → 显示器/系统色彩配置；BMP 本身偏色 → mpv 渲染管线
   // （SW 软转换色彩弱）。GL / SW 两后端共用本函数，转储覆盖全路径。
   if (!logged_first_frame_ && !source.empty()) {
+    // 首帧像素统计（一次即可定责）：非黑像素占比 + 平均亮度。复测黑屏时该
+    // 日志直接区分「mpv 输出黑」（占比≈0 → 渲染管线问题）与「引擎合成丢帧」
+    // （占比正常 → 纹理/合成层问题），不再猜测。成本仅首帧一次 O(像素) 遍历。
+    size_t non_black = 0;
+    uint64_t luma_sum = 0;
+    const size_t pixels = source.size() / 4;
+    for (size_t i = 0; i < pixels; ++i) {
+      const unsigned r = source[i * 4 + 2];
+      const unsigned g = source[i * 4 + 1];
+      const unsigned b = source[i * 4];
+      const unsigned luma = (r * 299 + g * 587 + b * 114) >> 10;  // 0~255 近似
+      if (luma >= 16) ++non_black;  // 低于 BT.709 黑电平视为黑
+      luma_sum += luma;
+    }
+    EmitLog("info",
+            "首帧像素统计：非黑像素占比=" +
+                std::to_string(pixels > 0 ? non_black * 100 / pixels : 0) +
+                "%，平均亮度=" +
+                std::to_string(pixels > 0 ? luma_sum / pixels : 0) + "/255");
     const std::string dumped = DumpFirstFrameToBmp(
         source, width, height, render_backend_ == RenderBackend::software);
     if (!dumped.empty()) {
@@ -1628,6 +1674,13 @@ void PlayerPlugin::RenderFrameSoftware(int video_width, int video_height,
 
 void PlayerPlugin::RenderFrame() {
   if (render_ctx_ == nullptr || api_.render_context_render == nullptr) {
+    return;
+  }
+  // 真实视频帧闸门（双保险，外层已有 FRAME flags 闸门）：video-params 就位
+  // （首个视频帧完成输出配置）前不渲染发布。FILE_LOADED 时 params 可能尚未
+  // 就绪——14:38 4K 实测该时刻 video-params/pixelformat 为空、1.6s 后 VO 才
+  // reconfig，此前 render 必输出黑帧。音频源无视频轨时恒为空，同样被拦。
+  if (GetStringProperty("video-params/pixelformat").empty()) {
     return;
   }
   int pixel_width = 0;
@@ -1771,7 +1824,15 @@ void PlayerPlugin::OnPixelBufferReleased(void* release_context) {
   {
     std::lock_guard<std::mutex> lock(self->frame_mutex_);
     if (index < PlayerPlugin::kFrameSlotCount) {
-      self->frame_slots_[index].locked = false;
+      FrameSlot& slot = self->frame_slots_[index];
+      slot.locked = false;
+      // 复位代际与尺寸（防旧帧被新会话误取）；buffer 内存保留不 clear——
+      // 此刻刚解除锁定，若在此 clear 而渲染线程随即 swap 该槽，存在 vector
+      // 内部状态竞争（同 ShutdownMpv 的 0xC0000409 根因）。内存将在该槽被
+      // PublishFrame 重新装入新帧时自然回收。
+      slot.seq = 0;
+      slot.width = 0;
+      slot.height = 0;
     }
   }
   // 唤醒 ShutdownMpv 中等待缓冲归还的线程（有界等待，见 ShutdownMpv）。

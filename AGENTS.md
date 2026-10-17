@@ -243,3 +243,49 @@ Dart `ChannelPlayer._onEvent` 收到后转 `AppLog`（category=player，tag
   `AppLog.stream` 过滤 `player-native` tag，以 `[原生]` 前缀汇入
   `_playerLogs`——浮层、错误态日志视图、导出文件三处内容一致，偏色/闪退/
   取号问题一处看全（三端通用：Windows/macOS/Android 原生日志同 tag）。
+
+## 3.1859 云电脑实测三问题修复：切集闪退 UAF / 首帧黑帧闸门 / 固定版完整性校验
+
+用户云电脑实测三问题：① 切集偶发闪退（WER 0xC0000409，
+flutter_windows.dll+0xfb4909 两次同偏移）；② 播放黑屏有声无画；③ 百度取号
+挂起 25s 超时（固定版目录 142/155 文件混杂实锤）。
+
+- `windows/runner/player_plugin.cpp`：
+  - **切集闪退（UAF 实锤）**：`ShutdownMpv` 1s 有界等待超时后仍强制复位
+    全部帧槽（含引擎仍持有的 locked 槽 buffer）→ 引擎纹理拷贝路径访问已
+    释放内存（确定性崩溃偏移与纹理拷贝吻合）。修复：只复位未锁定槽，
+    locked 槽原样保留（含 buffer），等 `OnPixelBufferReleased` 归还时复位；
+    该回调同步复位 seq/width/height 防「旧帧被新会话误取」，buffer 内存
+    保留不 clear（此刻刚解锁，与渲染线程 swap 该槽存在竞争，内存由
+    PublishFrame 重装新帧时自然回收）。
+  - **黑屏（mpv 空渲黑帧实锤）**：4K 日志「首帧已渲染上屏」出现在
+    FILE_LOADED+3ms，而 VO reconfig（3840x2160）在 +1.6s——首帧是 mpv
+    空渲黑帧；叠加 4K 纯 CPU 软解过载（Audio device underrun）长时间停留
+    黑帧。修复（双闸门）：`RunRenderLoop` 仅在 render_context_update
+    flags 含 kRenderUpdateFrame 时调 `RenderFrame`；`RenderFrame` 前置
+    `video-params/pixelformat` 非空闸门（首个视频帧完成输出配置才渲染
+    发布；纯音频源恒空同样被拦。SW_SIZE=17 等枚举已核对与 mpv v0.41 ABI
+    一致，排除枚举错配嫌疑）。
+  - **VBOX_HWDEC 逃生门**：硬解选择支持环境变量覆盖（no/auto-copy/auto），
+    硬解异常机器可就地切软解复测，免重新构建（默认 auto-copy 不变）。
+  - **首帧像素统计**：首帧发布时统计非黑像素占比（luma>=16）与平均亮度并
+    EmitLog 一次——复测时区分「mpv 输出黑」vs「引擎合成丢帧」。
+- `windows/runner/baidu_token_bridge.{h,cpp}`（取号 25s 超时根因修复）：
+  - **固定版完整性三级校验**（`WebView2BrowserExecutableDir` 加
+    reject_reason 出参）：级 1 加载器探测（
+    GetAvailableCoreWebView2BrowserVersionString 能从固定版目录解析出
+    非空版本）；级 2 exe VERSIONINFO FileVersion 与探测版本前三段比对；
+    级 3 核心 dll（msedgewebview2.dll）版本与 exe 比对——直接抓「exe 与
+    核心 dll 版本错配」的混杂目录（本机实测主症状：环境创建成功、导航
+    无响应 25s 超时）。reject_reason 约定：返回空串时空 = 目录不存在
+    （未检测到），非空 = 存在但校验拒绝（原因留痕日志）。
+  - **固定版失败 → Evergreen 自动重试一次**：环境创建（同步/回调）失败
+    且当前用固定版 → `evergreen_retry_used_` 标记后改用系统 Evergreen
+    重试（对齐 iOS「系统浏览器永远可用」）；重试过或本就 Evergreen →
+    如实 FailAll。环境创建段重构为 `BeginCreateEnvironment` /
+    `HandleEnvCreateFailure`（StartChain 与重试共用）。
+  - **看门狗超时兜底**：固定版链路走到看门狗超时（混杂目录「创建成功但
+    导航无响应」，校验不一定拦得住）→ 标记回退，下次取号跳过固定版直接
+    走系统 Evergreen。
+  - 版本串解析用 `std::stoi`（ParseVersionPrefix3），版本读取复用
+    version.lib（CMakeLists 已链接，无新依赖）。
