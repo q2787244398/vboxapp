@@ -134,12 +134,34 @@ class MediaKitPlayer implements Player {
   @override
   Future<void> open(PlayerSource source) async {
     _isLive = source.isLive;
+    // 诊断「Failed to recognize file format」：记录实际下发的播放地址与鉴权头，
+    // 判断是缺少 Referer/UA/Cookie 被判盗链返回 HTML，还是地址本身非直链。
+    final String? referer = _lookupHeader(source.headers, 'Referer');
+    final String? ua = _lookupHeader(source.headers, 'User-Agent');
+    final bool hasCookie = _lookupHeader(source.headers, 'Cookie') != null;
+    AppLog.info(
+      'player-media_kit',
+      '打开媒体：${source.url}（isLive=${source.isLive}, '
+          'mimeType=${source.mimeType ?? '-'}, referer=${referer ?? '-'}, '
+          'ua=${ua ?? '-'}, cookie=$hasCookie）',
+      category: LogCategory.player,
+    );
     final mk.Media media = mk.Media(
       source.url,
       httpHeaders: source.headers.isEmpty ? null : source.headers,
     );
     await _applyTuning(source);
     await _mpv.open(media, play: false);
+  }
+
+  /// 大小写不敏感读取自定义请求头（诊断鉴权头是否缺 Referer/UA/Cookie）。
+  static String? _lookupHeader(Map<String, String> headers, String name) {
+    if (headers.containsKey(name)) return headers[name];
+    final String lower = name.toLowerCase();
+    for (final MapEntry<String, String> e in headers.entries) {
+      if (e.key.toLowerCase() == lower) return e.value;
+    }
+    return null;
   }
 
   @override
