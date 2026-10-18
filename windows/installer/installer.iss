@@ -168,11 +168,11 @@ begin
     匹配两处：① 安装目录（AppDir）；② 用户数据目录（*\com.vbox\vbox\*，
     Node 引擎常驻 node.exe 部署在 Roaming\com.vbox\vbox\noderuntime，升级/
     重装时必须一并杀掉，否则旧进程占住 58080 端口导致新版「Node 未就绪」）。
-    Get-WmiObject 自 PowerShell 2.0（Win7）起可用。安全软件拦截 powershell
-    时仅记日志不阻断安装。 }
+    Get-CimInstance 较 Get-WmiObject 更快（WMI 枚举在云虚拟机/慢机器上极慢）。
+    安全软件拦截 powershell 时仅记日志不阻断安装。 }
   Exec('powershell.exe',
        '-NoProfile -ExecutionPolicy Bypass -Command ' +
-       'Get-WmiObject Win32_Process -Filter "Name=''node.exe'' OR Name=''python.exe'' OR Name=''pythonw.exe''" | ' +
+       'Get-CimInstance -ClassName Win32_Process -Filter "Name=''node.exe'' OR Name=''python.exe'' OR Name=''pythonw.exe''" | ' +
        'Where-Object { $_.ExecutablePath -like "' + AppDir + '\*" -or $_.ExecutablePath -like "*\com.vbox\vbox\*" } | ' +
        'ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; ' +
        'Start-Sleep -Milliseconds 800',
@@ -184,7 +184,12 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   ReportStage('prepare');
   Result := '';
-  KillVboxProcesses();
+  { 全新安装（既无程序目录，也无用户数据目录）时没有旧进程可杀，直接跳过：
+    PowerShell + WMI 全量枚举在云虚拟机/慢机器上会阻塞数十秒，导致「准备安装」
+    卡在 0%。仅在覆盖安装/重装（存在旧目录）时才执行进程清理。 }
+  if DirExists(ExpandConstant('{app}')) or
+     DirExists(ExpandConstant('{userappdata}\com.vbox\vbox')) then
+    KillVboxProcesses();
 end;
 
 { 阶段推进：ssInstall = 开始复制文件（含 Node 引擎，页面侧用字节进度切「部署 Node 引擎」）；
