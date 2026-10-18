@@ -4,9 +4,9 @@
 /// MethodChannel。替代 Windows/macOS 自研 mpv 渲染桥（OpenGL FBO + libswscale
 /// 软渲染，云电脑上「有声无画」）。
 ///
-/// 硬解 / 软解**自适应**：正常用户机器硬解优先（d3d11va / VideoToolbox）；检测到
-/// 远程桌面会话（云电脑测试环境，无真 GPU，ANGLE/EGL 渲染表面会创建失败并连带
-/// 起播崩溃）时自动切软解。
+/// 硬解 / 软解**自适应**：正常用户机器硬解优先（d3d11va / VideoToolbox）；经
+/// [HardwareGpuProbe] 探测到无硬件 GPU（云电脑测试环境，ANGLE/EGL 渲染表面会
+/// 创建失败并连带起播崩溃）时自动切软解。
 library;
 
 import 'dart:async';
@@ -19,6 +19,7 @@ import 'package:media_kit_video/media_kit_video.dart' as mkv;
 
 import '../../core/utils/logger.dart';
 import '../../domain/entities/player/player.dart';
+import 'hardware_gpu_probe.dart';
 import 'media_kit_profile.dart';
 
 /// media_kit 内核（单后端实例）。
@@ -53,10 +54,10 @@ class MediaKitPlayer implements Player {
   bool _hwAccel = true;
   String _hwAccelReason = '';
 
-  /// 自适应判定是否启用硬件解码。
+  /// 自适应判定是否启用硬件解码（GPU 渲染）。
   ///
-  /// 正常用户机器硬解优先；检测到远程桌面会话（云电脑测试环境，无真 GPU）时
-  /// 切软解，避免 d3d11va + ANGLE/EGL 渲染表面创建失败导致的起播崩溃。
+  /// 正常用户机器硬解优先；经 [HardwareGpuProbe] 探测无硬件 GPU（云电脑测试
+  /// 环境）时切软解，避免 d3d11va + ANGLE/EGL 渲染表面创建失败导致的起播崩溃。
   void _resolveHardwareAcceleration(bool? forced) {
     if (forced != null) {
       _hwAccel = forced;
@@ -68,15 +69,20 @@ class MediaKitPlayer implements Player {
       _hwAccelReason = '非 Windows，硬解优先（VideoToolbox 自带软件回退）';
       return;
     }
-    final String session =
-        (Platform.environment['SESSIONNAME'] ?? '').toLowerCase();
-    if (session.startsWith('rdp')) {
-      _hwAccel = false;
-      _hwAccelReason = '检测到远程桌面会话（RDP），无真 GPU，切软解';
-      return;
+    switch (HardwareGpuProbe.probe()) {
+      case GpuProbeVerdict.available:
+        _hwAccel = true;
+        _hwAccelReason = 'Windows 探测到硬件 GPU，硬解优先';
+        return;
+      case GpuProbeVerdict.unavailable:
+        _hwAccel = false;
+        _hwAccelReason = 'Windows 未探测到硬件 GPU（云电脑/无 GPU），切软解';
+        return;
+      case GpuProbeVerdict.unknown:
+        _hwAccel = false;
+        _hwAccelReason = 'Windows GPU 探测不可用（d3d11.dll 缺失或异常），保守软解';
+        return;
     }
-    _hwAccel = true;
-    _hwAccelReason = 'Windows 本机会话，硬解优先';
   }
 
   static mk.Player _createPlayer() {
