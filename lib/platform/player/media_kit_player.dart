@@ -7,6 +7,8 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show ValueListenable, visibleForTesting;
 import 'package:media_kit/media_kit.dart' as mk;
 import 'package:media_kit_video/media_kit_video.dart' as mkv;
 
@@ -19,25 +21,34 @@ import 'media_kit_profile.dart';
 /// 一个 [MediaKitPlayer] 绑定 [PlayerBackend.mediaKit]；与 [ChannelPlayer] 一样由
 /// [PlayerController] 创建，未来插回多内核时由降级链逐个重开。
 class MediaKitPlayer implements Player {
-  MediaKitPlayer({required this.backend}) {
-    mk.MediaKit.ensureInitialized();
-    _mpv = mk.Player();
-    _controller = mkv.VideoController(
-      _mpv,
-      configuration: const mkv.VideoControllerConfiguration(
-        // 尝试硬解（Windows d3d11va），失败自动回退软解；渲染走 D3D11/WARP。
-        enableHardwareAcceleration: true,
-      ),
-    );
+  MediaKitPlayer({
+    required this.backend,
+    @visibleForTesting mk.Player? core,
+    @visibleForTesting ValueListenable<int?>? textureId,
+  }) {
+    _mpv = core ?? _createPlayer();
+    _textureId = textureId ??
+        mkv.VideoController(
+          _mpv,
+          configuration: const mkv.VideoControllerConfiguration(
+            // 尝试硬解（Windows d3d11va），失败自动回退软解；渲染走 D3D11/WARP。
+            enableHardwareAcceleration: true,
+          ),
+        ).id;
     _bindStreams();
-    _controller.id.addListener(_onTextureId);
+    _textureId.addListener(_onTextureId);
+  }
+
+  static mk.Player _createPlayer() {
+    mk.MediaKit.ensureInitialized();
+    return mk.Player();
   }
 
   @override
   final PlayerBackend backend;
 
   late final mk.Player _mpv;
-  late final mkv.VideoController _controller;
+  late final ValueListenable<int?> _textureId;
 
   final List<StreamSubscription<Object?>> _subs = <StreamSubscription<Object?>>[];
 
@@ -51,7 +62,7 @@ class MediaKitPlayer implements Player {
   bool _isLive = false;
 
   @override
-  int? get textureId => _controller.id.value;
+  int? get textureId => _textureId.value;
 
   @override
   List<PlayerBackend> get availableBackends => <PlayerBackend>[backend];
@@ -105,7 +116,7 @@ class MediaKitPlayer implements Player {
 
   @override
   Future<void> dispose() async {
-    _controller.id.removeListener(_onTextureId);
+    _textureId.removeListener(_onTextureId);
     for (final StreamSubscription<Object?> s in _subs) {
       await s.cancel();
     }
@@ -185,7 +196,7 @@ class MediaKitPlayer implements Player {
   }
 
   void _onTextureId() {
-    final int? id = _controller.id.value;
+    final int? id = _textureId.value;
     if (id != null && id >= 0) {
       onTextureReady?.call(id);
     }
