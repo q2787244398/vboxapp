@@ -34,6 +34,35 @@ import '../../widgets/skeleton_shimmer.dart';
 import '../../widgets/vbox/vbox.dart';
 import '../douban/douban_ranking_page.dart';
 
+/// 有界并发信号量：对齐 iOS `SpiderManager.searchStream` 的 `running/maxConcurrent`
+/// 滑动窗口限流。Dart 侧此前用 `Future.wait` 一次性打满全部源，在低配云电脑上
+/// 导致 Python 子进程 / Node 桥 / QuickJS FFI 同时海量并发，触发原生崩溃（日志
+/// `Python 桥启动超时` / `node 127.0.0.1 拒绝连接`）。
+class _Semaphore {
+  _Semaphore(int capacity) : _available = capacity;
+
+  int _available;
+  final List<Completer<void>> _waiters = <Completer<void>>[];
+
+  Future<void> acquire() {
+    if (_available > 0) {
+      _available--;
+      return Future<void>.value();
+    }
+    final Completer<void> c = Completer<void>();
+    _waiters.add(c);
+    return c.future;
+  }
+
+  void release() {
+    if (_waiters.isNotEmpty) {
+      _waiters.removeAt(0).complete();
+    } else {
+      _available++;
+    }
+  }
+}
+
 /// 搜索页。
 class SearchPage extends StatefulWidget {
   /// 构造。
@@ -272,10 +301,17 @@ class _SearchPageState extends State<SearchPage> {
     _addSearchLog('====== 开始流式搜索: $kw (${sites.length} 源) ======');
     // 网盘源（group == 'cloud'）走 [CloudSearchUseCases] 独立通道（对齐 iOS
     // `searchStream` 的网盘通道与 apiSites 分立），不进入逐源 `searchContent`。
-    final List<Future<void>> tasks = <Future<void>>[
-      for (final SiteConfig s in sites)
-        if (s.group != 'cloud') _searchSite(s, kw),
-    ];
+    // 引擎类源（Node / QuickJS·JSC / Python）经 [_Semaphore] 有界限流（对齐 iOS
+    // `searchStream` 通道 3/4 的 maxConcurrent=10），避免一次性打满子进程/FFI。
+    final List<Future<void>> tasks = <Future<void>>[];
+    for (final SiteConfig s in sites) {
+      if (s.group == 'cloud') continue;
+      tasks.add(
+        s.resolveEngineType() != null
+            ? _searchSiteThrottled(s, kw)
+            : _searchSite(s, kw),
+      );
+    }
     _collectExtraSources(kw, tasks);
     await Future.wait(tasks);
     if (!mounted) return;
@@ -291,6 +327,20 @@ class _SearchPageState extends State<SearchPage> {
       .where((String s) => s.isNotEmpty)
       .toSet()
       .length;
+
+  /// 引擎类源（Node / QuickJS·JSC / Python）搜索并发上限（对齐 iOS
+  /// `searchStream` 通道 3/4 的 maxConcurrent=10）。
+  final _Semaphore _spiderSemaphore = _Semaphore(10);
+
+  /// 引擎类源限流版搜索：先取信号量再走 [_searchSite]（子进程/FFI 有界并发）。
+  Future<void> _searchSiteThrottled(SiteConfig site, String keyword) async {
+    await _spiderSemaphore.acquire();
+    try {
+      await _searchSite(site, keyword);
+    } finally {
+      _spiderSemaphore.release();
+    }
+  }
 
   /// 单站点搜索（返回即并入；单源失败静默，不阻断其余源，对齐 iOS 逐源容错）。
   ///
