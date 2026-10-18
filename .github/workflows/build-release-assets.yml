@@ -43,10 +43,11 @@ on:
 permissions:
   contents: write
 
-# 按提交串行：同一份代码只跑一份，且不同提交互不顶掉（避免漏掉某个版本的打包）
+# 按分支串行：同一分支只保留最新一次打包，新触发取消仍在跑的旧构建。
+# 连续推送时旧代码产出的安装包会被顶掉，避免「旧代码编译失败/缺最新内容」仍占机时或误出残包。
 concurrency:
-  group: build-release-assets-${{ github.event.workflow_run.head_sha || github.sha }}
-  cancel-in-progress: false
+  group: build-release-assets-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   # ── Android：release APK（arm64 + v7a）+ S.6 自签名 ────────────────
