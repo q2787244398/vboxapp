@@ -1542,47 +1542,65 @@ std::string DumpFirstFrameToBmp(const std::vector<uint8_t>& bgra, int width,
 // 解耦：按显示尺寸渲染时二者不同。
 void PlayerPlugin::PublishFrame(std::vector<uint8_t>& source, int width,
                                 int height, int video_width, int video_height) {
-  // 偏色排查逃生门（VBOX_DUMP_FRAME=1）：首帧经此汇聚点落盘为 24 位 BMP
-  // （%TEMP%\vbox_frame_宽x高_后端.bmp）。像素级区分偏色责任方：BMP 颜色
-  // 正常而屏幕偏色 → 显示器/系统色彩配置；BMP 本身偏色 → mpv 渲染管线
-  // （SW 软转换色彩弱）。GL / SW 两后端共用本函数，转储覆盖全路径。
-  if (!logged_first_frame_ && !source.empty()) {
-    // 首帧像素统计（一次即可定责）：非黑像素占比 + 平均亮度。复测黑屏时该
-    // 日志直接区分「mpv 输出黑」（占比≈0 → 渲染管线问题）与「引擎合成丢帧」
-    // （占比正常 → 纹理/合成层问题），不再猜测。成本仅首帧一次 O(像素) 遍历。
-    size_t non_black = 0;
-    uint64_t luma_sum = 0;
-    const size_t pixels = source.size() / 4;
-    for (size_t i = 0; i < pixels; ++i) {
-      const unsigned r = source[i * 4 + 2];
-      const unsigned g = source[i * 4 + 1];
-      const unsigned b = source[i * 4];
-      const unsigned luma = (r * 299 + g * 587 + b * 114) >> 10;  // 0~255 近似
-      if (luma >= 16) ++non_black;  // 低于 BT.709 黑电平视为黑
-      luma_sum += luma;
-    }
-    EmitLog("info",
-            "首帧像素统计：非黑像素占比=" +
-                std::to_string(pixels > 0 ? non_black * 100 / pixels : 0) +
-                "%，平均亮度=" +
-                std::to_string(pixels > 0 ? luma_sum / pixels : 0) + "/255");
-    // VO reconfig 就绪后的真实色彩参数（FILE_LOADED 时机 video-params 尚空，
-    // 首帧像素解出后此处才可靠）。SW 软渲染偏色的定责关键留痕：矩阵错配
-    // （601/709）、range 错配（limited/full）、primaries/gamma 缺失都能从
-    // 这几项一眼定位。
-    EmitLog("info",
-            "首帧色彩参数：primaries=" +
-                GetStringProperty("video-params/primaries") +
-                "，gamma=" + GetStringProperty("video-params/gamma") +
-                "，colormatrix=" + GetStringProperty("video-params/colormatrix") +
-                "，colorlevels=" + GetStringProperty("video-params/colorlevels"));
-    const std::string dumped = DumpFirstFrameToBmp(
-        source, width, height, render_backend_ == RenderBackend::software);
-    if (!dumped.empty()) {
+  // 偏色排查逃生门（默认开启，VBOX_DUMP_FRAME=0 关闭）：首个「非黑」帧经此
+  // 汇聚点落盘为 24 位 BMP（%TEMP%\vbox_frame_宽x高_后端.bmp）。像素级区分
+  // 偏色责任方：BMP 颜色正常而屏幕偏色 → 显示器/系统；BMP 本身偏色 → mpv
+  // 渲染管线（SW 软转换色彩弱）。GL / SW 两后端共用本函数，转储覆盖全路径。
+  // 本帧判定标志：首个「非黑」帧（触发首帧诊断/转储/上屏日志）。
+  bool first_non_black_frame = false;
+  constexpr int kDiagFrameCount = 10;
+  if (!source.empty()) {
+    // 前 10 帧每帧都做像素统计：暴露「从黑到亮」过渡（首帧空→后续有色 = 帧
+    // 上屏时序问题）还是「永远黑」（渲染管线始终未产出真实像素）。旧逻辑只
+    // 在首帧打，且首帧恰是 pre-decode 空帧（SW 缓冲 0 初始化、mpv 未写入），
+    // 造成 BMP/统计全拍假黑帧、误判为渲染管线坏，现改为逐帧留痕到有黑为止。
+    if (frame_publish_count_ < kDiagFrameCount) {
+      size_t non_black = 0;
+      uint64_t luma_sum = 0;
+      const size_t pixels = source.size() / 4;
+      for (size_t i = 0; i < pixels; ++i) {
+        const unsigned r = source[i * 4 + 2];
+        const unsigned g = source[i * 4 + 1];
+        const unsigned b = source[i * 4];
+        const unsigned luma = (r * 299 + g * 587 + b * 114) >> 10;
+        if (luma >= 16) ++non_black;
+        luma_sum += luma;
+      }
       EmitLog("info",
-              "VBOX_DUMP_FRAME：首帧像素已转储 " + dumped +
-                  "（与屏幕比对可定位偏色环节：BMP 正常→显示器/系统；BMP 偏"
-                  "色→渲染管线）");
+              "帧#" + std::to_string(frame_publish_count_ + 1) +
+                  " 像素统计：非黑占比=" +
+                  std::to_string(pixels > 0 ? non_black * 100 / pixels : 0) +
+                  "%，平均亮度=" +
+                  std::to_string(pixels > 0 ? luma_sum / pixels : 0) + "/255");
+    }
+    ++frame_publish_count_;
+
+    if (!logged_first_frame_) {
+      const size_t scan = std::min<size_t>(source.size() / 4, 4096);
+      bool has_content = false;
+      for (size_t i = 0; i < scan; ++i) {
+        if (source[i * 4] + source[i * 4 + 1] + source[i * 4 + 2] > 48) {
+          has_content = true;
+          break;
+        }
+      }
+      if (has_content) {
+        first_non_black_frame = true;
+        logged_first_frame_ = true;
+        // 首个非黑帧才可靠的色彩参数（video-params 就绪，FILE_LOADED 时机尚空）。
+        EmitLog("info",
+                "首帧色彩参数：primaries=" +
+                    GetStringProperty("video-params/primaries") +
+                    "，gamma=" + GetStringProperty("video-params/gamma") +
+                    "，colormatrix=" + GetStringProperty("video-params/colormatrix") +
+                    "，colorlevels=" +
+                    GetStringProperty("video-params/colorlevels"));
+        const std::string dumped = DumpFirstFrameToBmp(
+            source, width, height, render_backend_ == RenderBackend::software);
+        if (!dumped.empty()) {
+          EmitLog("info", "VBOX_DUMP_FRAME：首个非黑帧已转储 " + dumped);
+        }
+      }
     }
   }
   bool dropped_for_full_pool = false;
@@ -1629,10 +1647,9 @@ void PlayerPlugin::PublishFrame(std::vector<uint8_t>& source, int width,
     texture_registrar_->MarkTextureFrameAvailable(texture_id);
   }
 
-  if (!logged_first_frame_) {
-    logged_first_frame_ = true;
+  if (first_non_black_frame) {
     EmitLog("info",
-            "首帧已渲染上屏（渲染" + std::to_string(width) + "x" +
+            "首个非黑帧已渲染上屏（渲染" + std::to_string(width) + "x" +
                 std::to_string(height) + "，视频" +
                 std::to_string(video_width) + "x" + std::to_string(video_height) +
                 "，textureId=" + std::to_string(texture_id) + "，后端=" +

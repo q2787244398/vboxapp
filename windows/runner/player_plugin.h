@@ -355,6 +355,8 @@ class PlayerPlugin : public flutter::Plugin {
   bool logged_first_frame_ = false;
   bool logged_render_failure_ = false;
   bool logged_frame_drop_ = false;
+  // 已发布帧计数（前 N 帧逐帧像素统计用，诊断「持续黑屏 vs 首帧假黑」）。
+  int frame_publish_count_ = 0;
 
   // ── 状态 ──
   std::string state_ = "idle";
