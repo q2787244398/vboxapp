@@ -9,7 +9,7 @@
   5. LoadState displayText 5 态
 
 播放器（对齐 D6 · M1 MDK 接入后）：
-  6. 后端降级链：Android=Media3→libVLC；桌面=libmpv；iOS=nativeiOS
+  6. 后端降级链：Android=Media3→libVLC；桌面=media_kit；iOS=nativeiOS
   7. MKV 等复杂封装触发回退
   8. PlayMode 解析
 """
@@ -136,10 +136,10 @@ def main() -> int:
         # Android 原生仅实现 media3 / libVLC 两个内核（MDK 为 iOS 侧内核，
         # Flutter 端无原生实现），故链中不含 MDK。
         ("android", ["media3", "libVLC"]),
-        # 桌面端原生插件仅实现 libmpv（windows/runner/player_plugin.cpp 收到
-        # backend≠libmpv 直接 E_BACKEND_UNAVAILABLE），故链中不含 MDK。
-        ("windows", ["libmpv"]),
-        ("macos", ["libmpv"]),
+        # 桌面端已改用 media_kit（libmpv 的 Dart 封装，裸 libmpv 自研渲染桥已退役），
+        # 故链中仅 mediaKit（MDK/libVLC 未在桌面接线）。
+        ("windows", ["mediaKit"]),
+        ("macos", ["mediaKit"]),
         ("ios", ["nativeiOS"]),
     ]:
         got = chain_for_platform(plat)
@@ -149,7 +149,7 @@ def main() -> int:
         print(f"  {tag} {plat}: {got}")
     # 确认 windows 与 macos 共用分支
     if re.search(r"case 'windows':\s*\n\s*case 'macos':", pl):
-        print("  ✅ windows/macos 共用 libmpv 分支（case 穿透）")
+        print("  ✅ windows/macos 共用 media_kit 分支（case 穿透）")
     else:
         print("  ⚠️ windows/macos 未共用分支")
 
