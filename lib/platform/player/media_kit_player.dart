@@ -1,11 +1,16 @@
 /// 平台层：media_kit 播放器内核（实现 [Player]）。
 ///
-/// 纯 Dart 直连 media_kit（底层 libmpv，渲染走 ANGLE/D3D11，无真 GPU 时自动落
-/// D3D11 WARP 软件光栅化），不经 MethodChannel。替代 Windows/macOS 自研 mpv
-/// 渲染桥（OpenGL FBO + libswscale 软渲染，云电脑上「有声无画」）。
+/// 纯 Dart 直连 media_kit（底层 libmpv，FFmpeg 解码 + libmpv 上屏），不经
+/// MethodChannel。替代 Windows/macOS 自研 mpv 渲染桥（OpenGL FBO + libswscale
+/// 软渲染，云电脑上「有声无画」）。
+///
+/// 硬解 / 软解**自适应**：正常用户机器硬解优先（d3d11va / VideoToolbox）；检测到
+/// 远程桌面会话（云电脑测试环境，无真 GPU，ANGLE/EGL 渲染表面会创建失败并连带
+/// 起播崩溃）时自动切软解。
 library;
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart'
     show ValueListenable, visibleForTesting;
@@ -25,18 +30,53 @@ class MediaKitPlayer implements Player {
     required this.backend,
     @visibleForTesting mk.Player? core,
     @visibleForTesting ValueListenable<int?>? textureId,
+    @visibleForTesting bool? hardwareAcceleration,
   }) {
     _mpv = core ?? _createPlayer();
+    _resolveHardwareAcceleration(hardwareAcceleration);
     _textureId = textureId ??
         mkv.VideoController(
           _mpv,
-          configuration: const mkv.VideoControllerConfiguration(
-            // 尝试硬解（Windows d3d11va），失败自动回退软解；渲染走 D3D11/WARP。
-            enableHardwareAcceleration: true,
+          configuration: mkv.VideoControllerConfiguration(
+            enableHardwareAcceleration: _hwAccel,
           ),
         ).id;
     _bindStreams();
     _textureId.addListener(_onTextureId);
+    AppLog.info(
+      'player-media_kit',
+      '内核解码配置：${_hwAccel ? '硬解优先' : '软解'} —— $_hwAccelReason',
+      category: LogCategory.player,
+    );
+  }
+
+  bool _hwAccel = true;
+  String _hwAccelReason = '';
+
+  /// 自适应判定是否启用硬件解码。
+  ///
+  /// 正常用户机器硬解优先；检测到远程桌面会话（云电脑测试环境，无真 GPU）时
+  /// 切软解，避免 d3d11va + ANGLE/EGL 渲染表面创建失败导致的起播崩溃。
+  void _resolveHardwareAcceleration(bool? forced) {
+    if (forced != null) {
+      _hwAccel = forced;
+      _hwAccelReason = '强制指定（测试注入）';
+      return;
+    }
+    if (!Platform.isWindows) {
+      _hwAccel = true;
+      _hwAccelReason = '非 Windows，硬解优先（VideoToolbox 自带软件回退）';
+      return;
+    }
+    final String session =
+        (Platform.environment['SESSIONNAME'] ?? '').toLowerCase();
+    if (session.startsWith('rdp')) {
+      _hwAccel = false;
+      _hwAccelReason = '检测到远程桌面会话（RDP），无真 GPU，切软解';
+      return;
+    }
+    _hwAccel = true;
+    _hwAccelReason = 'Windows 本机会话，硬解优先';
   }
 
   static mk.Player _createPlayer() {
@@ -60,6 +100,7 @@ class MediaKitPlayer implements Player {
   int _width = 0;
   int _height = 0;
   bool _isLive = false;
+  bool _disposed = false;
 
   @override
   int? get textureId => _textureId.value;
@@ -102,8 +143,15 @@ class MediaKitPlayer implements Player {
   Future<void> pause() => _mpv.pause();
 
   @override
-  Future<void> seekTo(int positionMs) =>
-      _mpv.seek(Duration(milliseconds: positionMs));
+  Future<void> seekTo(int positionMs) async {
+    if (_disposed) return;
+    try {
+      await _mpv.seek(Duration(milliseconds: positionMs));
+    } catch (_) {
+      // 媒体未真正打开（loadfile 排队期）或已释放的竞态下，原生 seek 可能抛错
+      // 甚至空指针；此处吞掉，避免崩溃传播（真正严谨的是上层首帧就绪后才 seek）。
+    }
+  }
 
   /// [Player.setVolume] 契约是 0.0 ~ 1.0，media_kit 的 [mk.Player.setVolume] 是
   /// 0.0 ~ 100.0，此处转换。
@@ -116,6 +164,7 @@ class MediaKitPlayer implements Player {
 
   @override
   Future<void> dispose() async {
+    _disposed = true;
     _textureId.removeListener(_onTextureId);
     for (final StreamSubscription<Object?> s in _subs) {
       await s.cancel();

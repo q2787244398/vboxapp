@@ -1171,10 +1171,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       // iOS 注释——后台场景系统可能重置 idle timer，故每次状态变化都同步）。
       unawaited(
           s == PlayerState.playing ? _wakeLock.enable() : _wakeLock.disable());
-      // UI-F18：进入播放即收起加载层（首帧已就绪）。
+      // UI-F18：进入播放即收起加载层。
+      // 注意：media_kit 的 `playing` 在 `play()` 后立即触发，此时 loadfile 可能
+      // 仍在排队、媒体尚未真正打开，故不能在此标记「首帧就绪」（否则续播 seek
+      // 会在未打开时发出，触发原生空指针崩溃）。首帧就绪以 onVideoSize / 首个
+      // 带时长的 progress 事件为准。
       if (s == PlayerState.playing) {
-        // UI-F21：首帧就绪 → 取消首帧超时兜底任务（对齐 iOS readyToPlay）。
-        _markFirstFrameReady();
         _controls.hideLoading();
       }
       // C-05 自动连播：由控制器按开关决定是否推进下一集。
@@ -1188,8 +1190,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         _seekLoadingTimer?.cancel();
         _controls.hideLoading();
       }
-      // UI-F16：首个进度事件即视为首帧就绪 → 应用续播 + 节流落库进度。
-      _applyResumeIfNeeded();
+      // UI-F16：媒体真正加载完成（时长已知）才视为首帧就绪 → 应用续播。
+      // loadfile 排队期首个 progress 事件可能以 duration=0 / position=0 到来，
+      // 此时 seek 会打到未打开的媒体上触发原生空指针崩溃，故必须等 duration>0。
+      if (p.durationMs > 0) {
+        _markFirstFrameReady();
+        _applyResumeIfNeeded();
+      }
       _saveProgressThrottled(p);
       // UI-F17：近结尾预取下一集直链。
       _maybePreloadNextEpisode(p);
