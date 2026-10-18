@@ -1238,6 +1238,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _appendLog('错误：$message');
       // 致命错误 → 覆盖错误态视图（可重试）；非致命仅提示（对齐 iOS 分级）。
       if (fatal) {
+        // ═══ 修复「有画面却仍弹加载失败」：首帧已渲染（画面已在播）时，后续
+        // 错误多为硬解回退/缓冲抖动等可自愈错误，不再全屏覆盖，降级 toast，
+        // 避免遮挡正在播放的画面（对齐 iOS 首帧后非致命错误仅提示）。═══
+        if (_firstFrameReady) {
+          _toast(message);
+          return;
+        }
         // UI-F21：运行期原画 403 / 断连 → 优先切兜底线路（对齐 iOS `.failed` /
         // `AVPlayerItemFailedToPlayToEndTime` 分支）；打开期错误由 [_openSource]
         // 的 catch 统一收口，此处不重复触发。

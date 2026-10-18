@@ -208,6 +208,19 @@ class MediaKitPlayer implements Player {
     final mk.PlatformPlayer? platform = _mpv.platform;
     if (platform is! mk.NativePlayer) return;
     final MediaKitProfile profile = MediaKitProfile.forSource(source);
+    // 显式控制硬件**解码**（hwdec）。它与渲染表面（enableHardwareAcceleration）
+    // 是两条独立路径：此前只控渲染、不控 hwdec，libmpv 默认 hwdec=auto 会在无真
+    // GPU 的云电脑上反复尝试 dxva2_vld / CUDA，失败后才回退软解（日志里的
+    // dxva2/CUDA/AVHWDeviceContext churn），造成起播卡顿（「一卡一卡」）与硬件
+    // 回退错误被误判。软解时 hwdec=no 直接关闭解码端硬件探测；硬解时 auto-safe
+    // 失败安全回退软解而非报错终止。
+    final String hwdec = _hwAccel ? 'auto-safe' : 'no';
+    await platform.setProperty('hwdec', hwdec);
+    AppLog.info(
+      'player-media_kit',
+      '内核解码：hwdec=$hwdec',
+      category: LogCategory.player,
+    );
     await platform.setProperty('hr-seek', 'yes');
     await platform.setProperty(
       'demuxer-max-bytes',
