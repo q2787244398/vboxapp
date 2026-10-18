@@ -28,6 +28,13 @@ dependencies:
   # ── m3u8 TS 分片解密（G-02；AES-128-CBC，纯 Dart，对齐 iOS CommonCrypto）──
   pointycastle: ^3.7.3
 
+  # ── 播放器内核（media_kit，底层 libmpv，Windows/macOS 唯一主内核）──
+  # 替代自研 mpv 渲染桥（OpenGL FBO + libswscale 软渲染）：cloud 电脑/无 GPU 环境
+  # 经 ANGLE/D3D11 渲染，无真 GPU 时自动落 D3D11 WARP 软件光栅化，根治「有声无画」。
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7   # 预编译 libmpv + 解码器（windows/macos/linux）
+
   # ── 网络 ──
   http: ^1.2.2
   url_launcher: ^6.3.2               # 网页兜底：拉起系统浏览器打开官方登录页（F-02）

@@ -15,6 +15,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../domain/entities/player/player.dart';
 import 'channel_player.dart';
+import 'media_kit_player.dart';
 import 'playback_route.dart';
 import 'player_channel_bridge.dart';
 
@@ -90,7 +91,7 @@ class PlayerController {
   /// 是否 FLV 直播/点播流。
   static bool _isFlv(String url) => url.toLowerCase().contains('.flv');
 
-  ChannelPlayer? _player;
+  Player? _player;
   PlayerState? _state;
   PlaybackRoute? _route;
   PlayerSource? _lastSource;
@@ -228,7 +229,7 @@ class PlayerController {
         );
         onBackendFallback?.call(previous, backend, reason);
       }
-      final ChannelPlayer p = ChannelPlayer(backend: backend, bridge: _bridge);
+      final Player p = _createPlayer(backend);
       _attach(p);
       _player = p;
       try {
@@ -312,7 +313,19 @@ class PlayerController {
     ];
   }
 
-  void _attach(ChannelPlayer p) {
+  /// 按后端创建播放内核实例。
+  ///
+  /// 当前收敛为 media_kit 单内核（[MediaKitPlayer]）；自研桥（[ChannelPlayer]）
+  /// 已退役：逻辑保留为「可扩展骨架」，当前收敛链中不会命中，仅在未被支持的
+  /// 后端被显式 switch 时兜底创建（物理不删 channel_player / player_plugin）。
+  Player _createPlayer(PlayerBackend backend) {
+    if (backend == PlayerBackend.mediaKit) {
+      return MediaKitPlayer(backend: backend);
+    }
+    return ChannelPlayer(backend: backend, bridge: _bridge);
+  }
+
+  void _attach(Player p) {
     p.onStateChanged = (PlayerState s) {
       _state = s;
       onStateChanged?.call(s);
@@ -417,7 +430,7 @@ class PlayerController {
   }
 
   Future<void> _disposePlayer() async {
-    final ChannelPlayer? p = _player;
+    final Player? p = _player;
     _player = null;
     _state = null;
     if (p != null) {

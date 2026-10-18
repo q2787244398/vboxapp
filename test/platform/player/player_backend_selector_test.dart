@@ -12,17 +12,17 @@ import 'package:vbox/platform/player/player_channel_bridge.dart';
 
 void main() {
   group('PlayerBackendSelector.chainFor', () {
-    test('windows → 仅 libmpv（原生插件未接线 MDK，避免回退报错）', () {
+    test('windows → 仅 mediaKit（自研桥退役，media_kit 唯一内核）', () {
       expect(
         PlayerBackendSelector.chainFor('windows'),
-        const <PlayerBackend>[PlayerBackend.libmpv],
+        const <PlayerBackend>[PlayerBackend.mediaKit],
       );
     });
 
     test('macos → 与 Windows 同链，case 穿透', () {
       expect(
         PlayerBackendSelector.chainFor('macos'),
-        const <PlayerBackend>[PlayerBackend.libmpv],
+        const <PlayerBackend>[PlayerBackend.mediaKit],
       );
     });
 
@@ -47,7 +47,7 @@ void main() {
       expect(PlayerBackendSelector.chainFor('android').first,
           PlayerBackend.media3);
       expect(PlayerBackendSelector.chainFor('windows').first,
-          PlayerBackend.libmpv);
+          PlayerBackend.mediaKit);
     });
   });
 

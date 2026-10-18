@@ -14,8 +14,14 @@ enum PlayerBackend {
   /// 全格式回退（libVLC）—— Android 必需。
   libVLC,
 
-  /// 桌面播放器（libmpv，via media_kit）。
+  /// 桌面播放器（libmpv）—— 自研 mpv 渲染桥（OpenGL FBO + libswscale），已退役。
   libmpv,
+
+  /// media_kit 内核（libmpv + ANGLE/D3D11 渲染，Windows/macOS 唯一主内核）。
+  ///
+  /// 纯 Dart 直连（不经 MethodChannel）；无真 GPU 时自动落 D3D11 WARP 软件光栅化，
+  /// 根治自研桥在云电脑上「有声无画」的问题。
+  mediaKit,
 
   /// 全格式硬解内核（MDK SDK）—— 统一内核接缝。
   ///
@@ -35,6 +41,7 @@ extension PlayerBackendMeta on PlayerBackend {
         PlayerBackend.media3 => 'Media3（系统播放器）',
         PlayerBackend.libVLC => 'libVLC（全格式）',
         PlayerBackend.libmpv => 'libmpv',
+        PlayerBackend.mediaKit => 'media_kit',
         PlayerBackend.mdk => 'MDK（全格式）',
         PlayerBackend.nativeiOS => '原生播放器',
       };
@@ -44,6 +51,7 @@ extension PlayerBackendMeta on PlayerBackend {
         PlayerBackend.media3 => 'Media3',
         PlayerBackend.libVLC => 'VLC',
         PlayerBackend.libmpv => 'MPV',
+        PlayerBackend.mediaKit => 'MPV',
         PlayerBackend.mdk => 'MDK',
         PlayerBackend.nativeiOS => '原生',
       };
@@ -54,6 +62,7 @@ extension PlayerBackendMeta on PlayerBackend {
         PlayerBackend.nativeiOS => true,
         PlayerBackend.libVLC => false,
         PlayerBackend.libmpv => false,
+        PlayerBackend.mediaKit => false,
         PlayerBackend.mdk => false,
       };
 }
@@ -265,6 +274,11 @@ abstract class Player {
   /// 错误回调。
   set onError(void Function(String message, {bool fatal})? handler);
 
+  /// 纹理注册就绪（R-渲1 补发）：内核懒注册纹理，`open` 返回时通常尚未就绪，
+  /// 句柄随后经此回调补发（对齐 ChannelPlayer 的 `textureReady` 事件），宿主
+  /// 据此挂载输出面。
+  set onTextureReady(void Function(int textureId)? handler);
+
   /// 打开媒体源。
   Future<void> open(PlayerSource source);
 
@@ -313,7 +327,7 @@ class PlayerBackendSelector {
         ];
       case 'windows':
       case 'macos':
-        return const <PlayerBackend>[PlayerBackend.libmpv];
+        return const <PlayerBackend>[PlayerBackend.mediaKit];
       case 'ios':
         return const <PlayerBackend>[PlayerBackend.nativeiOS];
       default:

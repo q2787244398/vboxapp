@@ -64,6 +64,7 @@ class ChannelPlayer implements Player {
 
   /// 纹理注册就绪（R-渲1 补发）：原生渲染线程懒注册纹理，`open` 返回时通常
   /// 尚未就绪，句柄随后经 `textureReady` 事件补发，宿主据此挂载输出面。
+  @override
   void Function(int textureId)? onTextureReady;
 
   @override
