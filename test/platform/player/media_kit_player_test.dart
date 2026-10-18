@@ -1,8 +1,6 @@
 /// G-02-A：MediaKitPlayer 控制转发 + 事件桥接（注入假 media_kit core，纯 Dart）。
 library;
 
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart' as mk;
