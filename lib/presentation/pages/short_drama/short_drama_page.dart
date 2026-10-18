@@ -12,6 +12,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/async/semaphore.dart';
 import '../../../core/errors/failures.dart';
 import '../../../core/utils/result.dart';
 import '../../../domain/entities/spider/spider.dart';
@@ -124,6 +125,11 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
 
   // ─────────────── 源扫描 ───────────────
 
+  /// 扫源并发上限（对齐 iOS `ShortDramaService.scanShortDramaSources` 的
+  /// `maxConcurrent = 12`）；`_scan` 的 `Future.wait` 此前无界并发打满全部站点，
+  /// 在低配云电脑上可能触发原生崩溃。
+  final Semaphore _scanSemaphore = Semaphore(12);
+
   Future<void> _scan() async {
     setState(() {
       _scanning = true;
@@ -161,12 +167,23 @@ class _ShortDramaPageState extends State<ShortDramaPage> {
     final List<Future<void>> tasks = <Future<void>>[];
     final Set<String> seenIds = <String>{};
     for (final SiteConfig site in sites) {
-      tasks.add(_scanSite(site, seenIds));
+      tasks.add(_scanSiteThrottled(site, seenIds));
     }
     await Future.wait(tasks);
 
     if (!mounted) return;
     setState(() => _scanning = false);
+  }
+
+  /// 有界并发版扫源：先取信号量再走 [_scanSite]（逐站 `categories` 子进程/FFI
+  /// 调用有界并发，避免一次性打满）。
+  Future<void> _scanSiteThrottled(SiteConfig site, Set<String> seenIds) async {
+    await _scanSemaphore.acquire();
+    try {
+      await _scanSite(site, seenIds);
+    } finally {
+      _scanSemaphore.release();
+    }
   }
 
   Future<void> _scanSite(
