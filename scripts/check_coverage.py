@@ -70,12 +70,38 @@ def parse_lcov(path: pathlib.Path) -> dict[str, tuple[int, int]]:
 
 
 def code_lines(path: pathlib.Path) -> int:
-    """零触达文件的可执行行启发式估计（非空、非注释）。"""
+    """零触达文件的可执行行启发式估计（非空、非注释、非多行字符串内容）。
+
+    多行原始/三引号字符串（单引号或双引号的三连界定）中间的每一行都是字符串
+    字面量内容，不是独立的 Dart 可执行行。若不加区分，会把「承载内置脚本 / 大段
+    文案」的纯数据字符串（如 `python_bridge_script.dart` 的桥接脚本常量）误当数百
+    行待测代码，虚增分母。Dart 原始三引号字符串无转义，闭合符即首个同符三连；
+    普通三引号字符串此处亦按首个同符三连近似闭合（启发式方向为少计可执行行，
+    不抬高门禁）。
+    """
     n = 0
+    closer = None
     for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
         s = raw.strip()
+        # 正处于某多行字符串内部：跳过，直到出现对应的闭合符
+        if closer is not None:
+            if closer in s:
+                closer = None
+            continue
         if not s or s.startswith("//") or s.startswith("*") or s.startswith("/*"):
             continue
+        # 同行进入多行字符串：打开符之后若未见闭合符，则该字符串跨行
+        for opener, close in (
+            ("r'''", "'''"),
+            ('r"""', '"""'),
+            ("'''", "'''"),
+            ('"""', '"""'),
+        ):
+            idx = s.find(opener)
+            if idx != -1:
+                if s.find(close, idx + len(opener)) == -1:
+                    closer = close
+                break
         n += 1
     return n
 
