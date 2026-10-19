@@ -94,6 +94,7 @@ class _FakePanPlayer extends PanPlayer {
     required String shareUrl,
     required NodePanEntry entry,
     String? sourceKey,
+    String? routePreference,
     DateTime? now,
   }) async {
     prepareCalls++;

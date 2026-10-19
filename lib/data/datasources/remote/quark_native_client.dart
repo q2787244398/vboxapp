@@ -1337,7 +1337,7 @@ class QuarkNativeClient {
       }
     }
     if (lastError is QuarkNativeException) {
-      throw lastError as QuarkNativeException;
+      throw lastError;
     }
     throw QuarkNativeException('夸克播放解析失败（已重试$maxRetries次）');
   }
