@@ -229,6 +229,62 @@ void main() {
     expect(cred!.cookie, contains('__kps=k1'));
   });
 
+  test('夸克扫码交换：跨 302 重定向逐跳收集 Cookie（对齐 iOS 三联兜底）', () async {
+    final NativeCloudDriveLoginGateway gateway = gatewayWith(
+      (SpiderTransportRequest r) {
+        final String url = r.url.toString();
+        if (url.contains('getTokenForQrcodeLogin')) {
+          return _json(
+            '{"status":2000000,"data":{"members":{"token":"QT2"}}}',
+          );
+        }
+        if (url.contains('getServiceTicketByQrcodeToken')) {
+          return _json(
+            '{"status":2000000,"data":{"members":{"service_ticket":"QST2"}}}',
+          );
+        }
+        if (url.contains('pan.quark.cn/account/info')) {
+          // 302 → 重定向跳上带 __kps，最终 200 响应带 __pus/__uid。
+          return const SpiderTransportResponse(
+            status: 302,
+            headers: <String, String>{
+              'location': 'https://pan.quark.cn/account/finish',
+              'set-cookie': '__kps=k2; Path=/',
+            },
+            setCookies: <String>['__kps=k2; Path=/'],
+            bodyBytes: <int>[],
+          );
+        }
+        if (url.contains('pan.quark.cn/account/finish')) {
+          return const SpiderTransportResponse(
+            status: 200,
+            headers: <String, String>{'set-cookie': '__pus=p2; __uid=u2'},
+            setCookies: <String>['__pus=p2', '__uid=u2'],
+            bodyBytes: <int>[],
+          );
+        }
+        return _json('{}');
+      },
+    );
+
+    final CloudDriveQrTask task = await gateway.startQrLogin(
+      type: CloudDriveType.quark,
+      mode: CloudDriveLoginMode.nativeQr,
+    );
+    await gateway.pollQrLogin(
+      type: CloudDriveType.quark,
+      mode: CloudDriveLoginMode.nativeQr,
+      taskId: task.taskId,
+    );
+
+    final CloudDriveCredential? cred =
+        await store.credential(CloudDriveType.quark);
+    expect(cred, isNotNull);
+    expect(cred!.cookie, contains('__kps=k2'));
+    expect(cred.cookie, contains('__pus=p2'));
+    expect(cred.cookie, contains('__uid=u2'));
+  });
+
   test('未覆盖网盘：即时报「原生扫码尚未接入」', () async {
     final NativeCloudDriveLoginGateway gateway = gatewayWith((_) => _json('{}'));
     await expectLater(

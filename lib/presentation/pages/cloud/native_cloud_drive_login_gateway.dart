@@ -986,6 +986,10 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
         },
       ),
     );
+    // 对齐 iOS `quarkCreateQrToken`：先判 HTTP 200（L4325-4327）。
+    if (res.status != 200) {
+      throw CloudDriveLoginException('夸克扫码 token 接口 HTTP 失败 (${res.status})');
+    }
     final Map<String, Object?>? json = _decodeMap(res.content);
     final int status = _pickInt(json, <String>['status']) ?? -1;
     final String token = _nestedString(json, <String>['data', 'members', 'token']) ?? '';
@@ -1064,25 +1068,55 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       'fr': 'pc',
       'platform': 'pc',
     });
-    final SpiderHttpResult res = await _bridge.request(
-      url.toString(),
-      options: const SpiderHttpOptions(
-        headers: <String, String>{
-          'Origin': 'https://pan.quark.cn',
-          'Referer': 'https://pan.quark.cn/',
-          'User-Agent': _quarkUserAgent,
-          'Accept': '*/*',
-        },
-      ),
-    );
-    final Map<String, String> cookies = _cookiesFromHeaders(res.headers);
+    // 对齐 iOS `quarkExchangeServiceTicket`（L4400-4471）：iOS 用一次性
+    // ephemeral session（httpShouldSetCookies=true）让 URLSession 跨跳自动
+    // 收集 Set-Cookie，再「响应头 → cookieStorage → 原始 Set-Cookie 字符串」
+    // 三联兜底合并。Dart 无等价自动 cookie jar，故 `followRedirects=false`
+    // 逐跳跟随，每跳同时收集 `res.setCookies`（原始多值）与展平 set-cookie
+    // 头，避免只取最终单次响应头而漏掉重定向跳上的 __kps/__pus/__uid。
+    final Map<String, String> cookies = <String, String>{};
+    String content = '';
+    int finalStatus = 0;
+    String current = url.toString();
+    for (int hop = 0; hop <= 5; hop++) {
+      final SpiderHttpResult res = await _bridge.request(
+        current,
+        options: const SpiderHttpOptions(
+          headers: <String, String>{
+            'Origin': 'https://pan.quark.cn',
+            'Referer': 'https://pan.quark.cn/',
+            'User-Agent': _quarkUserAgent,
+            'Accept': '*/*',
+          },
+          followRedirects: false,
+        ),
+      );
+      cookies.addAll(_cookiesFromSetCookies(res.setCookies));
+      cookies.addAll(_filteredCookiesFromHeaders(res.headers));
+      if (res.status < 300 || res.status >= 400) {
+        finalStatus = res.status;
+        content = res.content;
+        break;
+      }
+      final String location = res.headers['location'] ?? '';
+      if (location.isEmpty) {
+        finalStatus = res.status;
+        content = res.content;
+        break;
+      }
+      current = Uri.parse(current).resolve(location).toString();
+    }
+    // 对齐 iOS `quarkExchangeServiceTicket`：非 200 判交换失败（L4422-4424）。
+    if (finalStatus != 200) {
+      throw CloudDriveLoginException('夸克换取 Cookie HTTP 失败 ($finalStatus)');
+    }
     final String cookie = joinCookies(cookies);
     for (final String key in <String>['__kps', '__pus', '__uid']) {
       if (!cookie.contains('$key=')) {
         throw CloudDriveLoginException('夸克未拿到 $key Cookie，可能扫码授权失败');
       }
     }
-    final Map<String, Object?>? json = _decodeMap(res.content);
+    final Map<String, Object?>? json = _decodeMap(content);
     final Map<String, Object?>? data = _asMap(json?['data']);
     final String nick = _pickString(data, <String>['nickname', 'nick_name']).isNotEmpty
         ? _pickString(data, <String>['nickname', 'nick_name'])
@@ -1323,6 +1357,23 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
         final String v = (m.group(2) ?? '').trim();
         if (k.isNotEmpty && v.isNotEmpty) out[k] = v;
       }
+    }
+    return out;
+  }
+
+  /// 从原始 `Set-Cookie` 值列表提取 `name=value`（取每条目首个 `k=v` 段，
+  /// 忽略 Path/Expires 等属性段）。对齐 iOS `quarkExchangeServiceTicket`
+  /// 三联兜底中的「原始 Set-Cookie 字符串拆分」，比 `_cookiesFromHeaders`
+  /// 更稳（不被多值 `, ` 展平破坏含逗号的属性值）。
+  static Map<String, String> _cookiesFromSetCookies(List<String> setCookies) {
+    final Map<String, String> out = <String, String>{};
+    for (final String raw in setCookies) {
+      final String firstPair = raw.split(';').first.trim();
+      final int eq = firstPair.indexOf('=');
+      if (eq <= 0) continue;
+      final String name = firstPair.substring(0, eq).trim();
+      final String value = firstPair.substring(eq + 1).trim();
+      if (name.isNotEmpty && value.isNotEmpty) out[name] = value;
     }
     return out;
   }
