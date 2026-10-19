@@ -308,7 +308,9 @@ class ProcessNodeHost implements NodeHost {
     // （「Node 端口已被占用」反复修复未根治的根因）。
     final Process? spawned = _process;
     if (Platform.isWindows && spawned != null) {
-      unawaited(_attachToJobObject(spawned.pid));
+      // 同步等 attach 结果：确保子进程已确定性纳入 Job Object（或明确拿到失败
+      // 日志），避免 unawaited 竞态导致 node.exe 尚未受保护 start() 就已返回。
+      await _attachToJobObject(spawned.pid);
     }
     // 监控子进程退出：崩溃时第一时间回调上层（进程死了但端口可能被
     // 其他进程占住，仅靠 HTTP 探活会误判「就绪」，见 NodeHost.onChildExited）。

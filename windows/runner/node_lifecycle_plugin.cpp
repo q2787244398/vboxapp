@@ -59,6 +59,13 @@ void NodeLifecyclePlugin::RegisterWithRegistrar(
   registrar->AddPlugin(std::make_unique<NodeLifecyclePlugin>(registrar));
 }
 
+void NodeLifecyclePlugin::TerminateAll() {
+  HANDLE job = EnsureJobObject();
+  if (job != nullptr) {
+    ::TerminateJobObject(job, 1);
+  }
+}
+
 NodeLifecyclePlugin::NodeLifecyclePlugin(
     flutter::PluginRegistrarWindows* registrar)
     : channel_(std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(

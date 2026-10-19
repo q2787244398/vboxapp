@@ -33,6 +33,11 @@ class NodeLifecyclePlugin : public flutter::Plugin {
   static void RegisterWithRegistrar(
       flutter::PluginRegistrarWindows* registrar);
 
+  // 同步终结 Job Object 内全部已绑定子进程。主窗口关闭路径（WM_DESTROY → 本类
+  // OnDestroy）在 Dart isolate 被引擎销毁前确定性调用，弥补 detach→stop() 异步
+  // 链路在引擎销毁时可能来不及完成的缺口，杜绝 node.exe 残留成孤儿占用 58080。
+  static void TerminateAll();
+
  private:
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,

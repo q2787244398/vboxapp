@@ -86,6 +86,11 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  // 主窗口关闭走 WM_DESTROY，Flutter 引擎随后销毁 Dart isolate，Dart 侧的
+  // detached→stop() 异步链路可能来不及完成；这里在 UI 线程同步终结已收编进
+  // Job Object 的 node.exe，确定性避免 node 残留成孤儿继续占用 58080 端口。
+  vbox::NodeLifecyclePlugin::TerminateAll();
+
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
