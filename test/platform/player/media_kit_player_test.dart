@@ -230,4 +230,137 @@ void main() {
       await p.dispose();
     });
   });
+
+  // 云电脑「假性可用」：D3D11CreateDevice(HARDWARE) 探测通过，但实际 VA 能力
+  // 不完整，libmpv 起播时报 Failed to allocate AVHWDeviceContext。此时必须自动
+  // 降级软解并重开，而不是弹「加载失败」判死。
+  group('MediaKitPlayer 硬解失败自动降级', () {
+    test('stream.error 报 AVHWDeviceContext → 降级重开，不上报致命错误', () async {
+      final _FakePlatform platform = _FakePlatform();
+      final MediaKitPlayer p = _build(platform: platform);
+      String? fatalMessage;
+      p.onError = (String m, {required bool fatal}) => fatalMessage = m;
+
+      await p.open(const PlayerSource(url: 'https://x/a.m3u8'));
+      platform.calls.clear();
+
+      platform.emitError('Failed to allocate AVHWDeviceContext.');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(fatalMessage, isNull, reason: '可恢复错误不应对用户弹加载失败');
+      expect(platform.calls, contains('open'), reason: '应以软解重开媒体');
+      await p.dispose();
+    });
+
+    test('mpv 日志流（不进 stream.error）的 AVHWDeviceContext 同样触发降级', () async {
+      final _FakePlatform platform = _FakePlatform();
+      final MediaKitPlayer p = _build(platform: platform);
+      String? fatalMessage;
+      p.onError = (String m, {required bool fatal}) => fatalMessage = m;
+
+      await p.open(const PlayerSource(url: 'https://x/a.m3u8'));
+      platform.calls.clear();
+
+      platform.emitLog(const mk.PlayerLog(
+        prefix: 'ffmpeg',
+        level: 'error',
+        text: 'Failed to allocate AVHWDeviceContext.',
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(fatalMessage, isNull);
+      expect(platform.calls, contains('open'));
+      await p.dispose();
+    });
+
+    test('Could not create device 文案在 warn 级别同样触发降级', () async {
+      final _FakePlatform platform = _FakePlatform();
+      final MediaKitPlayer p = _build(platform: platform);
+      String? fatalMessage;
+      p.onError = (String m, {required bool fatal}) => fatalMessage = m;
+
+      await p.open(const PlayerSource(url: 'https://x/b.mp4'));
+      platform.calls.clear();
+
+      platform.emitLog(const mk.PlayerLog(
+        prefix: 'vo/d3d11',
+        level: 'warn',
+        text: 'Could not create device.',
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(fatalMessage, isNull);
+      expect(platform.calls, contains('open'));
+      await p.dispose();
+    });
+
+    test('Failed to initialize a hardware decoder 文案同样触发降级', () async {
+      final _FakePlatform platform = _FakePlatform();
+      final MediaKitPlayer p = _build(platform: platform);
+      String? fatalMessage;
+      p.onError = (String m, {required bool fatal}) => fatalMessage = m;
+
+      await p.open(const PlayerSource(url: 'https://x/c.mp4'));
+      platform.calls.clear();
+
+      platform.emitLog(const mk.PlayerLog(
+        prefix: 'vd/ffmpeg',
+        level: 'error',
+        text: 'Failed to initialize a hardware decoder.',
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(fatalMessage, isNull);
+      expect(platform.calls, contains('open'));
+      await p.dispose();
+    });
+
+    test('未 open（无播放源）时收到硬解错误 → 照常上报，不静默吞错误', () async {
+      final _FakePlatform platform = _FakePlatform();
+      final MediaKitPlayer p = _build(platform: platform);
+      String? fatalMessage;
+      p.onError = (String m, {required bool fatal}) => fatalMessage = m;
+
+      platform.emitError('Failed to allocate AVHWDeviceContext.');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(fatalMessage, 'Failed to allocate AVHWDeviceContext.');
+      await p.dispose();
+    });
+
+    test('降级后再次失败 → 正常上报致命错误（防抖，不无限重试）', () async {
+      final _FakePlatform platform = _FakePlatform();
+      final MediaKitPlayer p = _build(platform: platform);
+      final List<String> messages = <String>[];
+      p.onError = (String m, {required bool fatal}) => messages.add(m);
+
+      await p.open(const PlayerSource(url: 'https://x/d.m3u8'));
+      platform.emitError('Failed to allocate AVHWDeviceContext.');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(messages, isEmpty);
+
+      platform.emitError('Failed to allocate AVHWDeviceContext.');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(messages, <String>['Failed to allocate AVHWDeviceContext.']);
+      await p.dispose();
+    });
+
+    test('与硬解无关的错误 → 不触发降级，直接上报', () async {
+      final _FakePlatform platform = _FakePlatform();
+      final MediaKitPlayer p = _build(platform: platform);
+      String? fatalMessage;
+      p.onError = (String m, {required bool fatal}) => fatalMessage = m;
+
+      await p.open(const PlayerSource(url: 'https://x/e.m3u8'));
+      platform.calls.clear();
+
+      platform.emitError('Failed to recognize file format.');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(fatalMessage, 'Failed to recognize file format.');
+      expect(platform.calls, isNot(contains('open')));
+      await p.dispose();
+    });
+  });
 }

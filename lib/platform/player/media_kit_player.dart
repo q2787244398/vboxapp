@@ -315,7 +315,11 @@ class MediaKitPlayer implements Player {
     _subs.add(_mpv.stream.error.listen((String message) {
       // 硬解设备分配失败是可自动恢复的（降级软解即可播），不能直接判死：
       // 先触发一次软解降级并重开，避免「明明能播却弹加载失败」。
-      if (!_hwdecFailed && _hwAccel && _isHwDecodeAllocFailure(message)) {
+      // 无播放源可重开时不拦，照常上报，避免把错误静默吞掉。
+      if (!_hwdecFailed &&
+          _hwAccel &&
+          _currentSource != null &&
+          _isHwDecodeAllocFailure(message)) {
         AppLog.warn(
           'player-media_kit',
           '收到硬解设备分配失败错误，触发自动软解降级：$message',
@@ -369,6 +373,7 @@ class MediaKitPlayer implements Player {
     // 因此必须在此处也做拦截，否则会一直重试硬解并最终起播失败。
     if (!_hwdecFailed &&
         _hwAccel &&
+        _currentSource != null &&
         (log.level == 'error' || log.level == 'fatal' || log.level == 'warn') &&
         _isHwDecodeAllocFailure(log.text)) {
       AppLog.warn(
