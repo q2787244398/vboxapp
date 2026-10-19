@@ -462,6 +462,7 @@ class PanPlayer {
     required String shareUrl,
     required NodePanEntry entry,
     String? sourceKey,
+    String? routePreference,
     DateTime? now,
   }) async {
     await _ensureTokens(type);
@@ -498,10 +499,11 @@ class PanPlayer {
         if (type == CloudDriveType.quark) {
           final String cookie = await _cookie(type);
           try {
-            final QuarkPlayResult r = await _quark.resolvePlayUrl(
+            final QuarkPlayResult r = await _quark.resolvePlayUrlWithRetry(
               shareUrl: shareUrl,
               cookie: cookie,
               preferredFid: entry.playID,
+              routePreference: routePreference,
             );
             playURL = r.url;
             fileName = r.fileName.isEmpty ? entry.name : r.fileName;

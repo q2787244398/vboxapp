@@ -970,6 +970,7 @@ class _DetailPageState extends State<DetailPage> {
               final CloudPlayItem item = await _pan.prepare(
                 type: type,
                 shareUrl: split.baseUrl,
+                routePreference: split.params.route,
                 entry: NodePanEntry(
                   playID: split.params.locateValue.isEmpty
                       ? link.name

@@ -173,6 +173,9 @@ class QuarkNativeClient {
   /// 转存后延迟清理调度（对齐 iOS `scheduleCleanup`；缺省不调度）。
   CloudDriveCleanupScheduler? cleanupScheduler;
 
+  /// 最近一次转存任务 ID（对齐 iOS `quarkLastSaveTaskId`，用于转存后轮询落盘）。
+  String? _lastSaveTaskId;
+
   // ─────────────── 转存 fid 缓存（契约键 `quark_saved_fid_cache_v1`）───────────────
 
   Map<String, Object?>? _cacheMemory;
@@ -676,17 +679,36 @@ class QuarkNativeClient {
       );
     }
     final Map<String, Object?>? data = _asMap(json['data']);
-    final List<String> ids = _extractSavedFids(data);
+    _lastSaveTaskId = _asString(data?['task_id']);
+
+    // 取 fid 顺序严格对齐 iOS `quarkSaveShare`：显式字段（占位目录 ID 时继续）
+    // → 递归提取 → 按文件名查找 → 全部落空才算转存失败。
+    List<String> ids = _extractSavedFids(data, folderId: folderId);
     if (ids.isEmpty) {
-      throw const QuarkNativeException('夸克转存后未返回文件 ID');
+      ids = _extractSavedFidsRecursively(json, excluding: file.fid);
     }
-    if (ids.every((String id) => id == '0' || id == folderId)) {
-      throw const QuarkNativeException('该资源在夸克网盘中已失效（可能被和谐或转码失败）');
+    if (ids.isEmpty) {
+      final String? existing = await _findSavedFileIdByFileName(
+        fileName: file.fileName,
+        folderId: folderId,
+        cookie: cookie,
+      );
+      if (existing != null) ids = <String>[existing];
+    }
+    if (ids.isEmpty) {
+      throw const QuarkNativeException('夸克转存成功但未返回已转存 fid');
     }
     return ids;
   }
 
-  List<String> _extractSavedFids(Map<String, Object?>? data) {
+  /// 从转存响应显式字段取 fid（对齐 iOS `quarkSaveShare` 的前四层候选）。
+  ///
+  /// `save_as_top_fids` / `save_as_select_top_fids` 若全为占位目录 ID（`"0"` /
+  /// `folderId`），不返回并继续下一个候选；`file_ids` / `list` 直接返回。
+  List<String> _extractSavedFids(
+    Map<String, Object?>? data, {
+    required String folderId,
+  }) {
     if (data == null) return const <String>[];
     final Map<String, Object?>? taskResp = _asMap(data['task_resp']);
     final Map<String, Object?>? taskData = _asMap(taskResp?['data']);
@@ -695,9 +717,13 @@ class QuarkNativeClient {
       'save_as_top_fids',
       'save_as_select_top_fids',
     ]) {
-      final Object? ids = saveAs?[key];
-      if (ids is List && ids.isNotEmpty) {
-        return ids.map((Object? e) => '$e').toList(growable: false);
+      final Object? raw = saveAs?[key];
+      if (raw is List && raw.isNotEmpty) {
+        final List<String> ids =
+            raw.map((Object? e) => '$e').toList(growable: false);
+        if (!ids.every((String id) => id == '0' || id == folderId)) {
+          return ids;
+        }
       }
     }
     final Object? fileIds = data['file_ids'];
@@ -715,6 +741,94 @@ class QuarkNativeClient {
       if (ids.isNotEmpty) return ids;
     }
     return const <String>[];
+  }
+
+  /// 递归提取响应中任意含 `fid`/`file_id` 的字段（对齐 iOS
+  /// `quarkExtractSavedFileIds`：排除 `token` 键与源分享 fid）。
+  List<String> _extractSavedFidsRecursively(
+    Object? value, {
+    required String excluding,
+  }) {
+    final List<String> out = <String>[];
+
+    void append(Object? raw, String key) {
+      final String lowerKey = key.toLowerCase();
+      if (!lowerKey.contains('fid') && !lowerKey.contains('file_id')) return;
+      if (lowerKey.contains('token')) return;
+      if (raw is String) {
+        if (raw.isNotEmpty && raw != excluding) out.add(raw);
+      } else if (raw is int) {
+        final String text = '$raw';
+        if (text != excluding) out.add(text);
+      } else if (raw is List) {
+        for (final Object? e in raw) {
+          if (e is String && e.isNotEmpty && e != excluding) {
+            out.add(e);
+          } else if (e is int && '$e' != excluding) {
+            out.add('$e');
+          }
+        }
+      }
+    }
+
+    void walk(Object? node) {
+      if (node is Map) {
+        node.forEach((Object? key, Object? item) {
+          if (key is String) append(item, key);
+          walk(item);
+        });
+      } else if (node is List) {
+        for (final Object? e in node) {
+          walk(e);
+        }
+      }
+    }
+
+    walk(value);
+    final Set<String> seen = <String>{};
+    return out.where(seen.add).toList(growable: false);
+  }
+
+  /// 按文件名在转存目录查找 fid（对齐 iOS `quarkFindSavedFileId`：
+  /// `POST file/sort`，3 次尝试，间隔 800ms）。
+  Future<String?> _findSavedFileIdByFileName({
+    required String fileName,
+    required String folderId,
+    required String cookie,
+  }) async {
+    for (int attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+      }
+      final SpiderHttpResult res = await _bridge.request(
+        apiUrl('/1/clouddrive/file/sort').toString(),
+        options: SpiderHttpOptions(
+          method: 'POST',
+          headers: _commonHeaders(cookie),
+          data: jsonEncode(<String, Object?>{
+            'pdir_fid': folderId,
+            'sort_by': 'file_name',
+            'sort_order': 'asc',
+            'page': 1,
+            'size': 100,
+          }),
+        ),
+      );
+      final Map<String, Object?>? json = _decodeMap(res.content);
+      final Object? list = _asMap(json?['data'])?['list'];
+      if (list is! List) continue;
+      for (final Object? raw in list) {
+        final Map<String, Object?>? item = _asMap(raw);
+        final String name =
+            _asString(item?['file_name']) ?? _asString(item?['name']) ?? '';
+        if (name != fileName) continue;
+        final String? fid = _asString(item?['fid']) ??
+            _asString(item?['file_id']) ??
+            (_asInt(item?['fid']) != null ? '${item?['fid']}' : null);
+        if (fid != null && fid.isNotEmpty) return fid;
+      }
+    }
+    return null;
   }
 
   /// 提取转存任务 ID（对齐 iOS `quarkLastSaveTaskId`；无则返回 null）。
@@ -1058,6 +1172,21 @@ class QuarkNativeClient {
         delay: const Duration(hours: 1),
       );
       await cleanupPreviousSavedItems(excludingKey: cacheKey, cookie: cookie);
+      // 新转存后轮询任务直到落盘（对齐 iOS `quarkPollTask`），避免「转存尚未
+      // 落盘就 v2/play / download → file not found」竞态。
+      if (_lastSaveTaskId != null) {
+        await pollTask(taskId: _lastSaveTaskId!, cookie: cookie);
+      }
+    }
+    if (saved.isEmpty) {
+      throw const QuarkNativeException('夸克: 转存后未返回文件ID');
+    }
+    // 占位 fileId（"0" / 全"0"）→ 文件未真正落盘，疑似已被和谐/转码失败
+    // （对齐 iOS `isPlaceholderFileId`）。
+    if (saved.first == '0' || saved.every((String id) => id == '0')) {
+      throw const QuarkNativeException(
+        '该资源在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源',
+      );
     }
     String playbackFileId = saved.first;
 
@@ -1108,7 +1237,17 @@ class QuarkNativeClient {
             fileIds: newFids,
             delay: const Duration(hours: 1),
           );
+          await cleanupPreviousSavedItems(excludingKey: cacheKey, cookie: cookie);
           fromCache = false;
+          // 重转存后同样轮询落盘（对齐 iOS L2450-L2452）。
+          if (_lastSaveTaskId != null) {
+            await pollTask(taskId: _lastSaveTaskId!, cookie: cookie);
+          }
+          if (newFids.isEmpty || newFids.first == '0') {
+            throw const QuarkNativeException(
+              '该资源在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源',
+            );
+          }
           playbackFileId = newFids.first;
           try {
             download =
@@ -1161,6 +1300,46 @@ class QuarkNativeClient {
       fallbackHeaders: headers,
       fallbackSource: fallbackSource,
     );
+  }
+
+  /// 取链 + 重试（对齐 iOS `resolveQuarkPlayURLWithRetry`：最多重试
+  /// [maxRetries] 次、指数退避 1s/2s/4s；确定性错误不再重试）。
+  ///
+  /// 确定性错误（资源已失效 / 被和谐 / 禁止播放 / 转存返回占位）直接抛出，
+  /// 避免对同一不可用资源反复重试。
+  Future<QuarkPlayResult> resolvePlayUrlWithRetry({
+    required String shareUrl,
+    required String cookie,
+    String? preferredFid,
+    String? routePreference,
+    int maxRetries = 3,
+  }) async {
+    Object? lastError;
+    for (int attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await resolvePlayUrl(
+          shareUrl: shareUrl,
+          cookie: cookie,
+          preferredFid: preferredFid,
+          routePreference: routePreference,
+        );
+      } catch (e) {
+        lastError = e;
+        final String msg = e.toString().toLowerCase();
+        final bool nonRetryable = msg.contains('已失效') ||
+            msg.contains('已被和谐') ||
+            msg.contains('禁止播放') ||
+            msg.contains('转存返回占位');
+        if (nonRetryable) rethrow;
+        if (attempt < maxRetries - 1) {
+          await Future<void>.delayed(Duration(seconds: 1 << attempt));
+        }
+      }
+    }
+    if (lastError is QuarkNativeException) {
+      throw lastError as QuarkNativeException;
+    }
+    throw QuarkNativeException('夸克播放解析失败（已重试$maxRetries次）');
   }
 
   // ─────────────── 空间清理（NC-清1，对齐 iOS `quarkCleanShareOriginIfNeeded` /

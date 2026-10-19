@@ -182,7 +182,8 @@ void main() {
     expect(r.fileName, 'EP01.mkv');
   });
 
-  test('saveShare：占位 fileId=0 → 明确失效文案', () async {
+  test('saveShare：占位 fileId=0 → 返回 ["0"]（对齐 iOS，占位判定上移至 resolvePlayUrl）',
+      () async {
     final _FakeTransport t = _FakeTransport((String url, String _) {
       if (url.contains('/share/sharepage/save')) {
         return _json(<String, Object?>{
@@ -194,15 +195,56 @@ void main() {
       return _json(<String, Object?>{'code': 0, 'data': <String, Object?>{}});
     });
     final QuarkNativeClient c = _client(t);
+    final List<String> ids = await c.saveShare(
+      pwdId: 'p',
+      stoken: 's',
+      file: const QuarkShareFile(
+        fid: 'f1',
+        fileName: 'x.mp4',
+        shareFidToken: 't1',
+      ),
+      cookie: 'k=v',
+    );
+    expect(ids, <String>['0']);
+  });
+
+  test('resolvePlayUrl：转存返回占位 fileId=0 → 抛「已失效」文案', () async {
+    final _FakeTransport t = _FakeTransport((String url, String _) {
+      if (url.contains('/share/sharepage/token')) {
+        return _json(<String, Object?>{
+          'code': 0,
+          'data': <String, Object?>{'stoken': 'st'},
+        });
+      }
+      if (url.contains('/share/sharepage/detail')) {
+        return _json(<String, Object?>{
+          'code': 0,
+          'data': <String, Object?>{
+            'list': <Object?>[
+              <String, Object?>{
+                'fid': 'f1',
+                'file_name': 'EP01.mp4',
+                'dir': false,
+                'share_fid_token': 'tk1',
+              },
+            ],
+          },
+        });
+      }
+      if (url.contains('/share/sharepage/save')) {
+        return _json(<String, Object?>{
+          'status': 200,
+          'code': 0,
+          'data': <String, Object?>{'file_ids': <String>['0']},
+        });
+      }
+      return _json(<String, Object?>{'code': 0, 'data': <String, Object?>{}});
+    });
+
+    final QuarkNativeClient c = _client(t);
     await expectLater(
-      c.saveShare(
-        pwdId: 'p',
-        stoken: 's',
-        file: const QuarkShareFile(
-          fid: 'f1',
-          fileName: 'x.mp4',
-          shareFidToken: 't1',
-        ),
+      c.resolvePlayUrl(
+        shareUrl: 'https://pan.quark.cn/s/abc123',
         cookie: 'k=v',
       ),
       throwsA(isA<QuarkNativeException>()),
