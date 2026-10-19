@@ -54,6 +54,12 @@ class MediaKitPlayer implements Player {
   bool _hwAccel = true;
   String _hwAccelReason = '';
 
+  /// 是否已因硬解设备分配失败降级过（每次实例生命周期内最多降级一次，防抖）。
+  bool _hwdecFailed = false;
+
+  /// 最近一次 [open] 的播放源，供硬解失败后软解重开媒体使用。
+  PlayerSource? _currentSource;
+
   /// 自适应判定是否启用硬件解码（GPU 渲染）。
   ///
   /// 正常用户机器硬解优先；经 [HardwareGpuProbe] 探测无硬件 GPU（云电脑测试
@@ -134,6 +140,7 @@ class MediaKitPlayer implements Player {
   @override
   Future<void> open(PlayerSource source) async {
     _isLive = source.isLive;
+    _currentSource = source;
     // 诊断「Failed to recognize file format」：记录实际下发的播放地址与鉴权头，
     // 判断是缺少 Referer/UA/Cookie 被判盗链返回 HTML，还是地址本身非直链。
     final String? referer = _lookupHeader(source.headers, 'Referer');
@@ -151,6 +158,47 @@ class MediaKitPlayer implements Player {
       httpHeaders: source.headers.isEmpty ? null : source.headers,
     );
     await _applyTuning(source);
+    await _mpv.open(media, play: false);
+  }
+
+  /// 硬解「假性可用」的自动降级：探测说 D3D11 设备可用，但实际解码设备分配
+  /// 失败（日志 `Failed to allocate AVHWDeviceContext`，常见于部分云电脑/虚拟化
+  /// 环境——`D3D11CreateDevice(HARDWARE)` 能成功，却拿不到完整的 VA 能力）。
+  ///
+  /// 处理策略：只把解码端 `hwdec` 关到 `no` 并重开媒体，**不重建
+  /// `VideoController`**——纹理句柄保持不变，播放页无需重绑，风险最小。
+  /// 降级在实例生命周期内只执行一次（[_hwdecFailed] 防抖），失败后由
+  /// `error` 流正常上报致命错误，避免无限重试。
+  Future<void> _fallbackToSoftwareDecode() async {
+    if (_hwdecFailed) return;
+    final PlayerSource? source = _currentSource;
+    if (source == null) return;
+    _hwdecFailed = true;
+    _hwAccel = false;
+    _hwAccelReason = '运行时检测到 AVHWDeviceContext 分配失败，已自动降级软解';
+    AppLog.warn(
+      'player-media_kit',
+      '硬解设备分配失败（Failed to allocate AVHWDeviceContext），'
+      '自动降级为软解（hwdec=no）并重开媒体：${source.url}',
+      category: LogCategory.player,
+    );
+    final mk.PlatformPlayer? platform = _mpv.platform;
+    if (platform is mk.NativePlayer) {
+      try {
+        await platform.setProperty('hwdec', 'no');
+      } catch (e) {
+        // 属性下发失败不阻断重开；`_hwAccel=false` 已保证后续 open 走软解。
+        AppLog.warn(
+          'player-media_kit',
+          '降级时下发 hwdec=no 失败：$e',
+          category: LogCategory.player,
+        );
+      }
+    }
+    final mk.Media media = mk.Media(
+      source.url,
+      httpHeaders: source.headers.isEmpty ? null : source.headers,
+    );
     await _mpv.open(media, play: false);
   }
 
@@ -265,6 +313,17 @@ class MediaKitPlayer implements Player {
       _emitVideoSize();
     }));
     _subs.add(_mpv.stream.error.listen((String message) {
+      // 硬解设备分配失败是可自动恢复的（降级软解即可播），不能直接判死：
+      // 先触发一次软解降级并重开，避免「明明能播却弹加载失败」。
+      if (!_hwdecFailed && _hwAccel && _isHwDecodeAllocFailure(message)) {
+        AppLog.warn(
+          'player-media_kit',
+          '收到硬解设备分配失败错误，触发自动软解降级：$message',
+          category: LogCategory.player,
+        );
+        unawaited(_fallbackToSoftwareDecode());
+        return;
+      }
       onError?.call(message, fatal: true);
     }));
     _subs.add(_mpv.stream.log.listen(_log));
@@ -292,8 +351,34 @@ class MediaKitPlayer implements Player {
     }
   }
 
+  /// 判定一条 mpv 日志是否为「硬解设备分配失败」（可降级恢复，不应判死）。
+  ///
+  /// 覆盖 libmpv / FFmpeg 在各平台上对该情形的既有措辞：Windows d3d11va 的
+  /// `Failed to allocate AVHWDeviceContext.`、`Could not create device`，
+  /// 以及 `hwdec` 初始化失败的通用提示。
+  static bool _isHwDecodeAllocFailure(String text) {
+    if (text.contains('AVHWDeviceContext')) return true;
+    if (text.contains('Could not create device')) return true;
+    if (text.contains('Failed to initialize a hardware decoder')) return true;
+    return false;
+  }
+
   void _log(mk.PlayerLog log) {
     if (log.text.isEmpty) return;
+    // 硬解设备分配失败：mpv 只把它打在日志流里（不进 stream.error），
+    // 因此必须在此处也做拦截，否则会一直重试硬解并最终起播失败。
+    if (!_hwdecFailed &&
+        _hwAccel &&
+        (log.level == 'error' || log.level == 'fatal' || log.level == 'warn') &&
+        _isHwDecodeAllocFailure(log.text)) {
+      AppLog.warn(
+        'player-media_kit',
+        'mpv 报告硬解设备分配失败，触发自动软解降级：${log.text}',
+        category: LogCategory.player,
+      );
+      unawaited(_fallbackToSoftwareDecode());
+      return;
+    }
     switch (log.level) {
       case 'error':
       case 'fatal':
