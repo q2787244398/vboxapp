@@ -26,7 +26,12 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    # 使用 Intel 池（macos-15-intel）。macos-15 是 arm64 池，2026-10-20 起持续
+    # 出现「not acquired by Runner of type hosted」排队 15 分钟即被取消，连续 3 次
+    # 重跑均无法拿到机器。Intel 池容量独立，且本工作流的 host 侧工具链（Go
+    # darwin-amd64、python-*-macos11.pkg）与全部 iOS 产物均为交叉编译，不依赖
+    # arm64 宿主；该镜像自带 Xcode 16.4（默认），与下方 Select Xcode 匹配。
+    runs-on: macos-15-intel
     outputs:
       MARKETING_VERSION: ${{ steps.get_version.outputs.MARKETING_VERSION }}
       BUILD_NUM: ${{ steps.get_version.outputs.BUILD_NUM }}
