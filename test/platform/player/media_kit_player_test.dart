@@ -85,6 +85,11 @@ void main() {
     test('play/pause/seekTo/setVolume/setSpeed/dispose 依次转发', () async {
       final _FakePlatform platform = _FakePlatform();
       final MediaKitPlayer p = _build(platform: platform);
+      // seekTo 前置守卫（问题 5 闪退）：媒体未打开（时长未知）时不下发 seek。
+      // 先 open 并推一把时长，使 seek 进入合法转发区间，再验证控制面依次转发。
+      await p.open(const PlayerSource(url: 'https://x/a.mp4'));
+      platform.emitDuration(const Duration(milliseconds: 180000));
+      await Future<void>.delayed(Duration.zero);
       await p.play();
       await p.pause();
       await p.seekTo(120000);
@@ -93,7 +98,15 @@ void main() {
       await p.dispose();
       expect(
         platform.calls,
-        <String>['play', 'pause', 'seek', 'setVolume', 'setRate', 'dispose'],
+        <String>[
+          'open',
+          'play',
+          'pause',
+          'seek',
+          'setVolume',
+          'setRate',
+          'dispose',
+        ],
       );
       expect(platform.seekMs, 120000);
       expect(platform.volume, 50.0);
