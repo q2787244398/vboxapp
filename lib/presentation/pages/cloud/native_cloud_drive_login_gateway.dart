@@ -735,11 +735,16 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     // 原生桥返回 Jar 全量 Cookie（含 BAIDUID/BAIDUID_BFESS）与用户态 bdstoken；
     // 非 Windows 该方法内部立即返回空，iOS/Android/macOS 行为不变。
     final native = await BaiduNativeTokenBridge.fetchBdstoken(cookie);
-    final String seedCookie = native.cookie.isEmpty
+    // ② WinHTTP（Schannel 系统栈）直取：指纹≠dart:io，且不依赖可能被崩溃保护
+    // 禁用的 WebView2。登录瞬间风控最松，直取 bdstoken + 补种 BAIDUID 指纹，
+    // 作 native 之外的第二来源（native 失败时仍能落库 bdstoken）。
+    final viaWinHttp = await BaiduNativeTokenBridge.fetchBdstokenWinHttp(cookie);
+    final String seedCookie = (native.cookie.isEmpty && viaWinHttp.cookie.isEmpty)
         ? cookie
         : joinCookies(<String, String>{
             ..._cookieStringToMap(cookie),
             ..._cookieStringToMap(native.cookie),
+            ..._cookieStringToMap(viaWinHttp.cookie),
           });
     // 原生补全后的 Cookie 继续走原 Dart 补全（仍可再补一层，取并集）。
     final _BaiduEnrichResult enriched = await _enrichBaiduAccount(seedCookie);
@@ -757,6 +762,9 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       '原生 WebView2 富集'
       '${native.token.isEmpty ? '未取得 bdstoken' : '取得 bdstoken（长度 ${native.token.length}）'}'
       '${native.cookie.isEmpty ? '，未返回 Jar Cookie' : '，Jar 键名 [${_cookieKeyNames(native.cookie).join(', ')}]'} | '
+      'WinHTTP 富集'
+      '${viaWinHttp.token.isEmpty ? '未取得 bdstoken' : '取得 bdstoken（长度 ${viaWinHttp.token.length}）'}'
+      '${viaWinHttp.cookie.isEmpty ? '，未返回 Cookie' : '，Cookie 键名 [${_cookieKeyNames(viaWinHttp.cookie).join(', ')}]'} | '
       'Dart 富集 extra 键 [${enriched.extra.keys.join(', ')}] | '
       '最终落库 Cookie 键名 [${_cookieKeyNames(finalCookie).join(', ')}]，'
       '总长 ${finalCookie.length}',
@@ -773,9 +781,15 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
       'cookie_mode': 'BDUSS_STOKEN',
       ...enriched.extra,
       // 播放链第 4 层「保存值兜底」的数据源（对齐 iOS saveBdstokenCredential）。
+      // 优先级：native（WebView2）> viaWinHttp（Schannel）> enriched.extra
+      // （dart:io，JA3 被风控时为空）——两条件互斥，仅一个会写入 bdstoken。
       if (native.token.isNotEmpty) 'bdstoken': native.token,
+      if (native.token.isEmpty && viaWinHttp.token.isNotEmpty)
+        'bdstoken': viaWinHttp.token,
       if (native.token.isNotEmpty)
         'bdstoken_source': 'native-webview2-login',
+      if (native.token.isEmpty && viaWinHttp.token.isNotEmpty)
+        'bdstoken_source': 'winhttp-login',
     };
     await _persist(
       CloudDriveType.baidu,

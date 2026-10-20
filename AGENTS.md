@@ -110,12 +110,14 @@ docs/             方案与对齐文档
     消息循环执行（不在 WebView2 回调链内 Close/Release COM）。
   - 导航/脚本回调带代际校验：看门狗超时未停的挂起导航在新链路 Navigate 时
     补发的取消事件不再误杀新链路；迟到的 ExecuteScript 结果不再跨链路串扰。
-  - `interactive` 交互验证模式：重试链路弹可见「百度安全验证」窗口（3 分钟
-    看门狗 + 页面 Source 校验 + 关窗取消），人工过风控一次后 Jar 持久化；
-    显示时摘除 `WS_EX_TRANSPARENT`（否则滑块/验证码无法交互），收尾恢复。
+  - 3.1882 起移除 `interactive` 交互验证模式（含 `ShowVerifyWindow` /
+    `HideVerifyWindow` / `OnVerifyWindowClosed` 与 `interactive_` 成员），
+    按用户要求整体下线、不再人工兜底。
 - `lib/data/datasources/remote/baidu_ibox_client.dart` /
-  `lib/platform/webview/baidu_native_token_bridge.dart`：取号失败置位
-  `_nextFetchInteractive`，用户点「重试」→ 第 0 层原生桥交互验证模式。
+  `lib/platform/webview/baidu_native_token_bridge.dart`（3.1882）：
+  移除 `_nextFetchInteractive` 重试置位，取号失败提示改为「建议重新扫码登录
+  或粘贴完整 Cookie」；`fetchBdstoken` 移除 `interactive` 形参；
+  `fetchBdstokenWinHttp` 返回值扩展携带富集后 `cookie`。
 - `lib/presentation/pages/cloud/native_cloud_drive_login_gateway.dart`：
   重新扫码落库合并既有 `extra`（此前整体覆盖会把播放链回写的 `bdstoken`
   抹掉，形成「重登→兜底值丢失→再失败」死循环）。

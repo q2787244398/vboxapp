@@ -151,6 +151,18 @@ class BaiduIBoxClient {
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
 
+  /// 浏览器请求头近似组（治标）：仅对 `webUA` 浏览器语义请求补 `sec-ch-ua` 等
+  /// header，用于对齐百度 header 层校验。不改变 TLS 层指纹（JA3），故对风控
+  /// 收效有限，只作降级微调，不投入主链路。
+  static const Map<String, String> browserFingerprintHeaders =
+      <String, String>{
+        'sec-ch-ua':
+            '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"macOS"',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+      };
+
   /// PCS 客户端 UA（对齐 iOS `baiduPCSUserAgent`：mediainfo / locatedownload 用）。
   static const String pcsUserAgent =
       'Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001) '
@@ -182,16 +194,6 @@ class BaiduIBoxClient {
   /// 最近一次原生 WebView2 桥取 bdstoken 的失败原因（Windows 专属；
   /// 用于把真实失败原因带进最终报错，避免用户盲目反复扫码）。
   String _lastBaiduNativeFailure = '';
-
-  /// 下一次取号是否使用「交互验证模式」（可见 WebView2 验证窗口）。
-  ///
-  /// 触发点：[resolvePlayURL] 因缺 bdstoken 失败时置位——用户点「重试」后
-  /// 第 0 层原生桥以交互模式运行：弹出百度安全验证窗口，人工完成风控验证
-  /// 后自动继续取号，Jar/凭据随 onFetched 持久化，后续播放无需再验证。
-  /// 云电脑/数据中心 IP 下隐藏取号链被风控全灭时，这是唯一可行的取号路径
-  /// （重新扫码登录也救不了：登录富集走同一条被风控的隐藏链路）。
-  /// 静态字段：跨实例共享（provider 重建客户端实例不应丢掉重试语义）。
-  static bool _nextFetchInteractive = false;
 
   /// 播放缓存统一层（批次 E · E5-5；对齐 iOS `CloudDriveManager` 缓存族）。
   BaiduPlaybackCacheStore get _cache =>
@@ -750,9 +752,8 @@ class BaiduIBoxClient {
   /// 私域接口（api/create / filemanager / api/list）必须用登录态 bdstoken；
   /// 分享页 yunData 里的 bdstoken 会被百度判越权（errno=-6）。
   ///
-  /// - [savedBdstoken]：授权中心保存值（凭据 `extra["bdstoken"]`）。兜底链
-  ///   最后一层（对齐 iOS `CloudDriveManager.swift:4726-4728`「本次未抓到新
-  ///   bdstoken，临时回退授权中心保存值」）。
+  /// - [savedBdstoken]：授权中心保存值（凭据 `extra["bdstoken"]`）。**优先路径**：
+  ///   非空时直接复用（第 -1 层），跳过网络取号，云电脑/数据中心 IP 下稳定起播。
   ///
   /// 完整兜底链（iOS 同款 + Windows 专属增强）：
   ///   1. Dart URLSession 档 gettemplatevariable（对齐 iOS）；
@@ -772,6 +773,18 @@ class BaiduIBoxClient {
     String savedBdstoken = '',
     void Function(String bdstoken, String source, String mergedCookie)? onFetched,
   }) async {
+    // ── 第 -1 层：授权中心保存值优先 ──
+    // 凭据已持久化 bdstoken（登录成功时经 WinHTTP/WebView2 落库）且非空时，
+    // 直接复用保存值起播、跳过四层网络取号——云电脑/数据中心 IP 下隐藏取号
+    // 链被百度风控全灭时，这是稳定起播的唯一路径；同时避免每次播放重复被风控。
+    if (savedBdstoken.isNotEmpty) {
+      AppLog.warn(
+        'baidu-local',
+        '第 -1 层 命中授权中心保存值，直接起播（source=credential-saved）',
+        category: LogCategory.cloud,
+      );
+      return savedBdstoken;
+    }
     // ── 第 0 前置层（Windows 专属，3.1858）：WinHTTP 系统栈直取 ──
     // 对齐 iOS 第 1 层 URLSession 的「系统网络栈」语义（Windows 上等价物为
     // WinHTTP/Schannel）：不依赖 WebView2 运行时、无窗口、秒级完成，成功则
@@ -789,7 +802,7 @@ class BaiduIBoxClient {
         onFetched?.call(
           viaWinHttp.token,
           'winhttp-templatevariable',
-          cookie,
+          viaWinHttp.cookie.isEmpty ? cookie : viaWinHttp.cookie,
         );
         return viaWinHttp.token;
       }
@@ -808,19 +821,11 @@ class BaiduIBoxClient {
     // 与登录网关同源，信任度最高，故在 Windows 上提为首选项，Dart 层降为兜底。
     // 非 Windows 平台跳过本层，iOS/Android/macOS 行为完全不变。
     if (Platform.isWindows) {
-      // 交互验证重试：上次因缺 bdstoken 失败后置位 → 本次弹出可见的
-      // 百度安全验证窗口（人工过风控，Jar 持久化）。一次性消费。
-      final bool interactive = _nextFetchInteractive;
-      _nextFetchInteractive = false;
-      final viaNative = await BaiduNativeTokenBridge.fetchBdstoken(
-        cookie,
-        interactive: interactive,
-      );
+      final viaNative = await BaiduNativeTokenBridge.fetchBdstoken(cookie);
       if (viaNative.token.isNotEmpty) {
         AppLog.debug(
           'baidu-local',
-          '第 0 层 原生 WebView2 桥取得用户态 bdstoken'
-          '${interactive ? '（交互验证模式）' : ''}',
+          '第 0 层 原生 WebView2 桥取得用户态 bdstoken',
           category: LogCategory.cloud,
         );
         // 回传 WebView2 Jar 全量 Cookie（含服务端现场补种的
@@ -998,15 +1003,6 @@ class BaiduIBoxClient {
       '第 3 层 WebView 未解析到 bdstoken（Windows 端需确认 WebView2 可用）',
       category: LogCategory.cloud,
     );
-    // 第 4 层兜底：回退授权中心保存值（对齐 iOS `CloudDriveManager.swift:4726`）。
-    if (savedBdstoken.isNotEmpty) {
-      AppLog.warn(
-        'baidu-local',
-        '本次未抓到新 bdstoken，临时回退授权中心保存值',
-        category: LogCategory.cloud,
-      );
-      return savedBdstoken;
-    }
     AppLog.error(
       'baidu-local',
       '四层兜底（含 Cookie 补全重试）全部失败，未取得用户态 bdstoken，'
@@ -1621,18 +1617,12 @@ class BaiduIBoxClient {
       onFetched: onBdstokenFetched,
     );
     if (userBdstoken.isEmpty) {
-      // 置位交互验证重试：用户点「重试」后第 0 层原生桥将弹出可见的
-      // 百度安全验证窗口——云电脑/数据中心 IP 下隐藏链路被风控全灭，
-      // 人工完成验证是唯一出路（重新扫码登录无效：登录富集走同一条
-      // 被风控的隐藏链路，bdstoken 依然存不进凭据）。Jar 持久化，过一次
-      // 即可，后续播放直接命中保存值兜底。
-      _nextFetchInteractive = true;
       final String hint = _lastBaiduNativeFailure.isEmpty
           ? 'Cookie 补全重试仍失败，多为百度风控或旧版凭据缺指纹 Cookie'
           : _lastBaiduNativeFailure;
       final String message = '百度登录态正常，但未取得用户态 bdstoken，'
           '无法创建 vbox 转存目录 —— $hint。'
-          '点击「重试」将打开百度安全验证窗口，完成验证后自动继续播放';
+          '建议到授权中心重新扫码登录，或粘贴含 BDUSS+STOKEN 的完整 Cookie';
       await _cache.recordRouteDiagnostic(
         stage: '主路链',
         status: '缺少用户态bdstoken',
@@ -1918,11 +1908,15 @@ class BaiduIBoxClient {
     String? body,
     int timeout = 15,
   }) async {
+    final Map<String, String> effective = <String, String>{...headers};
+    if (effective['User-Agent'] == webUA) {
+      effective.addAll(browserFingerprintHeaders);
+    }
     final SpiderTransportResponse res = await _transport.send(
       SpiderTransportRequest(
         method: method,
         url: Uri.parse(url),
-        headers: headers,
+        headers: effective,
         body: body,
         timeout: Duration(seconds: timeout),
       ),

@@ -72,21 +72,17 @@ class BaiduTokenBridge {
 
   /// 异步取 bdstoken。[cookie_header] 为凭据原始 Cookie 串（"k=v; k2=v2"），
   /// 会种入 WebView2 Jar 后再导航 disk/main。失败同样回调（errno<0）。
-  ///
-  /// [interactive]：交互验证模式（重试链路使用）——导航前把屏幕外常态位
-  /// 宿主窗口移入屏幕中央，显示为可见的「百度安全验证」窗口，看门狗放宽
-  /// 到 3 分钟，等待用户人工完成风控验证后继续取号。用于云电脑/数据中心
-  /// IP 下取号被风控拦截的场景：Jar 持久化，人工过一次验证后，后续取号
-  /// 即可直接通过。
-  void GetBdstoken(const std::string& cookie_header, Reply reply,
-                   bool interactive = false);
+  void GetBdstoken(const std::string& cookie_header, Reply reply);
 
   /// WinHTTP（Schannel 系统原生栈）同步直取 gettemplatevariable 的用户态
   /// bdstoken——对齐 iOS 第 1 层 URLSession 的「系统网络栈」语义。不依赖
-  /// WebView2 运行时、无窗口；返回 errno（0=成功），bdstoken/detail 出参
-  /// （detail 携带 errno/HTTP 状态等关键信息供日志留痕）。
+  /// WebView2 运行时、无窗口。入参 [cookie_header] 为凭据 Cookie；先串行
+  /// GET www/passport/disk/main 三跳种满 BAIDUID 指纹，再取号。返回 errno
+  /// （0=成功），bdstoken/cookie/detail 出参：cookie 为富集后的完整 Cookie
+  /// （供 Dart 合并回写凭据），detail 携带 errno/HTTP 状态等关键日志。
   static int FetchBdstokenViaWinHttp(const std::string& cookie_header,
                                      std::string* bdstoken,
+                                     std::string* cookie,
                                      std::string* detail);
 
   /// 释放 WebView2 资源（PlayerPlugin 析构时调用；幂等）。
@@ -130,10 +126,6 @@ class BaiduTokenBridge {
   void RunScript();
   // 作废当前 WebView2 会话（进程异常后禁止复用僵尸 COM 对象）。
   void InvalidateSession();
-  // 交互验证窗口：显示 / 隐藏 / 用户关闭（WM_CLOSE）。
-  void ShowVerifyWindow();
-  void HideVerifyWindow();
-  void OnVerifyWindowClosed();
   void OnEnvironmentCreated(HRESULT result, ICoreWebView2Environment* created);
   void OnControllerCreated(HRESULT result, ICoreWebView2Controller* created);
   void OnNavigationCompleted(int generation, bool succeeded);
@@ -181,8 +173,6 @@ class BaiduTokenBridge {
   // 脚本代际：每次 RunScript 递增；旧链路迟到的 ExecuteScript 结果
   // 被忽略，防止跨链路串扰（把上一轮结果答复给当前等待者）。
   int script_generation_ = 0;
-  // 本次链路是否交互验证模式（窗口可见 + 长看门狗 + 不自动重导航）。
-  bool interactive_ = false;
   // nav_token_ 是否属于当前 webview_ 实例（导航回调按次重注册时记账，
   // 会话作废后旧 token 随 webview 一起失效，不可再用于 remove）。
   bool nav_registered_ = false;

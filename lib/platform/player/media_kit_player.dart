@@ -175,13 +175,25 @@ class MediaKitPlayer implements Player {
     if (source == null) return;
     _hwdecFailed = true;
     _hwAccel = false;
-    _hwAccelReason = '运行时检测到 AVHWDeviceContext 分配失败，已自动降级软解';
+    _hwAccelReason = '运行时检测到硬件解码/渲染失败，已自动降级软解';
     AppLog.warn(
       'player-media_kit',
-      '硬解设备分配失败（Failed to allocate AVHWDeviceContext），'
-      '自动降级为软解（hwdec=no）并重开媒体：${source.url}',
+      '硬件解码/渲染失败，自动降级为软解（hwdec=no）并重开媒体：${source.url}',
       category: LogCategory.player,
     );
+    // 降级重开前先隔离旧媒体：stop 取消在途 loadfile/seek 命令回复，避免旧媒体
+    // 的命令回复回调在重开后访问已释放对象（日志 event:5 Pointer 空指针崩溃正是
+    // MPV_EVENT_COMMAND_REPLY 的竞态表现）。降级重开链串行 await，杜绝并发重开。
+    try {
+      await _mpv.stop();
+    } catch (e) {
+      // 停止旧媒体失败不阻断降级（此时媒体多半已处于失效状态）。
+      AppLog.warn(
+        'player-media_kit',
+        '降级时停止旧媒体失败（可忽略）：$e',
+        category: LogCategory.player,
+      );
+    }
     final mk.PlatformPlayer? platform = _mpv.platform;
     if (platform is mk.NativePlayer) {
       try {
@@ -200,6 +212,16 @@ class MediaKitPlayer implements Player {
       httpHeaders: source.headers.isEmpty ? null : source.headers,
     );
     await _mpv.open(media, play: false);
+    // 重开后恢复播放（前端 open 时 play:false，降级重开需手动续播，避免起播中断）。
+    try {
+      await _mpv.play();
+    } catch (e) {
+      AppLog.warn(
+        'player-media_kit',
+        '降级重开后续播失败：$e',
+        category: LogCategory.player,
+      );
+    }
   }
 
   /// 大小写不敏感读取自定义请求头（诊断鉴权头是否缺 Referer/UA/Cookie）。
@@ -221,6 +243,10 @@ class MediaKitPlayer implements Player {
   @override
   Future<void> seekTo(int positionMs) async {
     if (_disposed) return;
+    // 前置守卫（问题 5 闪退 · 异常 seek）：媒体未真正打开（时长未知）或目标越界
+    // 时不下发 seek——原生 mpv 对非法 seek（size<0 / 越界）可能触发空指针崩溃。
+    if (_durationMs <= 0) return;
+    if (positionMs < 0 || positionMs > _durationMs) return;
     try {
       await _mpv.seek(Duration(milliseconds: positionMs));
     } catch (_) {
@@ -319,10 +345,10 @@ class MediaKitPlayer implements Player {
       if (!_hwdecFailed &&
           _hwAccel &&
           _currentSource != null &&
-          _isHwDecodeAllocFailure(message)) {
+          _isHardwareFailure(message)) {
         AppLog.warn(
           'player-media_kit',
-          '收到硬解设备分配失败错误，触发自动软解降级：$message',
+          '收到硬件解码/渲染失败错误，触发自动软解降级：$message',
           category: LogCategory.player,
         );
         unawaited(_fallbackToSoftwareDecode());
@@ -355,15 +381,16 @@ class MediaKitPlayer implements Player {
     }
   }
 
-  /// 判定一条 mpv 日志是否为「硬解设备分配失败」（可降级恢复，不应判死）。
+  /// 判定一条 mpv 日志/错误是否为「硬件路径失败」（可降级恢复，不应判死）。
   ///
-  /// 覆盖 libmpv / FFmpeg 在各平台上对该情形的既有措辞：Windows d3d11va 的
-  /// `Failed to allocate AVHWDeviceContext.`、`Could not create device`，
-  /// 以及 `hwdec` 初始化失败的通用提示。
-  static bool _isHwDecodeAllocFailure(String text) {
+  /// 覆盖 libmpv / FFmpeg 的硬件解码分配失败（Windows d3d11va 的
+  /// `Failed to allocate AVHWDeviceContext.`、`Could not create device`）与硬件
+  /// 渲染表面失败（`Failed to create EGL surface`，虚拟化 GPU 假性可用）。
+  static bool _isHardwareFailure(String text) {
     if (text.contains('AVHWDeviceContext')) return true;
     if (text.contains('Could not create device')) return true;
     if (text.contains('Failed to initialize a hardware decoder')) return true;
+    if (text.contains('Failed to create EGL surface')) return true;
     return false;
   }
 
@@ -375,10 +402,10 @@ class MediaKitPlayer implements Player {
         _hwAccel &&
         _currentSource != null &&
         (log.level == 'error' || log.level == 'fatal' || log.level == 'warn') &&
-        _isHwDecodeAllocFailure(log.text)) {
+        _isHardwareFailure(log.text)) {
       AppLog.warn(
         'player-media_kit',
-        'mpv 报告硬解设备分配失败，触发自动软解降级：${log.text}',
+        'mpv 报告硬件解码/渲染失败，触发自动软解降级：${log.text}',
         category: LogCategory.player,
       );
       unawaited(_fallbackToSoftwareDecode());

@@ -330,12 +330,6 @@ std::string Excerpt(const std::string& text, size_t keep) {
   return text.substr(0, keep) + "…";
 }
 
-// 交互验证模式看门狗：放宽到 3 分钟，等待用户人工完成百度安全验证。
-constexpr UINT kInteractiveWatchdogMs = 180000;
-// 交互验证窗口尺寸（容纳百度安全验证页 / 滑块控件）。
-constexpr int kVerifyWindowWidth = 560;
-constexpr int kVerifyWindowHeight = 720;
-
 // 常态停靠位（取号窗口常态位）：主窗口客户区右下角内侧 2x2（对齐 iOS
 // BaiduWebViewBridge「1x1 WKWebView addSubview 到可见 key window」）。
 //
@@ -376,6 +370,115 @@ flutter::EncodableValue BuildResult(int errno_code, const std::string& token,
   map[flutter::EncodableValue("cookie")] = flutter::EncodableValue(cookie);
   map[flutter::EncodableValue("message")] = flutter::EncodableValue(message);
   return flutter::EncodableValue(std::move(map));
+}
+
+// WinHTTP 统一浏览器 UA（三跳种码与取号请求共用，对齐 Dart 第 1 层）。
+const wchar_t kWinHttpUserAgent[] =
+    L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    L"(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+// WinHTTP 单跳只读 GET（种 BAIDUID 指纹）。合并本跳响应 Set-Cookie 到
+// [cookie_inout]（作为下一跳 / 取号请求的 Cookie 头）。返回 HTTP 状态码
+// （失败返回 0；Set-Cookie 收集与否不影响取号链路成败——种码只读端点）。
+int WinHttpSeedHop(const std::wstring& host, const std::wstring& path,
+                   std::string* cookie_inout) {
+  const auto ascii_lower = [](wchar_t c) -> wchar_t {
+    return (c >= L'A' && c <= L'Z') ? c + (L'a' - L'A') : c;
+  };
+  const auto header_is_set_cookie = [&](const std::wstring& line) -> bool {
+    if (line.size() <= 10) return false;
+    if (line[10] != L':') return false;  // "Set-Cookie" 长度 10
+    for (size_t i = 0; i < 10; ++i) {
+      if (ascii_lower(line[i]) != L"set-cookie"[i]) return false;
+    }
+    return true;
+  };
+
+  HINTERNET session = ::WinHttpOpen(
+      kWinHttpUserAgent, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  if (session == nullptr) return 0;
+  ::WinHttpSetTimeouts(session, 0, 5000, 5000, 8000);
+  HINTERNET connect = ::WinHttpConnect(session, host.c_str(),
+                                       INTERNET_DEFAULT_HTTPS_PORT, 0);
+  if (connect == nullptr) {
+    ::WinHttpCloseHandle(session);
+    return 0;
+  }
+  HINTERNET request = ::WinHttpOpenRequest(
+      connect, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
+      WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+  if (request == nullptr) {
+    ::WinHttpCloseHandle(connect);
+    ::WinHttpCloseHandle(session);
+    return 0;
+  }
+  if (!cookie_inout->empty()) {
+    const std::wstring headers =
+        L"Cookie: " + Utf8ToWide(*cookie_inout) +
+        L"\r\nAccept: text/html,application/xhtml+xml,"
+        L"application/xml;q=0.9,*/*;q=0.8";
+    ::WinHttpAddRequestHeaders(request, headers.c_str(),
+                               static_cast<DWORD>(headers.size()),
+                               WINHTTP_ADDREQ_FLAG_ADD);
+  }
+  if (!::WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+      !::WinHttpReceiveResponse(request, nullptr)) {
+    ::WinHttpCloseHandle(request);
+    ::WinHttpCloseHandle(connect);
+    ::WinHttpCloseHandle(session);
+    return 0;
+  }
+  DWORD status = 0;
+  DWORD status_size = sizeof(status);
+  ::WinHttpQueryHeaders(request,
+                        WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                        WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_size,
+                        WINHTTP_NO_HEADER_INDEX);
+  // 全量响应头逐行解析 Set-Cookie（RAW_HEADERS_CRLF 含状态行 + 各头部行）。
+  DWORD raw_size = 0;
+  ::WinHttpQueryHeaders(request, WINHTTP_QUERY_RAW_HEADERS_CRLF,
+                        WINHTTP_HEADER_NAME_BY_INDEX, nullptr, &raw_size,
+                        WINHTTP_NO_HEADER_INDEX);
+  if (raw_size > sizeof(wchar_t)) {
+    std::vector<wchar_t> raw(raw_size / sizeof(wchar_t) + 1);
+    if (::WinHttpQueryHeaders(request, WINHTTP_QUERY_RAW_HEADERS_CRLF,
+                              WINHTTP_HEADER_NAME_BY_INDEX, raw.data(),
+                              &raw_size, WINHTTP_NO_HEADER_INDEX)) {
+      const std::wstring block(raw.data(), raw_size / sizeof(wchar_t));
+      std::string merged;
+      size_t pos = 0;
+      while (pos < block.size()) {
+        const size_t nl = block.find(L"\r\n", pos);
+        const std::wstring line =
+            block.substr(pos, nl == std::wstring::npos ? std::wstring::npos
+                                                       : nl - pos);
+        pos = nl == std::wstring::npos ? block.size() : nl + 2;
+        if (!header_is_set_cookie(line)) continue;
+        std::wstring val = line.substr(11);  // 跳过 "Set-Cookie:"
+        while (!val.empty() && val.front() == L' ') val.erase(val.begin());
+        const size_t semi = val.find(L';');
+        if (semi != std::wstring::npos) val = val.substr(0, semi);
+        const std::string pair = WideToUtf8(val.c_str());
+        if (pair.find('=') != std::string::npos) {
+          if (!merged.empty()) merged += "; ";
+          merged += pair;
+        }
+      }
+      if (!merged.empty()) {
+        if (cookie_inout->empty()) {
+          *cookie_inout = merged;
+        } else {
+          *cookie_inout = *cookie_inout + "; " + merged;
+        }
+      }
+    }
+  }
+  ::WinHttpCloseHandle(request);
+  ::WinHttpCloseHandle(connect);
+  ::WinHttpCloseHandle(session);
+  return static_cast<int>(status);
 }
 
 }  // namespace
@@ -420,59 +523,6 @@ void BaiduTokenBridge::InvalidateSession() {
   nav_registered_ = false;
 }
 
-// 交互验证窗口：从 2x2 常态位移入父窗口中央并放大（摘除 WS_EX_NOACTIVATE
-// 与 WS_EX_TRANSPARENT 鼠标穿透并前置，便于滑块/验证码交互）。
-void BaiduTokenBridge::ShowVerifyWindow() {
-  if (host_window_ == nullptr) return;
-  const LONG_PTR ex = ::GetWindowLongPtrW(host_window_, GWL_EXSTYLE);
-  ::SetWindowLongPtrW(host_window_, GWL_EXSTYLE,
-                      ex & ~(WS_EX_NOACTIVATE | WS_EX_TRANSPARENT));
-  int x = 80;
-  int y = 80;
-  if (parent_window_ != nullptr) {
-    RECT parent{};
-    if (::GetWindowRect(parent_window_, &parent)) {
-      x = parent.left +
-          ((parent.right - parent.left) - kVerifyWindowWidth) / 2;
-      y = parent.top +
-          ((parent.bottom - parent.top) - kVerifyWindowHeight) / 2;
-    }
-  }
-  ::SetWindowPos(host_window_, HWND_TOP, x, y, kVerifyWindowWidth,
-                 kVerifyWindowHeight, SWP_SHOWWINDOW);
-  ::SetForegroundWindow(host_window_);
-  if (controller_ != nullptr) {
-    RECT bounds{0, 0, kVerifyWindowWidth, kVerifyWindowHeight};
-    controller_->put_Bounds(bounds);
-    controller_->put_IsVisible(TRUE);
-  }
-}
-
-// 交互验证窗口收尾：回到主窗口内 2x2 常态位（保持几何可见契约：屏幕内 +
-// owner 之上，见 EnsureHostWindow 注释），恢复 NOACTIVATE / TRANSPARENT。
-void BaiduTokenBridge::HideVerifyWindow() {
-  if (host_window_ == nullptr) return;
-  if (controller_ != nullptr) {
-    RECT bounds{0, 0, 2, 2};
-    controller_->put_Bounds(bounds);
-    controller_->put_IsVisible(TRUE);
-  }
-  const POINT dock = InWindowDockPosition(parent_window_);
-  ::SetWindowPos(host_window_, HWND_TOP, dock.x, dock.y, 2, 2,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
-  const LONG_PTR ex = ::GetWindowLongPtrW(host_window_, GWL_EXSTYLE);
-  ::SetWindowLongPtrW(host_window_, GWL_EXSTYLE,
-                      ex | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
-}
-
-// 用户关闭验证窗口（WM_CLOSE）：视为取消本次取号。
-void BaiduTokenBridge::OnVerifyWindowClosed() {
-  HideVerifyWindow();
-  if (phase_ != Phase::kIdle) {
-    FailAll("已取消百度安全验证（窗口被关闭）");
-  }
-}
-
 // ─────────────── WinHTTP 直取 bdstoken（第 1 层系统栈，对齐 iOS URLSession） ───────────────
 //
 // 背景：iOS 第 1 层用 URLSession（CFNetwork 系统栈）请求 gettemplatevariable，
@@ -485,11 +535,23 @@ void BaiduTokenBridge::OnVerifyWindowClosed() {
 // （0=通过，-6=被风控，届时仍需 WebView2 兜底）。
 int BaiduTokenBridge::FetchBdstokenViaWinHttp(const std::string& cookie_header,
                                               std::string* bdstoken,
+                                              std::string* cookie,
                                               std::string* detail) {
   *bdstoken = std::string();
-  static const wchar_t kUserAgent[] =
-      L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-      L"(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+  *cookie = std::string();
+  // 先三跳种码（www → passport → disk/main）：把 BAIDUID/BAIDUID_BFESS 等
+  // 指纹字段种满，再带完整 Cookie 取号——对齐 Dart 层 `_enrichBdstoken` 的
+  // 完整会话语义下沉到 Schannel 栈（此前单跳直取缺指纹，被百度风控）。
+  std::string merged_cookie = cookie_header;
+  const wchar_t* kBaiduSeedHops[][2] = {
+      {L"www.baidu.com", L"/"},
+      {L"passport.baidu.com", L"/center"},
+      {L"pan.baidu.com", L"/disk/main"},
+  };
+  for (const auto& hop : kBaiduSeedHops) {
+    WinHttpSeedHop(hop[0], hop[1], &merged_cookie);
+  }
+  *cookie = merged_cookie;
   // fields 与 Dart 第 1 层完全一致（已 urlencode）。
   static const wchar_t kPath[] =
       L"/api/gettemplatevariable?clienttype=0&app_id=250528&web=1&bdstoken="
@@ -505,7 +567,7 @@ int BaiduTokenBridge::FetchBdstokenViaWinHttp(const std::string& cookie_header,
     if (session != nullptr) ::WinHttpCloseHandle(session);
   };
 
-  session = ::WinHttpOpen(kUserAgent, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+  session = ::WinHttpOpen(kWinHttpUserAgent, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                           WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
   if (session == nullptr) {
     *detail = "WinHttpOpen 失败（Gle=" + std::to_string(::GetLastError()) + "）";
@@ -533,7 +595,7 @@ int BaiduTokenBridge::FetchBdstokenViaWinHttp(const std::string& cookie_header,
   }
   // 请求头对齐 Dart 第 1 层（Cookie / Referer / Accept；UA 已随 WinHttpOpen）。
   const std::wstring headers =
-      L"Cookie: " + Utf8ToWide(cookie_header) +
+      L"Cookie: " + Utf8ToWide(merged_cookie) +
       L"\r\nReferer: https://pan.baidu.com/disk/main"
       L"\r\nAccept: application/json, text/plain, */*";
   if (!::WinHttpAddRequestHeaders(
@@ -613,10 +675,8 @@ void BaiduTokenBridge::EnsureHostWindow() {
   // 「主窗口客户区内 2x2」几何可见语义（见 InWindowDockPosition 注释）。
   const POINT dock = InWindowDockPosition(parent_window_);
   if (host_window_ != nullptr) {
-    if (!interactive_) {
-      ::SetWindowPos(host_window_, nullptr, dock.x, dock.y, 0, 0,
-                     SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER);
-    }
+    ::SetWindowPos(host_window_, nullptr, dock.x, dock.y, 0, 0,
+                   SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER);
     return;
   }
 
@@ -652,16 +712,6 @@ void BaiduTokenBridge::EnsureHostWindow() {
 
 LRESULT CALLBACK BaiduTokenBridge::HostWndProc(HWND hwnd, UINT msg,
                                                WPARAM wparam, LPARAM lparam) {
-  if (msg == WM_CLOSE) {
-    // 交互验证窗口被用户关闭 → 取消本次取号（隐藏模式窗口本就不可见，
-    // 只有验证模式会收到 WM_CLOSE）。
-    auto* bridge = reinterpret_cast<BaiduTokenBridge*>(
-        ::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    if (bridge != nullptr) {
-      bridge->OnVerifyWindowClosed();
-      return 0;
-    }
-  }
   if (msg == WM_TIMER) {
     auto* bridge = reinterpret_cast<BaiduTokenBridge*>(
         ::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -703,10 +753,9 @@ void BaiduTokenBridge::OnProcessFailed(DWORD kind) {
 // ─────────────── 取号入口 ───────────────
 
 void BaiduTokenBridge::GetBdstoken(const std::string& cookie_header,
-                                   Reply reply, bool interactive) {
+                                   Reply reply) {
   EmitLog("info", std::string("百度取号：cookie 长度=") +
                       std::to_string(cookie_header.size()) +
-                      (interactive ? "，交互验证模式" : "") +
                       (last_fetch_ok_ ? "，上次已成功" : ""));
   if (shutting_down_) {
     EmitLog("warn", "百度取号：桥已关闭，直接拒绝");
@@ -715,19 +764,16 @@ void BaiduTokenBridge::GetBdstoken(const std::string& cookie_header,
   }
   pending_.push_back(std::move(reply));
   if (phase_ != Phase::kIdle) {
-    // 已有链路在跑：结果出来后一并答复（含并发混入 interactive 请求的
-    // 边缘情况——共享当前链路结果；调用方串行触发，实际不会发生）。
+    // 已有链路在跑：结果出来后一并答复（调用方串行触发，实际不会发生）。
     EmitLog("debug", "百度取号：已有链路在跑，本次请求并入等待队列");
     return;
   }
   cookie_header_ = cookie_header;
   seed_retry_done_ = false;
   nav_salvage_done_ = false;
-  interactive_ = interactive;
 
-  if (webview_ && last_fetch_ok_ && !interactive_) {
+  if (webview_ && last_fetch_ok_) {
     // 快速路径：页面会话已就绪（Jar/登录态都在），免导航直接 fetch。
-    // 交互模式强制走完整链路（需要显示验证窗口 + 重新导航）。
     EmitLog("info", "百度取号：会话已就绪，走免导航快速路径直接页面 fetch");
     EnterPhase(Phase::kExecuting, "页面fetch", 15000);
     RunScript();
@@ -746,18 +792,12 @@ void BaiduTokenBridge::CompleteAll(int errno_code, const std::string& token,
   }
   phase_ = Phase::kIdle;
   phase_label_ = "";
-  const bool was_interactive = interactive_;
-  interactive_ = false;
   flutter::EncodableValue value =
       BuildResult(errno_code, token, cookie, message);
   std::vector<Reply> replies;
   replies.swap(pending_);
   for (auto& reply : replies) {
     reply(value);
-  }
-  if (was_interactive) {
-    // 交互链路收尾：撤下验证窗口，恢复隐藏取号形态。
-    HideVerifyWindow();
   }
 }
 
@@ -793,7 +833,7 @@ void BaiduTokenBridge::OnWatchdog() {
   // 通常已可用，同源 fetch 取下 bdstoken 即自动取号，免去「点重试」人工步骤。
   // 仅一次（nav_salvage_done_）：若页面确未加载（fetch 失败），才走后续
   // 种 Cookie 重导航 / 如实报错，避免无限自抢救。
-  if (webview_ != nullptr && phase_ == Phase::kNavigating && !interactive_ &&
+  if (webview_ != nullptr && phase_ == Phase::kNavigating &&
       !nav_salvage_done_) {
     nav_salvage_done_ = true;
     EmitLog("warn", "导航超时：跳过 NavigationCompleted，直接页面 fetch 抢救");
@@ -803,8 +843,8 @@ void BaiduTokenBridge::OnWatchdog() {
   }
   // 停掉仍在飞行的导航：导航挂起超时后 WebView2 内并未停止，若不停掉，
   // 旧导航的取消事件会在下一条链路 Navigate 时补发——即使有代际校验，
-  // 也让它彻底结束（双保险）。交互模式不停：不打断用户正在操作的页面。
-  if (webview_ != nullptr && phase_ == Phase::kNavigating && !interactive_) {
+  // 也让它彻底结束（双保险）。
+  if (webview_ != nullptr && phase_ == Phase::kNavigating) {
     webview_->Stop();
   }
   // 3.1859 兜底：本次链路用的是固定版却走到看门狗超时（混杂目录可能
@@ -1081,16 +1121,9 @@ void BaiduTokenBridge::NavigateMain() {
       });
   webview_->add_NavigationCompleted(nav.Get(), &nav_token_);
   nav_registered_ = true;
-  if (interactive_) {
-    // 交互验证模式：显示窗口，看门狗放宽到 3 分钟等用户完成验证。
-    ShowVerifyWindow();
-    EnterPhase(Phase::kNavigating, "等待完成百度验证", kInteractiveWatchdogMs);
-  } else {
-    EnterPhase(Phase::kNavigating, "导航disk/main", 25000);
-  }
+  EnterPhase(Phase::kNavigating, "导航disk/main", 25000);
   EmitLog("info", std::string("导航 disk/main（代际 ") +
-                      std::to_string(nav_generation_) +
-                      (interactive_ ? "，交互验证模式" : "，常态") + "）");
+                      std::to_string(nav_generation_) + "，常态）");
   const HRESULT hr = webview_->Navigate(L"https://pan.baidu.com/disk/main");
   if (FAILED(hr)) {
     EmitLog("error", "disk/main 导航启动失败（hr=" + HexHResult(hr) + "）");
@@ -1104,31 +1137,9 @@ void BaiduTokenBridge::OnNavigationCompleted(int generation,
   // 旧链路遗留的导航事件（含挂起导航被取消后补发的失败事件）→ 忽略。
   if (generation != nav_generation_) return;
   if (!succeeded) {
-    if (!interactive_) {
-      EmitLog("error", "disk/main 导航失败（网络/风控页）");
-      FailAll("disk/main 导航失败（网络/风控页）");
-      return;
-    }
-    // 交互模式：导航失败可能是验证流程中的瞬时中断（页内跳转/重定向），
-    // 不立即失败——重置长看门狗等待后续导航接管；用户可关窗取消。
-    EnterPhase(Phase::kNavigating, "等待完成百度验证", kInteractiveWatchdogMs);
+    EmitLog("error", "disk/main 导航失败（网络/风控页）");
+    FailAll("disk/main 导航失败（网络/风控页）");
     return;
-  }
-  if (interactive_) {
-    // 交互模式：只有当前页面落在 disk/main（验证完成/自动跳回）才继续
-    // 取号；验证/登录中转页导航完成 → 继续等待用户操作（长看门狗约束）。
-    LPWSTR source = nullptr;
-    bool on_main = false;
-    if (webview_ != nullptr &&
-        SUCCEEDED(webview_->get_Source(&source)) && source != nullptr) {
-      on_main = std::wstring(source).find(L"disk/main") !=
-                std::wstring::npos;
-      ::CoTaskMemFree(source);
-    }
-    if (!on_main) {
-      EnterPhase(Phase::kNavigating, "等待完成百度验证", kInteractiveWatchdogMs);
-      return;
-    }
   }
   EmitLog("info", "disk/main 导航完成，等待 Set-Cookie 沉降 800ms");
   // 沉降 800ms：等服务端 Set-Cookie（指纹字段）落 Jar 后再取号。
@@ -1199,9 +1210,7 @@ void BaiduTokenBridge::OnScriptResult(const std::string& js_return_json) {
   }
 
   // 失败 → 种 Cookie + 重导航补一次（覆盖「凭据 Cookie 未生效 / 被清」场景）。
-  // 交互模式不做自动重导航——会把用户正在操作的验证页导航走，破坏验证流程；
-  // 失败原因如实回传，由用户重试或完成验证后自动继续。
-  if (!seed_retry_done_ && errno_code != -100 && !interactive_) {
+  if (!seed_retry_done_ && errno_code != -100) {
     seed_retry_done_ = true;
     SeedCookies();
     NavigateMain();

@@ -50,8 +50,21 @@ final class HardwareGpuProbe {
     return result;
   }
 
+  /// D3D_FEATURE_LEVEL_11_0（0xB000）。feature level 低于此档的虚拟化 GPU
+  /// 视为「假性可用」——设备能建、硬解/EGL 渲染能力不完整。
+  static const int _kFeatureLevel11_0 = 0xB000;
+
   static GpuProbeVerdict _probeOnce() {
     if (!Platform.isWindows) return GpuProbeVerdict.unknown;
+
+    // 会话探测：RDP 远程桌面 / 部分虚拟会话无硬件 GPU 渲染路径（ANGLE/EGL
+    // 表面创建会失败并连带崩溃），直接判 unavailable（软解 + 软渲染）。
+    final String sessionName =
+        Platform.environment['SESSIONNAME']?.toLowerCase() ?? '';
+    if (sessionName.contains('rdp')) {
+      return GpuProbeVerdict.unavailable;
+    }
+
     final DynamicLibrary lib;
     try {
       lib = DynamicLibrary.open('d3d11.dll');
@@ -81,14 +94,19 @@ final class HardwareGpuProbe {
         featureLevel,
         context,
       );
-      // 探测成功时 device 持有一个 ID3D11Device COM 引用；此处仅释放指针
-      // 外壳。由于结果被缓存、进程内只探测一次，留一个微小的 COM 引用可接受
-      // （避免经 vtable 调 IUnknown::Release 引入额外风险）。
       final bool created = hr == 0 && device.value != nullptr;
-      return created
-          ? GpuProbeVerdict.available
-          : GpuProbeVerdict.unavailable;
+      if (!created) return GpuProbeVerdict.unavailable;
+      // 收紧判定：仅 D3D11CreateDevice 成功不够——云电脑/vGPU 常见「能建设备、
+      // 不能完整硬解/EGL 渲染」的假性可用（日志
+      // Failed to allocate AVHWDeviceContext / Failed to create EGL surface）。
+      // 要求 feature level ≥ 11_0，否则回退软解 + 软渲染。
+      if (featureLevel.value < _kFeatureLevel11_0) {
+        return GpuProbeVerdict.unavailable;
+      }
+      return GpuProbeVerdict.available;
     } catch (_) {
+      // 探测成功时 device 持有一个 ID3D11Device COM 引用；此处仅释放指针外壳，
+      // 结果被缓存且进程内只探测一次，微小的 COM 引用可接受。
       return GpuProbeVerdict.unknown;
     } finally {
       calloc.free(device);

@@ -234,19 +234,12 @@ void PlayerPlugin::HandleCloudMethodCall(
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
   if (call.method_name() == "getBdstoken") {
     std::string cookie;
-    bool interactive = false;
     if (call.arguments() != nullptr) {
       const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
       if (args != nullptr) {
         const auto it = args->find(flutter::EncodableValue("cookie"));
         if (it != args->end() && std::holds_alternative<std::string>(it->second)) {
           cookie = std::get<std::string>(it->second);
-        }
-        const auto it_interactive =
-            args->find(flutter::EncodableValue("interactive"));
-        if (it_interactive != args->end() &&
-            std::holds_alternative<bool>(it_interactive->second)) {
-          interactive = std::get<bool>(it_interactive->second);
         }
       }
     }
@@ -258,13 +251,13 @@ void PlayerPlugin::HandleCloudMethodCall(
         cookie,
         [result = std::move(shared_result)](const flutter::EncodableValue& value) {
           result->Success(value);
-        },
-        interactive);
+        });
     return;
   }
   if (call.method_name() == "getBdstokenWinHttp") {
     // WinHTTP（Schannel 系统栈）直取 gettemplatevariable——对齐 iOS 第 1 层
-    // URLSession。同步调用（紧超时，见 FetchBdstokenViaWinHttp）。
+    // URLSession。同步调用（紧超时，见 FetchBdstokenViaWinHttp）。原生侧先
+    // 三跳种 BAIDUID 指纹，cookie 出参为富集后的完整 Cookie 供 Dart 回写凭据。
     std::string cookie;
     if (call.arguments() != nullptr) {
       const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
@@ -276,13 +269,16 @@ void PlayerPlugin::HandleCloudMethodCall(
       }
     }
     std::string token;
+    std::string enriched_cookie;
     std::string detail;
-    const int errno_code =
-        BaiduTokenBridge::FetchBdstokenViaWinHttp(cookie, &token, &detail);
+    const int errno_code = BaiduTokenBridge::FetchBdstokenViaWinHttp(
+        cookie, &token, &enriched_cookie, &detail);
     flutter::EncodableMap out;
     out[flutter::EncodableValue("errno")] =
         flutter::EncodableValue(errno_code);
     out[flutter::EncodableValue("bdstoken")] = flutter::EncodableValue(token);
+    out[flutter::EncodableValue("cookie")] =
+        flutter::EncodableValue(enriched_cookie);
     out[flutter::EncodableValue("message")] = flutter::EncodableValue(detail);
     result->Success(flutter::EncodableValue(out));
     return;

@@ -74,6 +74,41 @@ typedef EpisodeSourceResolver = Future<PlayerSource?> Function(
 /// 首个播放源解析器（详情页「先 push 后 resolve」用；返回 null 表示解析失败）。
 typedef InitialSourceResolver = Future<PlayerSource?> Function();
 
+/// 净化内核原始错误文案（问题 3「一大串字母」）。
+///
+/// 内核（libmpv）错误消息会原样携带完整直链（如 Node 代理的
+/// `http://127.0.0.1:58080/...?pst=<base64 数千字符>`），肉眼即「一大串字母」。
+/// 此处把超长参数折叠、超长 URL 截断，并把已知内核错误映射为友好中文
+/// （对齐 iOS 错误分级提示，不透传内核原文）。
+String _sanitizePlayerError(String message) {
+  String sanitized = message;
+  // 折叠 pst=<base64 数千字符>（Node 代理直链 JSON）为短占位。
+  sanitized = sanitized.replaceAll(
+    RegExp(r'pst=[A-Za-z0-9+/=]{64,}'),
+    'pst=<…>',
+  );
+  // 截断超长 URL（保留前 159 字符 + 省略号）。
+  const int maxUrl = 160;
+  sanitized = sanitized.replaceAllMapped(
+    RegExp(r'https?://\S+'),
+    (Match m) {
+      final String u = m.group(0)!;
+      return u.length <= maxUrl ? u : '${u.substring(0, maxUrl - 1)}…';
+    },
+  );
+  // 已知内核错误 → 友好文案（问题 3）。
+  if (sanitized.contains('Failed to allocate AVHWDeviceContext')) {
+    return '当前设备不支持硬件解码，已自动切换软解';
+  }
+  if (sanitized.contains('Failed to create EGL surface')) {
+    return '当前设备不支持硬件渲染，已切换软件渲染';
+  }
+  if (sanitized.contains('Failed to open')) {
+    return '播放源连接失败，请检查网络或重试';
+  }
+  return sanitized;
+}
+
 /// 全屏播放页。
 class PlayerPage extends StatefulWidget {
   /// 构造。
@@ -1232,31 +1267,39 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _player.onSurfaceChanged = (int? id) {
       if (!mounted) return;
       setState(() => _textureId = id);
+      // UI-F21 / 问题 4：纹理句柄就绪即「已出画」——Node 代理直链数据不完整时
+      // `durationMs` 长期为 0、`onVideoSize` 延迟，但画面其实已在播；此处把
+      // 纹理就绪纳入首帧判据，避免「画面已出却仍弹致命错误」。
+      if (id != null && id >= 0) {
+        _markFirstFrameReady();
+      }
     };
     _player.onError = (String message, {required bool fatal}) {
       if (!mounted) return;
-      _appendLog('错误：$message');
+      final String friendly = _sanitizePlayerError(message);
+      _appendLog('错误：$friendly');
       // 致命错误 → 覆盖错误态视图（可重试）；非致命仅提示（对齐 iOS 分级）。
       if (fatal) {
         // ═══ 修复「有画面却仍弹加载失败」：首帧已渲染（画面已在播）时，后续
         // 错误多为硬解回退/缓冲抖动等可自愈错误，不再全屏覆盖，降级 toast，
         // 避免遮挡正在播放的画面（对齐 iOS 首帧后非致命错误仅提示）。═══
         if (_firstFrameReady) {
-          _toast(message);
+          _toast(friendly);
           return;
         }
         // UI-F21：运行期原画 403 / 断连 → 优先切兜底线路（对齐 iOS `.failed` /
         // `AVPlayerItemFailedToPlayToEndTime` 分支）；打开期错误由 [_openSource]
-        // 的 catch 统一收口，此处不重复触发。
+        // 的 catch 统一收口，此处不重复触发。归类用原文案（保 403/断连判据），
+        // 展示用友好文案。
         if (!_openingInFlight) {
           unawaited(_tryPanFallbackForText(message).then((bool switched) {
-            if (!switched && mounted) setState(() => _errorMessage = message);
+            if (!switched && mounted) setState(() => _errorMessage = friendly);
           }));
           return;
         }
-        setState(() => _errorMessage = message);
+        setState(() => _errorMessage = friendly);
       } else {
-        _toast(message);
+        _toast(friendly);
       }
     };
   }
