@@ -289,8 +289,12 @@ async function baiduFetchBdstokenViaNode(cookie) {
 
 function handleBaiduBdstoken(req, res) {
     const respond = (obj) => {
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify(obj));
+        const body = JSON.stringify(obj);
+        res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Length': Buffer.byteLength(body, 'utf8'),
+        });
+        res.end(body);
     };
     let cookie = '';
     try {

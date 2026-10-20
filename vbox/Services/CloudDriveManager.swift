@@ -4318,7 +4318,7 @@ class CloudDriveManager: ObservableObject {
         request.httpMethod = "GET"
         request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
         request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await session.data(for: request)
@@ -4370,7 +4370,7 @@ class CloudDriveManager: ObservableObject {
         request.httpMethod = "GET"
         request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
         request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         let (data, _) = try await session.data(for: request)
@@ -4408,7 +4408,7 @@ class CloudDriveManager: ObservableObject {
         request.httpMethod = "GET"
         request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
         request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         // 使用一次性配置以拿到 set-cookie

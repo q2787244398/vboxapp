@@ -137,9 +137,16 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
   static const String _baiduUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  /// 夸克桌面客户端 UA（对齐 Node `gr.userAgent` 与 `QuarkNativeClient.desktopUA`，
+  /// 含 `quark-cloud-drive/2.5.20` 与 `Channel/pckk_other_ch` 签名）。此前误用纯
+  /// 浏览器 `Chrome/94` UA，与二维码 `sch=pckk@other_ch` 渠道口径不符，服务端据此
+  /// 铸造的 token 与夸克 App「确认登录」时校验的客户端上下文不一致，被判「登录请求
+  /// 已过期」（问题 1 真根因，client_id 只是表象因此 532→386 未解决）。
   static const String _quarkUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-      '(KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36';
+      '(KHTML, like Gecko) quark-cloud-drive/2.5.20 '
+      'Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 '
+      'Safari/537.36 Channel/pckk_other_ch';
   /// 夸克二维码 / 轮询统一 `client_id`（对齐 Node `startQuark`/`pollQuark`：
   /// 全程 386）。此前二维码与轮询误用 532、与铸造 token 的 386 不一致，导致
   /// 夸克 App 确认登录时被服务端判「登录请求已过期」（问题 1）。
