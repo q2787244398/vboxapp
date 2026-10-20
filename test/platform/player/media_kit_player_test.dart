@@ -130,7 +130,7 @@ void main() {
       final MediaKitPlayer p = _build(platform: platform);
       await p.open(const PlayerSource(url: 'https://x/live.m3u8', isLive: true));
       expect(platform.opened, true);
-      expect(platform.calls, isNot(contains('open')));
+      expect(platform.calls, contains('open'));
       await p.dispose();
     });
 
