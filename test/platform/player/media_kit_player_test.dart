@@ -130,7 +130,7 @@ void main() {
       final MediaKitPlayer p = _build(platform: platform);
       await p.open(const PlayerSource(url: 'https://x/live.m3u8', isLive: true));
       expect(platform.opened, true);
-      expect(platform.calls, contains('open'));
+      expect(platform.calls, isNot(contains('open')));
       await p.dispose();
     });
 
@@ -246,9 +246,10 @@ void main() {
 
   // 云电脑「假性可用」：D3D11CreateDevice(HARDWARE) 探测通过，但实际 VA 能力
   // 不完整，libmpv 起播时报 Failed to allocate AVHWDeviceContext。此时必须自动
-  // 降级软解并重开，而不是弹「加载失败」判死。
+  // 降级软解（仅下调 hwdec=no，不重开媒体以规避并发竞态崩溃），而不是弹
+  // 「加载失败」判死。
   group('MediaKitPlayer 硬解失败自动降级', () {
-    test('stream.error 报 AVHWDeviceContext → 降级重开，不上报致命错误', () async {
+    test('stream.error 报 AVHWDeviceContext → 降级软解，不重开、不上报致命错误', () async {
       final _FakePlatform platform = _FakePlatform();
       final MediaKitPlayer p = _build(platform: platform);
       String? fatalMessage;
@@ -261,7 +262,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       expect(fatalMessage, isNull, reason: '可恢复错误不应对用户弹加载失败');
-      expect(platform.calls, contains('open'), reason: '应以软解重开媒体');
+      expect(platform.calls, isNot(contains('open')), reason: '降级只下调 hwdec，不应重开媒体（避免竞态崩溃）');
       await p.dispose();
     });
 
@@ -282,7 +283,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       expect(fatalMessage, isNull);
-      expect(platform.calls, contains('open'));
+      expect(platform.calls, isNot(contains('open')));
       await p.dispose();
     });
 
@@ -303,7 +304,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       expect(fatalMessage, isNull);
-      expect(platform.calls, contains('open'));
+      expect(platform.calls, isNot(contains('open')));
       await p.dispose();
     });
 
@@ -324,7 +325,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       expect(fatalMessage, isNull);
-      expect(platform.calls, contains('open'));
+      expect(platform.calls, isNot(contains('open')));
       await p.dispose();
     });
 

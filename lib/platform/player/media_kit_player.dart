@@ -165,8 +165,14 @@ class MediaKitPlayer implements Player {
   /// 失败（日志 `Failed to allocate AVHWDeviceContext`，常见于部分云电脑/虚拟化
   /// 环境——`D3D11CreateDevice(HARDWARE)` 能成功，却拿不到完整的 VA 能力）。
   ///
-  /// 处理策略：只把解码端 `hwdec` 关到 `no` 并重开媒体，**不重建
-  /// `VideoController`**——纹理句柄保持不变，播放页无需重绑，风险最小。
+  /// 处理策略：只把解码端 `hwdec` 幂等下调到 `no`，**不再 stop + 二次 loadfile
+  /// 重开媒体**——
+  ///   1. `hwdec=auto-safe` 本身就会安全回退软解，无需重开即可继续播；
+  ///   2. 历史实现重开媒体会与前端 `open`/`_applyTuning` 并发交错，使 mpv 同时
+  ///      收到 stop/setProperty/两次 loadfile，命令回复 userdata 被释放后仍被访问，
+  ///      触发 `MPV_EVENT_COMMAND_REPLY` 的空指针崩溃（日志 `event:5 Pointer`），
+  ///      是百度 Node/网盘播放闪退的直接根因。
+  /// **不重建 `VideoController`**——纹理句柄保持不变，播放页无需重绑，风险最小。
   /// 降级在实例生命周期内只执行一次（[_hwdecFailed] 防抖），失败后由
   /// `error` 流正常上报致命错误，避免无限重试。
   Future<void> _fallbackToSoftwareDecode() async {
@@ -178,49 +184,24 @@ class MediaKitPlayer implements Player {
     _hwAccelReason = '运行时检测到硬件解码/渲染失败，已自动降级软解';
     AppLog.warn(
       'player-media_kit',
-      '硬件解码/渲染失败，自动降级为软解（hwdec=no）并重开媒体：${source.url}',
+      '硬件解码/渲染失败，自动降级软解（hwdec=no，不重开媒体，auto-safe 已自行回退）：'
+      '${source.url}',
       category: LogCategory.player,
     );
-    // 降级重开前先隔离旧媒体：stop 取消在途 loadfile/seek 命令回复，避免旧媒体
-    // 的命令回复回调在重开后访问已释放对象（日志 event:5 Pointer 空指针崩溃正是
-    // MPV_EVENT_COMMAND_REPLY 的竞态表现）。降级重开链串行 await，杜绝并发重开。
-    try {
-      await _mpv.stop();
-    } catch (e) {
-      // 停止旧媒体失败不阻断降级（此时媒体多半已处于失效状态）。
-      AppLog.warn(
-        'player-media_kit',
-        '降级时停止旧媒体失败（可忽略）：$e',
-        category: LogCategory.player,
-      );
-    }
+    // 幂等下调 hwdec=no，防止后续 seek/重连再尝试硬解。不触碰 stop/loadfile，
+    // 与前端 open 并发也安全（mpv 命令队列按序处理 setProperty，无 use-after-free）。
     final mk.PlatformPlayer? platform = _mpv.platform;
     if (platform is mk.NativePlayer) {
       try {
         await platform.setProperty('hwdec', 'no');
       } catch (e) {
-        // 属性下发失败不阻断重开；`_hwAccel=false` 已保证后续 open 走软解。
+        // 属性下发失败不阻断；`_hwAccel=false` 已保证后续 open 走软解。
         AppLog.warn(
           'player-media_kit',
           '降级时下发 hwdec=no 失败：$e',
           category: LogCategory.player,
         );
       }
-    }
-    final mk.Media media = mk.Media(
-      source.url,
-      httpHeaders: source.headers.isEmpty ? null : source.headers,
-    );
-    await _mpv.open(media, play: false);
-    // 重开后恢复播放（前端 open 时 play:false，降级重开需手动续播，避免起播中断）。
-    try {
-      await _mpv.play();
-    } catch (e) {
-      AppLog.warn(
-        'player-media_kit',
-        '降级重开后续播失败：$e',
-        category: LogCategory.player,
-      );
     }
   }
 
@@ -339,8 +320,9 @@ class MediaKitPlayer implements Player {
       _emitVideoSize();
     }));
     _subs.add(_mpv.stream.error.listen((String message) {
-      // 硬解设备分配失败是可自动恢复的（降级软解即可播），不能直接判死：
-      // 先触发一次软解降级并重开，避免「明明能播却弹加载失败」。
+      // 硬解设备分配失败是可自动恢复的（auto-safe 已自行回退软解即可播），
+      // 不能直接判死：先触发一次软解降级（仅下调 hwdec=no，不重开媒体，
+      // 避免重开与前端 open 并发竞态导致崩溃），避免「明明能播却弹加载失败」。
       // 无播放源可重开时不拦，照常上报，避免把错误静默吞掉。
       if (!_hwdecFailed &&
           _hwAccel &&
