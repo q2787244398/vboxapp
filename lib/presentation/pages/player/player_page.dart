@@ -368,6 +368,12 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   /// 是否处于 `open` 调用中（用于区分「打开期后端降级」与「运行期播放错误」）。
   bool _openingInFlight = false;
 
+  /// 是否正在重新取链（P2 防重入：播放中断流时只重开一次）。
+  bool _relinkInFlight = false;
+
+  /// 本轮播放已重新取链次数（P2：断流只重取一次，防反复取链死循环）。
+  int _relinkAttempts = 0;
+
   /// 当前播放源（`widget.source` 为空时由 [PlayerPage.onResolveInitialSource]
   /// 解析后填充；对齐 iOS 先 present 后 resolve）。
   PlayerSource? _source;
@@ -1011,6 +1017,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     // R-04：解析得到地址后按地址探测清晰度档（延迟解析路径下 initState 无从取值）。
     _controls.selectedQuality =
         PlayerControlsController.detectQualityIndex(source.url) ?? 0;
+    _relinkAttempts = 0;
     await _openSource(source);
   }
 
@@ -1284,6 +1291,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         // 错误多为硬解回退/缓冲抖动等可自愈错误，不再全屏覆盖，降级 toast，
         // 避免遮挡正在播放的画面（对齐 iOS 首帧后非致命错误仅提示）。═══
         if (_firstFrameReady) {
+          // ═══ P2 播放中失败重新取链：首帧已出（画面在播）后遇到的 `partial
+          // file` / `Failed to open` / `Seek failed` 多为百度直链签名或 Node 代理
+          // `pst` 会话失效断流——优先重新取链换新签名续播，而非仅 toast 后戛然而止。
+          if (!_openingInFlight && PanFallbackChain.isStreamBroken(message)) {
+            unawaited(_tryRelinkForText(message));
+            return;
+          }
           _toast(friendly);
           return;
         }
@@ -1560,6 +1574,62 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     return true;
   }
 
+  /// 播放中断流时重新解析当前源并续播（P2「换一条新签名直链续播」）。
+  ///
+  /// 仅当错误命中 [PanFallbackChain.isStreamBroken] 且本轮尚未取链时执行；
+  /// 重新走解析器（选集走 [EpisodeSourceResolver] 当前集、否则走
+  /// [InitialSourceResolver]）拿到新签名直链后重开续播。无解析器 / 已取过链
+  /// 时返回 false（交由既有 toast/错误视图降级呈现）。
+  Future<bool> _tryRelinkForText(String text) async {
+    if (!PanFallbackChain.isStreamBroken(text) ||
+        _relinkInFlight ||
+        _relinkAttempts >= 1) {
+      return false;
+    }
+    _relinkInFlight = true;
+    _relinkAttempts += 1;
+    try {
+      _appendLog('播放中断流，尝试重新取链续播');
+      _controls.showLoading();
+      final PlayerSource? fresh = await _relinkSource();
+      if (!mounted) return true;
+      if (fresh == null) {
+        _controls.hideLoading();
+        _toast('重新取链失败，请手动重试');
+        return false;
+      }
+      _source = fresh;
+      await _openSource(fresh);
+      return true;
+    } catch (_) {
+      if (mounted) {
+        _controls.hideLoading();
+        _toast('重新取链失败，请手动重试');
+      }
+      return false;
+    } finally {
+      _relinkInFlight = false;
+    }
+  }
+
+  /// 重新解析当前播放源（对齐 iOS「重新取链」：换新签名直链）。
+  ///
+  /// 选集资源按当前集走 [EpisodeSourceResolver]；非选集资源走
+  /// [InitialSourceResolver]。两者均无（本地直链等无解析器的源）返回 null，
+  /// 表示无可重取。
+  Future<PlayerSource?> _relinkSource() async {
+    final EpisodeSourceResolver? episodeResolver = widget.onResolveEpisode;
+    if (episodeResolver != null && widget.episodes.isNotEmpty) {
+      final int index = _controls.currentEpisodeIndex;
+      if (index >= 0 && index < widget.episodes.length) {
+        return episodeResolver(widget.episodes[index]);
+      }
+    }
+    final InitialSourceResolver? initialResolver = widget.onResolveInitialSource;
+    if (initialResolver != null) return initialResolver();
+    return null;
+  }
+
   /// 记录播放器日志（对齐 iOS `PlayerState.log`：上限 600 条、超限批量裁 100 条，
   /// 防无界增长；调试浮层开启时实时刷新 UI）。
   void _appendLog(String line) {
@@ -1727,6 +1797,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
     _resumePositionMs = null;
     _resumeApplied = false;
     unawaited(_loadResumePosition(episodeIndex: index));
+    _relinkAttempts = 0;
     await _openSource(source);
     // 切集 → 重新拉取该集弹幕并重置进度时基。
     _danmakuPosMs = 0;

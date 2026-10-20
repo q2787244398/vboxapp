@@ -190,10 +190,138 @@ function patchRequest(mod) {
 patchRequest(http);
 patchRequest(https);
 
+// ---- P1 ③: Node 常驻代取百度 bdstoken（绕 dart:io TLS 指纹） ----
+// Node 走系统 OpenSSL 栈，TLS 指纹与 dart:io(BoringSSL) 不同，可绕百度风控
+// （errno=-6）。三跳种码（www → passport → disk/main）与 WinHTTP 前置层同口径，
+// 富集 BAIDUID 后 GET gettemplatevariable 取号。全程走已打桩的 https 模块，
+// 自动打印 [HTTP-REQ]/[HTTP-BAIDU]，便于复测。
+const kBaiduNodeUA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    + '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const kBaiduSeedHops = [
+    ['www.baidu.com', '/'],
+    ['passport.baidu.com', '/center'],
+    ['pan.baidu.com', '/disk/main'],
+];
+
+function baiduHttpsGet(urlText, headers) {
+    return new Promise((resolve, reject) => {
+        const u = new URL(urlText);
+        const req = https.request({
+            protocol: 'https:',
+            hostname: u.hostname,
+            port: 443,
+            path: u.pathname + u.search,
+            method: 'GET',
+            headers: headers || {},
+            timeout: 8000,
+        }, (res) => {
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk) => { body += chunk; });
+            res.on('end', () => resolve({
+                status: res.statusCode || 0,
+                body: body,
+                setCookies: res.headers['set-cookie'] || [],
+            }));
+        });
+        req.on('timeout', () => req.destroy(new Error('timeout')));
+        req.on('error', reject);
+        req.end();
+    });
+}
+
+function baiduAbsorbSetCookies(jar, setCookies) {
+    if (!Array.isArray(setCookies)) return;
+    const pairs = setCookies
+        .map((c) => String(c).split(';')[0].trim())
+        .filter((s) => s.includes('='));
+    if (!pairs.length) return;
+    jar.cookie = jar.cookie ? jar.cookie + '; ' + pairs.join('; ') : pairs.join('; ');
+}
+
+function baiduExtractBdstoken(body) {
+    try {
+        const json = JSON.parse(body);
+        const bdstoken = json && json.bdstoken ? String(json.bdstoken) : '';
+        const errno = json && typeof json.errno === 'number' ? json.errno : 0;
+        return { bdstoken, errno };
+    } catch (_) {
+        return { bdstoken: '', errno: -1 };
+    }
+}
+
+async function baiduFetchBdstokenViaNode(cookie) {
+    const jar = { cookie: cookie || '' };
+    const seedHeaders = {
+        'User-Agent': kBaiduNodeUA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    };
+    for (const hop of kBaiduSeedHops) {
+        try {
+            const res = await baiduHttpsGet('https://' + hop[0] + hop[1],
+                Object.assign({}, seedHeaders, { 'Cookie': jar.cookie }));
+            baiduAbsorbSetCookies(jar, res.setCookies);
+        } catch (e) {
+            console.log('[baidu-node] seed hop failed ' + hop[0] + hop[1]
+                + ': ' + String(e && e.message || e));
+        }
+    }
+    const fields = encodeURIComponent(
+        '["bdstoken","token","uk","isdocuser","servertime"]');
+    const res = await baiduHttpsGet(
+        'https://pan.baidu.com/api/gettemplatevariable'
+        + '?clienttype=0&app_id=250528&web=1&fields=' + fields,
+        {
+            'User-Agent': kBaiduNodeUA,
+            'Referer': 'https://pan.baidu.com/disk/main',
+            'Accept': 'application/json, text/plain, */*',
+            'Cookie': jar.cookie,
+        });
+    const parsed = baiduExtractBdstoken(res.body);
+    return {
+        bdstoken: parsed.bdstoken,
+        cookie: jar.cookie,
+        errno: parsed.errno,
+        status: res.status,
+    };
+}
+
+function handleBaiduBdstoken(req, res) {
+    const respond = (obj) => {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(obj));
+    };
+    let cookie = '';
+    try {
+        const u = new URL(req.url || '/', 'http://127.0.0.1');
+        cookie = u.searchParams.get('cookie') || '';
+    } catch (_) {}
+    if (!cookie) {
+        return respond({ code: 0, bdstoken: '', cookie: '', msg: '缺少 cookie 参数' });
+    }
+    baiduFetchBdstokenViaNode(cookie)
+        .then((r) => respond({
+            code: 0,
+            bdstoken: r.bdstoken,
+            cookie: r.cookie || cookie,
+            msg: 'status=' + r.status + ' errno=' + r.errno,
+        }))
+        .catch((e) => respond({
+            code: 0,
+            bdstoken: '',
+            cookie: cookie,
+            msg: String(e && e.message || e),
+        }));
+}
+
 globalThis.__catServers = [];
 globalThis.catServerFactory = function(handler, opts) {
     const server = http.createServer((req, res) => {
         const requestPath = String(req.url || '').split('?', 1)[0];
+        if (requestPath === '/website/api/baidu/bdstoken') {
+            return handleBaiduBdstoken(req, res);
+        }
         const pathSegments = requestPath.split('/');
         const siteKey = pathSegments.length >= 5
             && pathSegments[1] === 'spider'

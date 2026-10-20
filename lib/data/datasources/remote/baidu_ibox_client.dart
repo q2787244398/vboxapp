@@ -36,11 +36,13 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 
 import '../../../core/utils/logger.dart';
+import '../../../platform/node/node_runtime_manager.dart';
 import '../../../platform/spider/spider_http_bridge.dart';
 import '../../../platform/webview/baidu_native_token_bridge.dart';
 import '../../../platform/webview/webview_bridge.dart';
 import '../local/baidu_playback_cache_store.dart';
 import '../local/prefs_manager.dart';
+import 'node_login_client.dart';
 
 /// 百度分享文件条目（对齐 iOS `BaiduFileItem`）。
 class BaiduFileItem {
@@ -132,10 +134,12 @@ class BaiduIBoxClient {
     PrefsManager? prefs,
     WebViewBridge? webView,
     BaiduPlaybackCacheStore? cache,
+    NodeLoginClient? nodeLogin,
   })  : _transport = transport ?? IoSpiderHttpTransport(),
         _prefs = prefs,
         _webView = webView ?? const UnavailableWebViewBridge(),
-        _cacheOverride = cache;
+        _cacheOverride = cache,
+        _nodeLogin = nodeLogin ?? NodeLoginClient();
 
   /// 分享上下文缓存契约键（对齐 iOS `baidu_share_context_cache_v1`）。
   static const String shareContextCacheKey =
@@ -190,6 +194,9 @@ class BaiduIBoxClient {
 
   /// 播放缓存统一层注入（测试用；缺省走全局 [PrefsManager]）。
   final BaiduPlaybackCacheStore? _cacheOverride;
+
+  /// Node 常驻代取客户端（P1 ③；缺省本机 Node，取号失败时跳过交后续兜底）。
+  final NodeLoginClient _nodeLogin;
 
   /// 最近一次原生 WebView2 桥取 bdstoken 的失败原因（Windows 专属；
   /// 用于把真实失败原因带进最终报错，避免用户盲目反复扫码）。
@@ -813,6 +820,43 @@ class BaiduIBoxClient {
         '继续 WebView2 / 原有兜底链',
         category: LogCategory.cloud,
       );
+    }
+    // ── 第 0¼ 层（Node 常驻代取，全平台）：Node OpenSSL 系统栈三跳种码 + 取号 ──
+    // 背景：dart:io(BoringSSL) 与 Node(OpenSSL) 的 TLS 指纹不同，百度拦 dart:io
+    // （errno=-6），但 Node 常驻进程直连可用（main.js 已对 http/https 打桩并成功
+    // 打印 [HTTP-BAIDU]）。Node 端点三跳种码（www → passport → disk/main）富集
+    // BAIDUID 后 GET gettemplatevariable，绕 dart:io 风控。Node 未就绪 / 取号失败
+    // 时静默跳过，交后续 WebView2 / Dart 兜底链（不阻塞、不额外等待）。
+    if (NodeRuntimeManager.instance.isSystemReady) {
+      try {
+        final ({String bdstoken, String cookie}) viaNode =
+            await _nodeLogin.fetchBaiduBdstoken(cookie);
+        if (viaNode.bdstoken.isNotEmpty) {
+          AppLog.debug(
+            'baidu-local',
+            'Node 常驻代取取得用户态 bdstoken',
+            category: LogCategory.cloud,
+          );
+          onFetched?.call(
+            viaNode.bdstoken,
+            'node-bdstoken',
+            viaNode.cookie.isEmpty ? cookie : viaNode.cookie,
+          );
+          return viaNode.bdstoken;
+        }
+        AppLog.warn(
+          'baidu-local',
+          'Node 常驻代取未取得 bdstoken（Node OpenSSL 栈仍被风控或登录态失效），'
+          '继续 WebView2 / Dart 兜底链',
+          category: LogCategory.cloud,
+        );
+      } catch (e) {
+        AppLog.warn(
+          'baidu-local',
+          'Node 常驻代取失败（$e），继续 WebView2 / Dart 兜底链',
+          category: LogCategory.cloud,
+        );
+      }
     }
     // ── 第 0 层（Windows 专属，新增）：原生 WebView2 桥（真实 Edge 网络栈）──
     // iOS 端 URLSession / WKWebView 均为系统网络栈，百度天然信任，故 iOS 无此问题；

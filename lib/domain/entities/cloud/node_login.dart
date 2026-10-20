@@ -57,6 +57,9 @@ abstract final class NodeLoginPaths {
 
   /// 迅雷：短信登录。
   static const String thunderSmsLogin = '/website/api/thunder/sms/login';
+
+  /// 百度 Node：代取 bdstoken（Node OpenSSL 栈三跳种码 + gettemplatevariable）。
+  static const String baiduBdstoken = '/website/api/baidu/bdstoken';
 }
 
 /// Node 登录路由（对齐 iOS 各盘视图的 provider / 端点分派）。

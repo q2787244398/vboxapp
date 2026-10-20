@@ -301,6 +301,27 @@ class NodeLoginClient {
         body: <String, dynamic>{'code': code},
       );
 
+  // ─────────────── 百度 Node 代取 bdstoken ───────────────
+
+  /// 百度 Node 代取 bdstoken（绕 dart:io TLS 指纹）。
+  ///
+  /// Node 常驻进程走系统 OpenSSL 栈，三跳种码（www → passport → disk/main）
+  /// 富集 BAIDUID 后 GET gettemplatevariable 取号，返回 bdstoken 与富集后
+  /// Cookie（空 bdstoken 表示 Node 栈仍被风控或登录态失效，交上层继续兜底）。
+  Future<({String bdstoken, String cookie})> fetchBaiduBdstoken(
+    String cookie,
+  ) async {
+    final Map<String, dynamic> json = await _transport.requestJson(
+      'GET',
+      '${NodeLoginPaths.baiduBdstoken}'
+      '?cookie=${Uri.encodeQueryComponent(cookie)}',
+    );
+    return (
+      bdstoken: '${json['bdstoken'] ?? ''}',
+      cookie: '${json['cookie'] ?? ''}',
+    );
+  }
+
   // ─────────────── 123 账号 ───────────────
 
   /// 123 账号登录（对齐 iOS `submit`）。

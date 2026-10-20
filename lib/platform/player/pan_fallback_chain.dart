@@ -143,6 +143,18 @@ class PanFallbackChain {
         t.contains('连接被中断');
   }
 
+  /// 文本是否命中「文件断流」（P2 播放中重新取链的判据）。
+  ///
+  /// 百度直链签名（time/expires/sign）或 Node 代理 `pst` 会话在拖进度/重连时
+  /// 失效，内核表现为 `partial file` / `Failed to open` / `Seek failed`。
+  /// 命中时**优先重新取链**（换一条新签名直链续播），而非切换缓存兜底线路。
+  static bool isStreamBroken(String text) {
+    final String t = text.toLowerCase();
+    return t.contains('partial file') ||
+        t.contains('failed to open') ||
+        t.contains('seek failed');
+  }
+
   /// 由错误文案归类兜底触发原因（对齐 iOS：先判 403，再判连接中断）。
   static PanFallbackTrigger? classifyFailure(String text) {
     if (isForbidden(text)) return PanFallbackTrigger.forbidden;
