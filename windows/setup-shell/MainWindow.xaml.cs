@@ -295,8 +295,23 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>core 结束：停轮询 → 成功(exit 0)上报 done 并启动 vbox → 否则上报错误。</summary>
-    private async void OnCoreExited(object? sender, EventArgs e)
+    /// <summary>core 结束：封送回 UI 线程后处理（停轮询 → 成功(exit 0)上报 done 并启动 vbox → 否则上报错误）。</summary>
+    private void OnCoreExited(object? sender, EventArgs e)
+    {
+        // Process.Exited 在 .NET 中由 ThreadPool 线程触发，并非 UI 线程；而下面
+        // 所有动作（停 DispatcherTimer、经 WebView2 推消息、Close 窗口）都要求
+        // UI 线程。若直接在事件回调里执行，跨线程访问会抛 InvalidOperationException，
+        // 且 async void 没有异常出口 → 安装收尾时窗口静默闪退（安装本身其实已成功）。
+        // 故统一封送回 UI 线程后再处理。
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => OnCoreExitedOnUI(sender, e));
+            return;
+        }
+        OnCoreExitedOnUI(sender, e);
+    }
+
+    private async void OnCoreExitedOnUI(object? sender, EventArgs e)
     {
         _poller?.Stop();
         OnPollTick(null, EventArgs.Empty); // 收尾读一次最终状态
