@@ -1150,18 +1150,21 @@ class NativeCloudDriveLoginGateway implements CloudDriveLoginGateway {
     );
   }
 
-  /// 夸克二维码内容（对齐 Node `startQuark` 的 `qrUrl`：`su.quark.cn` 授权链接，
-  /// 全程 `client_id=386`，并补齐 `sch`/`sve` 渠道参数）。
+  /// 夸克二维码内容（对齐 iOS `quarkQRCodePayload` 的 RFC 3986 输出）。
+  /// 修复「登录请求已过期」：此前用 `Uri.replace(queryParameters:)`（form 编码）
+  /// 会把 `@`→`%40`、`:`→`%3A`，与 iOS `URLComponents.queryItems`（RFC 3986，
+  /// `@`/`:` 原样保留、仅 `|`→`%7C`）生成的二维码原始字符串不一致，夸克 App 扫码
+  /// 后按原始串校验渠道口径时被判「已过期」。改为字符串拼接，`@`/`:` 原样、`|`
+  /// 手动写 `%7C`，token 用 `encodeQueryComponent`（对齐 iOS 对 token 的处理）。
   static String _quarkQrPayload(String token, String clientId) =>
-      Uri.parse('https://su.quark.cn/4_eMHBJ').replace(queryParameters: <String, String>{
-        'token': token,
-        'client_id': clientId,
-        'sch': 'pckk@other_ch',
-        'sve': '3.1.8',
-        'ssb': 'weblogin',
-        'uc_param_str': '',
-        'uc_biz_str': 'S:custom|OPT:SAREA@0|OPT:IMMERSIVE@1|OPT:BACK_BTN_STYLE@0',
-      }).toString();
+      'https://su.quark.cn/4_eMHBJ'
+      '?token=${Uri.encodeQueryComponent(token)}'
+      '&client_id=$clientId'
+      '&sch=pckk@other_ch'
+      '&sve=3.1.8'
+      '&ssb=weblogin'
+      '&uc_param_str='
+      '&uc_biz_str=S:custom%7COPT:SAREA@0%7COPT:IMMERSIVE@1%7COPT:BACK_BTN_STYLE@0';
 
   // ─────────────── 天翼 189（P2-1，对齐 iOS `pan189CreateQrToken` /
   // `pan189PollQrStatus` / `pan189ExchangeCookie`，L455-603）───────────────

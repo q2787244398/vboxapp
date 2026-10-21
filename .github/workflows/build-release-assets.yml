@@ -136,11 +136,12 @@ jobs:
             for n in arm64 v7a; do
               "$APKSIGNER" sign --ks vbox-release.jks \
                 --ks-pass "env:KS_PASS" --ks-key-alias "$KEY_ALIAS" --key-pass "env:KEY_PASS" \
+                --v1-signing-enabled true --v2-signing-enabled true \
                 --out "vbox-$n.signed.apk" "vbox-$n.apk"
               mv "vbox-$n.signed.apk" "vbox-$n.apk"
             done
             "$APKSIGNER" verify --print-certs vbox-arm64.apk | head -3
-            echo "✅ 已用 release 密钥签名"
+            echo "✅ 已用 release 密钥签名（v1+v2）"
           else
             echo "⚠️ 未配置 ANDROID_KEYSTORE_* secrets，产出 debug 签名 APK（可安装；"
             echo "   P4 同签名覆盖更新验证需配置密钥后重跑本工作流）"

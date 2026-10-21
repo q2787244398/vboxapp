@@ -79,6 +79,9 @@ android {
     }
 
     // G-09 P4：有 key.properties 时使用固定 release keystore（本地发布构建），否则回退 debug。
+    // 修复「国产电视（KKTV/康佳系）安装提示应用未安装」：minSdk=24 时 AGP 默认关闭
+    // v1（JAR）签名、只打 v2/v3，而国产电视魔改 PackageManager/自带安装器常只认 v1
+    // 签名 → 显式开启 v1 + v2 双签名，兼容老安装器与原生新系统（云手机）两侧。
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
@@ -86,6 +89,8 @@ android {
                 keyPassword = keystoreProperties.getProperty("keyPassword")
                 storeFile = file(keystoreProperties.getProperty("storeFile"))
                 storePassword = keystoreProperties.getProperty("storePassword")
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
     }
