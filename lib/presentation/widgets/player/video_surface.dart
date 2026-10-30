@@ -85,7 +85,9 @@ class VideoSurface extends StatelessWidget {
     final double capWidth = ratio >= 1.0 ? capLong : capLong * ratio;
     final double capHeight = ratio >= 1.0 ? capLong / ratio : capLong;
 
+    // key 供测试按名定位纹理布局盒（断言纵横比与预算尺寸）。
     final Widget surface = SizedBox(
+      key: const ValueKey<String>('vbox-texture-budget'),
       width: capWidth,
       height: capHeight,
       child: Texture(

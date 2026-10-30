@@ -21,12 +21,21 @@ void main() {
     expect(box.color, VboxColors.playerBackground);
   });
 
-  testWidgets('有纹理 + 已知纵横比 → Texture 居中按比例', (WidgetTester tester) async {
+  // 3.1890 起：纹理不再由 AspectRatio 布局，而是「按像素预算定尺寸 + FittedBox
+  // 视觉缩放」（见 video_surface.dart 的 kMaxTextureLongSide）。契约不变——
+  // 仍按视频纵横比居中留边，只是缩放交给合成器。
+  testWidgets('有纹理 + 已知纵横比 → 纹理盒按比例、contain 缩放', (WidgetTester tester) async {
     await tester.pumpWidget(
         _host(const VideoSurface(textureId: 7, aspectRatio: 16 / 9)));
     expect(tester.widget<Texture>(find.byType(Texture)).textureId, 7);
-    final AspectRatio ar = tester.widget<AspectRatio>(find.byType(AspectRatio));
-    expect(ar.aspectRatio, closeTo(16 / 9, 1e-6));
+
+    final FittedBox fitted = tester.widget<FittedBox>(find.byType(FittedBox));
+    expect(fitted.fit, BoxFit.contain);
+
+    // 纹理自身布局盒必须维持视频纵横比（16:9），否则画面会被拉伸。
+    final Finder box = find.byKey(const ValueKey<String>('vbox-texture-budget'));
+    final Size size = tester.getSize(box);
+    expect(size.width / size.height, closeTo(16 / 9, 1e-3));
   });
 
   testWidgets('有纹理 + 未知/非法纵横比 → 铺满（无 AspectRatio）', (WidgetTester tester) async {
@@ -53,14 +62,16 @@ void main() {
       expect(VideoGravityMode.resize.cycle(), VideoGravityMode.aspectFill);
     });
 
-    testWidgets('适应（缺省）→ AspectRatio 留黑边（对齐 resizeAspect）',
+    testWidgets('适应（缺省）→ contain 缩放留黑边（对齐 resizeAspect）',
         (WidgetTester tester) async {
       await tester.pumpWidget(_host(const VideoSurface(
         textureId: 1,
         aspectRatio: 16 / 9,
       )));
-      expect(find.byType(AspectRatio), findsOneWidget);
-      expect(find.byType(FittedBox), findsNothing);
+      // 3.1890：布局由 AspectRatio 改为「预算尺寸 + FittedBox」，缩放模式语义不变。
+      final FittedBox fitted = tester.widget<FittedBox>(find.byType(FittedBox));
+      expect(fitted.fit, BoxFit.contain);
+      expect(find.byType(AspectRatio), findsNothing);
     });
 
     testWidgets('填充 → FittedBox cover 铺满裁切（对齐 resizeAspectFill）',
