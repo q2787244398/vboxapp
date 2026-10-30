@@ -25,6 +25,7 @@ import 'app.dart';
 import 'core/constants/app_constants.dart';
 import 'core/utils/logger.dart';
 import 'data/datasources/local/prefs_manager.dart';
+import 'platform/update/upgrade_handshake.dart';
 import 'platform/webview/in_app_webview_bridge.dart';
 
 Future<void> main() async {
@@ -47,6 +48,14 @@ Future<void> main() async {
   _installCrashMarkerHooks();
 
   runApp(const VBoxApp());
+
+  // Windows 专用：安装器升级握手（方案 D）。安装器在安装目录写
+  // .vbox-upgrade-request 标记，本进程发现后关闭自管运行时并退出，
+  // 让安装器能覆盖正在被占用的运行时 exe——这是 QQ/微信 那种
+  // 「程序自己退」的做法，比外部按路径强杀可靠，且零磁盘/内存代价。
+  if (!kIsWeb && Platform.isWindows) {
+    UpgradeHandshake.start();
+  }
 
   // 批次 E · E3-3：启动迁移 —— `app_last_launch_version` 版本比对
   // （对齐 iOS `AppSettings.swift:175`；首启/升级分支仅登记日志）。

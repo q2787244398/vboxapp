@@ -410,10 +410,12 @@ BMP 与色彩诊断全部浪费在黑帧上，后续真实帧不再转储/统计
 - `windows/installer/installer.iss`：
   - `KillVboxProcesses` 改为「taskkill vbox.exe + 三轮脚本清理 + 每轮改名探测」，
     最多三轮，解锁即退出；`UseWmi` 形参保留以兼容卸载调用点。
-  - 新增 `RuntimeFileFree(RelPath)`：**用改名探测判断运行时 exe 是否仍被占用**
-    （能改名=没被当映像加载），探测后改回原名。
-  - `PrepareToInstall` 在复制文件前复查，仍被占用就 `Result := '人话提示'` 直接停下，
-    不再让用户在 55% 收到错误码 5。
+  - ⚠ **改名/删除探测不可靠（3.1889 实测推翻）**：Windows 允许给正在运行的 exe
+    改名，甚至允许 DeleteFile（映像 section 以 FILE_SHARE_DELETE 打开，名字删了
+    进程照跑）。所以「改得动 = 可覆盖」是错的判据；只有真去覆盖才会暴露
+    「有别的句柄不共享删除」。现改为**按进程是否存在**判断（`tasklist` + `find`）。
+  - `PrepareToInstall`：先发优雅退出请求等 8s → 仍不退才强制清理 → 之后仍不退就
+    `Result := '人话提示'`，不让用户在 55% 收到错误码 5。
   - ⚠ 注意 Inno Pascal 注释 `{ }` 内不能再出现花括号（`{app}` 会提前闭合注释）。
 - `windows/setup-shell/MainWindow.xaml.cs`：安装日志从临时工作目录改到
   `%LOCALAPPDATA%\vbox-setup-logs\vbox-setup-<时间戳>.log`（保留最近 10 份）——
@@ -427,3 +429,27 @@ BMP 与色彩诊断全部浪费在黑帧上，后续真实帧不再转储/统计
 
 待办：运行时目录版本化（`{app}\runtime\python\<ver>\`）可让升级彻底不依赖杀进程，
 涉及 `python_runtime.dart` 的候选探测与 `[Files]` 布局，单独 PR 处理。
+
+## 3.1889 补充：方案 D「应用自己先退」（对齐 QQ / 微信 / Discord）
+
+强杀只能靠猜，猜漏就装不上（3.1888 线上即如此：vbox.exe 已退出，pid 残留的
+python 仍借着自己那份解释器占着 `pyruntime\python.exe`）。大厂通行做法是让应用
+自己先退，本版落地：
+
+- `windows/installer/installer.iss`：`PrepareToInstall` 先写标记文件
+  `<app>\.vbox-upgrade-request`，最多等 8s（`tasklist` 轮询 vbox.exe 是否消失）；
+  超时才 `KillVboxProcesses`（taskkill + kill-runtime.ps1）。`AnyRuntimeProcess()`
+  在「机器上一个 node/python 都没有」时跳过清理，省几秒。标记在 `ssPostInstall`
+  与 `DeinitializeSetup` 清除（失败/取消也要清，否则下次启动会被当成升级请求）。
+- `lib/platform/update/upgrade_handshake.dart`（新增）：每秒轮询标记；发现后停
+  `NodeRuntimeManager`、`exit(0)`。早于启动前 30s 的标记视为上次残留，忽略并删除。
+- `lib/main.dart`：Windows 启动时 `UpgradeHandshake.start()`。
+- `lib/platform/spider/python_runtime.dart`：Python 子进程也 `attach` 到主进程的
+  Job Object（`com.vbox.node/lifecycle`），主进程退出时由 OS 连带终结——这是
+  「vbox.exe 崩了留一堆 python」的根治，也让优雅退出真正干净。
+
+端到端验证（本机）：
+- 配合型假应用（真起 python 子进程 + 看标记自退）：安装器 640ms 内检测到退出，
+  安装成功，全程未强杀。
+- 崩溃残留型（只有 python 僵尸、无 vbox.exe）：走强制清理，安装成功。
+- 两者 exit=0；正常情况下用户只需点「安装」，应用自动退出、装完自动起。

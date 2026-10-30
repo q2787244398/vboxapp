@@ -148,50 +148,92 @@ begin
                 ',"max":' + IntToStr(MaxProgress) + '}');
 end;
 
-// ── 升级 / 卸载前结束旧版进程（含 ND-02-desktop 内置 python.exe） ──────
+// ── 升级前收尾旧版进程 ─────────────────────────────────────────────
 //
-// 背景：常驻 node.exe / python.exe 在 vbox.exe 退出后仍驻留后台（或解释器
-// 被别的程序借用），安装/卸载时若没被杀干净，会锁死 <app> 下的 exe 文件 →
-// 覆盖失败（用户只见「装不上」、55% 处 DeleteFile 错误码 5）；旧 node.exe
-// 还会继续占用 58080-58084，新版 Node 引擎起不来。
+// 顺序（对齐 QQ / 微信 / Discord 的做法，不是上来就强杀）：
+//   ① 发「优雅退出」标记 → 等应用自己停子进程并退出（最长 8s）
+//   ② 还不退（崩溃残留 / 不响应）→ 才 taskkill + kill-runtime.ps1 兜底
 //
-// ⚠ 历史坑（务必不要再写回 -Command）：
-//   Inno 的 Exec 把参数串原样拼进命令行，PowerShell 会把 -Command 后面的
-//   内容当脚本**重新解析**，那一层会吃掉所有双引号（用单引号包住也保不住）：
-//       -like "C:\x\*"              → -like C:\x\*        → ParserError
-//       -Filter "Name='python.exe'" → -Filter Name=python.exe → 无效 WQL
-//   两者都以退出码 1 结束、一个进程都不杀（3.1888 线上实测）。
-//   现改为：kill-runtime.ps1 随安装包释放到 {tmp}，用 -File + -AppDir 调用，
-//   参数走正常 argv，引号不会丢。
+// ⚠ 为什么用 tasklist 判断而不是「探测文件能不能改名」：
+//   实测 Windows 允许给「正在运行」的 exe 改名，甚至允许 DeleteFile
+//   （映像 section 以 FILE_SHARE_DELETE 打开，名字删了进程照跑），
+//   因此改名探测会**误判为可覆盖**；真正的门槛是「有没有别的句柄不共享删除」，
+//   只有真去覆盖才会暴露。所以这里只判断进程是否还在，别再用改名/删除试探。
 //
-// ⚠ 退出码只作参考：Get-Process 读个别系统进程的 .Path 会报拒绝访问，
-//   PowerShell 因此返回 1，但管道照常执行完。成败判定用文件「改名探测」。
+// ⚠ 历史坑（别再写回 -Command）：Inno 的 Exec 把参数原样拼进命令行，
+//   PowerShell 把 -Command 后的内容当脚本重新解析，那一层会吃掉所有双引号
+//   （单引号包住也保不住）→ ParserError → 退出码 1 → 一个进程都杀不掉。
+//   现改为 kill-runtime.ps1 落盘 + -File 调用。
 
-{ 取运行时文件是否仍被占用：能改名 = 没被当映像加载 = 可覆盖。
-  探测后立刻改回原名，不改变安装目录内容。 }
-function RuntimeFileFree(const RelPath: String): Boolean;
+const
+  UPGRADE_FLAG = '.vbox-upgrade-request';
+
+function UpgradeFlagPath(): String;
+begin
+  Result := ExpandConstant('{app}\' + UPGRADE_FLAG);
+end;
+
+procedure ClearUpgradeFlag();
 var
-  Target, Probe: String;
+  FlagPath: String;
+begin
+  FlagPath := UpgradeFlagPath();
+  if FileExists(FlagPath) then
+  begin
+    if DeleteFile(FlagPath) then
+      Log('升级握手: 已清理标记 ' + FlagPath);
+  end;
+end;
+
+{ 是否还有 node / python 常驻进程（不区分路径）——一个都没有时就没必要启动
+  PowerShell 去按路径枚举，省掉几秒开销。 }
+function AnyRuntimeProcess(): Boolean;
+var
   ResultCode: Integer;
 begin
-  Result := True;
-  Target := ExpandConstant('{app}\' + RelPath);
-  if not FileExists(Target) then
-    Exit;
-  Probe := Target + '.lockprobe';
-  if FileExists(Probe) then
-    DeleteFile(Probe);
   ResultCode := -1;
-  Exec(ExpandConstant('{cmd}'), '/C move /y "' + Target + '" "' + Probe + '"',
+  Exec(ExpandConstant('{cmd}'),
+       '/C tasklist /NH | findstr /I /C:"python.exe" /C:"pythonw.exe" /C:"node.exe" >nul',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  if ResultCode <> 0 then
+  Result := (ResultCode = 0);
+end;
+
+function IsVboxRunning(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  ResultCode := -1;
+  Exec(ExpandConstant('{cmd}'),
+       '/C tasklist /FI "IMAGENAME eq vbox.exe" /NH | find /I "vbox.exe" >nul',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := (ResultCode = 0);
+end;
+
+{ 下发退出请求并等待 vbox.exe 退出；最长 8s（25 × 320ms）。 }
+procedure RequestGracefulExitAndWait();
+var
+  Round: Integer;
+  FlagPath: String;
+begin
+  if not IsVboxRunning() then
   begin
-    Result := False;
+    Log('升级握手: 未检测到 vbox.exe，跳过等待');
     Exit;
   end;
-  ResultCode := -1;
-  Exec(ExpandConstant('{cmd}'), '/C move /y "' + Probe + '" "' + Target + '"',
-       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  FlagPath := UpgradeFlagPath();
+  SaveStringToFile(FlagPath, 'upgrade ' + GetDateTimeString('yyyy-mm-dd hh:nn:ss', '-', ':'), False);
+  Log('升级握手: 已下发退出请求 ' + FlagPath);
+  for Round := 1 to 25 do
+  begin
+    Sleep(320);
+    if not IsVboxRunning() then
+    begin
+      Log('升级握手: 应用已自行退出（第 ' + IntToStr(Round) + ' 次探测，约 ' +
+          IntToStr(Round * 320) + ' ms）');
+      Exit;
+    end;
+  end;
+  Log('升级握手: 等待 8s 应用未退出，转为强制清理');
 end;
 
 { 释放并运行 kill-runtime.ps1（[Files] 里 Flags: dontcopy，不进安装目录）。 }
@@ -211,11 +253,10 @@ begin
        '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ScriptPath +
        '" -AppDir "' + AppDir + '"',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Log('KillVboxProcesses: ps 退出码=' + IntToStr(ResultCode) + '（仅参考，成败看改名探测）');
+  Log('KillVboxProcesses: ps 退出码=' + IntToStr(ResultCode) + '（仅参考）');
 end;
 
-// UseWmi 保留形参以兼容调用点；脚本内部已同时覆盖「Get-Process 快路径 +
-// CIM 兜底」，不再需要调用方区分（卸载场景 exe 可能已被删除，CIM 兜底接管）。
+// UseWmi 保留形参以兼容调用点；脚本内部已同时覆盖「Get-Process 快路径 + CIM 兜底」。
 procedure KillVboxProcesses(UseWmi: Boolean);
 var
   AppDir: String;
@@ -225,43 +266,57 @@ begin
   AppDir := ExpandConstant('{app}');
   Log('KillVboxProcesses: AppDir=' + AppDir + ' UseWmi=' + IntToStr(Ord(UseWmi)));
 
-  { ① 主程序按映像名连进程树一起杀（有窗口/无窗口都杀得到，系统自带工具）。 }
+  { ① 主程序按映像名连进程树一起杀（这时它已经拒绝优雅退出）。 }
   Exec(ExpandConstant('{cmd}'), '/C taskkill /f /t /im vbox.exe',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Log('KillVboxProcesses: taskkill vbox.exe 退出码=' + IntToStr(ResultCode));
 
-  { ② 杀 <app> 与用户数据目录下的 node / python 常驻进程，最多三轮。 }
+  { ② 杀安装目录与用户数据目录下的 node / python 常驻进程，最多三轮。 }
   for Round := 1 to 3 do
   begin
     RunKillScript(AppDir);
     Sleep(400);
-    if RuntimeFileFree('pyruntime\python.exe') and
-       RuntimeFileFree('noderuntime\node.exe') then
+    if not IsVboxRunning() then
     begin
-      Log('KillVboxProcesses: 运行时文件已解锁（第 ' + IntToStr(Round) + ' 轮）');
+      Log('KillVboxProcesses: vbox.exe 已终止（第 ' + IntToStr(Round) + ' 轮）');
       Exit;
     end;
-    Log('KillVboxProcesses: 第 ' + IntToStr(Round) + ' 轮后运行时仍被占用，重试');
+    Log('KillVboxProcesses: 第 ' + IntToStr(Round) + ' 轮后 vbox.exe 仍在，重试');
   end;
 end;
 
-{ 杀不干净就在复制文件前停下，用人话说明原因——
-  而不是让 Inno 在 55% 甩「DeleteFile 失败；错误代码 5」再回滚。 }
+{ 覆盖安装时的准备：先请应用自退，不行再强杀；仍不退就明确告知用户。 }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Round: Integer;
 begin
   ReportStage('prepare');
   Result := '';
-  { 全新安装（既无程序目录，也无用户数据目录）时没有旧进程可杀，直接跳过。 }
+  { 全新安装（既无程序目录，也无用户数据目录）时没有旧进程要处理，直接跳过。 }
   if DirExists(ExpandConstant('{app}')) or
      DirExists(ExpandConstant('{userappdata}\com.vbox\vbox')) then
-    KillVboxProcesses(False);
+  begin
+    { ① 先请应用优雅退出（QQ/微信式）：vbox.exe 自己停子进程、自己退。 }
+    RequestGracefulExitAndWait();
+    { ② 无论 ① 是否成功都再跑一遍清理：覆盖「vbox.exe 已崩溃，但 pid 残留的
+         python / node 还借着自己那份解释器占着文件」这种线上最常见的残局。
+        kill-runtime.ps1 只匹配本安装目录与 com.vbox 数据目录，不会误伤别家进程。 }
+    if AnyRuntimeProcess() then
+      KillVboxProcesses(False)
+    else
+      Log('升级握手: 无 node/python 常驻进程，跳过强制清理');
 
-  if not RuntimeFileFree('pyruntime\python.exe') then
-    Result := '内置 Python 运行时（pyruntime\python.exe）正被其他程序占用，无法覆盖。' + #13#10 +
-              '请先在任务管理器结束所有从 vbox 安装目录启动的 python / pythonw 进程，再重试安装。'
-  else if not RuntimeFileFree('noderuntime\node.exe') then
-    Result := '内置 Node 运行时（noderuntime\node.exe）正被其他程序占用，无法覆盖。' + #13#10 +
-              '请先在任务管理器结束所有从 vbox 安装目录启动的 node 进程，再重试安装。';
+    for Round := 1 to 10 do
+    begin
+      if not IsVboxRunning() then
+        Break;
+      Sleep(300);
+    end;
+
+    if IsVboxRunning() then
+      Result := 'vbox 仍在运行，无法覆盖程序文件。' + #13#10 +
+                '请先退出 vbox（含托盘图标），再重试安装。';
+  end;
 end;
 
 { 阶段推进：ssInstall = 开始复制文件（含 Node 引擎，页面侧用字节进度切「部署 Node 引擎」）；
@@ -275,6 +330,8 @@ begin
   begin
     ReportStage('shortcut');
     gInstallDone := True;
+    { 文件已全部落盘：撤掉升级标记，否则随后启动的 vbox.exe 会立刻退出。 }
+    ClearUpgradeFlag();
   end;
   { ssDone 提前写 done 快照：原实现仅在 DeinitializeSetup（进程退出前最后一刻）
     写 done，壳的 150ms 轮询可能最后一次只读到上一阶段快照（实测停在 62%），
@@ -286,6 +343,8 @@ end;
 
 procedure DeinitializeSetup();
 begin
+  { 兜底：取消安装 / 中途失败也要撤标记，否则下次启动会被当成升级请求直接退出。 }
+  ClearUpgradeFlag();
   { 仅在真正安装完成后上报，避免用户中途取消时误报。 }
   if gInstallDone then
     ReportStage('done');

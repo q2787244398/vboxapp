@@ -357,6 +357,23 @@ class StdioPythonRuntime implements PythonRuntime {
     return buffer.toString();
   }
 
+  /// Node/Python 子进程生命周期通道（Windows Native `NodeLifecyclePlugin`）。
+  static const MethodChannel _lifecycleChannel =
+      MethodChannel('com.vbox.node/lifecycle');
+
+  /// 绑定子进程到主进程的 Job Object（失败不阻断，仅记日志）。
+  ///
+  /// 对齐 `ProcessNodeHost._attachToJobObject`：主进程退出时由 OS 依据
+  /// KILL_ON_JOB_CLOSE 连带终结，是「运行时文件被占用」的第一道防线。
+  Future<void> _attachToJobObject(int pid) async {
+    try {
+      await _lifecycleChannel.invokeMethod<void>('attach', pid);
+    } on MissingPluginException {
+      // 非 Windows / 未接原生插件：忽略。
+    } on PlatformException catch (e) {
+      onLog?.call('⚠️ 绑定 Python 子进程到 Job Object 失败（${e.code}）：${e.message}');
+    }
+  }
   @override
   Future<void> launch(String script) async {
     await shutdown();
@@ -381,6 +398,13 @@ class StdioPythonRuntime implements PythonRuntime {
       throw SpiderException(SpiderErrorCode.scriptLoad, _launchFailureMessage(e));
     }
     _process = p;
+    // Windows：把 Python 子进程也纳入主进程的 Job Object（KILL_ON_JOB_CLOSE）。
+    // 主进程退出（含被安装器要求优雅退出）时由 OS 连带终结，避免
+    // pyruntime\python.exe 常驻锁住安装目录里的运行时文件——那正是安装器
+    // 覆盖时报「DeleteFile 失败；错误代码 5」的根因之一。
+    if (Platform.isWindows) {
+      await _attachToJobObject(p.pid);
+    }
     _sub = p.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
