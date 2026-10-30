@@ -453,3 +453,37 @@ python 仍借着自己那份解释器占着 `pyruntime\python.exe`）。大厂�
   安装成功，全程未强杀。
 - 崩溃残留型（只有 python 僵尸、无 vbox.exe）：走强制清理，安装成功。
 - 两者 exit=0；正常情况下用户只需点「安装」，应用自动退出、装完自动起。
+## 3.1890 Windows「不管播什么都一卡一卡」根因修复
+
+用户反馈：云电脑与家用电脑**都一样卡**，与片源无关。定位到三个叠加项，
+都出自同一条渲染管线的假设——「渲染目标恒等于窗口物理尺寸」。
+
+1. **每帧全尺寸 GPU→CPU 同步回读**（`player_plugin.cpp:1775-1796`）：
+   `glFinish()` 等 GPU 全流水线排空 → `glReadPixels` 整帧下 PCIe →
+   Flutter 再上传回 GPU。4K 下每帧 33 MB×2，两次同步，任何显卡都抖。
+   家里物理机卡在这条，与显卡强弱无关。
+2. **每帧新建 `std::vector scratch`**：33 MB 的 malloc/memset/free 抖动。
+3. **云电脑退化成纯 CPU**：`SM_REMOTESESSION` → `prefer_software_render_`
+   （`:889`）→ 旧代码再 `hwdec="no"`（`:608`），libswscale 在 CPU 上做
+   全尺寸 YUV→BGRA 缩放。
+4. **没设 `framedrop`**：mpv 默认不丢帧，追不上就把时间往后拖——一卡一卡
+   且音画渐行渐远。
+
+本版改动：
+
+- `lib/presentation/widgets/player/video_surface.dart`：把 `Texture` 的**布局
+  尺寸钉在长边 ≤ 1920 物理像素**（`kMaxTextureLongSide`），再用 `FittedBox`
+  缩放/裁切到播放区。引擎按布局尺寸回调 `CopyPixelBuffer`，于是原生每帧字节
+  数从 33 MB（4K）降到 8.3 MB，缩放改由合成器一次四边形完成。
+  ⚠ 注意：`ar` 的类型提升不能靠 `hasAspect` 这个 bool，条件必须内联写。
+- `windows/runner/player_plugin.cpp`：
+  - `framedrop=vo`、`vd-lavc-threads=0`（auto）。
+  - SW 档位 `hwdec` 从 `no` 改为 `auto-safe`（硬解初始化失败由 mpv 回退软解；
+    可用时拿到硬解，4K 软解过载缓解）；`VBOX_HWDEC` 覆盖新增 `auto-safe`。
+  - SW 档位显式 `dither-depth=no` / `deband=no`（GPU 缩放器在 SW 下本就不生效，
+    这两项仍在 CPU 跑）。
+
+验证：Dart 侧由 CI `flutter-analyze` 把关；C++ 侧本机无 Flutter SDK 无法编译，
+需 CI `build-windows` 验证。**待办**：把每帧 `std::vector scratch` 换成成员缓冲
+复用 + PBO 双缓冲异步回读（去掉 `glFinish` 停等），那是家机能否真正「顺」的
+分水岭；更彻底是让 mpv 直接输出子窗口（PlatformView），零回读零上传。

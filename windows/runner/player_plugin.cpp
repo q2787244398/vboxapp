@@ -605,7 +605,11 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
     // VBOX_HWDEC=no|auto-copy|auto 环境变量可覆盖默认——4K 在弱 CPU 云电脑
     // 上软解过载（Audio device underrun 实测），可不动代码切 auto-copy 试
     // D3D11VA 硬解（设备不可用时 mpv 自动回退软解，行为等价默认档）。
-    hwdec = prefer_software_render_ ? "no" : "auto-copy";
+    // 3.1890 卡顿修复：SW 档位不再一刀切 hwdec=no。auto-safe 允许硬解初始化
+    // 失败时由 mpv 自动回退软解（虚拟显卡上 auto-copy 建 AVHWDeviceContext
+    // 失败会退成 no，行为等价旧档，但设备可用时能拿到硬解，4K 软解过载大幅
+    // 缓解）。真出「有声无画」可用 VBOX_HWDEC=no 就地回退，无需重编。
+    hwdec = prefer_software_render_ ? "auto-safe" : "auto-copy";
     wchar_t hwdec_env[16] = {0};
     if (::GetEnvironmentVariableW(L"VBOX_HWDEC", hwdec_env, 16) > 0 &&
         hwdec_env[0] != L'\0') {
@@ -615,10 +619,25 @@ bool PlayerPlugin::InitializeMpv(bool auto_play) {
         hwdec = "auto-copy";
       } else if (::lstrcmpiW(hwdec_env, L"auto") == 0) {
         hwdec = "auto";
+      } else if (::lstrcmpiW(hwdec_env, L"auto-safe") == 0) {
+        hwdec = "auto-safe";
       }
       EmitLog("info", "VBOX_HWDEC=" + hwdec + "（环境变量覆盖硬解分档默认）");
     }
     api_.set_option_string(handle, "hwdec", hwdec.c_str());
+
+    // ── 3.1890 卡顿修复：丢帧策略 + 软渲染减负 ──────────────────────
+    // framedrop 默认 no：渲染追不上时 mpv 不丢帧而是"往后拖时间"，表现就是
+    // 持续一卡一卡、音画渐行渐远。交给 vo 决定丢帧，同步仍以 audio 为准。
+    api_.set_option_string(handle, "framedrop", "vo");
+    // 解码线程数 0 = auto（按核数）：云电脑/弱 CPU 上限制过少会解码不过来。
+    api_.set_option_string(handle, "vd-lavc-threads", "0");
+    if (prefer_software_render_) {
+      // SW 后端上 GPU 缩放器（ewa_lanczossharp 等）本就不生效，但 profile 带的
+      // dither / deband 仍会在 CPU 上跑，纯增开销——软渲染档位显式关掉。
+      api_.set_option_string(handle, "dither-depth", "no");
+      api_.set_option_string(handle, "deband", "no");
+    }
   }
   if (api_.initialize(handle) < 0) {
     api_.terminate_destroy(handle);
