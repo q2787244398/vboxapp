@@ -96,6 +96,30 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>安装日志目录：<c>%LOCALAPPDATA%\vbox-setup-logs</c>（保留最近 10 份）。</summary>
+    private static string BuildPersistentLogPath()
+    {
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "vbox-setup-logs");
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            var stale = Directory.GetFiles(dir, "vbox-setup-*.log");
+            if (stale.Length >= 10)
+            {
+                Array.Sort(stale, StringComparer.OrdinalIgnoreCase);
+                for (var i = 0; i <= stale.Length - 10; i++)
+                {
+                    try { File.Delete(stale[i]); } catch { /* 占用则留到下次清理 */ }
+                }
+            }
+        }
+        catch { /* 清理失败不影响安装 */ }
+
+        return Path.Combine(dir, $"vbox-setup-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+    }
     /// <summary>建立本次运行的临时工作目录。</summary>
     private void PrepareTempWorkspace()
     {
@@ -103,7 +127,10 @@ public partial class MainWindow : Window
         Directory.CreateDirectory(_tempDir);
         _corePath = Path.Combine(_tempDir, "vbox-installer-core.exe");
         _progFile = Path.Combine(_tempDir, "vbox-setup-progress.json");
-        _logFile = Path.Combine(_tempDir, "vbox-setup-install.log");
+        // 安装日志落到 LocalAppData 而不是临时工作目录：临时目录在窗口关闭时
+        // 会被 CleanupTemp 整体删除，用户装失败后拿不到任何证据（3.1888 线上
+        // 故障现场就是这样丢的）。这里固定保留最近 10 份。
+        _logFile = BuildPersistentLogPath();
     }
 
     /// <summary>

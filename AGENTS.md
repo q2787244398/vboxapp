@@ -385,3 +385,45 @@ BMP 与色彩诊断全部浪费在黑帧上，后续真实帧不再转储/统计
 - 待复测：看到 `帧#N` 序列即定性——首帧 0%、后续转为有内容 = 仅首帧上屏时序
   问题（实际有画面）；1~10 帧恒 0% = 渲染管线始终未产出真实像素（需继续查
   mpv 解码 / SW 转换链路）。
+
+## 3.1889 Windows 安装器「脏环境装不上」根治（错误码 5 @ 55%）
+
+线上复现：安装到 55%（`extract` 阶段过半、卡片显示「部署 Node 引擎」）时报
+「尝试替换已存在的文件时出错：DeleteFile 失败；错误代码 5。拒绝访问。」并回滚。
+根因三段叠加，逐段落掉：
+
+1. **占用**：`<app>\pyruntime\python.exe`（或 noderuntime）被常驻进程当映像加载
+   → `DeleteFile` = ERROR_ACCESS_DENIED(5)。
+2. **清理静默失效**：`[Code]` 里 `Exec('powershell.exe','-Command ... -like "C:\x\*"')`
+   —— Inno 把参数原样拼进命令行，PowerShell 把 `-Command` 后的内容**当脚本重新
+   解析**，那一层吃掉所有双引号（单引号包住也保不住）→ 收到 `-like C:\x\*`
+   → ParserError → 退出码 1 → **一个进程都没杀**。WMI 分支同病
+   （`-Filter "Name='python.exe'"` 引号被吃 → 无效 WQL）。
+3. **无法重启替换**：`PrivilegesRequired=lowest`，排 `PendingFileRenameOperations`
+   需写 HKLM → 失败 → 致命框 + 回滚。
+
+修复：
+
+- `windows/installer/kill-runtime.ps1`（新增）：清理脚本，随包 `dontcopy` 释放到
+  `{tmp}`，由 `[Code]` 用 `-File ... -AppDir "<dir>"` 调用（argv 正常传参，引号不丢）。
+  脚本内部同时覆盖「Get-Process 快路径」与「CIM 兜底」，并打印 killed/failed 明细。
+- `windows/installer/installer.iss`：
+  - `KillVboxProcesses` 改为「taskkill vbox.exe + 三轮脚本清理 + 每轮改名探测」，
+    最多三轮，解锁即退出；`UseWmi` 形参保留以兼容卸载调用点。
+  - 新增 `RuntimeFileFree(RelPath)`：**用改名探测判断运行时 exe 是否仍被占用**
+    （能改名=没被当映像加载），探测后改回原名。
+  - `PrepareToInstall` 在复制文件前复查，仍被占用就 `Result := '人话提示'` 直接停下，
+    不再让用户在 55% 收到错误码 5。
+  - ⚠ 注意 Inno Pascal 注释 `{ }` 内不能再出现花括号（`{app}` 会提前闭合注释）。
+- `windows/setup-shell/MainWindow.xaml.cs`：安装日志从临时工作目录改到
+  `%LOCALAPPDATA%\vbox-setup-logs\vbox-setup-<时间戳>.log`（保留最近 10 份）——
+  旧实现日志在工作目录里，窗口一关即被 `CleanupTemp` 删除，线上故障现场全丢。
+- `scripts/smoke/win-installer-dirty-env.ps1`（新增）：脏环境冒烟——正常装一遍 →
+  起进程锁住 `pyruntime\python.exe` → 再装一遍 → 断言 exit 0。CI 可直接调用。
+
+验证记录（本机）：Inno Setup 6.7.3 编译通过；`dotnet build` 壳 0 警告 0 错误；
+脏环境端到端日志 `KillVboxProcesses: 运行时文件已解锁（第 1 轮）` +
+`Installation process succeeded.`；冒烟脚本 PASS。
+
+待办：运行时目录版本化（`{app}\runtime\python\<ver>\`）可让升级彻底不依赖杀进程，
+涉及 `python_runtime.dart` 的候选探测与 `[Files]` 布局，单独 PR 处理。

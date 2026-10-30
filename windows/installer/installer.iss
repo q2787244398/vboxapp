@@ -66,6 +66,8 @@ Name: "chinesesimp"; MessagesFile: "Languages\ChineseSimplified.isl"
 Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; vbox 品牌图标随包分发，供快捷方式 / 卸载列表使用
 Source: "..\..\windows\runner\resources\app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+; 进程清理脚本：仅释放到临时目录（dontcopy 不进安装目录），由 [Code] 用 -File 调用
+Source: "kill-runtime.ps1"; DestDir: "{tmp}"; Flags: dontcopy deleteafterinstall
 
 [Icons]
 Name: "{autoprograms}\vbox"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app_icon.ico"
@@ -148,59 +150,118 @@ end;
 
 // ── 升级 / 卸载前结束旧版进程（含 ND-02-desktop 内置 python.exe） ──────
 //
-// 背景：常驻 node.exe / python.exe 在 vbox.exe 退出后仍驻留后台，若安装/卸载
-// 时未被杀干净，会锁死 {app} 下的 exe 文件（导致默认目录覆盖失败，用户只见
-// 「安装不上」），且旧 node.exe 继续占用固定端口 58080-58084，新版 Node 引擎
-// 起不来、登录/二维码请求全部打到旧进程（「正在生成二维码…」转圈）。
+// 背景：常驻 node.exe / python.exe 在 vbox.exe 退出后仍驻留后台（或解释器
+// 被别的程序借用），安装/卸载时若没被杀干净，会锁死 <app> 下的 exe 文件 →
+// 覆盖失败（用户只见「装不上」、55% 处 DeleteFile 错误码 5）；旧 node.exe
+// 还会继续占用 58080-58084，新版 Node 引擎起不来。
 //
-// UseWmi 区分两条路径（根因：WMI 全量枚举在云虚拟机/慢机器上会阻塞数十秒）：
-//   · 安装/覆盖（UseWmi=False）：此时旧 exe 文件尚未删除，Get-Process 的 .Path
-//     可直接命中映像路径，走快路径（非 WMI），避免「准备安装」卡在 0%。
-//   · 卸载（UseWmi=True）：卸载器可能已删除 exe 文件，Get-Process 的 .Path 会
-//     为空导致漏杀，改用 WMI Win32_Process.ExecutablePath（记录进程创建时的
-//     映像路径，文件删除后仍可命中）。
-// 匹配两处：① 安装目录（AppDir）；② 用户数据目录（*\com.vbox\vbox\*，
-// Node 引擎常驻 node.exe 部署在 Roaming\com.vbox\vbox\noderuntime，升级/
-// 重装时必须一并杀掉，否则旧进程占住 58080 端口导致新版「Node 未就绪」）。
-// 安全软件拦截 powershell 时仅记日志不阻断安装。
+// ⚠ 历史坑（务必不要再写回 -Command）：
+//   Inno 的 Exec 把参数串原样拼进命令行，PowerShell 会把 -Command 后面的
+//   内容当脚本**重新解析**，那一层会吃掉所有双引号（用单引号包住也保不住）：
+//       -like "C:\x\*"              → -like C:\x\*        → ParserError
+//       -Filter "Name='python.exe'" → -Filter Name=python.exe → 无效 WQL
+//   两者都以退出码 1 结束、一个进程都不杀（3.1888 线上实测）。
+//   现改为：kill-runtime.ps1 随安装包释放到 {tmp}，用 -File + -AppDir 调用，
+//   参数走正常 argv，引号不会丢。
+//
+// ⚠ 退出码只作参考：Get-Process 读个别系统进程的 .Path 会报拒绝访问，
+//   PowerShell 因此返回 1，但管道照常执行完。成败判定用文件「改名探测」。
+
+{ 取运行时文件是否仍被占用：能改名 = 没被当映像加载 = 可覆盖。
+  探测后立刻改回原名，不改变安装目录内容。 }
+function RuntimeFileFree(const RelPath: String): Boolean;
+var
+  Target, Probe: String;
+  ResultCode: Integer;
+begin
+  Result := True;
+  Target := ExpandConstant('{app}\' + RelPath);
+  if not FileExists(Target) then
+    Exit;
+  Probe := Target + '.lockprobe';
+  if FileExists(Probe) then
+    DeleteFile(Probe);
+  ResultCode := -1;
+  Exec(ExpandConstant('{cmd}'), '/C move /y "' + Target + '" "' + Probe + '"',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if ResultCode <> 0 then
+  begin
+    Result := False;
+    Exit;
+  end;
+  ResultCode := -1;
+  Exec(ExpandConstant('{cmd}'), '/C move /y "' + Probe + '" "' + Target + '"',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+{ 释放并运行 kill-runtime.ps1（[Files] 里 Flags: dontcopy，不进安装目录）。 }
+procedure RunKillScript(const AppDir: String);
+var
+  ResultCode: Integer;
+  ScriptPath: String;
+begin
+  ExtractTemporaryFile('kill-runtime.ps1');
+  ScriptPath := ExpandConstant('{tmp}\kill-runtime.ps1');
+  if not FileExists(ScriptPath) then
+  begin
+    Log('KillVboxProcesses: kill-runtime.ps1 释放失败，跳过进程清理');
+    Exit;
+  end;
+  Exec('powershell.exe',
+       '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ScriptPath +
+       '" -AppDir "' + AppDir + '"',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Log('KillVboxProcesses: ps 退出码=' + IntToStr(ResultCode) + '（仅参考，成败看改名探测）');
+end;
+
+// UseWmi 保留形参以兼容调用点；脚本内部已同时覆盖「Get-Process 快路径 +
+// CIM 兜底」，不再需要调用方区分（卸载场景 exe 可能已被删除，CIM 兜底接管）。
 procedure KillVboxProcesses(UseWmi: Boolean);
 var
   AppDir: String;
-  Command: String;
+  Round: Integer;
   ResultCode: Integer;
 begin
   AppDir := ExpandConstant('{app}');
   Log('KillVboxProcesses: AppDir=' + AppDir + ' UseWmi=' + IntToStr(Ord(UseWmi)));
+
+  { ① 主程序按映像名连进程树一起杀（有窗口/无窗口都杀得到，系统自带工具）。 }
   Exec(ExpandConstant('{cmd}'), '/C taskkill /f /t /im vbox.exe',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Log('KillVboxProcesses: taskkill vbox.exe 退出码=' + IntToStr(ResultCode));
-  if UseWmi then
-    Command :=
-      'Get-CimInstance -ClassName Win32_Process -Filter "Name=''node.exe'' OR Name=''python.exe'' OR Name=''pythonw.exe''" | ' +
-      'Where-Object { $_.ExecutablePath -like "' + AppDir + '\*" -or $_.ExecutablePath -like "*\com.vbox\vbox\*" } | ' +
-      'ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; ' +
-      'Start-Sleep -Milliseconds 800'
-  else
-    Command :=
-      'Get-Process node,python,pythonw -ErrorAction SilentlyContinue | ' +
-      'Where-Object { $_.Path -like "' + AppDir + '\*" -or $_.Path -like "*\com.vbox\vbox\*" } | ' +
-      'Stop-Process -Force; ' +
-      'Start-Sleep -Milliseconds 800';
-  Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -Command ' + Command,
-       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Log('KillVboxProcesses: powershell 退出码=' + IntToStr(ResultCode));
+
+  { ② 杀 <app> 与用户数据目录下的 node / python 常驻进程，最多三轮。 }
+  for Round := 1 to 3 do
+  begin
+    RunKillScript(AppDir);
+    Sleep(400);
+    if RuntimeFileFree('pyruntime\python.exe') and
+       RuntimeFileFree('noderuntime\node.exe') then
+    begin
+      Log('KillVboxProcesses: 运行时文件已解锁（第 ' + IntToStr(Round) + ' 轮）');
+      Exit;
+    end;
+    Log('KillVboxProcesses: 第 ' + IntToStr(Round) + ' 轮后运行时仍被占用，重试');
+  end;
 end;
 
+{ 杀不干净就在复制文件前停下，用人话说明原因——
+  而不是让 Inno 在 55% 甩「DeleteFile 失败；错误代码 5」再回滚。 }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   ReportStage('prepare');
   Result := '';
-  { 全新安装（既无程序目录，也无用户数据目录）时没有旧进程可杀，直接跳过；
-    仅在覆盖安装/重装（存在旧目录）时才执行进程清理（安装场景走 Get-Process
-    快路径，不再 WMI 全量枚举，避免「准备安装」卡 0%）。 }
+  { 全新安装（既无程序目录，也无用户数据目录）时没有旧进程可杀，直接跳过。 }
   if DirExists(ExpandConstant('{app}')) or
      DirExists(ExpandConstant('{userappdata}\com.vbox\vbox')) then
     KillVboxProcesses(False);
+
+  if not RuntimeFileFree('pyruntime\python.exe') then
+    Result := '内置 Python 运行时（pyruntime\python.exe）正被其他程序占用，无法覆盖。' + #13#10 +
+              '请先在任务管理器结束所有从 vbox 安装目录启动的 python / pythonw 进程，再重试安装。'
+  else if not RuntimeFileFree('noderuntime\node.exe') then
+    Result := '内置 Node 运行时（noderuntime\node.exe）正被其他程序占用，无法覆盖。' + #13#10 +
+              '请先在任务管理器结束所有从 vbox 安装目录启动的 node 进程，再重试安装。';
 end;
 
 { 阶段推进：ssInstall = 开始复制文件（含 Node 引擎，页面侧用字节进度切「部署 Node 引擎」）；
