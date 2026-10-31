@@ -38,8 +38,19 @@ int? _asInt(Object? v) {
 }
 
 /// 视频分类（对齐 iOS `VodCategory`）。
+///
+/// 二级分类扩展（Flutter 侧增量，不影响 iOS 参考实现与普通资源源）：
+///   - 新增可选 [subCategories]，缺省 `null`；普通资源源（TY/360/Node/CMS 等）
+///     不返回 `sub_categories` 键，解析后恒为 `null`，行为与改动前完全一致。
+///   - JSON 键名 `sub_categories`（下划线风格，与 `type_id`/`type_name` 统一）。
+///   - `==` / `hashCode` 仍只比较 `typeId` + `typeName`，不纳入子分类，
+///     避免影响现有去重 / 判等逻辑。
 class VodCategory {
-  const VodCategory({required this.typeId, required this.typeName});
+  const VodCategory({
+    required this.typeId,
+    required this.typeName,
+    this.subCategories,
+  });
 
   /// JSON key: `type_id`。
   final String typeId;
@@ -47,14 +58,24 @@ class VodCategory {
   /// JSON key: `type_name`。
   final String typeName;
 
+  /// 二级分类（可选）。仅支持二级分类的福利 Spider 返回；
+  /// 普通资源源不返回该键，恒为 `null`。
+  final List<VodCategory>? subCategories;
+
   factory VodCategory.fromJson(Map<String, Object?> j) => VodCategory(
         typeId: asLooseStringRequired(j['type_id']),
         typeName: asLooseStringRequired(j['type_name']),
+        subCategories: (j['sub_categories'] as List?)
+            ?.whereType<Map>()
+            .map((e) => VodCategory.fromJson(e.cast<String, Object?>()))
+            .toList(),
       );
 
   Map<String, Object?> toJson() => <String, Object?>{
         'type_id': typeId,
         'type_name': typeName,
+        if (subCategories != null)
+          'sub_categories': subCategories!.map((e) => e.toJson()).toList(),
       };
 
   @override

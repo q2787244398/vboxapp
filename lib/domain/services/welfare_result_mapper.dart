@@ -25,7 +25,15 @@ class WelfareResultMapper {
   /// 首页结果映射（分类 + 推荐视频）。
   FuliHomeResult mapHome(HomeContentResult result) {
     final List<FuliCategory> categories = (result.classes ?? const <VodCategory>[])
-        .map((VodCategory c) => FuliCategory(typeId: c.typeId, typeName: c.typeName))
+        .map((VodCategory c) => FuliCategory(
+              typeId: c.typeId,
+              typeName: c.typeName,
+              // 二级分类透传（可选）：普通源 subCategories 恒 null，行为不变。
+              subCategories: c.subCategories
+                  ?.map((VodCategory s) =>
+                      FuliCategory(typeId: s.typeId, typeName: s.typeName))
+                  .toList(),
+            ))
         .toList(growable: false);
     final List<FuliVideo> videos =
         (result.list ?? const <VodItem>[]).map(_mapVideo).whereType<FuliVideo>().toList();
